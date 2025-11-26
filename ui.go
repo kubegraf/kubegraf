@@ -269,10 +269,11 @@ func (a *App) showHelp() {
 [cyan]ResourceMap Tab:[-]
   • Select any Ingress/Deployment/Service
   • Press [white]Enter[-] to see ASCII tree visualization
-  • Press [white]g[-] to export interactive graph (opens in browser)
+  • Press [white]g[-] to choose graph visualization type:
+    - [white]Graphviz[-]: Static SVG with structured layout
+    - [white]D3.js[-]: Force-directed graph with draggable nodes
   • Shows: Ingress►Service►Pod, Deployment►ReplicaSet►Pod
   • Displays ConfigMaps, Secrets, ServiceAccounts
-  • Graph uses Graphviz DOT format with SVG export
   • Interactive HTML with zoom, pan, download
 
 Press [cyan]q[-] or [cyan]Esc[-] to close this help.`

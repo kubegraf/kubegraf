@@ -143,7 +143,12 @@ Status: Ready
 ```
 
 ### Interactive Graph View (Press 'g')
-- Opens in your default web browser
+When you press 'g' in the ResourceMap tab, you'll be prompted to choose between two visualization types:
+
+**1. Graphviz (Static SVG)**
+- Clean, structured layout with Graphviz DOT rendering
+- SVG format with zoom controls
+- Download capability
 - Color-coded nodes with different shapes:
   - 🚪 Ingress (house shape, red)
   - 🌐 Service (ellipse, green)
@@ -152,10 +157,26 @@ Status: Ready
   - 🎯 Pod (cylinder, teal)
   - ⚙️ ConfigMap (note, gray)
   - 🔐 Secret (octagon, dark red)
-- Interactive zoom controls
-- Download as SVG
-- Dark theme with gradient background
 - Shows full metadata (IPs, ports, status)
+
+**2. D3.js (Force-Directed Graph)**
+- Interactive physics-based layout
+- Draggable nodes - rearrange the graph by dragging
+- Real-time force simulation
+- Interactive controls:
+  - Pause/Resume simulation
+  - Reset layout
+  - Zoom in/out
+  - Pan and navigate
+- Color-coded circular nodes with icons
+- Animated edge connections
+- Legend with resource types
+
+Both visualizations:
+- Open in your default web browser
+- Use the same color scheme for consistency
+- Show resource relationships clearly
+- Include dark theme with gradient background
 
 ### Supported Visualizations
 1. **Ingress Relationships**: Ingress → Services → Pods (with paths and hosts)
