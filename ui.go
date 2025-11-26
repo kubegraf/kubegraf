@@ -233,7 +233,7 @@ func (a *App) updateMetricsBar() {
 
 // getHelpBar returns the help bar text
 func (a *App) getHelpBar() string {
-	return " [cyan::b]q[-:-:-]Quit  [cyan::b]r[-:-:-]Refresh  [cyan::b]Enter[-:-:-]YAML/Map  [cyan::b]g[-:-:-]Graph  [cyan::b]d[-:-:-]Describe  [cyan::b]s[-:-:-]Shell  [cyan::b]1-7/h/l/←→[-:-:-]Tabs  [cyan::b]?[-:-:-]Help"
+	return " [cyan::b]q[-:-:-]Quit  [cyan::b]r[-:-:-]Refresh  [cyan::b]Enter[-:-:-]YAML/Map  [cyan::b]i[-:-:-]Canvas  [cyan::b]g[-:-:-]Graph  [cyan::b]d[-:-:-]Describe  [cyan::b]s[-:-:-]Shell  [cyan::b]1-7/h/l/←→[-:-:-]Tabs  [cyan::b]?[-:-:-]Help"
 }
 
 // showHelp shows the help dialog
@@ -253,7 +253,8 @@ func (a *App) showHelp() {
   [white]n[-]              Change namespace
   [white]d[-]              Describe resource (kubectl describe)
   [white]s[-]              Shell into pod (exec)
-  [white]g[-]              Export graph visualization (ResourceMap tab)
+  [white]i[-]              Interactive canvas graph (in terminal)
+  [white]g[-]              Export graph visualization (browser-based)
   [white]Ctrl+D[-]         Delete resource (with confirmation)
   [white]?[-]              Show this help
 
@@ -269,12 +270,15 @@ func (a *App) showHelp() {
 [cyan]ResourceMap Tab:[-]
   • Select any Ingress/Deployment/Service
   • Press [white]Enter[-] to see ASCII tree visualization
-  • Press [white]g[-] to choose graph visualization type:
+  • Press [white]i[-] for interactive terminal canvas graph:
+    - Boxes and lines drawn in terminal
+    - ↑↓←→ to pan, +/- to zoom, R to reset
+    - Fully CLI-based, no browser needed
+  • Press [white]g[-] to choose browser-based graph:
     - [white]Graphviz[-]: Static SVG with structured layout
     - [white]D3.js[-]: Force-directed graph with draggable nodes
   • Shows: Ingress►Service►Pod, Deployment►ReplicaSet►Pod
   • Displays ConfigMaps, Secrets, ServiceAccounts
-  • Interactive HTML with zoom, pan, download
 
 Press [cyan]q[-] or [cyan]Esc[-] to close this help.`
 

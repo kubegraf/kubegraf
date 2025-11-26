@@ -141,6 +141,9 @@ func (a *App) handleKeyPress(event *tcell.EventKey) *tcell.EventKey {
 		case 'g', 'G':
 			a.exportCurrentResourceGraph()
 			return nil
+		case 'i', 'I':
+			a.showCanvasGraphView()
+			return nil
 		case '?':
 			a.showHelp()
 			return nil

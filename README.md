@@ -116,7 +116,8 @@ choco install graphviz
 - **n** - Change namespace
 - **d** - Describe resource (kubectl describe)
 - **s** - Shell into pod
-- **g** - Export interactive graph (ResourceMap tab)
+- **i** - Terminal canvas graph (CLI-based, ResourceMap tab)
+- **g** - Export interactive graph (browser-based, ResourceMap tab)
 - **Ctrl+D** - Delete resource (with confirmation)
 - **?** - Show help
 
@@ -124,7 +125,9 @@ choco install graphviz
 
 The ResourceMap tab (Tab 7) provides advanced visualization of Kubernetes resource relationships:
 
-### ASCII Tree View (Press Enter)
+### Visualization Options
+
+#### 1. ASCII Tree View (Press Enter)
 ```
 🚀 Deployment nginx
   replicas: 3/3
@@ -142,7 +145,37 @@ Status: Ready
 └─► 🔑 ServiceAccount nginx-sa (Active)
 ```
 
-### Interactive Graph View (Press 'g')
+#### 2. Terminal Canvas Graph (Press 'i')
+**Fully CLI-based** - No browser required!
+
+```
+┌──────────────────┐         ┌──────────────────┐
+│  🚪 nginx-ingress│────────►│  🌐 nginx-svc   │
+└──────────────────┘         └────────┬─────────┘
+                                      │
+                      ┌───────────────┼───────────────┐
+                      ▼               ▼               ▼
+              ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+              │  🎯 pod-1    │ │  🎯 pod-2    │ │  🎯 pod-3    │
+              └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+**Features:**
+- Boxes and arrows drawn directly in terminal
+- Interactive pan (arrow keys) and zoom (+/-)
+- Color-coded nodes matching resource types
+- Press R to reset view
+- Legend showing all resource types
+- Real-time graph layout in terminal
+- No external dependencies
+
+**Controls:**
+- `↑↓←→` - Pan around the graph
+- `+/-` - Zoom in/out
+- `R` - Reset view to default
+- `Esc` - Close canvas view
+
+#### 3. Browser-Based Graphs (Press 'g')
 When you press 'g' in the ResourceMap tab, you'll be prompted to choose between two visualization types:
 
 **1. Graphviz (Static SVG)**
