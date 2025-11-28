@@ -24,13 +24,10 @@ import (
 )
 
 func main() {
-	// Show splash screen
-	showSplash()
-
 	// Suppress verbose Kubernetes client logs
 	os.Setenv("KUBE_LOG_LEVEL", "0")
 
-	// Check for flags
+	// Check for flags first (before splash)
 	webMode := false
 	port := 8080
 	if len(os.Args) > 1 {
@@ -56,6 +53,11 @@ func main() {
 		namespace = os.Args[1]
 	}
 
+	// Show splash screen only for TUI mode
+	if !webMode {
+		showSplash()
+	}
+
 	// Create and initialize application
 	app := NewApp(namespace)
 	if err := app.Initialize(); err != nil {
@@ -66,6 +68,12 @@ func main() {
 	// Run in web mode or TUI mode
 	if webMode {
 		fmt.Println("🚀 Starting KubeGraf Web UI...")
+		fmt.Printf("📊 Dashboard:    http://localhost:%d\n", port)
+		fmt.Printf("🗺️  Topology:     http://localhost:%d/topology\n", port)
+		fmt.Printf("📦 Namespace:    %s\n", namespace)
+		fmt.Println("\nPress Ctrl+C to stop the server")
+		fmt.Println()
+
 		webServer := NewWebServer(app)
 		if err := webServer.Start(port); err != nil {
 			fmt.Fprintf(os.Stderr, "Web server error: %v\n", err)
