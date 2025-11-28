@@ -86,12 +86,13 @@ choco install graphviz
 
 ## 🎯 Usage
 
+### Terminal UI (Default)
 ```bash
 # View default namespace
 ./kubegraf
 
 # View specific namespace
-./kubegraf argocd
+./kubegraf production
 
 # Show version
 ./kubegraf --version
@@ -99,6 +100,27 @@ choco install graphviz
 # Show help
 ./kubegraf --help
 ```
+
+### Web UI (Advanced Visualization)
+```bash
+# Launch web dashboard
+./kubegraf --web
+
+# Launch on custom port
+./kubegraf --web --port=3000
+
+# Then open browser at:
+http://localhost:8080  # or your custom port
+```
+
+**Web UI Features:**
+- 🎨 Beautiful modern dashboard with gradients
+- 📊 Real-time metrics with sparklines
+- 🗺️ Interactive D3.js topology visualization
+- ⚡ WebSocket live updates
+- 📱 Responsive design
+- 🎯 Full-featured resource management
+- 🌐 Multi-tab interface (Dashboard, Topology, Pods, Deployments, Services)
 
 ## ⌨️ Keyboard Shortcuts
 

@@ -230,7 +230,13 @@ func (a *App) showCanvasGraph(resourceID string) {
 		return event
 	})
 
+	// Remove old canvas page if it exists
+	if a.pages.HasPage("canvas") {
+		a.pages.RemovePage("canvas")
+	}
+
 	a.pages.AddPage("canvas", canvasView, true, true)
+	a.pages.ShowPage("canvas")
 	a.app.SetFocus(canvasView)
 }
 
@@ -385,6 +391,7 @@ func (a *App) showCanvasGraphView() {
 	a.tableData.mx.RLock()
 	if a.selectedRow < 0 || a.selectedRow >= len(a.tableData.RowIDs) {
 		a.tableData.mx.RUnlock()
+		a.showError("Please select a resource first (Ingress, Deployment, or Service)")
 		return
 	}
 	resourceID := a.tableData.RowIDs[a.selectedRow]
