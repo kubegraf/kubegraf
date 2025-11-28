@@ -54,8 +54,18 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/pods", ws.handlePods)
 	http.HandleFunc("/api/deployments", ws.handleDeployments)
 	http.HandleFunc("/api/services", ws.handleServices)
+	http.HandleFunc("/api/ingresses", ws.handleIngresses)
+	http.HandleFunc("/api/configmaps", ws.handleConfigMaps)
 	http.HandleFunc("/api/topology", ws.handleTopology)
+	http.HandleFunc("/api/resourcemap", ws.handleResourceMap)
 	http.HandleFunc("/ws", ws.handleWebSocket)
+
+	// Operations endpoints
+	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
+	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
+	http.HandleFunc("/api/deployment/restart", ws.handleDeploymentRestart)
+	http.HandleFunc("/api/deployment/delete", ws.handleDeploymentDelete)
+	http.HandleFunc("/api/service/delete", ws.handleServiceDelete)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("🌐 Web UI available at http://localhost%s", addr)
@@ -305,4 +315,352 @@ func matchesSelector(selector, labels map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// handleIngresses returns ingress list
+func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
+	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ingList := []map[string]interface{}{}
+	for _, ing := range ingresses.Items {
+		hosts := []string{}
+		for _, rule := range ing.Spec.Rules {
+			hosts = append(hosts, rule.Host)
+		}
+
+		ingList = append(ingList, map[string]interface{}{
+			"name":      ing.Name,
+			"hosts":     hosts,
+			"age":       time.Since(ing.CreationTimestamp.Time).Round(time.Second).String(),
+			"namespace": ing.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(ingList)
+}
+
+// handleConfigMaps returns configmap list
+func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	cmList := []map[string]interface{}{}
+	for _, cm := range configmaps.Items {
+		cmList = append(cmList, map[string]interface{}{
+			"name":      cm.Name,
+			"data":      len(cm.Data),
+			"age":       time.Since(cm.CreationTimestamp.Time).Round(time.Second).String(),
+			"namespace": cm.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(cmList)
+}
+
+// handleResourceMap returns enhanced topology data
+func (ws *WebServer) handleResourceMap(w http.ResponseWriter, r *http.Request) {
+	nodes := []map[string]interface{}{}
+	links := []map[string]interface{}{}
+
+	// Get all resources
+	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	services, _ := ws.app.clientset.CoreV1().Services(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	deployments, _ := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	pods, _ := ws.app.clientset.CoreV1().Pods(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	configmaps, _ := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+
+	// Add ingresses
+	for _, ing := range ingresses.Items {
+		nodes = append(nodes, map[string]interface{}{
+			"id":     fmt.Sprintf("ingress-%s", ing.Name),
+			"name":   ing.Name,
+			"type":   "ingress",
+			"group":  1,
+			"icon":   "🚪",
+			"status": "active",
+		})
+
+		// Link to services
+		for _, rule := range ing.Spec.Rules {
+			for _, path := range rule.HTTP.Paths {
+				links = append(links, map[string]interface{}{
+					"source": fmt.Sprintf("ingress-%s", ing.Name),
+					"target": fmt.Sprintf("service-%s", path.Backend.Service.Name),
+					"value":  1,
+				})
+			}
+		}
+	}
+
+	// Add services
+	for _, svc := range services.Items {
+		nodes = append(nodes, map[string]interface{}{
+			"id":     fmt.Sprintf("service-%s", svc.Name),
+			"name":   svc.Name,
+			"type":   "service",
+			"group":  2,
+			"icon":   "🌐",
+			"status": "active",
+		})
+	}
+
+	// Add deployments
+	for _, dep := range deployments.Items {
+		ready := dep.Status.ReadyReplicas == *dep.Spec.Replicas
+		status := "ready"
+		if !ready {
+			status = "degraded"
+		}
+
+		nodes = append(nodes, map[string]interface{}{
+			"id":       fmt.Sprintf("deployment-%s", dep.Name),
+			"name":     dep.Name,
+			"type":     "deployment",
+			"group":    3,
+			"icon":     "🚀",
+			"status":   status,
+			"replicas": fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
+		})
+
+		// Link services to deployments
+		for _, svc := range services.Items {
+			if matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
+				links = append(links, map[string]interface{}{
+					"source": fmt.Sprintf("service-%s", svc.Name),
+					"target": fmt.Sprintf("deployment-%s", dep.Name),
+					"value":  1,
+				})
+			}
+		}
+
+		// Link deployments to configmaps
+		for _, vol := range dep.Spec.Template.Spec.Volumes {
+			if vol.ConfigMap != nil {
+				links = append(links, map[string]interface{}{
+					"source": fmt.Sprintf("deployment-%s", dep.Name),
+					"target": fmt.Sprintf("configmap-%s", vol.ConfigMap.Name),
+					"value":  1,
+				})
+			}
+		}
+	}
+
+	// Add pods (sample, not all)
+	podCount := 0
+	for _, pod := range pods.Items {
+		if podCount >= 10 { // Limit to avoid clutter
+			break
+		}
+		status := "running"
+		if pod.Status.Phase != "Running" {
+			status = "pending"
+		}
+
+		nodes = append(nodes, map[string]interface{}{
+			"id":     fmt.Sprintf("pod-%s", pod.Name),
+			"name":   pod.Name,
+			"type":   "pod",
+			"group":  4,
+			"icon":   "🎯",
+			"status": status,
+		})
+
+		// Link pods to deployments
+		if owner := pod.OwnerReferences; len(owner) > 0 && owner[0].Kind == "ReplicaSet" {
+			for _, dep := range deployments.Items {
+				// Simplified: check if pod name contains deployment name
+				if len(pod.Name) > len(dep.Name) && pod.Name[:len(dep.Name)] == dep.Name {
+					links = append(links, map[string]interface{}{
+						"source": fmt.Sprintf("deployment-%s", dep.Name),
+						"target": fmt.Sprintf("pod-%s", pod.Name),
+						"value":  1,
+					})
+					break
+				}
+			}
+		}
+		podCount++
+	}
+
+	// Add configmaps
+	for _, cm := range configmaps.Items {
+		nodes = append(nodes, map[string]interface{}{
+			"id":     fmt.Sprintf("configmap-%s", cm.Name),
+			"name":   cm.Name,
+			"type":   "configmap",
+			"group":  5,
+			"icon":   "⚙️",
+			"status": "active",
+		})
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"nodes": nodes,
+		"links": links,
+	})
+}
+
+// handlePodRestart restarts a pod by deleting it
+func (ws *WebServer) handlePodRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().Pods(ws.app.namespace).Delete(ws.app.ctx, req.Name, metav1.DeleteOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Pod %s deleted successfully (will be recreated by controller)", req.Name),
+	})
+}
+
+// handlePodDelete deletes a pod
+func (ws *WebServer) handlePodDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().Pods(ws.app.namespace).Delete(ws.app.ctx, req.Name, metav1.DeleteOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Pod %s deleted successfully", req.Name),
+	})
+}
+
+// handleDeploymentRestart restarts a deployment by scaling to 0 then back
+func (ws *WebServer) handleDeploymentRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get deployment
+	dep, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	originalReplicas := *dep.Spec.Replicas
+
+	// Scale to 0
+	zero := int32(0)
+	dep.Spec.Replicas = &zero
+	_, err = ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Update(ws.app.ctx, dep, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Wait a moment
+	time.Sleep(2 * time.Second)
+
+	// Scale back
+	dep.Spec.Replicas = &originalReplicas
+	_, err = ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Update(ws.app.ctx, dep, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment %s restarted successfully", req.Name),
+	})
+}
+
+// handleDeploymentDelete deletes a deployment
+func (ws *WebServer) handleDeploymentDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Delete(ws.app.ctx, req.Name, metav1.DeleteOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment %s deleted successfully", req.Name),
+	})
+}
+
+// handleServiceDelete deletes a service
+func (ws *WebServer) handleServiceDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().Services(ws.app.namespace).Delete(ws.app.ctx, req.Name, metav1.DeleteOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Service %s deleted successfully", req.Name),
+	})
 }
