@@ -24,6 +24,15 @@ import (
 )
 
 func main() {
+	// Catch panics and show useful error
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "\n❌ Fatal error: %v\n", r)
+			fmt.Fprintf(os.Stderr, "\nPlease report this issue at: https://github.com/kubegraf/kubegraf/issues\n")
+			os.Exit(1)
+		}
+	}()
+
 	// Suppress verbose Kubernetes client logs
 	os.Setenv("KUBE_LOG_LEVEL", "0")
 
@@ -56,18 +65,30 @@ func main() {
 	// Show splash screen only for TUI mode
 	if !webMode {
 		showSplash()
+	} else {
+		fmt.Println("🚀 Initializing KubeGraf Web UI...")
 	}
 
 	// Create and initialize application
 	app := NewApp(namespace)
+
+	if webMode {
+		fmt.Println("📡 Connecting to Kubernetes cluster...")
+	}
+
 	if err := app.Initialize(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize: %v\n", err)
+		fmt.Fprintf(os.Stderr, "❌ Failed to initialize: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nTroubleshooting:\n")
+		fmt.Fprintf(os.Stderr, "  • Ensure kubectl is configured: kubectl cluster-info\n")
+		fmt.Fprintf(os.Stderr, "  • Check your kubeconfig: echo $KUBECONFIG\n")
+		fmt.Fprintf(os.Stderr, "  • Verify cluster access: kubectl get nodes\n")
 		os.Exit(1)
 	}
 
 	// Run in web mode or TUI mode
 	if webMode {
-		fmt.Println("🚀 Starting KubeGraf Web UI...")
+		fmt.Println("✅ Connected to cluster successfully")
+		fmt.Println()
 		fmt.Printf("📊 Dashboard:    http://localhost:%d\n", port)
 		fmt.Printf("🗺️  Topology:     http://localhost:%d/topology\n", port)
 		fmt.Printf("📦 Namespace:    %s\n", namespace)
@@ -76,7 +97,7 @@ func main() {
 
 		webServer := NewWebServer(app)
 		if err := webServer.Start(port); err != nil {
-			fmt.Fprintf(os.Stderr, "Web server error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "❌ Web server error: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
