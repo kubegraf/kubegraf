@@ -148,6 +148,42 @@
             text-align: center;
             position: relative;
             overflow: hidden;
+            min-height: 100vh;
+        }
+
+        .hero-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .mouse-gradient {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            transition: background 0.3s ease;
+        }
+
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(50, 108, 229, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(50, 108, 229, 0.05) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+            opacity: 0.5;
         }
 
         .hero::before {
@@ -160,6 +196,59 @@
             height: 800px;
             background: radial-gradient(circle, rgba(50, 108, 229, 0.15) 0%, transparent 70%);
             pointer-events: none;
+        }
+
+        /* Feature card animations */
+        .feature-card {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .feature-card.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        /* Animated counter */
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 800;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Pulse animation for badge */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .hero-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
         }
 
         .hero-badge {
@@ -292,12 +381,15 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 16px;
             padding: 2rem;
-            transition: all 0.3s;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
         }
 
         .feature-card:hover {
             border-color: rgba(50, 108, 229, 0.5);
             transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(50, 108, 229, 0.15);
         }
 
         .feature-icon {
@@ -586,6 +678,9 @@
     </style>
 </head>
 <body>
+    <!-- Mouse-following gradient -->
+    <div class="mouse-gradient" id="mouseGradient"></div>
+
     <!-- Navigation -->
     <nav>
         <div class="nav-content">
@@ -608,7 +703,12 @@
 
     <!-- Hero Section -->
     <section class="hero">
-        <div class="container">
+        <!-- Animated Canvas Background -->
+        <canvas id="heroCanvas" class="hero-canvas"></canvas>
+        <!-- Grid Overlay -->
+        <div class="grid-overlay"></div>
+
+        <div class="container" style="position: relative; z-index: 1;">
             <span class="hero-badge">
                 <span>v1.1</span>
                 Now with 3 Powerful Interfaces
@@ -644,6 +744,31 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats" style="padding: 4rem 0; border-top: 1px solid rgba(255,255,255,0.1); border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(15, 23, 42, 0.5);">
+        <div class="container">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; text-align: center;">
+                <div>
+                    <div class="stat-number" data-target="100">0</div>
+                    <div style="color: var(--gray); margin-top: 0.5rem;">% Open Source</div>
+                </div>
+                <div>
+                    <div class="stat-number" data-target="50">0</div>
+                    <div style="color: var(--gray); margin-top: 0.5rem;">K8s Resources</div>
+                </div>
+                <div>
+                    <div class="stat-number" data-target="3">0</div>
+                    <div style="color: var(--gray); margin-top: 0.5rem;">UI Options</div>
+                </div>
+                <div>
+                    <div class="stat-number" data-target="0">0</div>
+                    <div style="color: var(--gray); margin-top: 0.5rem;">Dependencies*</div>
+                </div>
+            </div>
+            <p style="text-align: center; color: var(--gray); font-size: 0.875rem; margin-top: 1.5rem;">*Single binary, no external dependencies required</p>
         </div>
     </section>
 
@@ -891,7 +1016,202 @@
     </footer>
 
     <script>
-        // Copy code functionality
+        // ==========================================
+        // ANIMATED KUBERNETES VISUALIZATION
+        // ==========================================
+        (function() {
+            const canvas = document.getElementById('heroCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            function resize() {
+                canvas.width = canvas.offsetWidth * 2;
+                canvas.height = canvas.offsetHeight * 2;
+                ctx.scale(2, 2);
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            const colors = {
+                pod: '#ec4899',
+                service: '#06b6d4',
+                node: '#22c55e',
+                ingress: '#f59e0b'
+            };
+            const types = ['pod', 'service', 'node', 'ingress'];
+
+            // Create nodes
+            const nodes = [];
+            for (let i = 0; i < 20; i++) {
+                const type = types[Math.floor(Math.random() * types.length)];
+                nodes.push({
+                    x: Math.random() * canvas.offsetWidth,
+                    y: Math.random() * canvas.offsetHeight,
+                    vx: (Math.random() - 0.5) * 0.4,
+                    vy: (Math.random() - 0.5) * 0.4,
+                    radius: type === 'node' ? 18 : type === 'service' ? 14 : 10,
+                    type: type,
+                    color: colors[type],
+                    pulsePhase: Math.random() * Math.PI * 2
+                });
+            }
+
+            // Create connections with particles
+            const connections = [];
+            for (let i = 0; i < 25; i++) {
+                const from = Math.floor(Math.random() * nodes.length);
+                let to = Math.floor(Math.random() * nodes.length);
+                while (to === from) to = Math.floor(Math.random() * nodes.length);
+                connections.push({
+                    from, to,
+                    particles: Array.from({ length: 3 }, () => ({
+                        pos: Math.random(),
+                        speed: 0.003 + Math.random() * 0.006
+                    }))
+                });
+            }
+
+            function drawNode(node, time) {
+                const pulse = Math.sin(time * 0.002 + node.pulsePhase) * 0.3 + 1;
+
+                // Outer glow
+                const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, node.radius * 2 * pulse);
+                gradient.addColorStop(0, node.color + '30');
+                gradient.addColorStop(1, node.color + '00');
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius * 2 * pulse, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Main circle
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+                ctx.fillStyle = node.color + '25';
+                ctx.fill();
+                ctx.strokeStyle = node.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Inner circle
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius * 0.4, 0, Math.PI * 2);
+                ctx.fillStyle = node.color + '60';
+                ctx.fill();
+            }
+
+            function drawConnection(conn) {
+                const from = nodes[conn.from];
+                const to = nodes[conn.to];
+
+                // Draw line
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.strokeStyle = 'rgba(50, 108, 229, 0.12)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Draw flowing particles
+                conn.particles.forEach(particle => {
+                    particle.pos += particle.speed;
+                    if (particle.pos > 1) particle.pos = 0;
+
+                    const x = from.x + (to.x - from.x) * particle.pos;
+                    const y = from.y + (to.y - from.y) * particle.pos;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#326ce5';
+                    ctx.fill();
+
+                    // Particle glow
+                    const glow = ctx.createRadialGradient(x, y, 0, x, y, 8);
+                    glow.addColorStop(0, 'rgba(50, 108, 229, 0.4)');
+                    glow.addColorStop(1, 'rgba(50, 108, 229, 0)');
+                    ctx.beginPath();
+                    ctx.arc(x, y, 8, 0, Math.PI * 2);
+                    ctx.fillStyle = glow;
+                    ctx.fill();
+                });
+            }
+
+            function animate(time) {
+                ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
+
+                // Update positions
+                nodes.forEach(node => {
+                    node.x += node.vx;
+                    node.y += node.vy;
+                    if (node.x < node.radius || node.x > canvas.offsetWidth - node.radius) node.vx *= -1;
+                    if (node.y < node.radius || node.y > canvas.offsetHeight - node.radius) node.vy *= -1;
+                    node.x = Math.max(node.radius, Math.min(canvas.offsetWidth - node.radius, node.x));
+                    node.y = Math.max(node.radius, Math.min(canvas.offsetHeight - node.radius, node.y));
+                });
+
+                connections.forEach(conn => drawConnection(conn));
+                nodes.forEach(node => drawNode(node, time));
+
+                requestAnimationFrame(animate);
+            }
+            requestAnimationFrame(animate);
+        })();
+
+        // ==========================================
+        // MOUSE-FOLLOWING GRADIENT
+        // ==========================================
+        document.addEventListener('mousemove', (e) => {
+            const gradient = document.getElementById('mouseGradient');
+            if (gradient) {
+                gradient.style.background = `radial-gradient(600px circle at ${e.clientX}px ${e.clientY}px, rgba(50, 108, 229, 0.12), transparent 40%)`;
+            }
+        });
+
+        // ==========================================
+        // SCROLL ANIMATIONS FOR FEATURE CARDS
+        // ==========================================
+        const observerOptions = { threshold: 0.1, rootMargin: '0px 0px -50px 0px' };
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, index) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => {
+                        entry.target.classList.add('visible');
+                    }, index * 100);
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.feature-card').forEach(card => observer.observe(card));
+
+        // ==========================================
+        // ANIMATED COUNTERS
+        // ==========================================
+        const counterObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const target = parseInt(entry.target.dataset.target);
+                    let current = 0;
+                    const duration = 2000;
+                    const steps = 60;
+                    const increment = target / steps;
+                    const interval = setInterval(() => {
+                        current += increment;
+                        if (current >= target) {
+                            entry.target.textContent = target + (target === 100 ? '%' : target === 50 ? '+' : '');
+                            clearInterval(interval);
+                        } else {
+                            entry.target.textContent = Math.floor(current) + (target === 100 ? '%' : target === 50 ? '+' : '');
+                        }
+                    }, duration / steps);
+                    counterObserver.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        document.querySelectorAll('.stat-number').forEach(num => counterObserver.observe(num));
+
+        // ==========================================
+        // COPY CODE FUNCTIONALITY
+        // ==========================================
         function copyCode(btn) {
             const codeBlock = btn.parentElement.querySelector('code');
             const text = codeBlock.innerText;
@@ -901,12 +1221,13 @@
             });
         }
 
-        // Demo tabs
+        // ==========================================
+        // DEMO TABS
+        // ==========================================
         function switchDemo(type) {
             document.querySelectorAll('.demo-tab').forEach(tab => tab.classList.remove('active'));
             event.target.classList.add('active');
 
-            // Demo content
             const demos = {
                 tui: {
                     title: 'Terminal UI',
@@ -943,7 +1264,9 @@
             `;
         }
 
-        // Smooth scroll for anchor links
+        // ==========================================
+        // SMOOTH SCROLL
+        // ==========================================
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function(e) {
                 e.preventDefault();
