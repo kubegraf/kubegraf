@@ -835,10 +835,12 @@
                 <input type="text" id="global-search" placeholder="Search resources... (Ctrl+K)" onkeyup="globalSearch(this.value)" />
                 <kbd class="search-shortcut">Ctrl+K</kbd>
             </div>
-            <!-- Cluster Name Badge -->
-            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 6px;">
-                <span style="font-size: 1rem;">☸️</span>
-                <span style="color: #60a5fa; font-size: 0.875rem; font-weight: 600;" id="cluster-name">Loading...</span>
+            <!-- Cluster Selector -->
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="color: #94a3b8; font-size: 0.875rem;">Cluster:</span>
+                <select id="cluster-selector" onchange="changeCluster(this.value)" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 6px; color: #60a5fa; cursor: pointer; font-size: 0.875rem; font-weight: 600; max-width: 250px;">
+                    <option value="">Loading...</option>
+                </select>
             </div>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span style="color: #94a3b8; font-size: 0.875rem;">Namespace:</span>
@@ -5596,6 +5598,63 @@
                 });
         }
 
+        // Load clusters
+        function loadClusters() {
+            return fetch('/api/contexts')
+                .then(r => r.json())
+                .then(data => {
+                    const selector = document.getElementById('cluster-selector');
+                    if (!data.contexts || data.contexts.length === 0) {
+                        selector.innerHTML = '<option value="">No clusters available</option>';
+                        return;
+                    }
+                    let options = data.contexts.map(ctx => {
+                        const displayName = ctx.name.length > 30 ? '...' + ctx.name.slice(-27) : ctx.name;
+                        const connected = ctx.connected ? '' : ' (disconnected)';
+                        const selected = ctx.isCurrent ? ' selected' : '';
+                        return '<option value="' + ctx.name + '"' + selected + ' title="' + ctx.name + '">' + displayName + connected + '</option>';
+                    }).join('');
+                    selector.innerHTML = options;
+                });
+        }
+
+        // Change cluster
+        function changeCluster(contextName) {
+            if (!contextName) return;
+
+            // Show loading indicator
+            const selector = document.getElementById('cluster-selector');
+            selector.disabled = true;
+
+            fetch('/api/contexts/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ context: contextName })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Switched to cluster:', contextName);
+                    // Reload namespaces for new cluster
+                    loadNamespaces().then(() => {
+                        // Refresh current view
+                        changeNamespace(currentNamespace);
+                        checkConnectionStatus();
+                    });
+                } else {
+                    alert('Failed to switch cluster: ' + (data.error || 'Unknown error'));
+                    loadClusters(); // Reload to reset selector
+                }
+            })
+            .catch(err => {
+                alert('Error switching cluster: ' + err.message);
+                loadClusters();
+            })
+            .finally(() => {
+                selector.disabled = false;
+            });
+        }
+
         // Load namespaces
         function loadNamespaces() {
             return fetch('/api/namespaces')
@@ -5981,6 +6040,9 @@
 
         // Initial load - check connection first
         checkConnectionStatus().then(connected => {
+            // Always load clusters (shows available contexts even if disconnected)
+            loadClusters();
+
             if (connected) {
                 fetch('/api/metrics').then(r => r.json()).then(updateMetrics);
                 loadResourceOverview();
