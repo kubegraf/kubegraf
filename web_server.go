@@ -4347,10 +4347,10 @@ func (ws *WebServer) handleHelmReleaseDetails(w http.ResponseWriter, r *http.Req
 
 // KustomizeResource represents a resource managed by Kustomize
 type KustomizeResource struct {
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Age       string `json:"age"`
+	Kind      string            `json:"kind"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Age       string            `json:"age"`
 	Labels    map[string]string `json:"labels"`
 }
 
@@ -4632,14 +4632,14 @@ func (ws *WebServer) handleArgoCDApps(w http.ResponseWriter, r *http.Request) {
 
 // FluxResource represents a Flux resource (Kustomization, HelmRelease, GitRepository, etc.)
 type FluxResource struct {
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Namespace  string `json:"namespace"`
-	Ready      string `json:"ready"`
-	Status     string `json:"status"`
-	Age        string `json:"age"`
-	SourceRef  string `json:"sourceRef,omitempty"`
-	Revision   string `json:"revision,omitempty"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Ready     string `json:"ready"`
+	Status    string `json:"status"`
+	Age       string `json:"age"`
+	SourceRef string `json:"sourceRef,omitempty"`
+	Revision  string `json:"revision,omitempty"`
 }
 
 // handleFluxResources returns Flux resources
