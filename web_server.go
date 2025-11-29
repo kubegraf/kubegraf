@@ -90,6 +90,19 @@ type PortForwardSession struct {
 	readyChan  chan struct{}
 }
 
+// WebEvent represents a Kubernetes event for web UI
+type WebEvent struct {
+	Time      time.Time `json:"time"`
+	Type      string    `json:"type"`
+	Reason    string    `json:"reason"`
+	Object    string    `json:"object"`
+	Kind      string    `json:"kind"`
+	Message   string    `json:"message"`
+	Namespace string    `json:"namespace"`
+	Count     int32     `json:"count"`
+	Source    string    `json:"source"`
+}
+
 // WebServer handles the web UI
 type WebServer struct {
 	app          *App
@@ -97,6 +110,9 @@ type WebServer struct {
 	mu           sync.Mutex
 	portForwards map[string]*PortForwardSession
 	pfMu         sync.Mutex
+	events       []WebEvent
+	eventsMu     sync.RWMutex
+	stopCh       chan struct{}
 }
 
 // NewWebServer creates a new web server
@@ -105,6 +121,8 @@ func NewWebServer(app *App) *WebServer {
 		app:          app,
 		clients:      make(map[*websocket.Conn]bool),
 		portForwards: make(map[string]*PortForwardSession),
+		events:       make([]WebEvent, 0, 500),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -132,6 +150,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/contexts", ws.handleContexts)
 	http.HandleFunc("/api/contexts/current", ws.handleCurrentContext)
 	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
+
+	// Real-time events endpoint
+	http.HandleFunc("/api/events", ws.handleEvents)
 
 	// Operations endpoints
 	http.HandleFunc("/api/pod/details", ws.handlePodDetails)
@@ -205,6 +226,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
+
+	// Start watching Kubernetes events for real-time stream
+	go ws.watchKubernetesEvents()
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -574,6 +598,109 @@ func (ws *WebServer) broadcastUpdates() {
 			}
 		}
 		ws.mu.Unlock()
+	}
+}
+
+// handleEvents returns historical events via REST API
+func (ws *WebServer) handleEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	namespace := r.URL.Query().Get("namespace")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 100
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	ws.eventsMu.RLock()
+	events := make([]WebEvent, 0, limit)
+	for i := len(ws.events) - 1; i >= 0 && len(events) < limit; i-- {
+		ev := ws.events[i]
+		if namespace == "" || namespace == "All Namespaces" || ev.Namespace == namespace {
+			events = append(events, ev)
+		}
+	}
+	ws.eventsMu.RUnlock()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"events": events,
+		"total":  len(events),
+	})
+}
+
+// watchKubernetesEvents watches for Kubernetes events and broadcasts them to WebSocket clients
+func (ws *WebServer) watchKubernetesEvents() {
+	for {
+		select {
+		case <-ws.stopCh:
+			return
+		default:
+			// Watch all namespaces for events
+			watcher, err := ws.app.clientset.CoreV1().Events("").Watch(ws.app.ctx, metav1.ListOptions{})
+			if err != nil {
+				log.Printf("Failed to watch events: %v", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			for watchEvent := range watcher.ResultChan() {
+				if watchEvent.Type == "ADDED" || watchEvent.Type == "MODIFIED" {
+					if ev, ok := watchEvent.Object.(*v1.Event); ok {
+						webEvent := WebEvent{
+							Time:      ev.LastTimestamp.Time,
+							Type:      ev.Type,
+							Reason:    ev.Reason,
+							Object:    ev.InvolvedObject.Name,
+							Kind:      ev.InvolvedObject.Kind,
+							Message:   ev.Message,
+							Namespace: ev.Namespace,
+							Count:     ev.Count,
+							Source:    ev.Source.Component,
+						}
+
+						// Handle zero timestamp (use event time if LastTimestamp is zero)
+						if webEvent.Time.IsZero() {
+							webEvent.Time = ev.EventTime.Time
+						}
+						if webEvent.Time.IsZero() {
+							webEvent.Time = time.Now()
+						}
+
+						// Store event
+						ws.eventsMu.Lock()
+						ws.events = append(ws.events, webEvent)
+						if len(ws.events) > 500 {
+							ws.events = ws.events[len(ws.events)-500:]
+						}
+						ws.eventsMu.Unlock()
+
+						// Broadcast to all connected WebSocket clients
+						ws.broadcastEvent(webEvent)
+					}
+				}
+			}
+		}
+	}
+}
+
+// broadcastEvent sends an event to all connected WebSocket clients
+func (ws *WebServer) broadcastEvent(event WebEvent) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "event",
+		"data": event,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
 	}
 }
 
