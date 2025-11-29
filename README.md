@@ -176,6 +176,11 @@ kubegraf --web --port=3000
 - **Security Analysis** - Automated security best practices recommendations
 - **Helm Releases** - View and manage Helm deployments in your cluster
 
+<div align="center">
+<img src="docs/dashboard-screenshot.png" alt="KubeGraf Web Dashboard" width="800">
+<p><em>KubeGraf Web Dashboard - Resource management with real-time metrics</em></p>
+</div>
+
 ## 🛡️ Security Best Practices
 
 KubeGraf includes automated security analysis to identify and help fix security issues in your cluster. Access the **Security** tab in the web dashboard to see findings.
