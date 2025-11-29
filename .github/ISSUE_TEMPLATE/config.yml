@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://kubegraf.io/getting-started.html
+    about: Check our documentation for guides and usage information
+  - name: Discussions
+    url: https://github.com/kubegraf/kubegraf/discussions
+    about: Ask questions and share ideas in GitHub Discussions
