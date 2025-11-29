@@ -4,7 +4,7 @@ import Modal from './Modal';
 interface DescribeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  resourceType: 'pod' | 'deployment' | 'service' | 'node' | 'statefulset' | 'daemonset';
+  resourceType: 'pod' | 'deployment' | 'service' | 'node' | 'statefulset' | 'daemonset' | 'configmap' | 'secret' | 'ingress' | 'cronjob' | 'job';
   name: string;
   namespace?: string;
 }

@@ -197,10 +197,16 @@ export const api = {
     fetchAPI<{ describe: string }>(`/node/describe?name=${name}`),
 
   // Events
-  getEvents: () => fetchAPI<any[]>('/events'),
+  getEvents: async () => {
+    const data = await fetchAPI<{ events: any[]; total: number }>('/events');
+    return data.events || [];
+  },
 
   // ============ Topology ============
-  getTopology: () => fetchAPI<any>('/topology'),
+  getTopology: (namespace?: string) => {
+    const endpoint = namespace && namespace !== 'All Namespaces' ? `/topology?namespace=${namespace}` : '/topology';
+    return fetchAPI<any>(endpoint);
+  },
   getResourceMap: () => fetchAPI<any>('/resourcemap'),
   getImpactAnalysis: (kind: string, name: string, namespace: string) =>
     fetchAPI<any>(`/impact?kind=${kind}&name=${name}&namespace=${namespace}`),
@@ -240,18 +246,25 @@ export const api = {
     }),
 
   // Helm
-  getHelmReleases: (namespace?: string) => {
+  getHelmReleases: async (namespace?: string) => {
     const endpoint = namespace ? `/plugins/helm/releases?namespace=${namespace}` : '/plugins/helm/releases';
-    return fetchAPI<any[]>(endpoint);
+    const data = await fetchAPI<{ releases: any[]; count: number; success: boolean }>(endpoint);
+    return data.releases || [];
   },
   getHelmReleaseDetails: (name: string, namespace: string) =>
     fetchAPI<any>(`/plugins/helm/release?name=${name}&namespace=${namespace}`),
 
   // ArgoCD
-  getArgoCDApps: () => fetchAPI<any[]>('/plugins/argocd/apps'),
+  getArgoCDApps: async () => {
+    const data = await fetchAPI<{ apps: any[]; count: number; installed: boolean; success: boolean }>('/plugins/argocd/apps');
+    return data.apps || [];
+  },
 
   // Flux
-  getFluxResources: () => fetchAPI<any[]>('/plugins/flux/resources'),
+  getFluxResources: async () => {
+    const data = await fetchAPI<{ resources: any[]; count: number; success: boolean }>('/plugins/flux/resources');
+    return data.resources || [];
+  },
 
   // Kustomize
   getKustomizeResources: () => fetchAPI<any[]>('/plugins/kustomize/resources'),

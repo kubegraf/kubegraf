@@ -43,7 +43,7 @@ const ThemeToggle: Component = () => {
   };
 
   return (
-    <div class="relative">
+    <div class="relative" style={{ 'z-index': 100 }}>
       <button
         onClick={() => setShowDropdown(!showDropdown())}
         class="p-2.5 rounded-lg border border-[var(--border-color)] hover:border-[var(--accent-primary)] transition-all"
@@ -54,8 +54,8 @@ const ThemeToggle: Component = () => {
 
       <Show when={showDropdown()}>
         <div
-          class="absolute right-0 mt-2 w-48 rounded-lg border border-[var(--border-color)] shadow-xl z-50"
-          style={{ background: 'var(--bg-secondary)' }}
+          class="absolute right-0 mt-2 w-48 rounded-lg border border-[var(--border-color)] shadow-xl"
+          style={{ background: 'var(--bg-secondary)', 'z-index': 9999 }}
         >
           {(Object.keys(themes) as ThemeName[]).map((themeName) => (
             <button
@@ -82,7 +82,8 @@ const ThemeToggle: Component = () => {
       {/* Click outside to close */}
       <Show when={showDropdown()}>
         <div
-          class="fixed inset-0 z-40"
+          class="fixed inset-0"
+          style={{ 'z-index': 9998 }}
           onClick={() => setShowDropdown(false)}
         />
       </Show>

@@ -31,6 +31,7 @@ const Services: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showPortForward, setShowPortForward] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [localPort, setLocalPort] = createSignal(8080);
   const [remotePort, setRemotePort] = createSignal(80);
 
@@ -153,7 +154,15 @@ const Services: Component = () => {
                 <For each={filtered()} fallback={<tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No services found</td></tr>}>
                   {(svc: Service) => (
                     <tr>
-                      <td class="font-medium" style={{ color: 'var(--accent-primary)' }}>{svc.name}</td>
+                      <td>
+                        <button
+                          onClick={() => { setSelected(svc); setShowDetails(true); }}
+                          class="font-medium hover:underline"
+                          style={{ color: 'var(--accent-primary)' }}
+                        >
+                          {svc.name}
+                        </button>
+                      </td>
                       <td>{svc.namespace}</td>
                       <td><span class={`badge ${svc.type === 'LoadBalancer' ? 'badge-info' : svc.type === 'NodePort' ? 'badge-warning' : 'badge-success'}`}>{svc.type}</span></td>
                       <td class="font-mono text-sm">{svc.clusterIP}</td>
@@ -162,6 +171,12 @@ const Services: Component = () => {
                       <td>{svc.age}</td>
                       <td>
                         <div class="flex items-center gap-1">
+                          <button onClick={() => { setSelected(svc); setShowDetails(true); }} class="action-btn" title="Details">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
                           <button onClick={() => openPortForward(svc)} class="action-btn" title="Port Forward">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -193,6 +208,54 @@ const Services: Component = () => {
 
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="service" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Service: ${selected()?.name}`} size="lg">
+        <Show when={selected()}>
+          <div class="space-y-4">
+            {/* Basic Info */}
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Name</div>
+                <div class="font-medium" style={{ color: 'var(--text-primary)' }}>{selected()?.name}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Type</div>
+                <div><span class={`badge ${selected()?.type === 'LoadBalancer' ? 'badge-info' : selected()?.type === 'NodePort' ? 'badge-warning' : 'badge-success'}`}>{selected()?.type}</span></div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Cluster IP</div>
+                <div class="font-mono text-sm" style={{ color: 'var(--accent-primary)' }}>{selected()?.clusterIP}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>External IP</div>
+                <div class="font-mono text-sm" style={{ color: 'var(--text-primary)' }}>{selected()?.externalIP || '-'}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selected()?.age}</div>
+              </div>
+            </div>
+
+            {/* Ports */}
+            <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+              <div class="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Ports</div>
+              <div class="font-mono text-sm" style={{ color: 'var(--text-primary)' }}>{selected()?.ports}</div>
+            </div>
+
+            {/* Actions */}
+            <div class="flex flex-wrap gap-2 pt-2">
+              <button onClick={() => { setShowDetails(false); openPortForward(selected()!); }} class="btn-primary flex-1">Port Forward</button>
+              <button onClick={() => { setShowDetails(false); setShowYaml(true); }} class="btn-secondary flex-1">View YAML</button>
+              <button onClick={() => { setShowDetails(false); setShowDescribe(true); }} class="btn-secondary flex-1">Describe</button>
+            </div>
+          </div>
+        </Show>
+      </Modal>
 
       {/* Port Forward Modal */}
       <Modal isOpen={showPortForward()} onClose={() => setShowPortForward(false)} title={`Port Forward: ${selected()?.name}`} size="sm">

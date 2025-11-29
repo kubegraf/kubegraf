@@ -260,7 +260,14 @@ const Dashboard: Component = () => {
 
   // AI Insights based on cluster state
   const getInsights = () => {
-    const insights = [];
+    const insights: Array<{
+      type: string;
+      title: string;
+      message: string;
+      details?: string[];
+      navigateTo?: string;
+      actionLabel?: string;
+    }> = [];
     const podList = pods() || [];
     const nodeList = nodes() || [];
     const m = metrics();
@@ -271,7 +278,10 @@ const Dashboard: Component = () => {
       insights.push({
         type: 'warning',
         title: 'Pending Pods Detected',
-        message: `${pendingPods.length} pods are in Pending state. Check resource availability or node scheduling.`,
+        message: `${pendingPods.length} pods are in Pending state.`,
+        details: pendingPods.slice(0, 3).map((p: any) => `${p.namespace}/${p.name}`),
+        navigateTo: 'pods',
+        actionLabel: 'View Pods',
       });
     }
 
@@ -284,6 +294,9 @@ const Dashboard: Component = () => {
         type: 'error',
         title: 'Failed Pods Alert',
         message: `${failedPods.length} pods are failing. Immediate attention recommended.`,
+        details: failedPods.slice(0, 3).map((p: any) => `${p.namespace}/${p.name} (${p.status})`),
+        navigateTo: 'pods',
+        actionLabel: 'View Failed Pods',
       });
     }
 
@@ -293,7 +306,10 @@ const Dashboard: Component = () => {
       insights.push({
         type: 'error',
         title: 'Node Health Issue',
-        message: `${unhealthyNodes.length} nodes are not ready. Check node status and logs.`,
+        message: `${unhealthyNodes.length} nodes are not ready.`,
+        details: unhealthyNodes.slice(0, 3).map((n: any) => n.name),
+        navigateTo: 'nodes',
+        actionLabel: 'View Nodes',
       });
     }
 
@@ -317,13 +333,29 @@ const Dashboard: Component = () => {
       });
     }
 
-    // Security insights
+    // Security insights - more detailed
     const criticalSecurityIssues = securityChecks().filter(c => c.status === 'fail' && c.severity === 'critical');
     if (criticalSecurityIssues.length > 0) {
       insights.push({
         type: 'error',
         title: 'Critical Security Issues',
         message: `${criticalSecurityIssues.length} critical security findings require immediate attention.`,
+        details: criticalSecurityIssues.map(c => `${c.name}${c.count ? ` (${c.count} affected)` : ''}`),
+        navigateTo: 'security',
+        actionLabel: 'View Security Details',
+      });
+    }
+
+    // High severity security warnings
+    const highSecurityIssues = securityChecks().filter(c => c.status === 'fail' && c.severity === 'high');
+    if (highSecurityIssues.length > 0 && criticalSecurityIssues.length === 0) {
+      insights.push({
+        type: 'warning',
+        title: 'Security Warnings',
+        message: `${highSecurityIssues.length} high-severity security findings detected.`,
+        details: highSecurityIssues.map(c => c.name),
+        navigateTo: 'security',
+        actionLabel: 'View Security Details',
       });
     }
 
@@ -426,7 +458,7 @@ const Dashboard: Component = () => {
                        insight.type === 'warning' ? <AlertIcon /> :
                        insight.type === 'success' ? <CheckIcon /> : <ShieldIcon />}
                     </div>
-                    <div>
+                    <div class="flex-1">
                       <div class="font-medium" style={{
                         color: insight.type === 'error' ? 'var(--error-color)' :
                                insight.type === 'warning' ? 'var(--warning-color)' :
@@ -438,6 +470,43 @@ const Dashboard: Component = () => {
                       <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
                         {insight.message}
                       </div>
+                      {/* Details list */}
+                      <Show when={insight.details && insight.details.length > 0}>
+                        <ul class="mt-2 text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <For each={insight.details}>
+                            {(detail) => (
+                              <li class="flex items-center gap-2">
+                                <span class="w-1 h-1 rounded-full" style={{
+                                  background: insight.type === 'error' ? 'var(--error-color)' :
+                                             insight.type === 'warning' ? 'var(--warning-color)' :
+                                             'var(--accent-primary)'
+                                }} />
+                                {detail}
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                      {/* Action button */}
+                      <Show when={insight.navigateTo && insight.actionLabel}>
+                        <button
+                          onClick={() => setCurrentView(insight.navigateTo!)}
+                          class="mt-3 px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:opacity-80"
+                          style={{
+                            background: insight.type === 'error' ? 'rgba(239, 68, 68, 0.2)' :
+                                       insight.type === 'warning' ? 'rgba(245, 158, 11, 0.2)' :
+                                       'rgba(6, 182, 212, 0.2)',
+                            color: insight.type === 'error' ? 'var(--error-color)' :
+                                  insight.type === 'warning' ? 'var(--warning-color)' :
+                                  'var(--accent-primary)',
+                            border: `1px solid ${insight.type === 'error' ? 'rgba(239, 68, 68, 0.3)' :
+                                                insight.type === 'warning' ? 'rgba(245, 158, 11, 0.3)' :
+                                                'rgba(6, 182, 212, 0.3)'}`
+                          }}
+                        >
+                          {insight.actionLabel} →
+                        </button>
+                      </Show>
                     </div>
                   </div>
                 </div>
