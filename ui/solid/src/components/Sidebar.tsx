@@ -64,7 +64,7 @@ const Sidebar: Component = () => {
     <aside class={`fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40 ${sidebarCollapsed() ? 'w-16' : 'w-64'}`}>
       {/* Logo */}
       <div class="h-16 flex items-center justify-between px-4 border-b border-white/10">
-        <div class="flex items-center gap-3">
+        <button onClick={() => setCurrentView('landing')} class="flex items-center gap-3 hover:opacity-80 transition-opacity" title="Back to Home">
           <svg viewBox="0 0 100 100" width="40" height="40" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -102,7 +102,7 @@ const Sidebar: Component = () => {
           <Show when={!sidebarCollapsed()}>
             <span class="font-bold text-xl gradient-text">KubeGraf</span>
           </Show>
-        </div>
+        </button>
         <button
           onClick={toggleSidebar}
           class="p-1.5 rounded-lg hover:bg-white/10 transition-colors"

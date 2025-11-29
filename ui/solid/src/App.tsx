@@ -16,13 +16,15 @@ import Nodes from './routes/Nodes';
 import ResourceMap from './routes/ResourceMap';
 import Security from './routes/Security';
 import Plugins from './routes/Plugins';
+import LandingPage from './routes/LandingPage';
 import AIChat from './components/AIChat';
-import { currentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
+import { currentView, aiPanelOpen, sidebarCollapsed, notifications, setCurrentView } from './stores/ui';
 import { wsService } from './services/websocket';
 import { api } from './services/api';
 import { createSignal, createResource } from 'solid-js';
 
 const views: Record<string, Component> = {
+  landing: LandingPage,
   dashboard: Dashboard,
   pods: Pods,
   deployments: Deployments,
@@ -62,15 +64,19 @@ const App: Component = () => {
 
   const isConnected = () => connectionStatus()?.connected !== false;
 
-  return (
-    <div class="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
-      {/* Sidebar */}
-      <Sidebar />
+  // Check if we're on the landing page
+  const isLandingPage = () => currentView() === 'landing';
 
-      {/* Main content */}
-      <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-64'}`}>
-        {/* Header */}
-        <Header />
+  return (
+    <Show when={!isLandingPage()} fallback={<LandingPage />}>
+      <div class="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+        {/* Sidebar */}
+        <Sidebar />
+
+        {/* Main content */}
+        <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-64'}`}>
+          {/* Header */}
+          <Header />
 
         {/* Connection status banner */}
         <Show when={!isConnected()}>
@@ -97,6 +103,48 @@ const App: Component = () => {
         <main class="flex-1 overflow-auto p-6">
           <Dynamic component={views[currentView()]} />
         </main>
+
+        {/* Version Footer */}
+        <footer class="px-6 py-3 border-t flex items-center justify-between text-xs"
+          style={{ background: 'var(--bg-secondary)', 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}
+        >
+          <div class="flex items-center gap-4">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="footer-lg" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style={{ 'stop-color': '#06b6d4' }}/>
+                    <stop offset="100%" style={{ 'stop-color': '#8b5cf6' }}/>
+                  </linearGradient>
+                </defs>
+                <circle cx="50" cy="50" r="12" fill="url(#footer-lg)"/>
+                <circle cx="50" cy="50" r="40" fill="none" stroke="url(#footer-lg)" stroke-width="3"/>
+              </svg>
+              <span style={{ color: 'var(--text-secondary)' }}>KubeGraf</span>
+              <span class="px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--accent-primary)' }}>v1.0.0</span>
+            </span>
+            <span class="hidden sm:inline">|</span>
+            <span class="hidden sm:flex items-center gap-1">
+              Cluster: <span style={{ color: connectionStatus()?.cluster ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                {connectionStatus()?.cluster || 'Not connected'}
+              </span>
+            </span>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="flex items-center gap-1">
+              <span class={`w-2 h-2 rounded-full ${connectionStatus()?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
+              {connectionStatus()?.connected ? 'Connected' : 'Disconnected'}
+            </span>
+            <a
+              href="https://github.com/kubegraf/kubegraf"
+              target="_blank"
+              class="hover:underline"
+              style={{ color: 'var(--accent-primary)' }}
+            >
+              GitHub
+            </a>
+          </div>
+        </footer>
       </div>
 
       {/* AI Chat Panel */}
@@ -151,6 +199,7 @@ const App: Component = () => {
         </Show>
       </div>
     </div>
+    </Show>
   );
 };
 

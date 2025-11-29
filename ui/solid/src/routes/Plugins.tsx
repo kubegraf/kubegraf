@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createSignal, createResource, JSX } from 'solid-js';
 import { api } from '../services/api';
 import Modal from '../components/Modal';
 
@@ -7,32 +7,100 @@ interface Plugin {
   version: string;
   enabled: boolean;
   description: string;
-  icon: string;
+  icon: JSX.Element;
 }
 
 interface HelmRelease {
   name: string;
   namespace: string;
   chart: string;
-  version: string;
+  revision: number;
+  appVersion: string;
   status: string;
   updated: string;
+}
+
+interface ArgoCDApp {
+  name: string;
+  namespace: string;
+  project: string;
+  syncStatus: string;
+  health: string;
+  repoURL: string;
+  path: string;
+  revision: string;
+  cluster: string;
+  age: string;
 }
 
 const Plugins: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'overview' | 'helm' | 'argocd' | 'flux'>('overview');
   const [selectedRelease, setSelectedRelease] = createSignal<HelmRelease | null>(null);
+  const [selectedArgoApp, setSelectedArgoApp] = createSignal<ArgoCDApp | null>(null);
   const [showDetails, setShowDetails] = createSignal(false);
+  const [showArgoDetails, setShowArgoDetails] = createSignal(false);
 
-  const [helmReleases] = createResource(() => activeTab() === 'helm' ? api.getHelmReleases() : null);
-  const [argoCDApps] = createResource(() => activeTab() === 'argocd' ? api.getArgoCDApps() : null);
-  const [fluxResources] = createResource(() => activeTab() === 'flux' ? api.getFluxResources() : null);
+  const [helmReleases] = createResource(
+    () => activeTab() === 'helm',
+    async () => api.getHelmReleases()
+  );
+  const [argoCDApps] = createResource(
+    () => activeTab() === 'argocd',
+    async () => api.getArgoCDApps()
+  );
+  const [fluxResources] = createResource(
+    () => activeTab() === 'flux',
+    async () => api.getFluxResources()
+  );
+
+  // SVG Icons for plugins
+  const HelmIcon = () => (
+    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="12" cy="12" r="10" stroke="var(--accent-primary)" />
+      <circle cx="12" cy="12" r="3" fill="var(--accent-primary)" />
+      <line x1="12" y1="2" x2="12" y2="6" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="12" y1="18" x2="12" y2="22" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="2" y1="12" x2="6" y2="12" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="18" y1="12" x2="22" y2="12" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke="var(--accent-primary)" stroke-width="2" />
+      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" stroke="var(--accent-primary)" stroke-width="2" />
+    </svg>
+  );
+
+  const ArgoCDIcon = () => (
+    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="var(--accent-secondary)" stroke-width="2">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
+      <path d="M12 6v6l4 2" stroke-linecap="round" />
+      <path d="M8 12a4 4 0 1 0 8 0" stroke-linecap="round" />
+      <circle cx="12" cy="12" r="2" fill="var(--accent-secondary)" />
+    </svg>
+  );
+
+  const FluxIcon = () => (
+    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round">
+      <path d="M2 6c3-3 6-3 9 0s6 3 9 0" />
+      <path d="M2 12c3-3 6-3 9 0s6 3 9 0" />
+      <path d="M2 18c3-3 6-3 9 0s6 3 9 0" />
+    </svg>
+  );
+
+  const KustomizeIcon = () => (
+    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="var(--success-color)" stroke-width="2">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M3 15h18" />
+      <path d="M9 3v18" />
+      <path d="M15 3v18" />
+    </svg>
+  );
 
   const plugins: Plugin[] = [
-    { name: 'Helm', version: 'v3', enabled: true, description: 'Package manager for Kubernetes', icon: '⎈' },
-    { name: 'ArgoCD', version: 'v2', enabled: true, description: 'GitOps continuous delivery', icon: '🔄' },
-    { name: 'Flux', version: 'v2', enabled: true, description: 'GitOps toolkit for Kubernetes', icon: '🌊' },
-    { name: 'Kustomize', version: 'v5', enabled: true, description: 'Kubernetes native configuration management', icon: '📦' },
+    { name: 'Helm', version: 'v3', enabled: true, description: 'Package manager for Kubernetes', icon: <HelmIcon /> },
+    { name: 'ArgoCD', version: 'v2', enabled: true, description: 'GitOps continuous delivery', icon: <ArgoCDIcon /> },
+    { name: 'Flux', version: 'v2', enabled: true, description: 'GitOps toolkit for Kubernetes', icon: <FluxIcon /> },
+    { name: 'Kustomize', version: 'v5', enabled: true, description: 'Kubernetes native configuration management', icon: <KustomizeIcon /> },
   ];
 
   const tabs = [
@@ -74,7 +142,7 @@ const Plugins: Component = () => {
             {(plugin) => (
               <div class="card p-6">
                 <div class="flex items-center gap-3 mb-4">
-                  <span class="text-3xl">{plugin.icon}</span>
+                  <div class="flex-shrink-0">{plugin.icon}</div>
                   <div>
                     <div class="font-semibold" style={{ color: 'var(--text-primary)' }}>{plugin.name}</div>
                     <div class="text-sm" style={{ color: 'var(--text-muted)' }}>{plugin.version}</div>
@@ -128,22 +196,25 @@ const Plugins: Component = () => {
           <Show when={!helmReleases.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
             <table class="data-table">
               <thead>
-                <tr><th>Name</th><th>Namespace</th><th>Chart</th><th>Version</th><th>Status</th><th>Updated</th><th>Actions</th></tr>
+                <tr><th>Name</th><th>Namespace</th><th>Chart</th><th>Revision</th><th>Status</th><th>Updated</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 <For each={helmReleases() || []} fallback={
                   <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No Helm releases found</td></tr>
                 }>
                   {(release: HelmRelease) => (
-                    <tr>
+                    <tr
+                      class="cursor-pointer hover:bg-[var(--bg-tertiary)]"
+                      onClick={() => { setSelectedRelease(release); setShowDetails(true); }}
+                    >
                       <td class="font-medium" style={{ color: 'var(--accent-primary)' }}>{release.name}</td>
                       <td>{release.namespace}</td>
                       <td>{release.chart}</td>
-                      <td>{release.version}</td>
+                      <td>{release.revision}</td>
                       <td><span class={`badge ${release.status === 'deployed' ? 'badge-success' : 'badge-warning'}`}>{release.status}</span></td>
                       <td>{release.updated}</td>
                       <td>
-                        <button onClick={() => { setSelectedRelease(release); setShowDetails(true); }} class="action-btn" title="Details">
+                        <button onClick={(e) => { e.stopPropagation(); setSelectedRelease(release); setShowDetails(true); }} class="action-btn" title="Details">
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
@@ -172,16 +243,26 @@ const Plugins: Component = () => {
               </div>
             }>
               <table class="data-table">
-                <thead><tr><th>Name</th><th>Project</th><th>Sync Status</th><th>Health</th><th>Repository</th></tr></thead>
+                <thead><tr><th>Name</th><th>Project</th><th>Sync Status</th><th>Health</th><th>Age</th><th>Actions</th></tr></thead>
                 <tbody>
                   <For each={argoCDApps() || []}>
-                    {(app: any) => (
-                      <tr>
+                    {(app: ArgoCDApp) => (
+                      <tr
+                        class="cursor-pointer hover:bg-[var(--bg-tertiary)]"
+                        onClick={() => { setSelectedArgoApp(app); setShowArgoDetails(true); }}
+                      >
                         <td class="font-medium" style={{ color: 'var(--accent-primary)' }}>{app.name}</td>
                         <td>{app.project}</td>
                         <td><span class={`badge ${app.syncStatus === 'Synced' ? 'badge-success' : 'badge-warning'}`}>{app.syncStatus}</span></td>
                         <td><span class={`badge ${app.health === 'Healthy' ? 'badge-success' : 'badge-error'}`}>{app.health}</span></td>
-                        <td class="text-sm">{app.repository}</td>
+                        <td class="text-sm">{app.age}</td>
+                        <td>
+                          <button onClick={(e) => { e.stopPropagation(); setSelectedArgoApp(app); setShowArgoDetails(true); }} class="action-btn" title="Details">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </button>
+                        </td>
                       </tr>
                     )}
                   </For>
@@ -227,7 +308,7 @@ const Plugins: Component = () => {
       </Show>
 
       {/* Helm Release Details Modal */}
-      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Release: ${selectedRelease()?.name}`} size="lg">
+      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Helm Release: ${selectedRelease()?.name}`} size="lg">
         <Show when={selectedRelease()}>
           <div class="space-y-4">
             <div class="grid grid-cols-2 gap-4">
@@ -236,8 +317,8 @@ const Plugins: Component = () => {
                 <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.chart}</div>
               </div>
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Version</div>
-                <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.version}</div>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Revision</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.revision}</div>
               </div>
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                 <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Namespace</div>
@@ -246,6 +327,56 @@ const Plugins: Component = () => {
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                 <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Status</div>
                 <div><span class="badge badge-success">{selectedRelease()?.status}</span></div>
+              </div>
+              <div class="p-3 rounded-lg col-span-2" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Last Updated</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.updated}</div>
+              </div>
+            </div>
+          </div>
+        </Show>
+      </Modal>
+
+      {/* ArgoCD App Details Modal */}
+      <Modal isOpen={showArgoDetails()} onClose={() => setShowArgoDetails(false)} title={`ArgoCD App: ${selectedArgoApp()?.name}`} size="lg">
+        <Show when={selectedArgoApp()}>
+          <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Project</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.project}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.namespace}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Sync Status</div>
+                <div><span class={`badge ${selectedArgoApp()?.syncStatus === 'Synced' ? 'badge-success' : 'badge-warning'}`}>{selectedArgoApp()?.syncStatus}</span></div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Health</div>
+                <div><span class={`badge ${selectedArgoApp()?.health === 'Healthy' ? 'badge-success' : 'badge-error'}`}>{selectedArgoApp()?.health}</span></div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Age</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.age}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Revision</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.revision || '-'}</div>
+              </div>
+              <div class="p-3 rounded-lg col-span-2" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Repository</div>
+                <div class="text-sm break-all" style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.repoURL || '-'}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Path</div>
+                <div style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.path || '-'}</div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Cluster</div>
+                <div class="text-sm break-all" style={{ color: 'var(--text-primary)' }}>{selectedArgoApp()?.cluster || '-'}</div>
               </div>
             </div>
           </div>
