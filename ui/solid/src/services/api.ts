@@ -48,9 +48,10 @@ export const api = {
   // ============ Workloads ============
   // Pods
   getPods: async (namespace?: string) => {
+    // Use namespace= (empty) for all namespaces, namespace=X for specific
     const endpoint = namespace && namespace !== '_all'
       ? `/pods?namespace=${namespace}`
-      : '/pods?all=true';
+      : '/pods?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -69,7 +70,7 @@ export const api = {
   getDeployments: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/deployments?namespace=${namespace}`
-      : '/deployments?all=true';
+      : '/deployments?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -90,7 +91,7 @@ export const api = {
   getStatefulSets: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/statefulsets?namespace=${namespace}`
-      : '/statefulsets?all=true';
+      : '/statefulsets?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -105,7 +106,7 @@ export const api = {
   getDaemonSets: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/daemonsets?namespace=${namespace}`
-      : '/daemonsets?all=true';
+      : '/daemonsets?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -118,7 +119,7 @@ export const api = {
   getCronJobs: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/cronjobs?namespace=${namespace}`
-      : '/cronjobs?all=true';
+      : '/cronjobs?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -129,7 +130,7 @@ export const api = {
   getJobs: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/jobs?namespace=${namespace}`
-      : '/jobs?all=true';
+      : '/jobs?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -141,7 +142,7 @@ export const api = {
   getServices: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/services?namespace=${namespace}`
-      : '/services?all=true';
+      : '/services?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -154,7 +155,7 @@ export const api = {
   getIngresses: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/ingresses?namespace=${namespace}`
-      : '/ingresses?all=true';
+      : '/ingresses?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -166,7 +167,7 @@ export const api = {
   getConfigMaps: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/configmaps?namespace=${namespace}`
-      : '/configmaps?all=true';
+      : '/configmaps?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
@@ -177,7 +178,7 @@ export const api = {
   getSecrets: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/secrets?namespace=${namespace}`
-      : '/secrets?all=true';
+      : '/secrets?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
