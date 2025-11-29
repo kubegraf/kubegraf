@@ -160,25 +160,45 @@ kubegraf --web --port=3000
 - **All Namespaces** - View resources across entire cluster
 - **Connection Status** - Live cluster connectivity indicator
 
-## 🗺️ ResourceMap (Terminal UI)
+## 🗺️ Visualization Options
 
-The ResourceMap tab provides advanced visualization of Kubernetes resource relationships:
+KubeGraf provides multiple ways to visualize resource relationships:
 
+### Terminal UI - ResourceMap Tab
+
+The ResourceMap tab (press `7`) offers three visualization modes:
+
+| Key | View | Description |
+|-----|------|-------------|
+| `Enter` | ASCII Tree | Text-based hierarchy view in terminal |
+| `i` | Terminal Canvas | Interactive graph drawn in terminal (no browser) |
+| `g` | Browser Graph | Opens D3.js or Graphviz visualization in browser |
+
+**ASCII Tree View** (Press `Enter`):
 ```
 🚀 Deployment nginx
   replicas: 3/3
-Status: Ready
 
 ├─► 📦 ReplicaSet nginx-xyz
 │   ├─► ✔ Pod nginx-1 (Running)
 │   │     ip=10.42.0.1, node=node1
 │   ├─► ✔ Pod nginx-2 (Running)
-│   │     ip=10.42.0.2, node=node1
 │   └─► ✔ Pod nginx-3 (Running)
-│         ip=10.42.0.3, node=node2
 ├─► ⚙️ ConfigMap nginx-config
 └─► 🔐 Secret nginx-secret
 ```
+
+**Terminal Canvas** (Press `i`): Interactive graph with boxes and arrows rendered directly in the terminal. Use arrow keys to pan, `+/-` to zoom.
+
+**Browser Graph** (Press `g`): Choose between D3.js force-directed graph or Graphviz structured layout.
+
+### Web Dashboard - Topology View
+
+The web dashboard (`kubegraf --web`) includes an interactive topology page at `/topology` with:
+- D3.js force-directed graph
+- Draggable nodes
+- Color-coded resource types
+- Real-time updates via WebSocket
 
 ## 🏗️ Built With
 
