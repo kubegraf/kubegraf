@@ -204,20 +204,25 @@ The web dashboard (`kubegraf --web`) includes an interactive topology page at `/
 
 ```
 kubegraf/
-├── main.go          # Entry point & CLI
-├── app.go           # Application lifecycle
-├── types.go         # Type definitions
-├── ui.go            # Terminal UI components
-├── handlers.go      # Keyboard event handlers
-├── resources.go     # Resource data fetching
-├── operations.go    # YAML, shell, delete ops
-├── mapping.go       # Relationship visualization
-├── graph.go         # Graph export
-├── canvas_graph.go  # Terminal canvas rendering
-├── events.go        # Background monitoring
-├── web_server.go    # Web server & API
-├── web_ui.go        # Web dashboard HTML
-└── helpers.go       # Utility functions
+├── main.go              # Entry point & CLI
+├── app.go               # Application lifecycle
+├── types.go             # Type definitions
+├── ui.go                # Terminal UI components
+├── handlers.go          # Keyboard event handlers
+├── resources.go         # Resource data fetching
+├── operations.go        # YAML, shell, delete ops
+├── mapping.go           # Relationship visualization
+├── graph.go             # Graph export (Graphviz)
+├── graph_d3.go          # D3.js visualization
+├── graph_canvas.go      # Terminal canvas rendering
+├── events.go            # Background monitoring
+├── web_server.go        # Web server & API handlers
+├── web_ui.go            # Embed directive for HTML
+├── helpers.go           # Utility functions
+├── web/
+│   └── templates/
+│       └── dashboard.html   # Web dashboard UI
+└── docs/                # Documentation website
 ```
 
 ## 🤝 Contributing
