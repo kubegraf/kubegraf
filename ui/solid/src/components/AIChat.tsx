@@ -1,0 +1,215 @@
+import { Component, For, Show, createSignal, onMount, createEffect } from 'solid-js';
+import { marked } from 'marked';
+import {
+  messages,
+  isLoading,
+  currentProvider,
+  providers,
+  sendMessage,
+  clearChat,
+  switchProvider,
+  fetchProviders,
+} from '../stores/ai';
+import { setAIPanelOpen } from '../stores/ui';
+
+const AIChat: Component = () => {
+  let messagesEndRef: HTMLDivElement | undefined;
+  let inputRef: HTMLInputElement | undefined;
+  const [inputValue, setInputValue] = createSignal('');
+
+  const suggestions = [
+    'Show me pods with high restart counts',
+    'List deployments not fully available',
+    'What services expose port 80?',
+    'Show cluster resource usage',
+  ];
+
+  onMount(() => {
+    fetchProviders();
+    inputRef?.focus();
+  });
+
+  // Auto-scroll to bottom when new messages arrive
+  createEffect(() => {
+    messages();
+    setTimeout(() => {
+      messagesEndRef?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  });
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    const msg = inputValue().trim();
+    if (!msg) return;
+    setInputValue('');
+    await sendMessage(msg);
+  }
+
+  function handleSuggestion(suggestion: string) {
+    sendMessage(suggestion);
+  }
+
+  function renderMarkdown(content: string): string {
+    try {
+      return marked.parse(content, { async: false }) as string;
+    } catch {
+      return content;
+    }
+  }
+
+  return (
+    <div class="fixed top-0 right-0 w-[420px] h-full bg-k8s-card border-l border-k8s-border flex flex-col z-50 animate-slide-in">
+      {/* Header */}
+      <div class="flex items-center justify-between px-4 py-3 border-b border-k8s-border">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-white font-semibold">AI Assistant</h2>
+            <p class="text-gray-500 text-xs">Kubernetes expert</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          {/* Provider selector */}
+          <select
+            value={currentProvider()}
+            onChange={(e) => switchProvider(e.target.value)}
+            class="bg-k8s-dark border border-k8s-border rounded-lg px-2 py-1 text-sm text-gray-400 focus:border-k8s-blue focus:outline-none"
+          >
+            <For each={providers()}>
+              {(provider) => (
+                <option value={provider.id}>{provider.name}</option>
+              )}
+            </For>
+          </select>
+          <button
+            onClick={clearChat}
+            class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
+            title="Clear chat"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setAIPanelOpen(false)}
+            class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
+            title="Close"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <Show when={messages().length === 0}>
+          <div class="text-center py-8">
+            <div class="w-16 h-16 rounded-full bg-gradient-to-br from-purple-600/20 to-indigo-600/20 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+            </div>
+            <h3 class="text-white font-medium mb-2">How can I help?</h3>
+            <p class="text-gray-500 text-sm mb-6">
+              Ask me about your Kubernetes cluster, resources, or troubleshooting
+            </p>
+            <div class="space-y-2">
+              <For each={suggestions}>
+                {(suggestion) => (
+                  <button
+                    onClick={() => handleSuggestion(suggestion)}
+                    class="w-full text-left px-4 py-2 bg-k8s-dark hover:bg-k8s-border/50 rounded-lg text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    {suggestion}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        <For each={messages()}>
+          {(message) => (
+            <div class={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                class={`max-w-[85%] rounded-lg px-4 py-3 ${
+                  message.role === 'user'
+                    ? 'bg-k8s-blue text-white'
+                    : 'bg-k8s-dark text-gray-300'
+                }`}
+              >
+                <Show
+                  when={message.role === 'assistant'}
+                  fallback={<p class="text-sm whitespace-pre-wrap">{message.content}</p>}
+                >
+                  <div
+                    class="prose prose-invert prose-sm max-w-none"
+                    innerHTML={renderMarkdown(message.content)}
+                  />
+                  <Show when={message.usage}>
+                    <div class="mt-2 pt-2 border-t border-k8s-border/50 text-xs text-gray-500">
+                      Tokens: {message.usage?.totalTokens}
+                    </div>
+                  </Show>
+                </Show>
+              </div>
+            </div>
+          )}
+        </For>
+
+        {/* Loading indicator */}
+        <Show when={isLoading()}>
+          <div class="flex justify-start">
+            <div class="bg-k8s-dark rounded-lg px-4 py-3">
+              <div class="flex items-center gap-2">
+                <div class="flex gap-1">
+                  <div class="w-2 h-2 rounded-full bg-purple-500 animate-bounce" style={{ "animation-delay": "0ms" }}></div>
+                  <div class="w-2 h-2 rounded-full bg-purple-500 animate-bounce" style={{ "animation-delay": "150ms" }}></div>
+                  <div class="w-2 h-2 rounded-full bg-purple-500 animate-bounce" style={{ "animation-delay": "300ms" }}></div>
+                </div>
+                <span class="text-gray-500 text-sm">Thinking...</span>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <form onSubmit={handleSubmit} class="p-4 border-t border-k8s-border">
+        <div class="flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue()}
+            onInput={(e) => setInputValue(e.target.value)}
+            placeholder="Ask about your cluster..."
+            disabled={isLoading()}
+            class="flex-1 bg-k8s-dark border border-k8s-border rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={isLoading() || !inputValue().trim()}
+            class="p-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg text-white hover:from-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
+          </button>
+        </div>
+        <p class="mt-2 text-xs text-gray-500 text-center">
+          Using {providers().find(p => p.id === currentProvider())?.name || 'AI'}
+        </p>
+      </form>
+    </div>
+  );
+};
+
+export default AIChat;

@@ -29,3 +29,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+
+# Node.js
+node_modules/
+dist/

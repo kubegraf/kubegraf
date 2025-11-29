@@ -21,14 +21,14 @@
 
 ## 🚀 Features
 
-### Two Powerful Interfaces
+### Three Powerful Interfaces
 
-| Terminal UI | Web Dashboard |
-|-------------|---------------|
-| Lightning-fast TUI | Modern browser-based UI |
-| Vim-style keybindings | Real-time metrics with sparklines |
-| Works over SSH | Interactive D3.js topology |
-| Zero dependencies | WebSocket live updates |
+| Terminal UI | Web Dashboard | Solid.js UI |
+|-------------|---------------|-------------|
+| Lightning-fast TUI | Classic browser UI | Modern SPA |
+| Vim-style keybindings | Real-time metrics | Reactive components |
+| Works over SSH | Interactive D3.js topology | 5 theme options |
+| Zero dependencies | WebSocket live updates | Full CRUD operations |
 
 ### Core Capabilities
 
@@ -183,6 +183,52 @@ kubegraf --web --port=3000
 - **Security Analysis** - Automated security best practices recommendations
 - **Helm Releases** - View and manage Helm deployments in your cluster
 
+## 🎨 Solid.js UI (New!)
+
+The new Solid.js UI provides a modern, reactive single-page application with advanced features:
+
+### Running the Solid.js UI
+
+```bash
+# Development mode (requires Node.js)
+cd ui/solid
+npm install
+npm run dev
+# Then open: http://localhost:3000
+
+# The backend should be running:
+kubegraf --web --port=8080
+```
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Dashboard** | AI-powered insights, security score, cluster metrics |
+| **Workloads** | Pods, Deployments, StatefulSets, DaemonSets, CronJobs, Jobs |
+| **Network** | Services with port forwarding, Ingresses |
+| **Config** | ConfigMaps with syntax-highlighted YAML |
+| **Cluster** | Nodes, Resource Map topology visualization |
+| **Security** | Security posture analysis with best practices |
+| **Plugins** | Helm, ArgoCD, Flux integrations |
+
+### Themes
+
+5 built-in themes with dynamic CSS variables:
+- **Dark** (default) - Classic dark theme
+- **Light** - Clean light theme
+- **Midnight** - Deep blue tones
+- **Cyberpunk** - Neon pink and cyan
+- **Ocean** - Calming blue-green
+
+### Pod Operations
+
+- **Shell** - Interactive terminal via WebSocket
+- **Logs** - Real-time log streaming with search
+- **YAML** - Syntax-highlighted configuration
+- **Describe** - Full kubectl describe output
+- **Restart/Delete** - With confirmation dialogs
+
 ## 🛡️ Security Best Practices
 
 KubeGraf includes automated security analysis to identify and help fix security issues in your cluster. Access the **Security** tab in the web dashboard to see findings.
@@ -258,6 +304,9 @@ The web dashboard (`kubegraf --web`) includes an interactive topology page at `/
 - [client-go](https://github.com/kubernetes/client-go) - Kubernetes API client
 - [D3.js](https://d3js.org/) - Data visualization (Web UI)
 - [gographviz](https://github.com/awalterschulze/gographviz) - Graph generation
+- [Solid.js](https://www.solidjs.com/) - Reactive UI framework (New UI)
+- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
+- [Vite](https://vitejs.dev/) - Fast build tool
 
 ## 📂 Project Structure
 
@@ -280,8 +329,17 @@ kubegraf/
 ├── helpers.go           # Utility functions
 ├── web/
 │   └── templates/
-│       └── dashboard.html   # Web dashboard UI
-└── docs/                # Documentation website
+│       └── dashboard.html   # Classic web dashboard
+├── ui/
+│   └── solid/               # New Solid.js UI
+│       ├── src/
+│       │   ├── components/  # Reusable UI components
+│       │   ├── routes/      # Page components
+│       │   ├── services/    # API and WebSocket services
+│       │   ├── stores/      # State management
+│       │   └── styles/      # CSS with theme support
+│       └── package.json
+└── docs/                    # Documentation website
 ```
 
 ## 🤝 Contributing
