@@ -727,6 +727,14 @@
                 </div>
 
                 <div class="install-card">
+                    <h3>🪟 Windows</h3>
+                    <div class="code-block">
+                        <code># PowerShell (Run as Administrator)<br>Invoke-WebRequest -Uri "https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-windows-amd64.zip" -OutFile kubegraf.zip<br>Expand-Archive kubegraf.zip -DestinationPath .<br>Move-Item kubegraf.exe C:\Windows\System32\</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
                     <h3>📦 Go Install</h3>
                     <div class="code-block">
                         <code>go install github.com/kubegraf/kubegraf@latest</code>
