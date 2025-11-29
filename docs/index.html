@@ -697,25 +697,25 @@
 
             <div class="install-methods">
                 <div class="install-card">
+                    <h3>🍎 macOS</h3>
+                    <div class="code-block">
+                        <code># Apple Silicon (M1/M2/M3)<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/<br><br># Intel Mac<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-amd64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>🐧 Linux</h3>
+                    <div class="code-block">
+                        <code># x86_64<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-amd64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/<br><br># ARM64<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-arm64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
                     <h3>📦 Go Install</h3>
                     <div class="code-block">
                         <code>go install github.com/kubegraf/kubegraf@latest</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>🍺 Homebrew (macOS)</h3>
-                    <div class="code-block">
-                        <code>brew install kubegraf/tap/kubegraf</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>📥 Binary Download</h3>
-                    <div class="code-block">
-                        <code># Download from GitHub Releases<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-$(uname -s)-$(uname -m) -o kubegraf<br>chmod +x kubegraf && sudo mv kubegraf /usr/local/bin/</code>
                         <button class="copy-btn" onclick="copyCode(this)">📋</button>
                     </div>
                 </div>

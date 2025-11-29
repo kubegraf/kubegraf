@@ -232,32 +232,40 @@
 
             <h2>Installation</h2>
 
-            <h3>Option 1: Go Install (Recommended)</h3>
-            <p>The easiest way to install KubeGraf:</p>
+            <h3>Option 1: Download Binary (Recommended)</h3>
+            <p>Download the pre-built binary for your platform:</p>
+
+            <p><strong>macOS:</strong></p>
+            <div class="code-block">
+                <code># Apple Silicon (M1/M2/M3)
+curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64.tar.gz | tar xz
+sudo mv kubegraf /usr/local/bin/
+
+# Intel Mac
+curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-amd64.tar.gz | tar xz
+sudo mv kubegraf /usr/local/bin/</code>
+            </div>
+
+            <p><strong>Linux:</strong></p>
+            <div class="code-block">
+                <code># x86_64
+curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-amd64.tar.gz | tar xz
+sudo mv kubegraf /usr/local/bin/
+
+# ARM64
+curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-arm64.tar.gz | tar xz
+sudo mv kubegraf /usr/local/bin/</code>
+            </div>
+
+            <p><strong>Windows:</strong></p>
+            <p>Download <span class="code-inline">kubegraf-windows-amd64.zip</span> from the <a href="https://github.com/kubegraf/kubegraf/releases/latest">releases page</a> and add to your PATH.</p>
+
+            <h3>Option 2: Go Install</h3>
             <div class="code-block">
                 <code>go install github.com/kubegraf/kubegraf@latest</code>
             </div>
 
-            <h3>Option 2: Homebrew (macOS)</h3>
-            <div class="code-block">
-                <code>brew install kubegraf/tap/kubegraf</code>
-            </div>
-
-            <h3>Option 3: Binary Download</h3>
-            <p>Download the pre-built binary for your platform:</p>
-            <div class="code-block">
-                <code># Linux (amd64)
-curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-amd64 -o kubegraf
-
-# macOS (arm64 - Apple Silicon)
-curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64 -o kubegraf
-
-# Make executable
-chmod +x kubegraf
-sudo mv kubegraf /usr/local/bin/</code>
-            </div>
-
-            <h3>Option 4: Build from Source</h3>
+            <h3>Option 3: Build from Source</h3>
             <div class="code-block">
                 <code>git clone https://github.com/kubegraf/kubegraf.git
 cd kubegraf
