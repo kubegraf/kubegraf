@@ -626,36 +626,346 @@
             50% { transform: translateY(-10px); }
         }
 
+        /* Mobile Menu */
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--light);
+            cursor: pointer;
+            padding: 0.5rem;
+        }
+
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--darker);
+            z-index: 1001;
+            padding: 2rem;
+            flex-direction: column;
+        }
+
+        .mobile-menu.active {
+            display: flex;
+        }
+
+        .mobile-menu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .mobile-menu-links {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .mobile-menu-links a {
+            color: var(--light);
+            text-decoration: none;
+            font-size: 1.25rem;
+            font-weight: 500;
+            padding: 1rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: block;
+        }
+
+        /* Tablet Styles */
+        @media (max-width: 1024px) {
+            .container {
+                padding: 0 1.5rem;
+            }
+
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .install-methods {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* Mobile Styles */
         @media (max-width: 768px) {
+            /* Navigation */
             .nav-links {
                 display: none;
             }
 
+            .nav-cta {
+                display: none;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            .nav-content {
+                padding: 0.75rem 1rem;
+            }
+
+            .logo {
+                font-size: 1.25rem;
+            }
+
+            .logo-icon {
+                width: 28px;
+                height: 28px;
+            }
+
+            .logo-icon svg {
+                width: 28px;
+                height: 28px;
+            }
+
+            /* Hero Section */
+            .hero {
+                padding: 7rem 0 4rem;
+            }
+
             .hero h1 {
-                font-size: 2.5rem;
+                font-size: 2rem;
+                line-height: 1.2;
             }
 
             .hero p {
+                font-size: 1rem;
+                padding: 0 0.5rem;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+                gap: 0.75rem;
+            }
+
+            .hero-buttons .btn {
+                width: 100%;
+                max-width: 280px;
+                text-align: center;
+            }
+
+            /* Hide canvas on mobile for performance */
+            .hero-canvas {
+                display: none;
+            }
+
+            .mouse-gradient {
+                display: none;
+            }
+
+            /* GitHub badge */
+            .hero > .container > div[style*="margin-top: 2rem"] a {
+                font-size: 0.75rem;
+                padding: 0.4rem 0.75rem;
+            }
+
+            /* Terminal Preview */
+            .terminal-preview {
+                margin: 2rem auto 0;
+                border-radius: 8px;
+            }
+
+            .terminal-body {
+                padding: 1rem;
+                font-size: 0.7rem;
+                line-height: 1.6;
+                overflow-x: auto;
+            }
+
+            /* Features */
+            .features {
+                padding: 4rem 0;
+            }
+
+            .section-header h2 {
+                font-size: 1.75rem;
+            }
+
+            .section-header p {
                 font-size: 1rem;
             }
 
             .features-grid {
                 grid-template-columns: 1fr;
+                gap: 1rem;
             }
 
+            .feature-card {
+                padding: 1.5rem;
+            }
+
+            .feature-icon svg {
+                width: 28px;
+                height: 28px;
+            }
+
+            .feature-card h3 {
+                font-size: 1.1rem;
+            }
+
+            .feature-card p {
+                font-size: 0.875rem;
+            }
+
+            /* Built With Section */
+            .built-with .container > div {
+                gap: 1.5rem !important;
+            }
+
+            .built-with .container > div > div {
+                font-size: 0.875rem;
+            }
+
+            /* Installation */
+            .installation {
+                padding: 4rem 0;
+            }
+
+            .install-methods {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .install-card {
+                padding: 1.5rem;
+            }
+
+            .install-card h3 {
+                font-size: 1rem;
+            }
+
+            .code-block {
+                padding: 0.75rem;
+                font-size: 0.75rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .code-block code {
+                white-space: pre;
+                display: block;
+            }
+
+            .copy-btn {
+                padding: 0.4rem;
+                font-size: 0.7rem;
+            }
+
+            /* Demo Section */
+            .demo {
+                padding: 4rem 0;
+            }
+
+            .demo-tabs {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+
+            .demo-tab {
+                padding: 0.5rem 1rem;
+                font-size: 0.8rem;
+                flex: 1;
+                min-width: calc(50% - 0.5rem);
+                text-align: center;
+            }
+
+            .demo-content {
+                aspect-ratio: 4/3;
+            }
+
+            /* Docs */
+            .docs {
+                padding: 4rem 0;
+            }
+
+            .docs-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .doc-card {
+                padding: 1.25rem;
+            }
+
+            /* Footer */
             .footer-content {
                 flex-direction: column;
+                gap: 2rem;
+            }
+
+            .footer-brand {
+                max-width: 100%;
+                text-align: center;
+            }
+
+            .footer-brand .logo {
+                justify-content: center;
             }
 
             .footer-links {
                 flex-direction: column;
-                gap: 2rem;
+                gap: 1.5rem;
+                width: 100%;
+            }
+
+            .footer-column {
+                text-align: center;
             }
 
             .footer-bottom {
                 flex-direction: column;
                 gap: 1rem;
                 text-align: center;
+            }
+
+            /* Getting Started Section */
+            .installation > .container > div[style*="margin-top: 4rem"] {
+                margin-top: 2rem !important;
+            }
+
+            .installation > .container > div[style*="margin-top: 4rem"] > div {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+        /* Small Mobile */
+        @media (max-width: 480px) {
+            .container {
+                padding: 0 1rem;
+            }
+
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+
+            .hero-badge {
+                font-size: 0.75rem;
+                padding: 0.4rem 0.75rem;
+            }
+
+            .terminal-body {
+                font-size: 0.6rem;
+            }
+
+            .section-header h2 {
+                font-size: 1.5rem;
+            }
+
+            .feature-card {
+                padding: 1.25rem;
+            }
+
+            /* Primary install card */
+            .installation > .container > div:first-of-type {
+                margin-bottom: 2rem !important;
             }
         }
     </style>
@@ -681,8 +991,45 @@
                 <a href="https://github.com/kubegraf/kubegraf" class="btn btn-secondary">GitHub</a>
                 <a href="#installation" class="btn btn-primary">Get Started</a>
             </div>
+            <!-- Mobile Menu Button -->
+            <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12h18M3 6h18M3 18h18"/>
+                </svg>
+            </button>
         </div>
     </nav>
+
+    <!-- Mobile Menu Overlay -->
+    <div class="mobile-menu" id="mobileMenu">
+        <div class="mobile-menu-header">
+            <a href="/" class="logo">
+                <span class="logo-icon">
+                    <svg viewBox="0 0 100 100" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+                        <defs><linearGradient id="mobileLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#06b6d4"/><stop offset="50%" style="stop-color:#3b82f6"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+                        <circle cx="50" cy="50" r="46" fill="rgba(6, 182, 212, 0.1)" stroke="url(#mobileLogoGrad)" stroke-width="2"/>
+                        <circle cx="50" cy="50" r="12" fill="url(#mobileLogoGrad)"/>
+                    </svg>
+                </span>
+                <span>KubeGraf</span>
+            </a>
+            <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Close menu">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <ul class="mobile-menu-links">
+            <li><a href="#features" onclick="toggleMobileMenu()">Features</a></li>
+            <li><a href="#installation" onclick="toggleMobileMenu()">Installation</a></li>
+            <li><a href="#demo" onclick="toggleMobileMenu()">Demo</a></li>
+            <li><a href="#docs" onclick="toggleMobileMenu()">Documentation</a></li>
+            <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+        </ul>
+        <div style="margin-top: auto; padding-top: 2rem;">
+            <a href="#installation" class="btn btn-primary" style="width: 100%; text-align: center;" onclick="toggleMobileMenu()">Get Started</a>
+        </div>
+    </div>
 
     <!-- Hero Section -->
     <section class="hero">
@@ -1087,6 +1434,23 @@
     </footer>
 
     <script>
+        // Mobile menu toggle
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobileMenu');
+            menu.classList.toggle('active');
+            document.body.style.overflow = menu.classList.contains('active') ? 'hidden' : '';
+        }
+
+        // Close mobile menu on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const menu = document.getElementById('mobileMenu');
+                if (menu.classList.contains('active')) {
+                    toggleMobileMenu();
+                }
+            }
+        });
+
         // Copy code functionality
         function copyCode(btn) {
             const codeBlock = btn.parentElement.querySelector('code');
