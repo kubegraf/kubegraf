@@ -435,7 +435,7 @@ const dashboardHTML = `<!DOCTYPE html>
         <div class="logo">
             <div class="logo-icon">K</div>
             <span class="logo-text">KubeGraf</span>
-            <span style="padding: 0.2rem 0.5rem; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 4px; color: #22c55e; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem;">v2.0.0</span>
+            <span style="padding: 0.2rem 0.5rem; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 4px; color: #22c55e; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem;">v1.0.0</span>
         </div>
         <div style="display: flex; align-items: center; gap: 1rem;">
             <!-- Cluster Name Badge -->
@@ -3958,7 +3958,7 @@ const dashboardHTML = `<!DOCTYPE html>
     <!-- Footer -->
     <footer style="background: rgba(15, 23, 42, 0.95); border-top: 1px solid rgba(100, 116, 139, 0.3); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
         <div style="display: flex; align-items: center; gap: 1rem;">
-            <span style="color: #64748b; font-size: 0.875rem;">KubeGraf v2.0.0</span>
+            <span style="color: #64748b; font-size: 0.875rem;">KubeGraf v1.0.0</span>
             <span style="color: #475569;">|</span>
             <span style="color: #64748b; font-size: 0.875rem;">Advanced Kubernetes Visualization</span>
         </div>

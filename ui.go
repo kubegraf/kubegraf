@@ -238,7 +238,7 @@ func (a *App) getHelpBar() string {
 
 // showHelp shows the help dialog
 func (a *App) showHelp() {
-	helpText := `[cyan::b]KubeGraf v2.0 - Keyboard Shortcuts[::-]
+	helpText := `[cyan::b]KubeGraf v1.0 - Keyboard Shortcuts[::-]
 
 [cyan]Navigation:[-]
   [white]↑/↓[-]            Navigate rows
