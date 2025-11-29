@@ -254,8 +254,24 @@ curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-l
 sudo mv kubegraf /usr/local/bin/</code>
             </div>
 
-            <p><strong>Windows:</strong></p>
-            <p>Download <span class="code-inline">kubegraf-windows-amd64.zip</span> from the <a href="https://github.com/kubegraf/kubegraf/releases/latest">releases page</a> and add to your PATH.</p>
+            <p><strong>Windows (PowerShell):</strong></p>
+            <div class="code-block">
+                <code># Download and install (run as Administrator)
+Invoke-WebRequest -Uri "https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-windows-amd64.zip" -OutFile kubegraf.zip
+Expand-Archive kubegraf.zip -DestinationPath .
+Move-Item kubegraf.exe C:\Windows\System32\
+
+# Or install to custom directory
+mkdir C:\kubegraf -Force
+Move-Item kubegraf.exe C:\kubegraf\
+# Then add C:\kubegraf to your PATH environment variable</code>
+            </div>
+            <p><strong>Windows (Manual):</strong></p>
+            <ol>
+                <li>Download <span class="code-inline">kubegraf-windows-amd64.zip</span> from the <a href="https://github.com/kubegraf/kubegraf/releases/latest">releases page</a></li>
+                <li>Extract the ZIP file</li>
+                <li>Move <span class="code-inline">kubegraf.exe</span> to a folder in your PATH</li>
+            </ol>
 
             <h3>Option 2: Go Install</h3>
             <div class="code-block">
