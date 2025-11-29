@@ -6004,11 +6004,14 @@
         // Connection status tracking
         let isConnected = true;
 
+        let wasConnected = false;
         function checkConnectionStatus() {
             return fetch('/api/status')
                 .then(r => r.json())
                 .then(data => {
+                    const wasDisconnected = !wasConnected;
                     isConnected = data.connected;
+                    wasConnected = data.connected;
                     const dot = document.getElementById('connection-dot');
                     const text = document.getElementById('connection-text');
                     const banner = document.getElementById('connection-error-banner');
@@ -6021,6 +6024,15 @@
                         banner.style.display = 'none';
                         if (data.cluster) {
                             document.getElementById('cluster-name').textContent = data.cluster;
+                        }
+                        // If we just connected, reload the UI
+                        if (wasDisconnected) {
+                            loadNamespaces().then(() => {
+                                loadPods();
+                                loadResourceOverview();
+                                loadDashboardSecuritySummary();
+                            });
+                            fetch('/api/metrics').then(r => r.json()).then(updateMetrics);
                         }
                     } else {
                         dot.style.background = '#ef4444';
