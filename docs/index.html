@@ -551,6 +551,109 @@
         }
 
         /* Responsive */
+        /* Canvas and Animated Background */
+        .hero-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .mouse-gradient {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(50, 108, 229, 0.15) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+            transform: translate(-50%, -50%);
+            transition: opacity 0.3s;
+        }
+
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                linear-gradient(rgba(50, 108, 229, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(50, 108, 229, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .hero .container {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Feature card animations */
+        .feature-card {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .feature-card.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .feature-card:hover {
+            border-color: rgba(50, 108, 229, 0.5);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(50, 108, 229, 0.15);
+        }
+
+        /* Stats section */
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 4rem;
+            margin-top: 4rem;
+            padding: 2rem 0;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 800;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            color: var(--gray);
+            font-size: 0.95rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Badge pulse animation */
+        .hero-badge {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(50, 108, 229, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(50, 108, 229, 0); }
+        }
+
+        /* Floating animation for nodes */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
         @media (max-width: 768px) {
             .nav-links {
                 display: none;
@@ -566,6 +669,15 @@
 
             .features-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .stats {
+                flex-wrap: wrap;
+                gap: 2rem;
+            }
+
+            .stat-number {
+                font-size: 2rem;
             }
 
             .footer-content {
@@ -586,6 +698,9 @@
     </style>
 </head>
 <body>
+    <!-- Mouse-following gradient -->
+    <div class="mouse-gradient" id="mouseGradient"></div>
+
     <!-- Navigation -->
     <nav>
         <div class="nav-content">
@@ -608,6 +723,10 @@
 
     <!-- Hero Section -->
     <section class="hero">
+        <!-- Animated canvas background -->
+        <canvas id="heroCanvas" class="hero-canvas"></canvas>
+        <!-- Grid overlay -->
+        <div class="grid-overlay"></div>
         <div class="container">
             <span class="hero-badge">
                 <span>v1.1</span>
@@ -618,6 +737,26 @@
             <div class="hero-buttons">
                 <a href="#installation" class="btn btn-primary">Get Started</a>
                 <a href="https://github.com/kubegraf/kubegraf" class="btn btn-secondary">View on GitHub</a>
+            </div>
+
+            <!-- Animated Stats -->
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-number" data-target="3">0</div>
+                    <div class="stat-label">UI Interfaces</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" data-target="15">0</div>
+                    <div class="stat-label">Resource Types</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" data-target="100">0</div>
+                    <div class="stat-label">% Open Source</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" data-target="5">0</div>
+                    <div class="stat-label">Theme Options</div>
+                </div>
             </div>
 
             <div class="terminal-preview">
@@ -953,6 +1092,192 @@
                 }
             });
         });
+
+        // ============ ANIMATED CANVAS BACKGROUND ============
+        const canvas = document.getElementById('heroCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            const hero = document.querySelector('.hero');
+            canvas.width = hero.offsetWidth;
+            canvas.height = hero.offsetHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Nodes representing Kubernetes resources
+        const nodes = [];
+        const connections = [];
+        const nodeCount = 20;
+        const connectionCount = 25;
+
+        // Colors for different resource types
+        const colors = ['#326ce5', '#00d4aa', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7'];
+
+        // Initialize nodes
+        for (let i = 0; i < nodeCount; i++) {
+            nodes.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 4 + 2,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: (Math.random() - 0.5) * 0.5,
+                pulsePhase: Math.random() * Math.PI * 2
+            });
+        }
+
+        // Initialize connections with particles
+        for (let i = 0; i < connectionCount; i++) {
+            const from = Math.floor(Math.random() * nodeCount);
+            let to = Math.floor(Math.random() * nodeCount);
+            while (to === from) to = Math.floor(Math.random() * nodeCount);
+
+            connections.push({
+                from: from,
+                to: to,
+                particles: [],
+                lastParticle: 0
+            });
+        }
+
+        // Animation loop
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update and draw connections
+            connections.forEach(conn => {
+                const fromNode = nodes[conn.from];
+                const toNode = nodes[conn.to];
+
+                // Draw connection line
+                ctx.beginPath();
+                ctx.moveTo(fromNode.x, fromNode.y);
+                ctx.lineTo(toNode.x, toNode.y);
+                ctx.strokeStyle = 'rgba(50, 108, 229, 0.1)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Add new particle periodically
+                if (Date.now() - conn.lastParticle > 2000 + Math.random() * 3000) {
+                    conn.particles.push({ progress: 0 });
+                    conn.lastParticle = Date.now();
+                }
+
+                // Update and draw particles
+                conn.particles = conn.particles.filter(p => {
+                    p.progress += 0.005;
+                    if (p.progress > 1) return false;
+
+                    const x = fromNode.x + (toNode.x - fromNode.x) * p.progress;
+                    const y = fromNode.y + (toNode.y - fromNode.y) * p.progress;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(0, 212, 170, ${1 - p.progress})`;
+                    ctx.fill();
+
+                    return true;
+                });
+            });
+
+            // Update and draw nodes
+            nodes.forEach(node => {
+                // Update position
+                node.x += node.vx;
+                node.y += node.vy;
+
+                // Bounce off edges
+                if (node.x < 0 || node.x > canvas.width) node.vx *= -1;
+                if (node.y < 0 || node.y > canvas.height) node.vy *= -1;
+
+                // Pulse effect
+                node.pulsePhase += 0.02;
+                const pulse = Math.sin(node.pulsePhase) * 0.3 + 1;
+
+                // Draw glow
+                const gradient = ctx.createRadialGradient(
+                    node.x, node.y, 0,
+                    node.x, node.y, node.radius * 3 * pulse
+                );
+                gradient.addColorStop(0, node.color + '40');
+                gradient.addColorStop(1, 'transparent');
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius * 3 * pulse, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Draw node
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius * pulse, 0, Math.PI * 2);
+                ctx.fillStyle = node.color;
+                ctx.fill();
+            });
+
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // ============ MOUSE-FOLLOWING GRADIENT ============
+        const mouseGradient = document.getElementById('mouseGradient');
+        document.addEventListener('mousemove', (e) => {
+            mouseGradient.style.left = e.clientX + 'px';
+            mouseGradient.style.top = e.clientY + 'px';
+        });
+
+        // ============ FEATURE CARD SCROLL ANIMATIONS ============
+        const featureCards = document.querySelectorAll('.feature-card');
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, index) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => {
+                        entry.target.classList.add('visible');
+                    }, index * 100);
+                }
+            });
+        }, observerOptions);
+
+        featureCards.forEach(card => observer.observe(card));
+
+        // ============ ANIMATED COUNTERS ============
+        const statNumbers = document.querySelectorAll('.stat-number');
+        let countersAnimated = false;
+
+        const statsObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting && !countersAnimated) {
+                    countersAnimated = true;
+                    statNumbers.forEach(num => {
+                        const target = parseInt(num.dataset.target);
+                        const duration = 2000;
+                        const start = performance.now();
+
+                        function updateCounter(currentTime) {
+                            const elapsed = currentTime - start;
+                            const progress = Math.min(elapsed / duration, 1);
+                            const easeOut = 1 - Math.pow(1 - progress, 3);
+                            const current = Math.floor(target * easeOut);
+                            num.textContent = current;
+
+                            if (progress < 1) {
+                                requestAnimationFrame(updateCounter);
+                            } else {
+                                num.textContent = target;
+                            }
+                        }
+                        requestAnimationFrame(updateCounter);
+                    });
+                }
+            });
+        }, { threshold: 0.5 });
+
+        const statsSection = document.querySelector('.stats');
+        if (statsSection) statsObserver.observe(statsSection);
     </script>
 </body>
 </html>
