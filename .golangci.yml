@@ -1,0 +1,48 @@
+# golangci-lint configuration for KubeGraf
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  enable:
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+  disable:
+    - errcheck  # Too many false positives for this project
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow  # Too strict for this project
+  goimports:
+    local-prefixes: github.com/kubegraf/kubegraf
+  misspell:
+    locale: US
+  staticcheck:
+    checks:
+      - all
+      - -SA1019  # Allow deprecated APIs (k8s client evolves)
+
+issues:
+  exclude-rules:
+    # Ignore printf format issues for logging
+    - linters:
+        - govet
+      text: "printf"
+    # Ignore ineffectual assignment in complex handlers
+    - path: web_server\.go
+      linters:
+        - ineffassign
+  max-issues-per-linter: 50
+  max-same-issues: 10

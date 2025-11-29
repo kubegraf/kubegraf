@@ -73,15 +73,15 @@ func formatAge(d time.Duration) string {
 
 // PortForwardSession tracks an active port-forward session
 type PortForwardSession struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"` // "pod" or "service"
-	Name        string    `json:"name"`
-	Namespace   string    `json:"namespace"`
-	LocalPort   int       `json:"localPort"`
-	RemotePort  int       `json:"remotePort"`
-	StartedAt   time.Time `json:"startedAt"`
-	stopChan    chan struct{}
-	readyChan   chan struct{}
+	ID         string    `json:"id"`
+	Type       string    `json:"type"` // "pod" or "service"
+	Name       string    `json:"name"`
+	Namespace  string    `json:"namespace"`
+	LocalPort  int       `json:"localPort"`
+	RemotePort int       `json:"remotePort"`
+	StartedAt  time.Time `json:"startedAt"`
+	stopChan   chan struct{}
+	readyChan  chan struct{}
 }
 
 // WebServer handles the web UI
@@ -457,12 +457,11 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 		// Get CPU and Memory capacity
 		cpu := node.Status.Capacity.Cpu().String()
-		memory := node.Status.Capacity.Memory().String()
 
 		// Convert memory to a readable format
 		memoryBytes := node.Status.Capacity.Memory().Value()
 		memoryGi := float64(memoryBytes) / (1024 * 1024 * 1024)
-		memory = fmt.Sprintf("%.1fGi", memoryGi)
+		memory := fmt.Sprintf("%.1fGi", memoryGi)
 
 		// Get metrics for this node if available
 		cpuUsage := "-"
@@ -968,11 +967,11 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 				totalMemory += memoryBytes
 
 				containerMetrics = append(containerMetrics, map[string]interface{}{
-					"name":       cm.Name,
-					"cpuMillis":  cpuMillis,
-					"cpu":        fmt.Sprintf("%dm", cpuMillis),
+					"name":        cm.Name,
+					"cpuMillis":   cpuMillis,
+					"cpu":         fmt.Sprintf("%dm", cpuMillis),
 					"memoryBytes": memoryBytes,
-					"memory":     fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
+					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
 				})
 			}
 
@@ -2447,7 +2446,7 @@ func (ws *WebServer) handleStatefulSetDescribe(w http.ResponseWriter, r *http.Re
 			}
 			if len(vct.Spec.Resources.Requests) > 0 {
 				if storage, ok := vct.Spec.Resources.Requests["storage"]; ok {
-					describe.WriteString(fmt.Sprintf("  Storage:      %s\n", storage))
+					describe.WriteString(fmt.Sprintf("  Storage:      %s\n", storage.String()))
 				}
 			}
 		}
@@ -2889,16 +2888,16 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":          true,
-		"name":             cj.Name,
-		"schedule":         cj.Spec.Schedule,
-		"suspend":          suspended,
-		"active":           len(cj.Status.Active),
-		"activeJobs":       strings.Join(activeJobs, ", "),
-		"lastSchedule":     lastSchedule,
-		"nextSchedule":     nextSchedule,
+		"success":           true,
+		"name":              cj.Name,
+		"schedule":          cj.Spec.Schedule,
+		"suspend":           suspended,
+		"active":            len(cj.Status.Active),
+		"activeJobs":        strings.Join(activeJobs, ", "),
+		"lastSchedule":      lastSchedule,
+		"nextSchedule":      nextSchedule,
 		"concurrencyPolicy": string(cj.Spec.ConcurrencyPolicy),
-		"age":              formatAge(time.Since(cj.CreationTimestamp.Time)),
+		"age":               formatAge(time.Since(cj.CreationTimestamp.Time)),
 	})
 }
 
@@ -3380,21 +3379,21 @@ func (ws *WebServer) handleNodeDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":       true,
-		"name":          node.Name,
-		"status":        status,
-		"roles":         strings.Join(roles, ","),
-		"version":       node.Status.NodeInfo.KubeletVersion,
-		"osImage":       node.Status.NodeInfo.OSImage,
-		"kernelVersion": node.Status.NodeInfo.KernelVersion,
+		"success":          true,
+		"name":             node.Name,
+		"status":           status,
+		"roles":            strings.Join(roles, ","),
+		"version":          node.Status.NodeInfo.KubeletVersion,
+		"osImage":          node.Status.NodeInfo.OSImage,
+		"kernelVersion":    node.Status.NodeInfo.KernelVersion,
 		"containerRuntime": node.Status.NodeInfo.ContainerRuntimeVersion,
-		"cpu":           node.Status.Capacity.Cpu().String(),
-		"memory":        node.Status.Capacity.Memory().String(),
-		"pods":          node.Status.Capacity.Pods().String(),
-		"conditions":    node.Status.Conditions,
-		"addresses":     node.Status.Addresses,
-		"labels":        node.Labels,
-		"annotations":   node.Annotations,
+		"cpu":              node.Status.Capacity.Cpu().String(),
+		"memory":           node.Status.Capacity.Memory().String(),
+		"pods":             node.Status.Capacity.Pods().String(),
+		"conditions":       node.Status.Conditions,
+		"addresses":        node.Status.Addresses,
+		"labels":           node.Labels,
+		"annotations":      node.Annotations,
 	})
 }
 
