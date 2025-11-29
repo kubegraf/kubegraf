@@ -343,7 +343,7 @@ func (a *App) renderTree(node *ResourceNode, prefix string, isLast bool, isRoot 
 	if isRoot {
 		// Root node with special formatting
 		result.WriteString(fmt.Sprintf("\n[%s::b]%s %s %s[-:-:-]\n", node.Color, node.Icon, node.Type, node.Name))
-		if node.Metadata != nil && len(node.Metadata) > 0 {
+		if len(node.Metadata) > 0 {
 			result.WriteString("[gray]")
 			for k, v := range node.Metadata {
 				result.WriteString(fmt.Sprintf("  %s: %s  ", k, v))
@@ -361,7 +361,7 @@ func (a *App) renderTree(node *ResourceNode, prefix string, isLast bool, isRoot 
 		result.WriteString(fmt.Sprintf("%s[gray]%s[-] [%s]%s %s[-] [white]%s[-]",
 			prefix, connector, node.Color, node.Icon, node.Type, node.Name))
 
-		if node.Metadata != nil && len(node.Metadata) > 0 {
+		if len(node.Metadata) > 0 {
 			result.WriteString(" [gray]")
 			first := true
 			for k, v := range node.Metadata {

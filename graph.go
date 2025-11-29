@@ -33,9 +33,9 @@ func (a *App) buildGraphViz(root *ResourceNode) *gographviz.Graph {
 	g.SetDir(true) // Directed graph
 
 	// Set graph attributes for better visualization
-	g.AddAttr("G", "rankdir", "TB") // Top to Bottom layout
+	g.AddAttr("G", "rankdir", "TB")          // Top to Bottom layout
 	g.AddAttr("G", "bgcolor", "\"#1e1e1e\"") // Dark background
-	g.AddAttr("G", "splines", "ortho") // Orthogonal edges
+	g.AddAttr("G", "splines", "ortho")       // Orthogonal edges
 	g.AddAttr("G", "nodesep", "0.5")
 	g.AddAttr("G", "ranksep", "0.8")
 

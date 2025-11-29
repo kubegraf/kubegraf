@@ -65,28 +65,28 @@ const (
 
 // App represents the main application
 type App struct {
-	app           *tview.Application
-	pages         *tview.Pages
-	table         *tview.Table
-	tabBar        *tview.TextView
-	statusBar     *tview.TextView
-	metricsBar    *tview.TextView
-	eventBar      *tview.TextView
-	helpBar       *tview.TextView
-	yamlView      *tview.TextView
-	clientset     *kubernetes.Clientset
-	metricsClient *metricsclientset.Clientset
-	config        *rest.Config
-	namespace     string
-	cluster       string
-	currentTab    int
-	tabs          []string
-	selectedRow   int
-	events        []Event
-	eventsMux     sync.Mutex
-	stopCh        chan struct{}
-	ctx           context.Context
-	cancel        context.CancelFunc
+	app             *tview.Application
+	pages           *tview.Pages
+	table           *tview.Table
+	tabBar          *tview.TextView
+	statusBar       *tview.TextView
+	metricsBar      *tview.TextView
+	eventBar        *tview.TextView
+	helpBar         *tview.TextView
+	yamlView        *tview.TextView
+	clientset       *kubernetes.Clientset
+	metricsClient   *metricsclientset.Clientset
+	config          *rest.Config
+	namespace       string
+	cluster         string
+	currentTab      int
+	tabs            []string
+	selectedRow     int
+	events          []Event
+	eventsMux       sync.Mutex
+	stopCh          chan struct{}
+	ctx             context.Context
+	cancel          context.CancelFunc
 	tableData       *TableData
 	isInitialized   bool
 	connected       bool
