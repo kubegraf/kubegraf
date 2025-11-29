@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<h2>⎈ KubeGraf</h2>
+<img src="https://kubegraf.io/logo.svg" alt="KubeGraf" width="350">
 
 **Advanced Kubernetes Visualization Tool**
 
