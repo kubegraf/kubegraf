@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KubeGraf - Advanced Kubernetes Visualization Tool</title>
+    <meta name="description" content="KubeGraf is a powerful Kubernetes visualization tool with terminal UI and web dashboard for monitoring and managing your clusters.">
+    <meta name="keywords" content="kubernetes, k8s, visualization, monitoring, dashboard, cli, terminal, devops">
+    <meta property="og:title" content="KubeGraf - Advanced Kubernetes Visualization">
+    <meta property="og:description" content="Visualize and manage your Kubernetes clusters with an intuitive terminal UI and modern web dashboard.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://kubegraf.io">
+    <link rel="canonical" href="https://kubegraf.io">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --primary-dark: #2756b8;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+            --gradient: linear-gradient(135deg, #326ce5 0%, #00d4aa 100%);
+            --gradient-dark: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            font-size: 2rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--gray);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--light);
+        }
+
+        .nav-cta {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            font-size: 0.95rem;
+        }
+
+        .btn-primary {
+            background: var(--gradient);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(50, 108, 229, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 10rem 0 6rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(50, 108, 229, 0.15) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(50, 108, 229, 0.1);
+            border: 1px solid rgba(50, 108, 229, 0.3);
+            border-radius: 50px;
+            font-size: 0.875rem;
+            color: var(--primary);
+            margin-bottom: 2rem;
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--gray);
+            max-width: 600px;
+            margin: 0 auto 2.5rem;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .hero-buttons .btn {
+            padding: 1rem 2rem;
+            font-size: 1rem;
+        }
+
+        /* Terminal Preview */
+        .terminal-preview {
+            margin: 4rem auto 0;
+            max-width: 900px;
+            background: var(--dark);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 25px 100px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .terminal-dot.red { background: #ff5f56; }
+        .terminal-dot.yellow { background: #ffbd2e; }
+        .terminal-dot.green { background: #27c93f; }
+
+        .terminal-body {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            line-height: 1.8;
+        }
+
+        .terminal-body .prompt {
+            color: var(--secondary);
+        }
+
+        .terminal-body .command {
+            color: var(--light);
+        }
+
+        .terminal-body .output {
+            color: var(--gray);
+        }
+
+        .terminal-body .highlight {
+            color: var(--primary);
+        }
+
+        /* Features Section */
+        .features {
+            padding: 6rem 0;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .section-header p {
+            color: var(--gray);
+            font-size: 1.125rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
+        .feature-card {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s;
+        }
+
+        .feature-card:hover {
+            border-color: rgba(50, 108, 229, 0.5);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-card p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        /* Installation Section */
+        .installation {
+            padding: 6rem 0;
+            background: var(--dark);
+        }
+
+        .install-methods {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .install-card {
+            background: var(--darker);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+
+        .install-card h3 {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.125rem;
+            margin-bottom: 1rem;
+        }
+
+        .code-block {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .code-block code {
+            color: var(--secondary);
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: var(--gray);
+            padding: 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--light);
+        }
+
+        /* Demo Section */
+        .demo {
+            padding: 6rem 0;
+        }
+
+        .demo-tabs {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+
+        .demo-tab {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--gray);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .demo-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .demo-content {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--gray);
+        }
+
+        .demo-placeholder {
+            text-align: center;
+        }
+
+        .demo-placeholder p {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Docs Section */
+        .docs {
+            padding: 6rem 0;
+            background: var(--dark);
+        }
+
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .doc-card {
+            display: block;
+            background: var(--darker);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+
+        .doc-card:hover {
+            border-color: rgba(50, 108, 229, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .doc-card h3 {
+            color: var(--light);
+            font-size: 1.125rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .doc-card p {
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        /* Footer */
+        footer {
+            padding: 4rem 0 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 3rem;
+            margin-bottom: 3rem;
+        }
+
+        .footer-brand {
+            max-width: 300px;
+        }
+
+        .footer-brand .logo {
+            margin-bottom: 1rem;
+        }
+
+        .footer-brand p {
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 4rem;
+        }
+
+        .footer-column h4 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+            color: var(--gray);
+        }
+
+        .footer-column ul {
+            list-style: none;
+        }
+
+        .footer-column a {
+            color: var(--light);
+            text-decoration: none;
+            font-size: 0.95rem;
+            display: block;
+            padding: 0.25rem 0;
+            transition: color 0.2s;
+        }
+
+        .footer-column a:hover {
+            color: var(--primary);
+        }
+
+        .footer-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        .social-links {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .social-links a {
+            color: var(--gray);
+            font-size: 1.25rem;
+            transition: color 0.2s;
+        }
+
+        .social-links a:hover {
+            color: var(--light);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+
+            .hero p {
+                font-size: 1rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .footer-content {
+                flex-direction: column;
+            }
+
+            .footer-links {
+                flex-direction: column;
+                gap: 2rem;
+            }
+
+            .footer-bottom {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo">
+                <span class="logo-icon">⎈</span>
+                <span>KubeGraf</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#installation">Installation</a></li>
+                <li><a href="#demo">Demo</a></li>
+                <li><a href="#docs">Documentation</a></li>
+            </ul>
+            <div class="nav-cta">
+                <a href="https://github.com/kubegraf/kubegraf" class="btn btn-secondary">GitHub</a>
+                <a href="#installation" class="btn btn-primary">Get Started</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <span class="hero-badge">
+                <span>v2.0</span>
+                Now with Web UI Dashboard
+            </span>
+            <h1>Kubernetes Visualization<br>Made Simple</h1>
+            <p>A powerful, intuitive tool for visualizing and managing your Kubernetes clusters. Terminal UI for speed, Web dashboard for insights.</p>
+            <div class="hero-buttons">
+                <a href="#installation" class="btn btn-primary">Get Started</a>
+                <a href="https://github.com/kubegraf/kubegraf" class="btn btn-secondary">View on GitHub</a>
+            </div>
+
+            <div class="terminal-preview">
+                <div class="terminal-header">
+                    <span class="terminal-dot red"></span>
+                    <span class="terminal-dot yellow"></span>
+                    <span class="terminal-dot green"></span>
+                </div>
+                <div class="terminal-body">
+                    <div><span class="prompt">$</span> <span class="command">kubegraf</span></div>
+                    <br>
+                    <div class="output">
+                        <span class="highlight">⎈ KubeGraf v2.0.0</span> - Kubernetes Visualization Tool<br><br>
+                        ┌─────────────────────────────────────────────────────────────────┐<br>
+                        │ <span class="highlight">Pods</span> │ Deployments │ Services │ Ingresses │ ConfigMaps │ Nodes │<br>
+                        ├─────────────────────────────────────────────────────────────────┤<br>
+                        │ <span style="color: #27c93f;">✔</span> nginx-7bf98d-x2k4j     Running    10.0.0.15   2d    50Mi/128Mi │<br>
+                        │ <span style="color: #27c93f;">✔</span> api-server-5c9-4m2qz  Running    10.0.0.22   5h    128Mi/256Mi│<br>
+                        │ <span style="color: #ffbd2e;">◌</span> worker-batch-p9x2j    Pending    -           30s   -           │<br>
+                        │ <span style="color: #27c93f;">✔</span> redis-master-0        Running    10.0.0.8    7d    64Mi/128Mi  │<br>
+                        └─────────────────────────────────────────────────────────────────┘<br>
+                        <br>
+                        <span style="color: #64748b;">[q] Quit  [r] Refresh  [n] Namespace  [Tab] Switch Tab  [Enter] Details</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Everything You Need</h2>
+                <p>Comprehensive Kubernetes visualization and management in one tool</p>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🖥️</div>
+                    <h3>Terminal UI</h3>
+                    <p>Lightning-fast TUI for quick cluster inspection. Navigate pods, deployments, services with vim-style keybindings.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Web Dashboard</h3>
+                    <p>Modern web interface with real-time metrics, interactive topology visualization, and comprehensive resource management.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🗺️</div>
+                    <h3>Topology Visualization</h3>
+                    <p>Interactive D3.js force-directed graphs showing resource relationships. Understand your cluster architecture at a glance.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Real-time Metrics</h3>
+                    <p>Live CPU, memory, and pod metrics with sparkline visualizations. WebSocket updates for instant feedback.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔧</div>
+                    <h3>Resource Operations</h3>
+                    <p>Shell into pods, restart deployments, scale replicas, port-forward services - all from one interface.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Multi-Namespace</h3>
+                    <p>Switch between namespaces instantly or view all resources across your entire cluster with "All Namespaces" mode.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section id="installation" class="installation">
+        <div class="container">
+            <div class="section-header">
+                <h2>Quick Installation</h2>
+                <p>Get up and running in seconds</p>
+            </div>
+
+            <div class="install-methods">
+                <div class="install-card">
+                    <h3>📦 Go Install</h3>
+                    <div class="code-block">
+                        <code>go install github.com/kubegraf/kubegraf@latest</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>🍺 Homebrew (macOS)</h3>
+                    <div class="code-block">
+                        <code>brew install kubegraf/tap/kubegraf</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>📥 Binary Download</h3>
+                    <div class="code-block">
+                        <code># Download from GitHub Releases<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-$(uname -s)-$(uname -m) -o kubegraf<br>chmod +x kubegraf && sudo mv kubegraf /usr/local/bin/</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>🔧 Build from Source</h3>
+                    <div class="code-block">
+                        <code>git clone https://github.com/kubegraf/kubegraf.git<br>cd kubegraf<br>go build -o kubegraf<br>./kubegraf</code>
+                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 3rem;">
+                <h3 style="margin-bottom: 1rem;">Usage</h3>
+                <div class="code-block" style="max-width: 500px; margin: 0 auto; text-align: left;">
+                    <code><span style="color: #64748b;"># Terminal UI</span><br>kubegraf<br>kubegraf production<br><br><span style="color: #64748b;"># Web Dashboard</span><br>kubegraf --web<br>kubegraf --web --port=3000</code>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo Section -->
+    <section id="demo" class="demo">
+        <div class="container">
+            <div class="section-header">
+                <h2>See It In Action</h2>
+                <p>Experience the power of KubeGraf</p>
+            </div>
+
+            <div class="demo-tabs">
+                <button class="demo-tab active" onclick="switchDemo('tui')">Terminal UI</button>
+                <button class="demo-tab" onclick="switchDemo('web')">Web Dashboard</button>
+                <button class="demo-tab" onclick="switchDemo('topology')">Topology View</button>
+            </div>
+
+            <div class="demo-content" id="demo-display">
+                <div class="demo-placeholder">
+                    <p>🎬 Demo Coming Soon</p>
+                    <span style="font-size: 0.875rem;">Screenshots and GIFs will be added here</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Documentation Section -->
+    <section id="docs" class="docs">
+        <div class="container">
+            <div class="section-header">
+                <h2>Documentation</h2>
+                <p>Learn how to get the most out of KubeGraf</p>
+            </div>
+
+            <div class="docs-grid">
+                <a href="getting-started.html" class="doc-card">
+                    <h3>🚀 Getting Started</h3>
+                    <p>Installation, configuration, and your first steps with KubeGraf</p>
+                </a>
+
+                <a href="terminal-ui.html" class="doc-card">
+                    <h3>🖥️ Terminal UI Guide</h3>
+                    <p>Keyboard shortcuts, navigation, and TUI features</p>
+                </a>
+
+                <a href="web-dashboard.html" class="doc-card">
+                    <h3>🌐 Web Dashboard</h3>
+                    <p>Using the web interface for cluster management</p>
+                </a>
+
+                <a href="topology.html" class="doc-card">
+                    <h3>🗺️ Topology Visualization</h3>
+                    <p>Understanding the interactive cluster topology</p>
+                </a>
+
+                <a href="configuration.html" class="doc-card">
+                    <h3>⚙️ Configuration</h3>
+                    <p>Customizing KubeGraf for your workflow</p>
+                </a>
+
+                <a href="https://github.com/kubegraf/kubegraf" class="doc-card">
+                    <h3>📖 GitHub</h3>
+                    <p>Source code, issues, and contributions</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <a href="/" class="logo">
+                        <span class="logo-icon">⎈</span>
+                        <span>KubeGraf</span>
+                    </a>
+                    <p>Advanced Kubernetes visualization tool for developers and operators.</p>
+                </div>
+
+                <div class="footer-links">
+                    <div class="footer-column">
+                        <h4>Product</h4>
+                        <ul>
+                            <li><a href="#features">Features</a></li>
+                            <li><a href="#installation">Installation</a></li>
+                            <li><a href="#demo">Demo</a></li>
+                            <li><a href="https://github.com/kubegraf/kubegraf/releases">Releases</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="footer-column">
+                        <h4>Resources</h4>
+                        <ul>
+                            <li><a href="#docs">Documentation</a></li>
+                            <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+                            <li><a href="https://github.com/kubegraf/kubegraf/issues">Issues</a></li>
+                            <li><a href="https://github.com/kubegraf/kubegraf/blob/main/LICENSE">License</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="footer-column">
+                        <h4>Community</h4>
+                        <ul>
+                            <li><a href="https://github.com/kubegraf/kubegraf/discussions">Discussions</a></li>
+                            <li><a href="https://github.com/kubegraf/kubegraf/blob/main/CONTRIBUTING.md">Contributing</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <span>&copy; 2025 KubeGraf. Apache License 2.0.</span>
+                <div class="social-links">
+                    <a href="https://github.com/kubegraf/kubegraf" title="GitHub">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Copy code functionality
+        function copyCode(btn) {
+            const codeBlock = btn.parentElement.querySelector('code');
+            const text = codeBlock.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '✓';
+                setTimeout(() => btn.textContent = '📋', 2000);
+            });
+        }
+
+        // Demo tabs
+        function switchDemo(type) {
+            document.querySelectorAll('.demo-tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Placeholder - would show different demos
+            const demos = {
+                tui: 'Terminal UI Demo',
+                web: 'Web Dashboard Demo',
+                topology: 'Topology Visualization Demo'
+            };
+
+            document.getElementById('demo-display').innerHTML = `
+                <div class="demo-placeholder">
+                    <p>🎬 ${demos[type]} Coming Soon</p>
+                    <span style="font-size: 0.875rem;">Screenshots and GIFs will be added here</span>
+                </div>
+            `;
+        }
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

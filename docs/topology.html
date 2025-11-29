@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topology Visualization - KubeGraf</title>
+    <meta name="description" content="Interactive D3.js topology visualization for understanding Kubernetes resource relationships.">
+    <link rel="canonical" href="https://kubegraf.io/topology">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        .container { max-width: 800px; margin: 0 auto; padding: 0 2rem; }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .nav-links { display: flex; gap: 2rem; list-style: none; }
+        .nav-links a { color: var(--gray); text-decoration: none; font-weight: 500; }
+        .nav-links a:hover { color: var(--light); }
+
+        main { padding: 8rem 0 4rem; }
+
+        h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; }
+        .subtitle { color: var(--gray); font-size: 1.125rem; margin-bottom: 3rem; }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2.5rem 0 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h2:first-of-type { border-top: none; padding-top: 0; }
+
+        h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
+
+        p { margin-bottom: 1rem; color: var(--light); }
+
+        .code-inline {
+            background: rgba(50, 108, 229, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875em;
+            color: var(--primary);
+        }
+
+        ul, ol { margin: 1rem 0; padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+
+        .legend {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: var(--dark);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+
+        .breadcrumb { margin-bottom: 2rem; }
+        .breadcrumb a { color: var(--gray); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--primary); }
+        .breadcrumb span { color: var(--gray); margin: 0 0.5rem; }
+
+        footer {
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo"><span>⎈</span><span>KubeGraf</span></a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="terminal-ui.html">Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Web Dashboard</a></li>
+                <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="breadcrumb">
+                <a href="/">Home</a><span>/</span><span>Topology Visualization</span>
+            </div>
+
+            <h1>Topology Visualization</h1>
+            <p class="subtitle">Interactive force-directed graphs showing resource relationships</p>
+
+            <h2>Overview</h2>
+            <p>KubeGraf provides two ways to visualize your cluster topology:</p>
+            <ul>
+                <li><strong>Terminal Canvas Graph</strong> - ASCII-based visualization in your terminal</li>
+                <li><strong>Web D3.js Graph</strong> - Interactive browser-based visualization</li>
+            </ul>
+
+            <h2>Web Topology View</h2>
+            <p>Access the interactive topology at:</p>
+            <ul>
+                <li><span class="code-inline">http://localhost:8080/topology</span> (when running web dashboard)</li>
+                <li>Click "Topology" in the web dashboard navigation</li>
+            </ul>
+
+            <h3>Interactions</h3>
+            <ul>
+                <li><strong>Drag</strong> - Move nodes to rearrange the layout</li>
+                <li><strong>Scroll/Pinch</strong> - Zoom in and out</li>
+                <li><strong>Hover</strong> - See node details and highlight connections</li>
+                <li><strong>Click</strong> - Select a node to focus on its relationships</li>
+            </ul>
+
+            <h2>Resource Color Legend</h2>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #326ce5;"></div>
+                    <span>Deployments</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d4aa;"></div>
+                    <span>Pods</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f59e0b;"></div>
+                    <span>Services</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #8b5cf6;"></div>
+                    <span>Ingresses</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ec4899;"></div>
+                    <span>StatefulSets</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #14b8a6;"></div>
+                    <span>DaemonSets</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #64748b;"></div>
+                    <span>ConfigMaps</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ef4444;"></div>
+                    <span>Secrets</span>
+                </div>
+            </div>
+
+            <h2>Relationship Lines</h2>
+            <p>The graph shows connections between resources:</p>
+            <ul>
+                <li><strong>Deployment → Pods</strong> - Pods managed by a deployment</li>
+                <li><strong>Service → Pods</strong> - Pods selected by a service</li>
+                <li><strong>Ingress → Service</strong> - Backend services for ingress routes</li>
+                <li><strong>Pod → ConfigMap/Secret</strong> - Mounted configurations</li>
+            </ul>
+
+            <h2>Terminal Canvas Graph</h2>
+            <p>Press <span class="code-inline">i</span> in the terminal UI to launch the ASCII canvas graph.</p>
+
+            <h3>Controls</h3>
+            <ul>
+                <li><span class="code-inline">Arrow keys</span> - Pan the view</li>
+                <li><span class="code-inline">+</span> / <span class="code-inline">-</span> - Zoom in/out</li>
+                <li><span class="code-inline">r</span> - Reset view</li>
+                <li><span class="code-inline">q</span> / <span class="code-inline">Esc</span> - Exit graph</li>
+            </ul>
+
+            <h2>Export Options</h2>
+            <p>From the terminal UI, press <span class="code-inline">g</span> to export the topology as an HTML file that opens in your browser. This creates a standalone D3.js visualization you can share.</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 KubeGraf. <a href="https://github.com/kubegraf/kubegraf">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal UI Guide - KubeGraf</title>
+    <meta name="description" content="Complete guide to using the KubeGraf Terminal UI for Kubernetes cluster management.">
+    <link rel="canonical" href="https://kubegraf.io/terminal-ui">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        .container { max-width: 800px; margin: 0 auto; padding: 0 2rem; }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .nav-links { display: flex; gap: 2rem; list-style: none; }
+        .nav-links a { color: var(--gray); text-decoration: none; font-weight: 500; }
+        .nav-links a:hover { color: var(--light); }
+
+        main { padding: 8rem 0 4rem; }
+
+        h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; }
+        .subtitle { color: var(--gray); font-size: 1.125rem; margin-bottom: 3rem; }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2.5rem 0 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h2:first-of-type { border-top: none; padding-top: 0; }
+
+        h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
+
+        p { margin-bottom: 1rem; color: var(--light); }
+
+        .code-block {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        .code-block code { color: var(--secondary); }
+
+        .code-inline {
+            background: rgba(50, 108, 229, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875em;
+            color: var(--primary);
+        }
+
+        ul, ol { margin: 1rem 0; padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        th { font-weight: 600; color: var(--gray); font-size: 0.875rem; text-transform: uppercase; }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .feature-item {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .feature-item h4 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-item p {
+            color: var(--gray);
+            font-size: 0.875rem;
+            margin: 0;
+        }
+
+        .breadcrumb { margin-bottom: 2rem; }
+        .breadcrumb a { color: var(--gray); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--primary); }
+        .breadcrumb span { color: var(--gray); margin: 0 0.5rem; }
+
+        footer {
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo"><span>⎈</span><span>KubeGraf</span></a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="terminal-ui.html">Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Web Dashboard</a></li>
+                <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="breadcrumb">
+                <a href="/">Home</a><span>/</span><span>Terminal UI</span>
+            </div>
+
+            <h1>Terminal UI Guide</h1>
+            <p class="subtitle">Master the keyboard-driven interface for fast cluster navigation</p>
+
+            <h2>Overview</h2>
+            <p>The KubeGraf Terminal UI provides a fast, keyboard-driven interface for exploring and managing your Kubernetes cluster. It's designed for efficiency, allowing you to navigate resources without leaving your terminal.</p>
+
+            <h2>Launching the TUI</h2>
+            <div class="code-block">
+                <code># Default namespace
+kubegraf
+
+# Specific namespace
+kubegraf production
+
+# View version
+kubegraf --version</code>
+            </div>
+
+            <h2>Interface Layout</h2>
+            <p>The terminal interface consists of:</p>
+            <ul>
+                <li><strong>Tab Bar</strong> - Navigate between resource types (Pods, Deployments, Services, etc.)</li>
+                <li><strong>Resource Table</strong> - Main view showing resources with status icons</li>
+                <li><strong>Status Bar</strong> - Current namespace, cluster info, and metrics</li>
+                <li><strong>Event Bar</strong> - Recent Kubernetes events</li>
+                <li><strong>Help Bar</strong> - Quick reference for keyboard shortcuts</li>
+            </ul>
+
+            <h2>Resource Tabs</h2>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h4>Pods</h4>
+                    <p>View pod status, IP, restarts, age, CPU/memory usage</p>
+                </div>
+                <div class="feature-item">
+                    <h4>Deployments</h4>
+                    <p>Replica status, available pods, conditions</p>
+                </div>
+                <div class="feature-item">
+                    <h4>StatefulSets</h4>
+                    <p>Ordered pod management with persistent storage</p>
+                </div>
+                <div class="feature-item">
+                    <h4>DaemonSets</h4>
+                    <p>Pods running on all (or selected) nodes</p>
+                </div>
+                <div class="feature-item">
+                    <h4>Services</h4>
+                    <p>Service type, cluster IP, external IP, ports</p>
+                </div>
+                <div class="feature-item">
+                    <h4>Ingresses</h4>
+                    <p>HTTP routing rules and backends</p>
+                </div>
+                <div class="feature-item">
+                    <h4>ConfigMaps</h4>
+                    <p>Configuration data for applications</p>
+                </div>
+                <div class="feature-item">
+                    <h4>Nodes</h4>
+                    <p>Cluster node status and capacity</p>
+                </div>
+            </div>
+
+            <h2>Keyboard Shortcuts</h2>
+            <table>
+                <thead>
+                    <tr><th>Category</th><th>Key</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Navigation</td><td><span class="code-inline">Tab</span> / <span class="code-inline">Shift+Tab</span></td><td>Next/Previous tab</td></tr>
+                    <tr><td></td><td><span class="code-inline">←</span> / <span class="code-inline">→</span></td><td>Switch tabs</td></tr>
+                    <tr><td></td><td><span class="code-inline">↑</span> / <span class="code-inline">↓</span></td><td>Navigate rows</td></tr>
+                    <tr><td></td><td><span class="code-inline">j</span> / <span class="code-inline">k</span></td><td>Navigate rows (vim-style)</td></tr>
+                    <tr><td></td><td><span class="code-inline">g</span> / <span class="code-inline">G</span></td><td>Go to top/bottom</td></tr>
+                    <tr><td>Actions</td><td><span class="code-inline">Enter</span></td><td>View YAML</td></tr>
+                    <tr><td></td><td><span class="code-inline">d</span></td><td>Describe resource</td></tr>
+                    <tr><td></td><td><span class="code-inline">s</span></td><td>Shell into pod</td></tr>
+                    <tr><td></td><td><span class="code-inline">Ctrl+D</span></td><td>Delete resource</td></tr>
+                    <tr><td>Visualization</td><td><span class="code-inline">i</span></td><td>Interactive canvas graph</td></tr>
+                    <tr><td></td><td><span class="code-inline">g</span></td><td>Export D3.js graph</td></tr>
+                    <tr><td>General</td><td><span class="code-inline">r</span></td><td>Refresh</td></tr>
+                    <tr><td></td><td><span class="code-inline">n</span></td><td>Change namespace</td></tr>
+                    <tr><td></td><td><span class="code-inline">?</span></td><td>Show help</td></tr>
+                    <tr><td></td><td><span class="code-inline">q</span> / <span class="code-inline">Ctrl+C</span></td><td>Quit</td></tr>
+                </tbody>
+            </table>
+
+            <h2>Status Icons</h2>
+            <p>KubeGraf uses intuitive status icons:</p>
+            <table>
+                <thead><tr><th>Icon</th><th>Status</th></tr></thead>
+                <tbody>
+                    <tr><td style="color: #27c93f;">✔</td><td>Running / Ready</td></tr>
+                    <tr><td style="color: #ff5f56;">✖</td><td>Failed / Error</td></tr>
+                    <tr><td style="color: #ffbd2e;">⚠</td><td>Warning</td></tr>
+                    <tr><td style="color: #326ce5;">◌</td><td>Progressing / Starting</td></tr>
+                    <tr><td style="color: #64748b;">◷</td><td>Pending</td></tr>
+                    <tr><td style="color: #64748b;">॥</td><td>Paused</td></tr>
+                </tbody>
+            </table>
+
+            <h2>Canvas Graph (Terminal)</h2>
+            <p>Press <span class="code-inline">i</span> to launch the interactive canvas graph directly in your terminal. This shows resource relationships in ASCII art with keyboard navigation:</p>
+            <ul>
+                <li><span class="code-inline">Arrow keys</span> - Pan the view</li>
+                <li><span class="code-inline">+</span> / <span class="code-inline">-</span> - Zoom in/out</li>
+                <li><span class="code-inline">q</span> - Exit graph view</li>
+            </ul>
+
+            <h2>Tips</h2>
+            <ul>
+                <li>Use <span class="code-inline">r</span> frequently to refresh data</li>
+                <li>The vim-style <span class="code-inline">j/k</span> navigation works throughout</li>
+                <li>Delete requires confirmation - press <span class="code-inline">y</span> to confirm</li>
+                <li>Shell access (<span class="code-inline">s</span>) only works on running pods</li>
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 KubeGraf. <a href="https://github.com/kubegraf/kubegraf">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

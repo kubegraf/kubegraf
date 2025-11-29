@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Getting Started - KubeGraf</title>
+    <meta name="description" content="Get started with KubeGraf - installation, configuration, and first steps.">
+    <link rel="canonical" href="https://kubegraf.io/getting-started">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--gray);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .nav-links a:hover { color: var(--light); }
+
+        main {
+            padding: 8rem 0 4rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .subtitle {
+            color: var(--gray);
+            font-size: 1.125rem;
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2.5rem 0 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h2:first-of-type { border-top: none; padding-top: 0; }
+
+        h3 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 1.5rem 0 0.75rem;
+        }
+
+        p { margin-bottom: 1rem; color: var(--light); }
+
+        .code-block {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        .code-block code { color: var(--secondary); }
+
+        .code-inline {
+            background: rgba(50, 108, 229, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875em;
+            color: var(--primary);
+        }
+
+        ul, ol {
+            margin: 1rem 0;
+            padding-left: 1.5rem;
+        }
+
+        li { margin-bottom: 0.5rem; }
+
+        .note {
+            background: rgba(50, 108, 229, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .note strong { color: var(--primary); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--gray);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+        }
+
+        .breadcrumb {
+            margin-bottom: 2rem;
+        }
+
+        .breadcrumb a {
+            color: var(--gray);
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover { color: var(--primary); }
+
+        .breadcrumb span { color: var(--gray); margin: 0 0.5rem; }
+
+        footer {
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo">
+                <span>⎈</span>
+                <span>KubeGraf</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="terminal-ui.html">Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Web Dashboard</a></li>
+                <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="breadcrumb">
+                <a href="/">Home</a>
+                <span>/</span>
+                <span>Getting Started</span>
+            </div>
+
+            <h1>Getting Started</h1>
+            <p class="subtitle">Everything you need to install and start using KubeGraf</p>
+
+            <h2>Prerequisites</h2>
+            <p>Before installing KubeGraf, ensure you have:</p>
+            <ul>
+                <li>A Kubernetes cluster (local or remote)</li>
+                <li><span class="code-inline">kubectl</span> configured with access to your cluster</li>
+                <li>Go 1.21+ (for source installation)</li>
+            </ul>
+
+            <h2>Installation</h2>
+
+            <h3>Option 1: Go Install (Recommended)</h3>
+            <p>The easiest way to install KubeGraf:</p>
+            <div class="code-block">
+                <code>go install github.com/kubegraf/kubegraf@latest</code>
+            </div>
+
+            <h3>Option 2: Homebrew (macOS)</h3>
+            <div class="code-block">
+                <code>brew install kubegraf/tap/kubegraf</code>
+            </div>
+
+            <h3>Option 3: Binary Download</h3>
+            <p>Download the pre-built binary for your platform:</p>
+            <div class="code-block">
+                <code># Linux (amd64)
+curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-amd64 -o kubegraf
+
+# macOS (arm64 - Apple Silicon)
+curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64 -o kubegraf
+
+# Make executable
+chmod +x kubegraf
+sudo mv kubegraf /usr/local/bin/</code>
+            </div>
+
+            <h3>Option 4: Build from Source</h3>
+            <div class="code-block">
+                <code>git clone https://github.com/kubegraf/kubegraf.git
+cd kubegraf
+go build -o kubegraf
+./kubegraf</code>
+            </div>
+
+            <h2>Quick Start</h2>
+
+            <h3>Terminal UI</h3>
+            <p>Launch the interactive terminal interface:</p>
+            <div class="code-block">
+                <code># Default namespace
+kubegraf
+
+# Specific namespace
+kubegraf production</code>
+            </div>
+
+            <h3>Web Dashboard</h3>
+            <p>Launch the web-based dashboard:</p>
+            <div class="code-block">
+                <code># Default port (8080)
+kubegraf --web
+
+# Custom port
+kubegraf --web --port=3000</code>
+            </div>
+            <p>Then open <span class="code-inline">http://localhost:8080</span> in your browser.</p>
+
+            <div class="note">
+                <strong>Tip:</strong> The web dashboard will start even if your cluster is not connected, showing a connection error banner. This allows you to see the UI and diagnose connection issues.
+            </div>
+
+            <h2>Keyboard Shortcuts (Terminal UI)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Key</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><span class="code-inline">q</span> / <span class="code-inline">Ctrl+C</span></td><td>Quit application</td></tr>
+                    <tr><td><span class="code-inline">r</span></td><td>Refresh resources</td></tr>
+                    <tr><td><span class="code-inline">n</span></td><td>Change namespace</td></tr>
+                    <tr><td><span class="code-inline">Tab</span> / <span class="code-inline">←/→</span></td><td>Switch tabs</td></tr>
+                    <tr><td><span class="code-inline">↑/↓</span> / <span class="code-inline">j/k</span></td><td>Navigate rows</td></tr>
+                    <tr><td><span class="code-inline">Enter</span></td><td>View YAML / Details</td></tr>
+                    <tr><td><span class="code-inline">i</span></td><td>Interactive canvas graph</td></tr>
+                    <tr><td><span class="code-inline">g</span></td><td>Export graph (browser)</td></tr>
+                    <tr><td><span class="code-inline">d</span></td><td>Describe resource</td></tr>
+                    <tr><td><span class="code-inline">s</span></td><td>Shell into pod</td></tr>
+                    <tr><td><span class="code-inline">Ctrl+D</span></td><td>Delete resource</td></tr>
+                    <tr><td><span class="code-inline">?</span></td><td>Show help</td></tr>
+                </tbody>
+            </table>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="terminal-ui.html">Learn more about the Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Explore the Web Dashboard features</a></li>
+                <li><a href="topology.html">Understand Topology Visualization</a></li>
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 KubeGraf. <a href="https://github.com/kubegraf/kubegraf">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>
