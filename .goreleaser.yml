@@ -1,0 +1,76 @@
+# GoReleaser configuration for KubeGraf
+# Run: goreleaser release --clean
+
+version: 2
+
+project_name: kubegraf
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: kubegraf
+    main: .
+    binary: kubegraf
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: kubegraf
+    name: kubegraf
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+
+brews:
+  - name: kubegraf
+    repository:
+      owner: kubegraf
+      name: homebrew-tap
+    folder: Formula
+    homepage: "https://kubegraf.io"
+    description: "Advanced Kubernetes visualization tool with terminal UI and web dashboard"
+    license: "Apache-2.0"
+    install: |
+      bin.install "kubegraf"
+    test: |
+      system "#{bin}/kubegraf", "--version"
