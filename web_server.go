@@ -636,6 +636,10 @@ func (ws *WebServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 // watchKubernetesEvents watches for Kubernetes events and broadcasts them to WebSocket clients
 func (ws *WebServer) watchKubernetesEvents() {
+	var lastError string
+	backoff := 5 * time.Second
+	maxBackoff := 5 * time.Minute
+
 	for {
 		select {
 		case <-ws.stopCh:
@@ -644,10 +648,23 @@ func (ws *WebServer) watchKubernetesEvents() {
 			// Watch all namespaces for events
 			watcher, err := ws.app.clientset.CoreV1().Events("").Watch(ws.app.ctx, metav1.ListOptions{})
 			if err != nil {
-				log.Printf("Failed to watch events: %v", err)
-				time.Sleep(5 * time.Second)
+				errStr := err.Error()
+				// Only log if error message changed (suppress repeated errors)
+				if errStr != lastError {
+					log.Printf("Event watcher error: %v (will retry with backoff)", err)
+					lastError = errStr
+				}
+				time.Sleep(backoff)
+				// Exponential backoff up to max
+				backoff = backoff * 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
 				continue
 			}
+			// Reset backoff on successful connection
+			backoff = 5 * time.Second
+			lastError = ""
 
 			for watchEvent := range watcher.ResultChan() {
 				if watchEvent.Type == "ADDED" || watchEvent.Type == "MODIFIED" {
