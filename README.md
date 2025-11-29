@@ -223,17 +223,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 Apache License 2.0 - see [LICENSE](LICENSE)
 
-## 🙏 Acknowledgments
-
-- Inspired by [k9s](https://k9scli.io/) and [kdash](https://github.com/kdash-rs/kdash)
-- Built for the Kubernetes community ❤️
-
 ---
 
 <div align="center">
 
 **[Get Started](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/getting-started.html)** · **[Report Bug](https://github.com/kubegraf/kubegraf/issues)**
-
-Made with ❤️ for Kubernetes DevOps
 
 </div>
