@@ -851,52 +851,112 @@
                 <p>Get up and running in seconds</p>
             </div>
 
-            <div class="install-methods">
-                <div class="install-card">
-                    <h3>🍎 macOS</h3>
+            <!-- Primary Install Method -->
+            <div style="max-width: 600px; margin: 0 auto 3rem;">
+                <div class="install-card" style="border-color: rgba(50, 108, 229, 0.3);">
+                    <h3 style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+                        Quick Install (Recommended)
+                    </h3>
+                    <p style="color: var(--gray); font-size: 0.875rem; margin-bottom: 1rem;">Automatically detects your OS and architecture</p>
                     <div class="code-block">
-                        <code># Apple Silicon (M1/M2/M3)<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/<br><br># Intel Mac<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-amd64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>🐧 Linux</h3>
-                    <div class="code-block">
-                        <code># x86_64<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-amd64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/<br><br># ARM64<br>curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-arm64.tar.gz | tar xz<br>sudo mv kubegraf /usr/local/bin/</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>🪟 Windows</h3>
-                    <div class="code-block">
-                        <code># PowerShell (Run as Administrator)<br>Invoke-WebRequest -Uri "https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-windows-amd64.zip" -OutFile kubegraf.zip<br>Expand-Archive kubegraf.zip -DestinationPath .<br>Move-Item kubegraf.exe C:\Windows\System32\</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>📦 Go Install</h3>
-                    <div class="code-block">
-                        <code>go install github.com/kubegraf/kubegraf@latest</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>🔧 Build from Source</h3>
-                    <div class="code-block">
-                        <code>git clone https://github.com/kubegraf/kubegraf.git<br>cd kubegraf<br>go build -o kubegraf<br>./kubegraf</code>
-                        <button class="copy-btn" onclick="copyCode(this)">📋</button>
+                        <code>curl -sSL https://kubegraf.io/install.sh | bash</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                     </div>
                 </div>
             </div>
 
-            <div style="text-align: center; margin-top: 3rem;">
-                <h3 style="margin-bottom: 1rem;">Usage</h3>
-                <div class="code-block" style="max-width: 500px; margin: 0 auto; text-align: left;">
-                    <code><span style="color: #64748b;"># Terminal UI</span><br>kubegraf<br>kubegraf production<br><br><span style="color: #64748b;"># Web Dashboard</span><br>kubegraf --web<br>kubegraf --web --port=3000</code>
+            <p style="text-align: center; color: var(--gray); font-size: 0.875rem; margin-bottom: 2rem;">Or choose your platform:</p>
+
+            <div class="install-methods">
+                <div class="install-card">
+                    <h3>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2z"/><path d="M12 6v6l4 2"/></svg>
+                        macOS
+                    </h3>
+                    <div class="code-block" style="margin-bottom: 1rem;">
+                        <code># Homebrew<br>brew install kubegraf/tap/kubegraf</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <div class="code-block">
+                        <code># Manual (Apple Silicon)<br>curl -LO https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64.tar.gz<br>tar xzf kubegraf-darwin-arm64.tar.gz<br>sudo mv kubegraf /usr/local/bin/</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v.01M12 8v4"/></svg>
+                        Linux
+                    </h3>
+                    <div class="code-block">
+                        <code># x86_64<br>curl -LO https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-amd64.tar.gz<br>tar xzf kubegraf-linux-amd64.tar.gz<br>sudo mv kubegraf /usr/local/bin/<br><br># ARM64<br>curl -LO https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-linux-arm64.tar.gz<br>tar xzf kubegraf-linux-arm64.tar.gz<br>sudo mv kubegraf /usr/local/bin/</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                        Windows
+                    </h3>
+                    <div class="code-block" style="margin-bottom: 1rem;">
+                        <code># Scoop<br>scoop bucket add kubegraf https://github.com/kubegraf/scoop-bucket<br>scoop install kubegraf</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <div class="code-block">
+                        <code># Manual (PowerShell)<br>Invoke-WebRequest -Uri "https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-windows-amd64.zip" -OutFile kubegraf.zip<br>Expand-Archive kubegraf.zip -DestinationPath $env:USERPROFILE\bin<br># Add $env:USERPROFILE\bin to PATH</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                        Go Install
+                    </h3>
+                    <p style="color: var(--gray); font-size: 0.875rem; margin-bottom: 1rem;">Requires Go 1.21+</p>
+                    <div class="code-block">
+                        <code>go install github.com/kubegraf/kubegraf@latest</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                        Build from Source
+                    </h3>
+                    <div class="code-block">
+                        <code>git clone https://github.com/kubegraf/kubegraf.git<br>cd kubegraf<br>make build<br>./kubegraf</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                        Docker
+                    </h3>
+                    <div class="code-block">
+                        <code>docker pull ghcr.io/kubegraf/kubegraf:latest<br>docker run -it --rm -v ~/.kube:/root/.kube ghcr.io/kubegraf/kubegraf</code>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Usage Section -->
+            <div style="margin-top: 4rem; max-width: 700px; margin-left: auto; margin-right: auto;">
+                <h3 style="text-align: center; margin-bottom: 1.5rem;">Getting Started</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+                    <div class="code-block" style="text-align: left;">
+                        <p style="color: var(--gray); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Terminal UI</p>
+                        <code>kubegraf<br>kubegraf --context production</code>
+                    </div>
+                    <div class="code-block" style="text-align: left;">
+                        <p style="color: var(--gray); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Web Dashboard</p>
+                        <code>kubegraf --web<br>kubegraf --web --port 3000</code>
+                    </div>
                 </div>
             </div>
         </div>
