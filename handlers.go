@@ -38,6 +38,15 @@ func (a *App) handleKeyPress(event *tcell.EventKey) *tcell.EventKey {
 		}
 	}
 
+	// Check if canvas view is open
+	if a.pages.HasPage("canvas") {
+		name, _ := a.pages.GetFrontPage()
+		if name == "canvas" {
+			// Let canvas handle its own key events
+			return event
+		}
+	}
+
 	// Pass through up/down for table navigation (k9s pattern)
 	if key == tcell.KeyUp || key == tcell.KeyDown {
 		return event
@@ -140,6 +149,9 @@ func (a *App) handleKeyPress(event *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'g', 'G':
 			a.exportCurrentResourceGraph()
+			return nil
+		case 'i', 'I':
+			a.showCanvasGraphView()
 			return nil
 		case '?':
 			a.showHelp()

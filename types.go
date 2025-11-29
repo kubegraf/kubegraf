@@ -21,6 +21,7 @@ import (
 
 	"github.com/rivo/tview"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -48,13 +49,18 @@ const (
 
 // Resource types
 const (
-	ResourcePod        = "Pods"
-	ResourceDeployment = "Deployments"
-	ResourceService    = "Services"
-	ResourceIngress    = "Ingresses"
-	ResourceConfigMap  = "ConfigMaps"
-	ResourceSecret     = "Secrets"
-	ResourceMap        = "ResourceMap"
+	ResourcePod         = "Pods"
+	ResourceDeployment  = "Deployments"
+	ResourceStatefulSet = "StatefulSets"
+	ResourceDaemonSet   = "DaemonSets"
+	ResourceService     = "Services"
+	ResourceIngress     = "Ingresses"
+	ResourceConfigMap   = "ConfigMaps"
+	ResourceSecret      = "Secrets"
+	ResourceCronJob     = "CronJobs"
+	ResourceJob         = "Jobs"
+	ResourceNodes       = "Nodes"
+	ResourceMap         = "ResourceMap"
 )
 
 // App represents the main application
@@ -70,6 +76,7 @@ type App struct {
 	yamlView      *tview.TextView
 	clientset     *kubernetes.Clientset
 	metricsClient *metricsclientset.Clientset
+	config        *rest.Config
 	namespace     string
 	cluster       string
 	currentTab    int
@@ -80,8 +87,10 @@ type App struct {
 	stopCh        chan struct{}
 	ctx           context.Context
 	cancel        context.CancelFunc
-	tableData     *TableData
-	isInitialized bool
+	tableData       *TableData
+	isInitialized   bool
+	connected       bool
+	connectionError string
 }
 
 // TableData holds the current table information

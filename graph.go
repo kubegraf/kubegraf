@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/awalterschulze/gographviz"
+	"github.com/rivo/tview"
 )
 
 // buildGraphViz builds a Graphviz DOT graph from a ResourceNode tree
@@ -417,15 +418,36 @@ func (a *App) exportCurrentResourceGraph() {
 	resourceID := a.tableData.RowIDs[a.selectedRow]
 	a.tableData.mx.RUnlock()
 
-	// Show loading message
-	a.showInfo("Generating interactive graph visualization...\nThis will open in your browser.")
+	// Show choice modal
+	modal := tview.NewModal().
+		SetText("Choose graph visualization type:\n\n[cyan]Graphviz[-] - Static SVG with zoom controls\n[cyan]D3.js[-] - Interactive force-directed graph with draggable nodes").
+		AddButtons([]string{"Graphviz", "D3.js", "Cancel"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			a.pages.HidePage("graph-choice")
 
-	// Export in background
-	go func() {
-		if err := a.exportGraphVizDOT(resourceID); err != nil {
-			a.app.QueueUpdateDraw(func() {
-				a.showError(fmt.Sprintf("Failed to export graph: %v", err))
-			})
-		}
-	}()
+			if buttonLabel == "Cancel" {
+				return
+			}
+
+			// Show loading message
+			a.showInfo("Generating interactive graph visualization...\nThis will open in your browser.")
+
+			// Export in background
+			go func() {
+				var err error
+				if buttonLabel == "Graphviz" {
+					err = a.exportGraphVizDOT(resourceID)
+				} else if buttonLabel == "D3.js" {
+					err = a.exportD3Graph(resourceID)
+				}
+
+				if err != nil {
+					a.app.QueueUpdateDraw(func() {
+						a.showError(fmt.Sprintf("Failed to export graph: %v", err))
+					})
+				}
+			}()
+		})
+
+	a.pages.AddPage("graph-choice", modal, true, true)
 }

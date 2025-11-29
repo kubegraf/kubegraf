@@ -24,13 +24,21 @@ import (
 )
 
 func main() {
-	// Show splash screen
-	showSplash()
+	// Catch panics and show useful error
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "\n❌ Fatal error: %v\n", r)
+			fmt.Fprintf(os.Stderr, "\nPlease report this issue at: https://github.com/kubegraf/kubegraf/issues\n")
+			os.Exit(1)
+		}
+	}()
 
 	// Suppress verbose Kubernetes client logs
 	os.Setenv("KUBE_LOG_LEVEL", "0")
 
-	// Check for flags
+	// Check for flags first (before splash)
+	webMode := false
+	port := 8080
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v":
@@ -39,26 +47,79 @@ func main() {
 		case "--help", "-h":
 			printHelp()
 			return
+		case "--web", "web":
+			webMode = true
+			// Check for custom port
+			if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "--port=") {
+				fmt.Sscanf(os.Args[2], "--port=%d", &port)
+			}
 		}
 	}
 
 	// Parse namespace
 	namespace := "default"
-	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") && os.Args[1] != "web" {
 		namespace = os.Args[1]
+	}
+
+	// Show splash screen only for TUI mode
+	if !webMode {
+		showSplash()
+	} else {
+		fmt.Println("🚀 Initializing KubeGraf Web UI...")
 	}
 
 	// Create and initialize application
 	app := NewApp(namespace)
-	if err := app.Initialize(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize: %v\n", err)
-		os.Exit(1)
+
+	if webMode {
+		fmt.Println("📡 Connecting to Kubernetes cluster...")
 	}
 
-	// Run application
-	if err := app.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Application error: %v\n", err)
-		os.Exit(1)
+	initErr := app.Initialize()
+	if initErr != nil {
+		app.connectionError = initErr.Error()
+		app.connected = false
+		if webMode {
+			// In web mode, continue and show error in UI
+			fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
+			fmt.Println("📊 Starting web UI anyway - you can view the connection error in the dashboard")
+		} else {
+			// In TUI mode, exit with error
+			fmt.Fprintf(os.Stderr, "❌ Failed to initialize: %v\n", initErr)
+			fmt.Fprintf(os.Stderr, "\nTroubleshooting:\n")
+			fmt.Fprintf(os.Stderr, "  • Ensure kubectl is configured: kubectl cluster-info\n")
+			fmt.Fprintf(os.Stderr, "  • Check your kubeconfig: echo $KUBECONFIG\n")
+			fmt.Fprintf(os.Stderr, "  • Verify cluster access: kubectl get nodes\n")
+			os.Exit(1)
+		}
+	} else {
+		app.connected = true
+	}
+
+	// Run in web mode or TUI mode
+	if webMode {
+		if app.connected {
+			fmt.Println("✅ Connected to cluster successfully")
+		}
+		fmt.Println()
+		fmt.Printf("📊 Dashboard:    http://localhost:%d\n", port)
+		fmt.Printf("🗺️  Topology:     http://localhost:%d/topology\n", port)
+		fmt.Printf("📦 Namespace:    %s\n", namespace)
+		fmt.Println("\nPress Ctrl+C to stop the server")
+		fmt.Println()
+
+		webServer := NewWebServer(app)
+		if err := webServer.Start(port); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Web server error: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Run TUI application
+		if err := app.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Application error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }
 
@@ -99,26 +160,50 @@ func printHelp() {
 
 USAGE:
   kubegraf [namespace] [flags]
+  kubegraf --web [--port=8080]    Start web UI instead of terminal UI
 
-KEYBOARD SHORTCUTS:
+FLAGS:
+  --web             Launch web UI dashboard (browser-based)
+  --port=PORT       Specify web server port (default: 8080)
+  --version, -v     Show version information
+  --help, -h        Show this help message
+
+EXAMPLES:
+  kubegraf                    # Launch terminal UI in default namespace
+  kubegraf production         # Launch terminal UI in production namespace
+  kubegraf --web              # Launch web UI at http://localhost:8080
+  kubegraf --web --port=3000  # Launch web UI at http://localhost:3000
+
+KEYBOARD SHORTCUTS (Terminal UI):
   q, Ctrl+C    Quit application
   r            Refresh resources
   n            Change namespace
   Tab, ←/→     Switch tabs (Tab/Shift+Tab or arrow keys)
   ↑/↓, j/k     Navigate rows
-  Enter        View YAML
+  Enter        View YAML / Resource Map
+  i            Interactive canvas graph (terminal)
+  g            Export graph (browser-based)
   d            Describe resource
   s            Shell into pod
   Ctrl+D       Delete resource (with confirmation)
   ?            Show help
 
 FEATURES:
+  Terminal UI:
   • Real-time resource monitoring with live updates
+  • Interactive canvas graph visualization (pure CLI)
+  • ASCII tree view for resource relationships
+  • Browser-based graphs (Graphviz & D3.js)
   • Pod details: IP, restarts, uptime, CPU/MEM usage
-  • Resource relationships: Ingress ► Service ► Pod
   • YAML viewing with syntax highlighting
   • Shell access to running pods
   • Safe delete operations with confirmation
-  • Comprehensive describe functionality
-  • Multi-cluster support`)
+
+  Web UI:
+  • Beautiful modern dashboard with gradients
+  • Real-time metrics with sparklines
+  • Interactive D3.js topology visualization
+  • WebSocket live updates
+  • Responsive design
+  • Full-featured resource management`)
 }

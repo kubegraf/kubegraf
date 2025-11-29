@@ -38,7 +38,7 @@ func NewApp(namespace string) *App {
 		ctx:        ctx,
 		cancel:     cancel,
 		tableData:  &TableData{},
-		tabs:       []string{ResourcePod, ResourceDeployment, ResourceService, ResourceIngress, ResourceConfigMap, ResourceSecret, ResourceMap},
+		tabs:       []string{ResourcePod, ResourceDeployment, ResourceStatefulSet, ResourceDaemonSet, ResourceService, ResourceIngress, ResourceConfigMap, ResourceSecret, ResourceCronJob, ResourceJob, ResourceNodes, ResourceMap},
 		currentTab: 0, // Default to Pods
 	}
 }
@@ -54,6 +54,9 @@ func (a *App) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
+
+	// Save config for later use
+	a.config = config
 
 	// Create clientset
 	clientset, err := kubernetes.NewForConfig(config)

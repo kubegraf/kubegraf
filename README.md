@@ -86,12 +86,13 @@ choco install graphviz
 
 ## 🎯 Usage
 
+### Terminal UI (Default)
 ```bash
 # View default namespace
 ./kubegraf
 
 # View specific namespace
-./kubegraf argocd
+./kubegraf production
 
 # Show version
 ./kubegraf --version
@@ -99,6 +100,27 @@ choco install graphviz
 # Show help
 ./kubegraf --help
 ```
+
+### Web UI (Advanced Visualization)
+```bash
+# Launch web dashboard
+./kubegraf --web
+
+# Launch on custom port
+./kubegraf --web --port=3000
+
+# Then open browser at:
+http://localhost:8080  # or your custom port
+```
+
+**Web UI Features:**
+- 🎨 Beautiful modern dashboard with gradients
+- 📊 Real-time metrics with sparklines
+- 🗺️ Interactive D3.js topology visualization
+- ⚡ WebSocket live updates
+- 📱 Responsive design
+- 🎯 Full-featured resource management
+- 🌐 Multi-tab interface (Dashboard, Topology, Pods, Deployments, Services)
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -116,7 +138,8 @@ choco install graphviz
 - **n** - Change namespace
 - **d** - Describe resource (kubectl describe)
 - **s** - Shell into pod
-- **g** - Export interactive graph (ResourceMap tab)
+- **i** - Terminal canvas graph (CLI-based, ResourceMap tab)
+- **g** - Export interactive graph (browser-based, ResourceMap tab)
 - **Ctrl+D** - Delete resource (with confirmation)
 - **?** - Show help
 
@@ -124,7 +147,9 @@ choco install graphviz
 
 The ResourceMap tab (Tab 7) provides advanced visualization of Kubernetes resource relationships:
 
-### ASCII Tree View (Press Enter)
+### Visualization Options
+
+#### 1. ASCII Tree View (Press Enter)
 ```
 🚀 Deployment nginx
   replicas: 3/3
@@ -142,8 +167,43 @@ Status: Ready
 └─► 🔑 ServiceAccount nginx-sa (Active)
 ```
 
-### Interactive Graph View (Press 'g')
-- Opens in your default web browser
+#### 2. Terminal Canvas Graph (Press 'i')
+**Fully CLI-based** - No browser required!
+
+```
+┌──────────────────┐         ┌──────────────────┐
+│  🚪 nginx-ingress│────────►│  🌐 nginx-svc   │
+└──────────────────┘         └────────┬─────────┘
+                                      │
+                      ┌───────────────┼───────────────┐
+                      ▼               ▼               ▼
+              ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+              │  🎯 pod-1    │ │  🎯 pod-2    │ │  🎯 pod-3    │
+              └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+**Features:**
+- Boxes and arrows drawn directly in terminal
+- Interactive pan (arrow keys) and zoom (+/-)
+- Color-coded nodes matching resource types
+- Press R to reset view
+- Legend showing all resource types
+- Real-time graph layout in terminal
+- No external dependencies
+
+**Controls:**
+- `↑↓←→` - Pan around the graph
+- `+/-` - Zoom in/out
+- `R` - Reset view to default
+- `Esc` - Close canvas view
+
+#### 3. Browser-Based Graphs (Press 'g')
+When you press 'g' in the ResourceMap tab, you'll be prompted to choose between two visualization types:
+
+**1. Graphviz (Static SVG)**
+- Clean, structured layout with Graphviz DOT rendering
+- SVG format with zoom controls
+- Download capability
 - Color-coded nodes with different shapes:
   - 🚪 Ingress (house shape, red)
   - 🌐 Service (ellipse, green)
@@ -152,10 +212,26 @@ Status: Ready
   - 🎯 Pod (cylinder, teal)
   - ⚙️ ConfigMap (note, gray)
   - 🔐 Secret (octagon, dark red)
-- Interactive zoom controls
-- Download as SVG
-- Dark theme with gradient background
 - Shows full metadata (IPs, ports, status)
+
+**2. D3.js (Force-Directed Graph)**
+- Interactive physics-based layout
+- Draggable nodes - rearrange the graph by dragging
+- Real-time force simulation
+- Interactive controls:
+  - Pause/Resume simulation
+  - Reset layout
+  - Zoom in/out
+  - Pan and navigate
+- Color-coded circular nodes with icons
+- Animated edge connections
+- Legend with resource types
+
+Both visualizations:
+- Open in your default web browser
+- Use the same color scheme for consistency
+- Show resource relationships clearly
+- Include dark theme with gradient background
 
 ### Supported Visualizations
 1. **Ingress Relationships**: Ingress → Services → Pods (with paths and hosts)
