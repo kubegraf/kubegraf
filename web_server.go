@@ -128,6 +128,11 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/resourcemap", ws.handleResourceMap)
 	http.HandleFunc("/ws", ws.handleWebSocket)
 
+	// Multi-cluster context endpoints
+	http.HandleFunc("/api/contexts", ws.handleContexts)
+	http.HandleFunc("/api/contexts/current", ws.handleCurrentContext)
+	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
+
 	// Operations endpoints
 	http.HandleFunc("/api/pod/details", ws.handlePodDetails)
 	http.HandleFunc("/api/pod/yaml", ws.handlePodYAML)
@@ -3606,6 +3611,129 @@ func (ws *WebServer) handleNamespaces(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":    true,
 		"namespaces": nsList,
+	})
+}
+
+// handleContexts returns list of all available kubeconfig contexts
+func (ws *WebServer) handleContexts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.contextManager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  false,
+			"error":    "Context manager not initialized",
+			"contexts": []interface{}{},
+		})
+		return
+	}
+
+	type ContextInfo struct {
+		Name          string `json:"name"`
+		Connected     bool   `json:"connected"`
+		Error         string `json:"error,omitempty"`
+		ServerVersion string `json:"serverVersion,omitempty"`
+		IsCurrent     bool   `json:"isCurrent"`
+	}
+
+	contexts := []ContextInfo{}
+	currentCtx := ws.app.GetCurrentContext()
+
+	for _, ctxName := range ws.app.GetContexts() {
+		ctx := ws.app.GetContextInfo(ctxName)
+		if ctx != nil {
+			contexts = append(contexts, ContextInfo{
+				Name:          ctx.Name,
+				Connected:     ctx.Connected,
+				Error:         ctx.Error,
+				ServerVersion: ctx.ServerVersion,
+				IsCurrent:     ctxName == currentCtx,
+			})
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":        true,
+		"contexts":       contexts,
+		"currentContext": currentCtx,
+	})
+}
+
+// handleCurrentContext returns the current active context
+func (ws *WebServer) handleCurrentContext(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	currentCtx := ws.app.GetCurrentContext()
+	ctxInfo := ws.app.GetContextInfo(currentCtx)
+
+	response := map[string]interface{}{
+		"success": true,
+		"context": currentCtx,
+	}
+
+	if ctxInfo != nil {
+		response["connected"] = ctxInfo.Connected
+		response["serverVersion"] = ctxInfo.ServerVersion
+		if ctxInfo.Error != "" {
+			response["error"] = ctxInfo.Error
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleSwitchContext switches to a different kubeconfig context
+func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Context string `json:"context"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+		return
+	}
+
+	if req.Context == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Context name is required",
+		})
+		return
+	}
+
+	if err := ws.app.SwitchContext(req.Context); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Broadcast context change to all WebSocket clients
+	contextMsg := map[string]interface{}{
+		"type":    "contextSwitch",
+		"context": req.Context,
+	}
+	for client := range ws.clients {
+		if err := client.WriteJSON(contextMsg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"context": req.Context,
+		"message": "Successfully switched to context: " + req.Context,
 	})
 }
 

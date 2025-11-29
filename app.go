@@ -45,43 +45,157 @@ func NewApp(namespace string) *App {
 
 // Initialize sets up the application
 func (a *App) Initialize() error {
+	// Initialize context manager
+	a.contextManager = &ContextManager{
+		Contexts:     make(map[string]*ClusterContext),
+		ContextOrder: []string{},
+	}
+
 	// Load kubeconfig
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 
-	config, err := kubeConfig.ClientConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
-	}
-
-	// Save config for later use
-	a.config = config
-
-	// Create clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create clientset: %w", err)
-	}
-	a.clientset = clientset
-
-	// Create metrics client
-	metricsClient, err := metricsclientset.NewForConfig(config)
-	if err == nil {
-		a.metricsClient = metricsClient
-	}
-
-	// Get current context
+	// Get raw config to access all contexts
 	rawConfig, err := kubeConfig.RawConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get raw config: %w", err)
 	}
+
+	// Store current context
+	a.contextManager.CurrentContext = rawConfig.CurrentContext
 	a.cluster = rawConfig.CurrentContext
+
+	// Load all available contexts
+	for contextName := range rawConfig.Contexts {
+		a.contextManager.ContextOrder = append(a.contextManager.ContextOrder, contextName)
+
+		// Create config for this context
+		contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+			loadingRules,
+			&clientcmd.ConfigOverrides{CurrentContext: contextName},
+		)
+
+		config, err := contextConfig.ClientConfig()
+		if err != nil {
+			// Store context with error
+			a.contextManager.Contexts[contextName] = &ClusterContext{
+				Name:      contextName,
+				Connected: false,
+				Error:     err.Error(),
+			}
+			continue
+		}
+
+		// Create clientset for this context
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			a.contextManager.Contexts[contextName] = &ClusterContext{
+				Name:      contextName,
+				Config:    config,
+				Connected: false,
+				Error:     err.Error(),
+			}
+			continue
+		}
+
+		// Create metrics client for this context
+		metricsClient, _ := metricsclientset.NewForConfig(config)
+
+		// Get server version to verify connection
+		serverVersion := ""
+		if versionInfo, err := clientset.Discovery().ServerVersion(); err == nil {
+			serverVersion = versionInfo.GitVersion
+		}
+
+		// Store the context
+		a.contextManager.Contexts[contextName] = &ClusterContext{
+			Name:          contextName,
+			Clientset:     clientset,
+			MetricsClient: metricsClient,
+			Config:        config,
+			Connected:     true,
+			ServerVersion: serverVersion,
+		}
+	}
+
+	// Set up the current context's clients as the active ones
+	if currentCtx, ok := a.contextManager.Contexts[a.contextManager.CurrentContext]; ok && currentCtx.Connected {
+		a.clientset = currentCtx.Clientset
+		a.metricsClient = currentCtx.MetricsClient
+		a.config = currentCtx.Config
+		a.connected = true
+	} else {
+		// Fall back to default loading if current context failed
+		config, err := kubeConfig.ClientConfig()
+		if err != nil {
+			a.connected = false
+			a.connectionError = err.Error()
+		} else {
+			a.config = config
+			clientset, err := kubernetes.NewForConfig(config)
+			if err != nil {
+				a.connected = false
+				a.connectionError = err.Error()
+			} else {
+				a.clientset = clientset
+				a.metricsClient, _ = metricsclientset.NewForConfig(config)
+				a.connected = true
+			}
+		}
+	}
 
 	// Setup UI
 	a.setupUI()
 
 	return nil
+}
+
+// SwitchContext switches to a different cluster context
+func (a *App) SwitchContext(contextName string) error {
+	a.contextManager.mu.Lock()
+	defer a.contextManager.mu.Unlock()
+
+	ctx, ok := a.contextManager.Contexts[contextName]
+	if !ok {
+		return fmt.Errorf("context %s not found", contextName)
+	}
+
+	if !ctx.Connected {
+		return fmt.Errorf("context %s is not connected: %s", contextName, ctx.Error)
+	}
+
+	// Update active context
+	a.contextManager.CurrentContext = contextName
+	a.cluster = contextName
+	a.clientset = ctx.Clientset
+	a.metricsClient = ctx.MetricsClient
+	a.config = ctx.Config
+	a.connected = true
+	a.connectionError = ""
+
+	return nil
+}
+
+// GetContexts returns a list of all available context names
+func (a *App) GetContexts() []string {
+	a.contextManager.mu.RLock()
+	defer a.contextManager.mu.RUnlock()
+	return a.contextManager.ContextOrder
+}
+
+// GetContextInfo returns information about a specific context
+func (a *App) GetContextInfo(contextName string) *ClusterContext {
+	a.contextManager.mu.RLock()
+	defer a.contextManager.mu.RUnlock()
+	return a.contextManager.Contexts[contextName]
+}
+
+// GetCurrentContext returns the name of the current context
+func (a *App) GetCurrentContext() string {
+	a.contextManager.mu.RLock()
+	defer a.contextManager.mu.RUnlock()
+	return a.contextManager.CurrentContext
 }
 
 // Run starts the application

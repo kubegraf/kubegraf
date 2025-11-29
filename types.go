@@ -91,6 +91,8 @@ type App struct {
 	isInitialized   bool
 	connected       bool
 	connectionError string
+	// Multi-cluster support
+	contextManager *ContextManager
 }
 
 // TableData holds the current table information
@@ -120,4 +122,23 @@ type ResourceNode struct {
 	Color    string            // Color for display
 	Children []*ResourceNode   // Child nodes
 	Metadata map[string]string // Additional metadata
+}
+
+// ClusterContext represents a Kubernetes cluster context with its clients
+type ClusterContext struct {
+	Name          string                      // Context name from kubeconfig
+	Clientset     *kubernetes.Clientset       // Kubernetes API client
+	MetricsClient *metricsclientset.Clientset // Metrics API client
+	Config        *rest.Config                // REST config for this context
+	Connected     bool                        // Connection status
+	Error         string                      // Connection error if any
+	ServerVersion string                      // Kubernetes server version
+}
+
+// ContextManager manages multiple cluster contexts
+type ContextManager struct {
+	Contexts       map[string]*ClusterContext // All available contexts
+	CurrentContext string                     // Currently active context
+	ContextOrder   []string                   // Ordered list of context names
+	mu             sync.RWMutex               // Mutex for thread-safe access
 }
