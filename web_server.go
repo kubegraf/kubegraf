@@ -21,6 +21,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,12 +29,17 @@ import (
 
 	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v2"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 )
 
 var upgrader = websocket.Upgrader{
@@ -170,6 +176,22 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/portforward/start", ws.handlePortForwardStart)
 	http.HandleFunc("/api/portforward/stop", ws.handlePortForwardStop)
 	http.HandleFunc("/api/portforward/list", ws.handlePortForwardList)
+
+	// Security analysis endpoint
+	http.HandleFunc("/api/security", ws.handleSecurityAnalysis)
+
+	// Plugin endpoints - Helm
+	http.HandleFunc("/api/plugins/helm/releases", ws.handleHelmReleases)
+	http.HandleFunc("/api/plugins/helm/release", ws.handleHelmReleaseDetails)
+
+	// Plugin endpoints - Kustomize (resources managed by kustomize)
+	http.HandleFunc("/api/plugins/kustomize/resources", ws.handleKustomizeResources)
+
+	// Plugin endpoints - ArgoCD
+	http.HandleFunc("/api/plugins/argocd/apps", ws.handleArgoCDApps)
+
+	// Plugin endpoints - Flux
+	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("🌐 Web UI available at http://localhost%s", addr)
@@ -3820,5 +3842,960 @@ func (ws *WebServer) handlePortForwardList(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"sessions": sessions,
+	})
+}
+
+// SecurityFinding represents a security recommendation
+type SecurityFinding struct {
+	Severity    string `json:"severity"`    // critical, high, medium, low
+	Category    string `json:"category"`    // security-context, network-policy, ingress-ports, etc.
+	Resource    string `json:"resource"`    // resource type (Pod, Deployment, Ingress, etc.)
+	Name        string `json:"name"`        // resource name
+	Namespace   string `json:"namespace"`   // namespace
+	Title       string `json:"title"`       // short description
+	Description string `json:"description"` // detailed description
+	Remediation string `json:"remediation"` // how to fix
+}
+
+// handleSecurityAnalysis performs security best practices analysis
+func (ws *WebServer) handleSecurityAnalysis(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	findings := []SecurityFinding{}
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Use empty string for all namespaces
+	listNamespace := namespace
+	if namespace == "_all" {
+		listNamespace = ""
+	}
+
+	// 1. Check Pods for missing SecurityContext
+	pods, err := ws.app.clientset.CoreV1().Pods(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, pod := range pods.Items {
+			// Skip completed/failed pods
+			if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
+				continue
+			}
+
+			hasSecurityContext := false
+			runAsNonRoot := false
+			readOnlyRootFS := false
+			privileged := false
+			allowPrivilegeEscalation := true // default is true
+
+			// Check pod-level security context
+			if pod.Spec.SecurityContext != nil {
+				hasSecurityContext = true
+				if pod.Spec.SecurityContext.RunAsNonRoot != nil && *pod.Spec.SecurityContext.RunAsNonRoot {
+					runAsNonRoot = true
+				}
+			}
+
+			// Check container-level security contexts
+			for _, container := range pod.Spec.Containers {
+				if container.SecurityContext != nil {
+					hasSecurityContext = true
+					if container.SecurityContext.RunAsNonRoot != nil && *container.SecurityContext.RunAsNonRoot {
+						runAsNonRoot = true
+					}
+					if container.SecurityContext.ReadOnlyRootFilesystem != nil && *container.SecurityContext.ReadOnlyRootFilesystem {
+						readOnlyRootFS = true
+					}
+					if container.SecurityContext.Privileged != nil && *container.SecurityContext.Privileged {
+						privileged = true
+					}
+					if container.SecurityContext.AllowPrivilegeEscalation != nil && !*container.SecurityContext.AllowPrivilegeEscalation {
+						allowPrivilegeEscalation = false
+					}
+				}
+			}
+
+			// Finding: No SecurityContext at all
+			if !hasSecurityContext {
+				findings = append(findings, SecurityFinding{
+					Severity:    "critical",
+					Category:    "security-context",
+					Resource:    "Pod",
+					Name:        pod.Name,
+					Namespace:   pod.Namespace,
+					Title:       "Missing SecurityContext",
+					Description: "Pod has no SecurityContext defined. This is a critical security risk as containers run with default privileges.",
+					Remediation: "Add a SecurityContext to the pod or container spec with runAsNonRoot: true, readOnlyRootFilesystem: true, and allowPrivilegeEscalation: false",
+				})
+			} else {
+				// Check individual security settings
+				if !runAsNonRoot {
+					findings = append(findings, SecurityFinding{
+						Severity:    "high",
+						Category:    "security-context",
+						Resource:    "Pod",
+						Name:        pod.Name,
+						Namespace:   pod.Namespace,
+						Title:       "Container may run as root",
+						Description: "Pod does not enforce runAsNonRoot. Containers could run as root user, increasing attack surface.",
+						Remediation: "Set securityContext.runAsNonRoot: true in the pod or container spec",
+					})
+				}
+
+				if privileged {
+					findings = append(findings, SecurityFinding{
+						Severity:    "critical",
+						Category:    "security-context",
+						Resource:    "Pod",
+						Name:        pod.Name,
+						Namespace:   pod.Namespace,
+						Title:       "Privileged container detected",
+						Description: "Container is running in privileged mode. This grants full access to the host system.",
+						Remediation: "Remove privileged: true from the container securityContext unless absolutely necessary",
+					})
+				}
+
+				if allowPrivilegeEscalation {
+					findings = append(findings, SecurityFinding{
+						Severity:    "medium",
+						Category:    "security-context",
+						Resource:    "Pod",
+						Name:        pod.Name,
+						Namespace:   pod.Namespace,
+						Title:       "Privilege escalation allowed",
+						Description: "Container allows privilege escalation. Processes could gain more privileges than their parent.",
+						Remediation: "Set securityContext.allowPrivilegeEscalation: false",
+					})
+				}
+
+				if !readOnlyRootFS {
+					findings = append(findings, SecurityFinding{
+						Severity:    "low",
+						Category:    "security-context",
+						Resource:    "Pod",
+						Name:        pod.Name,
+						Namespace:   pod.Namespace,
+						Title:       "Root filesystem is writable",
+						Description: "Container filesystem is writable. Attackers could modify files if container is compromised.",
+						Remediation: "Set securityContext.readOnlyRootFilesystem: true and use emptyDir volumes for writable paths",
+					})
+				}
+			}
+		}
+	}
+
+	// 2. Check for missing NetworkPolicies
+	// Get all namespaces that have pods
+	namespacesWithPods := make(map[string]bool)
+	if pods != nil {
+		for _, pod := range pods.Items {
+			namespacesWithPods[pod.Namespace] = true
+		}
+	}
+
+	// Check which namespaces have NetworkPolicies
+	networkPolicies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+	namespacesWithNetPol := make(map[string]bool)
+	if err == nil {
+		for _, np := range networkPolicies.Items {
+			namespacesWithNetPol[np.Namespace] = true
+		}
+	}
+
+	// Report namespaces without NetworkPolicies
+	for ns := range namespacesWithPods {
+		if !namespacesWithNetPol[ns] {
+			// Skip system namespaces
+			if ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease" {
+				continue
+			}
+			findings = append(findings, SecurityFinding{
+				Severity:    "high",
+				Category:    "network-policy",
+				Resource:    "Namespace",
+				Name:        ns,
+				Namespace:   ns,
+				Title:       "No NetworkPolicy defined",
+				Description: "Namespace has no NetworkPolicy. All pods can communicate with any other pod in the cluster by default.",
+				Remediation: "Create NetworkPolicies to restrict ingress and egress traffic. Start with a default-deny policy.",
+			})
+		}
+	}
+
+	// 3. Check Ingresses for insecure ports
+	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		insecurePorts := map[int32]string{
+			80:   "HTTP (unencrypted)",
+			8080: "Common HTTP alternative (unencrypted)",
+			8000: "Common development port",
+			3000: "Common development port",
+		}
+
+		for _, ing := range ingresses.Items {
+			// Check if TLS is configured
+			hasTLS := len(ing.Spec.TLS) > 0
+
+			for _, rule := range ing.Spec.Rules {
+				if rule.HTTP != nil {
+					for _, path := range rule.HTTP.Paths {
+						port := path.Backend.Service.Port.Number
+						if portDesc, isInsecure := insecurePorts[port]; isInsecure {
+							severity := "medium"
+							if port == 80 || port == 8080 {
+								severity = "high"
+							}
+							findings = append(findings, SecurityFinding{
+								Severity:    severity,
+								Category:    "ingress-ports",
+								Resource:    "Ingress",
+								Name:        ing.Name,
+								Namespace:   ing.Namespace,
+								Title:       fmt.Sprintf("Using port %d (%s)", port, portDesc),
+								Description: fmt.Sprintf("Ingress routes traffic to port %d. Using default or well-known ports can be a security risk.", port),
+								Remediation: "Consider using non-standard ports and ensure TLS termination is configured",
+							})
+						}
+					}
+				}
+			}
+
+			// Check for missing TLS
+			if !hasTLS {
+				findings = append(findings, SecurityFinding{
+					Severity:    "high",
+					Category:    "ingress-tls",
+					Resource:    "Ingress",
+					Name:        ing.Name,
+					Namespace:   ing.Namespace,
+					Title:       "No TLS configured",
+					Description: "Ingress does not have TLS configured. Traffic may be transmitted unencrypted.",
+					Remediation: "Configure TLS in the Ingress spec with a valid certificate",
+				})
+			}
+		}
+	}
+
+	// 4. Check Services for NodePort exposure
+	services, err := ws.app.clientset.CoreV1().Services(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, svc := range services.Items {
+			if svc.Spec.Type == v1.ServiceTypeNodePort {
+				findings = append(findings, SecurityFinding{
+					Severity:    "medium",
+					Category:    "service-exposure",
+					Resource:    "Service",
+					Name:        svc.Name,
+					Namespace:   svc.Namespace,
+					Title:       "NodePort service exposed",
+					Description: "Service is exposed via NodePort, making it accessible on all cluster nodes.",
+					Remediation: "Consider using LoadBalancer or Ingress with proper access controls instead of NodePort",
+				})
+			}
+
+			if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
+				// Check if external traffic policy is set to Local
+				if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
+					findings = append(findings, SecurityFinding{
+						Severity:    "low",
+						Category:    "service-exposure",
+						Resource:    "Service",
+						Name:        svc.Name,
+						Namespace:   svc.Namespace,
+						Title:       "External traffic policy not optimized",
+						Description: "LoadBalancer service uses Cluster external traffic policy. Client source IP is not preserved.",
+						Remediation: "Set externalTrafficPolicy: Local to preserve client source IP for security logging",
+					})
+				}
+			}
+		}
+	}
+
+	// Calculate summary statistics
+	summary := map[string]int{
+		"critical": 0,
+		"high":     0,
+		"medium":   0,
+		"low":      0,
+		"total":    len(findings),
+	}
+
+	for _, f := range findings {
+		summary[f.Severity]++
+	}
+
+	// Calculate security score (0-100)
+	// Weight: critical=40, high=25, medium=10, low=5
+	totalWeight := summary["critical"]*40 + summary["high"]*25 + summary["medium"]*10 + summary["low"]*5
+	maxScore := 100
+	score := maxScore - totalWeight
+	if score < 0 {
+		score = 0
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"findings": findings,
+		"summary":  summary,
+		"score":    score,
+	})
+}
+
+// HelmRelease represents a Helm release
+type HelmRelease struct {
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Revision   int    `json:"revision"`
+	Status     string `json:"status"`
+	Chart      string `json:"chart"`
+	AppVersion string `json:"appVersion"`
+	Updated    string `json:"updated"`
+}
+
+// handleHelmReleases returns all Helm releases in the cluster
+func (ws *WebServer) handleHelmReleases(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+
+	var releases []HelmRelease
+
+	// Helm stores releases as secrets with owner=helm label
+	listOptions := metav1.ListOptions{
+		LabelSelector: "owner=helm",
+	}
+
+	var secrets *v1.SecretList
+	var err error
+
+	if namespace == "" || namespace == "All Namespaces" {
+		secrets, err = ws.app.clientset.CoreV1().Secrets("").List(ws.app.ctx, listOptions)
+	} else {
+		secrets, err = ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
+	}
+
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Parse Helm secrets to extract release information
+	releaseMap := make(map[string]*HelmRelease)
+
+	for _, secret := range secrets.Items {
+		// Get release name from label
+		releaseName := secret.Labels["name"]
+		if releaseName == "" {
+			continue
+		}
+
+		// Get status from label
+		status := secret.Labels["status"]
+		if status == "" {
+			status = "unknown"
+		}
+
+		// Get version/revision
+		versionStr := secret.Labels["version"]
+		version := 1
+		if versionStr != "" {
+			if v, err := strconv.Atoi(versionStr); err == nil {
+				version = v
+			}
+		}
+
+		key := fmt.Sprintf("%s/%s", secret.Namespace, releaseName)
+
+		// Keep only the latest revision
+		if existing, ok := releaseMap[key]; ok {
+			if version > existing.Revision {
+				releaseMap[key] = &HelmRelease{
+					Name:      releaseName,
+					Namespace: secret.Namespace,
+					Revision:  version,
+					Status:    status,
+					Chart:     extractChartName(secret.Data),
+					Updated:   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+				}
+			}
+		} else {
+			releaseMap[key] = &HelmRelease{
+				Name:      releaseName,
+				Namespace: secret.Namespace,
+				Revision:  version,
+				Status:    status,
+				Chart:     extractChartName(secret.Data),
+				Updated:   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+			}
+		}
+	}
+
+	// Convert map to slice
+	for _, release := range releaseMap {
+		releases = append(releases, *release)
+	}
+
+	// Sort by namespace then name
+	sort.Slice(releases, func(i, j int) bool {
+		if releases[i].Namespace != releases[j].Namespace {
+			return releases[i].Namespace < releases[j].Namespace
+		}
+		return releases[i].Name < releases[j].Name
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"releases": releases,
+		"count":    len(releases),
+	})
+}
+
+// extractChartName tries to extract chart name from Helm secret data
+func extractChartName(data map[string][]byte) string {
+	// Helm 3 stores release data in a "release" key, gzip compressed and base64 encoded
+	// For simplicity, we'll just return a placeholder
+	// Full implementation would decode and decompress the data
+	return "chart"
+}
+
+// handleHelmReleaseDetails returns details for a specific Helm release
+func (ws *WebServer) handleHelmReleaseDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
+		return
+	}
+
+	// Get all secrets for this release
+	listOptions := metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
+	}
+
+	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	var history []map[string]interface{}
+	for _, secret := range secrets.Items {
+		versionStr := secret.Labels["version"]
+		version := 1
+		if versionStr != "" {
+			if v, err := strconv.Atoi(versionStr); err == nil {
+				version = v
+			}
+		}
+
+		history = append(history, map[string]interface{}{
+			"revision":  version,
+			"status":    secret.Labels["status"],
+			"updated":   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+			"createdAt": secret.CreationTimestamp,
+		})
+	}
+
+	// Sort by revision descending
+	sort.Slice(history, func(i, j int) bool {
+		return history[i]["revision"].(int) > history[j]["revision"].(int)
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"name":      name,
+		"namespace": namespace,
+		"history":   history,
+	})
+}
+
+// KustomizeResource represents a resource managed by Kustomize
+type KustomizeResource struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Age       string `json:"age"`
+	Labels    map[string]string `json:"labels"`
+}
+
+// handleKustomizeResources returns resources managed by Kustomize
+func (ws *WebServer) handleKustomizeResources(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+
+	var resources []KustomizeResource
+
+	// Query deployments with kustomize managed-by label
+	deploymentListOptions := metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=kustomize",
+	}
+
+	var deployments interface{}
+	var err error
+
+	if namespace == "" || namespace == "All Namespaces" {
+		deployments, err = ws.app.clientset.AppsV1().Deployments("").List(ws.app.ctx, deploymentListOptions)
+	} else {
+		deployments, err = ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, deploymentListOptions)
+	}
+
+	if err == nil {
+		if depList, ok := deployments.(*appsv1.DeploymentList); ok {
+			for _, dep := range depList.Items {
+				resources = append(resources, KustomizeResource{
+					Kind:      "Deployment",
+					Name:      dep.Name,
+					Namespace: dep.Namespace,
+					Age:       formatAge(time.Since(dep.CreationTimestamp.Time)),
+					Labels:    dep.Labels,
+				})
+			}
+		}
+	}
+
+	// Query services with kustomize managed-by label
+	if namespace == "" || namespace == "All Namespaces" {
+		svcList, err := ws.app.clientset.CoreV1().Services("").List(ws.app.ctx, deploymentListOptions)
+		if err == nil {
+			for _, svc := range svcList.Items {
+				resources = append(resources, KustomizeResource{
+					Kind:      "Service",
+					Name:      svc.Name,
+					Namespace: svc.Namespace,
+					Age:       formatAge(time.Since(svc.CreationTimestamp.Time)),
+					Labels:    svc.Labels,
+				})
+			}
+		}
+	} else {
+		svcList, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, deploymentListOptions)
+		if err == nil {
+			for _, svc := range svcList.Items {
+				resources = append(resources, KustomizeResource{
+					Kind:      "Service",
+					Name:      svc.Name,
+					Namespace: svc.Namespace,
+					Age:       formatAge(time.Since(svc.CreationTimestamp.Time)),
+					Labels:    svc.Labels,
+				})
+			}
+		}
+	}
+
+	// Query ConfigMaps with kustomize managed-by label
+	if namespace == "" || namespace == "All Namespaces" {
+		cmList, err := ws.app.clientset.CoreV1().ConfigMaps("").List(ws.app.ctx, deploymentListOptions)
+		if err == nil {
+			for _, cm := range cmList.Items {
+				resources = append(resources, KustomizeResource{
+					Kind:      "ConfigMap",
+					Name:      cm.Name,
+					Namespace: cm.Namespace,
+					Age:       formatAge(time.Since(cm.CreationTimestamp.Time)),
+					Labels:    cm.Labels,
+				})
+			}
+		}
+	} else {
+		cmList, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, deploymentListOptions)
+		if err == nil {
+			for _, cm := range cmList.Items {
+				resources = append(resources, KustomizeResource{
+					Kind:      "ConfigMap",
+					Name:      cm.Name,
+					Namespace: cm.Namespace,
+					Age:       formatAge(time.Since(cm.CreationTimestamp.Time)),
+					Labels:    cm.Labels,
+				})
+			}
+		}
+	}
+
+	// Sort by namespace then kind then name
+	sort.Slice(resources, func(i, j int) bool {
+		if resources[i].Namespace != resources[j].Namespace {
+			return resources[i].Namespace < resources[j].Namespace
+		}
+		if resources[i].Kind != resources[j].Kind {
+			return resources[i].Kind < resources[j].Kind
+		}
+		return resources[i].Name < resources[j].Name
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"resources": resources,
+		"count":     len(resources),
+	})
+}
+
+// ArgoCDApp represents an ArgoCD Application
+type ArgoCDApp struct {
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Project    string `json:"project"`
+	SyncStatus string `json:"syncStatus"`
+	Health     string `json:"health"`
+	RepoURL    string `json:"repoURL"`
+	Path       string `json:"path"`
+	Revision   string `json:"revision"`
+	Cluster    string `json:"cluster"`
+	Age        string `json:"age"`
+}
+
+// handleArgoCDApps returns ArgoCD Applications
+func (ws *WebServer) handleArgoCDApps(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.config == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"error":     "Not connected to cluster",
+			"installed": false,
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"error":     err.Error(),
+			"installed": false,
+		})
+		return
+	}
+
+	// ArgoCD Application GVR
+	appGVR := schema.GroupVersionResource{
+		Group:    "argoproj.io",
+		Version:  "v1alpha1",
+		Resource: "applications",
+	}
+
+	var apps []ArgoCDApp
+	var appList *unstructured.UnstructuredList
+
+	if namespace == "" || namespace == "All Namespaces" {
+		appList, err = dynamicClient.Resource(appGVR).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
+	} else {
+		appList, err = dynamicClient.Resource(appGVR).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	}
+
+	if err != nil {
+		// Check if ArgoCD is not installed
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no matches") {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":   true,
+				"apps":      []ArgoCDApp{},
+				"count":     0,
+				"installed": false,
+				"message":   "ArgoCD is not installed in this cluster",
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"error":     err.Error(),
+			"installed": false,
+		})
+		return
+	}
+
+	for _, item := range appList.Items {
+		spec, _, _ := unstructured.NestedMap(item.Object, "spec")
+		status, _, _ := unstructured.NestedMap(item.Object, "status")
+
+		syncStatus := "Unknown"
+		health := "Unknown"
+
+		if syncStatusMap, ok := status["sync"].(map[string]interface{}); ok {
+			if s, ok := syncStatusMap["status"].(string); ok {
+				syncStatus = s
+			}
+		}
+
+		if healthMap, ok := status["health"].(map[string]interface{}); ok {
+			if h, ok := healthMap["status"].(string); ok {
+				health = h
+			}
+		}
+
+		project := "default"
+		if p, ok := spec["project"].(string); ok {
+			project = p
+		}
+
+		repoURL := ""
+		path := ""
+		revision := ""
+		if source, ok := spec["source"].(map[string]interface{}); ok {
+			if r, ok := source["repoURL"].(string); ok {
+				repoURL = r
+			}
+			if p, ok := source["path"].(string); ok {
+				path = p
+			}
+			if rev, ok := source["targetRevision"].(string); ok {
+				revision = rev
+			}
+		}
+
+		cluster := ""
+		if dest, ok := spec["destination"].(map[string]interface{}); ok {
+			if s, ok := dest["server"].(string); ok {
+				cluster = s
+			} else if n, ok := dest["name"].(string); ok {
+				cluster = n
+			}
+		}
+
+		creationTime := item.GetCreationTimestamp()
+
+		apps = append(apps, ArgoCDApp{
+			Name:       item.GetName(),
+			Namespace:  item.GetNamespace(),
+			Project:    project,
+			SyncStatus: syncStatus,
+			Health:     health,
+			RepoURL:    repoURL,
+			Path:       path,
+			Revision:   revision,
+			Cluster:    cluster,
+			Age:        formatAge(time.Since(creationTime.Time)),
+		})
+	}
+
+	// Sort by namespace then name
+	sort.Slice(apps, func(i, j int) bool {
+		if apps[i].Namespace != apps[j].Namespace {
+			return apps[i].Namespace < apps[j].Namespace
+		}
+		return apps[i].Name < apps[j].Name
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"apps":      apps,
+		"count":     len(apps),
+		"installed": true,
+	})
+}
+
+// FluxResource represents a Flux resource (Kustomization, HelmRelease, GitRepository, etc.)
+type FluxResource struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Ready      string `json:"ready"`
+	Status     string `json:"status"`
+	Age        string `json:"age"`
+	SourceRef  string `json:"sourceRef,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+}
+
+// handleFluxResources returns Flux resources
+func (ws *WebServer) handleFluxResources(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.config == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"error":     "Not connected to cluster",
+			"installed": false,
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"error":     err.Error(),
+			"installed": false,
+		})
+		return
+	}
+
+	var resources []FluxResource
+	fluxInstalled := false
+
+	// Flux CRD definitions
+	fluxCRDs := []struct {
+		group    string
+		version  string
+		resource string
+		kind     string
+	}{
+		{"kustomize.toolkit.fluxcd.io", "v1", "kustomizations", "Kustomization"},
+		{"helm.toolkit.fluxcd.io", "v2", "helmreleases", "HelmRelease"},
+		{"source.toolkit.fluxcd.io", "v1", "gitrepositories", "GitRepository"},
+		{"source.toolkit.fluxcd.io", "v1", "helmrepositories", "HelmRepository"},
+		{"source.toolkit.fluxcd.io", "v1", "ocirepositories", "OCIRepository"},
+	}
+
+	for _, crd := range fluxCRDs {
+		gvr := schema.GroupVersionResource{
+			Group:    crd.group,
+			Version:  crd.version,
+			Resource: crd.resource,
+		}
+
+		var list *unstructured.UnstructuredList
+		if namespace == "" || namespace == "All Namespaces" {
+			list, err = dynamicClient.Resource(gvr).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
+		} else {
+			list, err = dynamicClient.Resource(gvr).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
+		}
+
+		if err != nil {
+			// CRD not found, skip
+			continue
+		}
+
+		fluxInstalled = true
+
+		for _, item := range list.Items {
+			ready := "Unknown"
+			statusMsg := ""
+			revision := ""
+			sourceRef := ""
+
+			// Get status conditions
+			if status, ok := item.Object["status"].(map[string]interface{}); ok {
+				if conditions, ok := status["conditions"].([]interface{}); ok {
+					for _, cond := range conditions {
+						if condMap, ok := cond.(map[string]interface{}); ok {
+							if condType, _ := condMap["type"].(string); condType == "Ready" {
+								if condStatus, _ := condMap["status"].(string); condStatus == "True" {
+									ready = "True"
+								} else {
+									ready = "False"
+								}
+								if msg, _ := condMap["message"].(string); msg != "" {
+									statusMsg = msg
+									// Truncate long messages
+									if len(statusMsg) > 50 {
+										statusMsg = statusMsg[:47] + "..."
+									}
+								}
+								break
+							}
+						}
+					}
+				}
+
+				// Get last applied revision
+				if rev, ok := status["lastAppliedRevision"].(string); ok {
+					revision = rev
+				} else if rev, ok := status["artifact"].(map[string]interface{}); ok {
+					if r, ok := rev["revision"].(string); ok {
+						revision = r
+					}
+				}
+			}
+
+			// Get source reference for Kustomizations and HelmReleases
+			if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
+				if sr, ok := spec["sourceRef"].(map[string]interface{}); ok {
+					kind, _ := sr["kind"].(string)
+					name, _ := sr["name"].(string)
+					sourceRef = fmt.Sprintf("%s/%s", kind, name)
+				}
+			}
+
+			creationTime := item.GetCreationTimestamp()
+
+			resources = append(resources, FluxResource{
+				Kind:      crd.kind,
+				Name:      item.GetName(),
+				Namespace: item.GetNamespace(),
+				Ready:     ready,
+				Status:    statusMsg,
+				Age:       formatAge(time.Since(creationTime.Time)),
+				SourceRef: sourceRef,
+				Revision:  revision,
+			})
+		}
+	}
+
+	if !fluxInstalled {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"resources": []FluxResource{},
+			"count":     0,
+			"installed": false,
+			"message":   "Flux is not installed in this cluster",
+		})
+		return
+	}
+
+	// Sort by kind then namespace then name
+	sort.Slice(resources, func(i, j int) bool {
+		if resources[i].Kind != resources[j].Kind {
+			return resources[i].Kind < resources[j].Kind
+		}
+		if resources[i].Namespace != resources[j].Namespace {
+			return resources[i].Namespace < resources[j].Namespace
+		}
+		return resources[i].Name < resources[j].Name
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"resources": resources,
+		"count":     len(resources),
+		"installed": true,
 	})
 }
