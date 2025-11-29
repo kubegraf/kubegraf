@@ -76,18 +76,32 @@ func main() {
 		fmt.Println("📡 Connecting to Kubernetes cluster...")
 	}
 
-	if err := app.Initialize(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ Failed to initialize: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nTroubleshooting:\n")
-		fmt.Fprintf(os.Stderr, "  • Ensure kubectl is configured: kubectl cluster-info\n")
-		fmt.Fprintf(os.Stderr, "  • Check your kubeconfig: echo $KUBECONFIG\n")
-		fmt.Fprintf(os.Stderr, "  • Verify cluster access: kubectl get nodes\n")
-		os.Exit(1)
+	initErr := app.Initialize()
+	if initErr != nil {
+		app.connectionError = initErr.Error()
+		app.connected = false
+		if webMode {
+			// In web mode, continue and show error in UI
+			fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
+			fmt.Println("📊 Starting web UI anyway - you can view the connection error in the dashboard")
+		} else {
+			// In TUI mode, exit with error
+			fmt.Fprintf(os.Stderr, "❌ Failed to initialize: %v\n", initErr)
+			fmt.Fprintf(os.Stderr, "\nTroubleshooting:\n")
+			fmt.Fprintf(os.Stderr, "  • Ensure kubectl is configured: kubectl cluster-info\n")
+			fmt.Fprintf(os.Stderr, "  • Check your kubeconfig: echo $KUBECONFIG\n")
+			fmt.Fprintf(os.Stderr, "  • Verify cluster access: kubectl get nodes\n")
+			os.Exit(1)
+		}
+	} else {
+		app.connected = true
 	}
 
 	// Run in web mode or TUI mode
 	if webMode {
-		fmt.Println("✅ Connected to cluster successfully")
+		if app.connected {
+			fmt.Println("✅ Connected to cluster successfully")
+		}
 		fmt.Println()
 		fmt.Printf("📊 Dashboard:    http://localhost:%d\n", port)
 		fmt.Printf("🗺️  Topology:     http://localhost:%d/topology\n", port)
