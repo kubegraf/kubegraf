@@ -6,6 +6,153 @@
     <title>KubeGraf - Advanced Kubernetes Visualization</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
+        /* Theme Definitions */
+        :root {
+            /* Dark Theme (Default) */
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --bg-card: rgba(30, 41, 59, 0.8);
+            --bg-navbar: rgba(15, 23, 42, 0.95);
+            --bg-input: rgba(30, 41, 59, 0.8);
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-color: rgba(100, 116, 139, 0.3);
+            --border-light: rgba(100, 116, 139, 0.5);
+            --accent-primary: #06b6d4;
+            --accent-secondary: #3b82f6;
+            --accent-gradient: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            --success-color: #22c55e;
+            --warning-color: #f59e0b;
+            --error-color: #ef4444;
+            --tab-bg: #16213e;
+            --tab-hover: #1f4068;
+            --tab-active: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --sub-tab-bg: #0f3460;
+            --sub-tab-active: #00d4ff;
+            --table-header: rgba(15, 23, 42, 0.8);
+            --table-row-hover: rgba(6, 182, 212, 0.1);
+            --scrollbar-bg: #1e293b;
+            --scrollbar-thumb: #475569;
+        }
+
+        [data-theme="light"] {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #e2e8f0;
+            --bg-tertiary: #cbd5e1;
+            --bg-card: rgba(255, 255, 255, 0.95);
+            --bg-navbar: rgba(248, 250, 252, 0.95);
+            --bg-input: rgba(255, 255, 255, 0.9);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --border-color: rgba(148, 163, 184, 0.4);
+            --border-light: rgba(148, 163, 184, 0.6);
+            --accent-primary: #0891b2;
+            --accent-secondary: #2563eb;
+            --accent-gradient: linear-gradient(135deg, #0891b2 0%, #2563eb 100%);
+            --success-color: #16a34a;
+            --warning-color: #d97706;
+            --error-color: #dc2626;
+            --tab-bg: #e2e8f0;
+            --tab-hover: #cbd5e1;
+            --tab-active: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --sub-tab-bg: #cbd5e1;
+            --sub-tab-active: #0891b2;
+            --table-header: rgba(226, 232, 240, 0.9);
+            --table-row-hover: rgba(8, 145, 178, 0.1);
+            --scrollbar-bg: #e2e8f0;
+            --scrollbar-thumb: #94a3b8;
+        }
+
+        [data-theme="midnight"] {
+            --bg-primary: #030712;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --bg-card: rgba(17, 24, 39, 0.9);
+            --bg-navbar: rgba(3, 7, 18, 0.98);
+            --bg-input: rgba(17, 24, 39, 0.9);
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --border-color: rgba(75, 85, 99, 0.4);
+            --border-light: rgba(75, 85, 99, 0.6);
+            --accent-primary: #8b5cf6;
+            --accent-secondary: #a855f7;
+            --accent-gradient: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --error-color: #f43f5e;
+            --tab-bg: #1f2937;
+            --tab-hover: #374151;
+            --tab-active: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+            --sub-tab-bg: #1f2937;
+            --sub-tab-active: #8b5cf6;
+            --table-header: rgba(17, 24, 39, 0.9);
+            --table-row-hover: rgba(139, 92, 246, 0.1);
+            --scrollbar-bg: #111827;
+            --scrollbar-thumb: #4b5563;
+        }
+
+        [data-theme="cyberpunk"] {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --bg-card: rgba(18, 18, 26, 0.95);
+            --bg-navbar: rgba(10, 10, 15, 0.98);
+            --bg-input: rgba(18, 18, 26, 0.9);
+            --text-primary: #00ff9f;
+            --text-secondary: #ff00ff;
+            --text-muted: #00d4ff;
+            --border-color: rgba(0, 255, 159, 0.3);
+            --border-light: rgba(255, 0, 255, 0.4);
+            --accent-primary: #00ff9f;
+            --accent-secondary: #ff00ff;
+            --accent-gradient: linear-gradient(135deg, #00ff9f 0%, #ff00ff 100%);
+            --success-color: #00ff9f;
+            --warning-color: #ffff00;
+            --error-color: #ff0055;
+            --tab-bg: #1a1a25;
+            --tab-hover: #252535;
+            --tab-active: linear-gradient(135deg, #00ff9f 0%, #ff00ff 100%);
+            --sub-tab-bg: #1a1a25;
+            --sub-tab-active: #00ff9f;
+            --table-header: rgba(18, 18, 26, 0.95);
+            --table-row-hover: rgba(0, 255, 159, 0.1);
+            --scrollbar-bg: #12121a;
+            --scrollbar-thumb: #00ff9f;
+        }
+
+        [data-theme="ocean"] {
+            --bg-primary: #0c1929;
+            --bg-secondary: #132f4c;
+            --bg-tertiary: #1a4971;
+            --bg-card: rgba(19, 47, 76, 0.9);
+            --bg-navbar: rgba(12, 25, 41, 0.98);
+            --bg-input: rgba(19, 47, 76, 0.9);
+            --text-primary: #ffffff;
+            --text-secondary: #b2bac2;
+            --text-muted: #8b949e;
+            --border-color: rgba(48, 98, 139, 0.5);
+            --border-light: rgba(48, 98, 139, 0.7);
+            --accent-primary: #29b6f6;
+            --accent-secondary: #4fc3f7;
+            --accent-gradient: linear-gradient(135deg, #29b6f6 0%, #4fc3f7 100%);
+            --success-color: #66bb6a;
+            --warning-color: #ffa726;
+            --error-color: #ef5350;
+            --tab-bg: #132f4c;
+            --tab-hover: #1a4971;
+            --tab-active: linear-gradient(135deg, #29b6f6 0%, #4fc3f7 100%);
+            --sub-tab-bg: #132f4c;
+            --sub-tab-active: #29b6f6;
+            --table-header: rgba(19, 47, 76, 0.95);
+            --table-row-hover: rgba(41, 182, 246, 0.1);
+            --scrollbar-bg: #132f4c;
+            --scrollbar-thumb: #29b6f6;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -14,26 +161,234 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: white;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         .main-wrapper {
             flex: 1;
         }
 
+        /* Global Search */
+        .global-search {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 0.4rem 0.8rem;
+            transition: all 0.3s ease;
+        }
+
+        .global-search:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.2);
+        }
+
+        .global-search .search-icon {
+            font-size: 0.9rem;
+            opacity: 0.7;
+        }
+
+        .global-search input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            width: 180px;
+            transition: width 0.3s ease;
+        }
+
+        .global-search input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .global-search:focus-within input {
+            width: 250px;
+        }
+
+        .global-search .search-shortcut {
+            background: var(--bg-tertiary);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        /* Search Results Highlight */
+        .search-highlight {
+            background: rgba(234, 179, 8, 0.3);
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        .search-no-match {
+            opacity: 0.3;
+        }
+
+        /* Table Controls (Filter, Pagination, Count) */
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .table-filter {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            padding: 0.4rem 0.8rem;
+            transition: all 0.3s ease;
+        }
+
+        .table-filter:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15);
+        }
+
+        .table-filter input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            width: 200px;
+        }
+
+        .table-filter input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .table-filter .filter-icon {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .table-info {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .item-count {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .item-count strong {
+            color: var(--accent-primary);
+        }
+
+        .rows-per-page {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .rows-per-page select {
+            background: var(--bg-input);
+            border: 1px solid var(--border-light);
+            border-radius: 4px;
+            color: var(--text-primary);
+            padding: 0.3rem 0.5rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .pagination {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .pagination button {
+            background: var(--bg-input);
+            border: 1px solid var(--border-light);
+            border-radius: 4px;
+            color: var(--text-primary);
+            padding: 0.4rem 0.7rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s ease;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .pagination button.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .pagination .page-info {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            padding: 0 0.5rem;
+        }
+
+        /* Theme Selector */
+        .theme-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .theme-selector select {
+            padding: 0.4rem 0.8rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.3s ease;
+        }
+
+        .theme-selector select:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .theme-icon {
+            font-size: 1rem;
+        }
+
         /* Top Navigation */
         .navbar {
-            background: rgba(15, 23, 42, 0.95);
-            border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+            background: var(--bg-navbar);
+            border-bottom: 1px solid var(--border-color);
             padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             backdrop-filter: blur(10px);
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
 
         .logo {
@@ -43,10 +398,8 @@
         }
 
         .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
-            border-radius: 8px;
+            width: 44px;
+            height: 44px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -68,17 +421,18 @@
             background: rgba(34, 197, 94, 0.2);
             border: 1px solid rgba(34, 197, 94, 0.5);
             border-radius: 6px;
-            color: #22c55e;
+            color: var(--success-color);
             display: flex;
             align-items: center;
             gap: 0.5rem;
             font-size: 0.875rem;
+            transition: all 0.3s ease;
         }
 
         .status-dot {
             width: 8px;
             height: 8px;
-            background: #22c55e;
+            background: var(--success-color);
             border-radius: 50%;
             animation: pulse 2s infinite;
         }
@@ -93,15 +447,16 @@
             display: flex;
             gap: 5px;
             margin-bottom: 10px;
-            border-bottom: 2px solid #1a1a2e;
+            border-bottom: 2px solid var(--bg-tertiary);
             padding: 0 2rem;
             background: rgba(15, 23, 42, 0.5);
+            transition: all 0.3s ease;
         }
 
         .main-tab {
             padding: 10px 20px;
-            background: #16213e;
-            color: #fff;
+            background: var(--tab-bg);
+            color: var(--text-primary);
             border: none;
             border-radius: 8px 8px 0 0;
             cursor: pointer;
@@ -111,11 +466,11 @@
         }
 
         .main-tab:hover {
-            background: #1f4068;
+            background: var(--tab-hover);
         }
 
         .main-tab.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--tab-active);
             color: white;
         }
 
@@ -125,13 +480,14 @@
             gap: 5px;
             margin-bottom: 15px;
             padding: 8px 2rem;
-            background: #0f3460;
+            background: var(--sub-tab-bg);
+            transition: all 0.3s ease;
         }
 
         .sub-tabs button {
             padding: 8px 15px;
-            background: #16213e;
-            color: #fff;
+            background: var(--tab-bg);
+            color: var(--text-primary);
             border: none;
             border-radius: 5px;
             cursor: pointer;
@@ -140,11 +496,11 @@
         }
 
         .sub-tabs button:hover {
-            background: #1f4068;
+            background: var(--tab-hover);
         }
 
         .sub-tabs button.active {
-            background: #00d4ff;
+            background: var(--sub-tab-active);
             color: #000;
         }
 
@@ -245,16 +601,17 @@
 
         /* Cards */
         .card {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(100, 116, 139, 0.3);
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             backdrop-filter: blur(10px);
             overflow: hidden;
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
 
         .card-header {
             padding: 1.5rem;
-            border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -284,24 +641,26 @@
         }
 
         thead {
-            background: rgba(15, 23, 42, 0.5);
+            background: var(--table-header);
+            transition: background 0.3s ease;
         }
 
         th {
             padding: 1rem 1.5rem;
             text-align: left;
             font-size: 0.875rem;
-            color: #94a3b8;
+            color: var(--text-secondary);
             font-weight: 600;
         }
 
         td {
             padding: 1rem 1.5rem;
-            border-top: 1px solid rgba(100, 116, 139, 0.2);
+            border-top: 1px solid var(--border-color);
+            color: var(--text-primary);
         }
 
         tbody tr:hover {
-            background: rgba(6, 182, 212, 0.05);
+            background: var(--table-row-hover);
         }
 
         .badge {
@@ -313,23 +672,23 @@
 
         .badge-success {
             background: rgba(34, 197, 94, 0.2);
-            color: #22c55e;
+            color: var(--success-color);
         }
 
         .badge-warning {
             background: rgba(234, 179, 8, 0.2);
-            color: #eab308;
+            color: var(--warning-color);
         }
 
         .badge-error {
             background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
+            color: var(--error-color);
         }
 
         /* Button */
         .btn {
             padding: 0.75rem 1.5rem;
-            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            background: var(--accent-gradient);
             border: none;
             border-radius: 8px;
             color: white;
@@ -417,11 +776,65 @@
     <!-- Navigation -->
     <nav class="navbar">
         <div class="logo">
-            <div class="logo-icon">K</div>
+            <div class="logo-icon">
+                <svg viewBox="0 0 100 100" width="44" height="44" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#06b6d4"/>
+                            <stop offset="50%" style="stop-color:#3b82f6"/>
+                            <stop offset="100%" style="stop-color:#8b5cf6"/>
+                        </linearGradient>
+                        <filter id="glow">
+                            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                            <feMerge>
+                                <feMergeNode in="coloredBlur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+                    <!-- Background circle -->
+                    <circle cx="50" cy="50" r="46" fill="rgba(6, 182, 212, 0.1)" stroke="url(#logoGrad)" stroke-width="2"/>
+                    <!-- Kubernetes helm wheel (7 spokes) -->
+                    <g filter="url(#glow)">
+                        <!-- Center hub -->
+                        <circle cx="50" cy="50" r="12" fill="url(#logoGrad)"/>
+                        <!-- Spokes -->
+                        <line x1="50" y1="38" x2="50" y2="18" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <line x1="61" y1="41" x2="76" y2="26" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <line x1="62" y1="54" x2="80" y2="60" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <line x1="56" y1="61" x2="64" y2="80" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <line x1="44" y1="61" x2="36" y2="80" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <line x1="38" y1="54" x2="20" y2="60" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <line x1="39" y1="41" x2="24" y2="26" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/>
+                        <!-- Node circles at spoke ends -->
+                        <circle cx="50" cy="16" r="5" fill="#06b6d4"/>
+                        <circle cx="78" cy="24" r="5" fill="#22d3ee"/>
+                        <circle cx="82" cy="62" r="5" fill="#3b82f6"/>
+                        <circle cx="66" cy="82" r="5" fill="#6366f1"/>
+                        <circle cx="34" cy="82" r="5" fill="#8b5cf6"/>
+                        <circle cx="18" cy="62" r="5" fill="#a855f7"/>
+                        <circle cx="22" cy="24" r="5" fill="#06b6d4"/>
+                        <!-- Connection lines between nodes (graph effect) -->
+                        <line x1="50" y1="16" x2="78" y2="24" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/>
+                        <line x1="78" y1="24" x2="82" y2="62" stroke="#3b82f6" stroke-width="1.5" opacity="0.4"/>
+                        <line x1="82" y1="62" x2="66" y2="82" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/>
+                        <line x1="66" y1="82" x2="34" y2="82" stroke="#8b5cf6" stroke-width="1.5" opacity="0.4"/>
+                        <line x1="34" y1="82" x2="18" y2="62" stroke="#a855f7" stroke-width="1.5" opacity="0.4"/>
+                        <line x1="18" y1="62" x2="22" y2="24" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/>
+                        <line x1="22" y1="24" x2="50" y2="16" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/>
+                    </g>
+                </svg>
+            </div>
             <span class="logo-text">KubeGraf</span>
             <span style="padding: 0.2rem 0.5rem; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 4px; color: #22c55e; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem;">v1.0.0</span>
         </div>
         <div style="display: flex; align-items: center; gap: 1rem;">
+            <!-- Global Search -->
+            <div class="global-search">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="global-search" placeholder="Search resources... (Ctrl+K)" onkeyup="globalSearch(this.value)" />
+                <kbd class="search-shortcut">Ctrl+K</kbd>
+            </div>
             <!-- Cluster Name Badge -->
             <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 6px;">
                 <span style="font-size: 1rem;">☸️</span>
@@ -431,6 +844,16 @@
                 <span style="color: #94a3b8; font-size: 0.875rem;">Namespace:</span>
                 <select id="namespace-selector" onchange="changeNamespace(this.value)" style="padding: 0.5rem 1rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 6px; color: white; cursor: pointer; font-size: 0.875rem;">
                     <option value="default">default</option>
+                </select>
+            </div>
+            <!-- Theme Selector -->
+            <div class="theme-selector">
+                <select id="theme-selector" onchange="changeTheme(this.value)">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                    <option value="midnight">Midnight</option>
+                    <option value="cyberpunk">Cyberpunk</option>
+                    <option value="ocean">Ocean</option>
                 </select>
             </div>
             <div class="status-badge" id="connection-status">
@@ -459,6 +882,8 @@
         <button id="tab-config" class="main-tab" onclick="switchMainTab('config')">Config</button>
         <button id="tab-cluster" class="main-tab" onclick="switchMainTab('cluster')">Cluster</button>
         <button id="tab-resourcemap" class="main-tab" onclick="switchMainTab('resourcemap')">Resource Map</button>
+        <button id="tab-security" class="main-tab" onclick="switchMainTab('security')">Security</button>
+        <button id="tab-plugins" class="main-tab" onclick="switchMainTab('plugins')">Plugins</button>
     </div>
 
     <!-- Sub-Tabs for each category -->
@@ -483,6 +908,13 @@
 
     <div id="cluster-subtabs" class="sub-tabs" style="display: none;">
         <button id="subtab-nodes" onclick="switchTab('nodes')">Nodes</button>
+    </div>
+
+    <div id="plugins-subtabs" class="sub-tabs" style="display: none;">
+        <button id="subtab-helm" onclick="switchTab('helm')">Helm Releases</button>
+        <button id="subtab-kustomize" onclick="switchTab('kustomize')">Kustomize</button>
+        <button id="subtab-argocd" onclick="switchTab('argocd')">ArgoCD</button>
+        <button id="subtab-flux" onclick="switchTab('flux')">Flux</button>
     </div>
 
     <!-- Main Content -->
@@ -546,6 +978,40 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Security Summary Card -->
+            <div class="card" onclick="switchMainTab('security')" style="cursor: pointer; margin-top: 1rem;">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 class="card-title">🛡️ Security Overview</h3>
+                    <span style="color: #64748b; font-size: 0.75rem;">Click to view details →</span>
+                </div>
+                <div class="card-body">
+                    <div style="display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+                        <div style="text-align: center;">
+                            <div id="dashboard-security-score" style="font-size: 2.5rem; font-weight: 700; color: #22c55e;">--</div>
+                            <div style="color: #64748b; font-size: 0.875rem;">Security Score</div>
+                        </div>
+                        <div style="flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; min-width: 300px;">
+                            <div style="text-align: center; padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px;">
+                                <div id="dashboard-critical-count" style="font-size: 1.5rem; font-weight: 600; color: #ef4444;">-</div>
+                                <div style="color: #ef4444; font-size: 0.75rem;">Critical</div>
+                            </div>
+                            <div style="text-align: center; padding: 0.5rem; background: rgba(249, 115, 22, 0.1); border-radius: 8px;">
+                                <div id="dashboard-high-count" style="font-size: 1.5rem; font-weight: 600; color: #f97316;">-</div>
+                                <div style="color: #f97316; font-size: 0.75rem;">High</div>
+                            </div>
+                            <div style="text-align: center; padding: 0.5rem; background: rgba(234, 179, 8, 0.1); border-radius: 8px;">
+                                <div id="dashboard-medium-count" style="font-size: 1.5rem; font-weight: 600; color: #eab308;">-</div>
+                                <div style="color: #eab308; font-size: 0.75rem;">Medium</div>
+                            </div>
+                            <div style="text-align: center; padding: 0.5rem; background: rgba(34, 197, 94, 0.1); border-radius: 8px;">
+                                <div id="dashboard-low-count" style="font-size: 1.5rem; font-weight: 600; color: #22c55e;">-</div>
+                                <div style="color: #22c55e; font-size: 0.75rem;">Low</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Topology View -->
@@ -573,7 +1039,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="pods-search" placeholder="Search pods..." onkeyup="filterPods()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="pods-status-filter" onchange="filterPods()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Status</option>
                             <option value="Running">Running</option>
@@ -613,6 +1083,30 @@
                         </thead>
                         <tbody id="pods-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="pods-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="pods-showing-start">0</span>-<span id="pods-showing-end">0</span></strong> of <strong><span id="pods-total">0</span></strong> pods
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="pods-page-size" onchange="changePageSize('pods')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="pods-pagination-btns">
+                                <button onclick="goToPage('pods', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('pods', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="pods-current-page">1</span> of <span id="pods-total-pages">1</span></span>
+                                <button onclick="goToPage('pods', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('pods', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -630,7 +1124,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="deployments-search" placeholder="Search deployments..." onkeyup="filterDeployments()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="deployments-age-filter" onchange="filterDeployments()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Ages</option>
                             <option value="1h">&lt; 1 hour</option>
@@ -657,6 +1155,30 @@
                         </thead>
                         <tbody id="deployments-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="deployments-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="deployments-showing-start">0</span>-<span id="deployments-showing-end">0</span></strong> of <strong><span id="deployments-total">0</span></strong> deployments
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="deployments-page-size" onchange="changePageSize('deployments')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="deployments-pagination-btns">
+                                <button onclick="goToPage('deployments', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('deployments', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="deployments-current-page">1</span> of <span id="deployments-total-pages">1</span></span>
+                                <button onclick="goToPage('deployments', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('deployments', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -674,7 +1196,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="statefulsets-search" placeholder="Search statefulsets..." onkeyup="filterStatefulSets()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="statefulsets-age-filter" onchange="filterStatefulSets()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Ages</option>
                             <option value="1h">&lt; 1 hour</option>
@@ -701,6 +1227,30 @@
                         </thead>
                         <tbody id="statefulsets-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="statefulsets-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="statefulsets-showing-start">0</span>-<span id="statefulsets-showing-end">0</span></strong> of <strong><span id="statefulsets-total">0</span></strong> statefulsets
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="statefulsets-page-size" onchange="changePageSize('statefulsets')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="statefulsets-pagination-btns">
+                                <button onclick="goToPage('statefulsets', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('statefulsets', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="statefulsets-current-page">1</span> of <span id="statefulsets-total-pages">1</span></span>
+                                <button onclick="goToPage('statefulsets', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('statefulsets', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -718,7 +1268,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="daemonsets-search" placeholder="Search daemonsets..." onkeyup="filterDaemonSets()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="daemonsets-age-filter" onchange="filterDaemonSets()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Ages</option>
                             <option value="1h">&lt; 1 hour</option>
@@ -746,6 +1300,30 @@
                         </thead>
                         <tbody id="daemonsets-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="daemonsets-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="daemonsets-showing-start">0</span>-<span id="daemonsets-showing-end">0</span></strong> of <strong><span id="daemonsets-total">0</span></strong> daemonsets
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="daemonsets-page-size" onchange="changePageSize('daemonsets')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="daemonsets-pagination-btns">
+                                <button onclick="goToPage('daemonsets', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('daemonsets', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="daemonsets-current-page">1</span> of <span id="daemonsets-total-pages">1</span></span>
+                                <button onclick="goToPage('daemonsets', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('daemonsets', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -763,7 +1341,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="services-search" placeholder="Search services..." onkeyup="filterServices()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="services-type-filter" onchange="filterServices()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Types</option>
                             <option value="ClusterIP">ClusterIP</option>
@@ -797,6 +1379,30 @@
                         </thead>
                         <tbody id="services-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="services-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="services-showing-start">0</span>-<span id="services-showing-end">0</span></strong> of <strong><span id="services-total">0</span></strong> services
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="services-page-size" onchange="changePageSize('services')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="services-pagination-btns">
+                                <button onclick="goToPage('services', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('services', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="services-current-page">1</span> of <span id="services-total-pages">1</span></span>
+                                <button onclick="goToPage('services', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('services', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -814,7 +1420,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="ingresses-search" placeholder="Search ingresses..." onkeyup="filterIngresses()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="ingresses-age-filter" onchange="filterIngresses()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Ages</option>
                             <option value="1h">&lt; 1 hour</option>
@@ -838,6 +1448,30 @@
                         </thead>
                         <tbody id="ingresses-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="ingresses-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="ingresses-showing-start">0</span>-<span id="ingresses-showing-end">0</span></strong> of <strong><span id="ingresses-total">0</span></strong> ingresses
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="ingresses-page-size" onchange="changePageSize('ingresses')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="ingresses-pagination-btns">
+                                <button onclick="goToPage('ingresses', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('ingresses', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="ingresses-current-page">1</span> of <span id="ingresses-total-pages">1</span></span>
+                                <button onclick="goToPage('ingresses', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('ingresses', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -855,7 +1489,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="cronjobs-search" placeholder="Search cronjobs..." onkeyup="filterCronJobs()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="cronjobs-age-filter" onchange="filterCronJobs()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Ages</option>
                             <option value="1h">&lt; 1 hour</option>
@@ -884,6 +1522,30 @@
                         </thead>
                         <tbody id="cronjobs-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="cronjobs-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="cronjobs-showing-start">0</span>-<span id="cronjobs-showing-end">0</span></strong> of <strong><span id="cronjobs-total">0</span></strong> cronjobs
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="cronjobs-page-size" onchange="changePageSize('cronjobs')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="cronjobs-pagination-btns">
+                                <button onclick="goToPage('cronjobs', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('cronjobs', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="cronjobs-current-page">1</span> of <span id="cronjobs-total-pages">1</span></span>
+                                <button onclick="goToPage('cronjobs', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('cronjobs', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -901,7 +1563,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="jobs-search" placeholder="Search jobs..." onkeyup="filterJobs()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="jobs-status-filter" onchange="filterJobs()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Status</option>
                             <option value="Complete">Complete</option>
@@ -935,6 +1601,30 @@
                         </thead>
                         <tbody id="jobs-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="jobs-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="jobs-showing-start">0</span>-<span id="jobs-showing-end">0</span></strong> of <strong><span id="jobs-total">0</span></strong> jobs
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="jobs-page-size" onchange="changePageSize('jobs')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="jobs-pagination-btns">
+                                <button onclick="goToPage('jobs', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('jobs', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="jobs-current-page">1</span> of <span id="jobs-total-pages">1</span></span>
+                                <button onclick="goToPage('jobs', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('jobs', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -952,7 +1642,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="nodes-search" placeholder="Search nodes..." onkeyup="filterNodes()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="nodes-status-filter" onchange="filterNodes()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Status</option>
                             <option value="Ready">Ready</option>
@@ -985,6 +1679,30 @@
                         </thead>
                         <tbody id="nodes-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="nodes-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="nodes-showing-start">0</span>-<span id="nodes-showing-end">0</span></strong> of <strong><span id="nodes-total">0</span></strong> nodes
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="nodes-page-size" onchange="changePageSize('nodes')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="nodes-pagination-btns">
+                                <button onclick="goToPage('nodes', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('nodes', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="nodes-current-page">1</span> of <span id="nodes-total-pages">1</span></span>
+                                <button onclick="goToPage('nodes', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('nodes', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1002,7 +1720,11 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <div class="filter-controls" style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <div style="position: relative; flex: 1; max-width: 300px;">
+                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">🔍</span>
+                            <input type="text" id="configmaps-search" placeholder="Search configmaps..." onkeyup="filterConfigMaps()" style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white;">
+                        </div>
                         <select id="configmaps-age-filter" onchange="filterConfigMaps()" style="padding: 0.5rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; cursor: pointer;">
                             <option value="">All Ages</option>
                             <option value="1h">&lt; 1 hour</option>
@@ -1026,6 +1748,30 @@
                         </thead>
                         <tbody id="configmaps-tbody"></tbody>
                     </table>
+                    <!-- Pagination Controls -->
+                    <div class="table-controls" id="configmaps-pagination">
+                        <div class="item-count">
+                            Showing <strong><span id="configmaps-showing-start">0</span>-<span id="configmaps-showing-end">0</span></strong> of <strong><span id="configmaps-total">0</span></strong> configmaps
+                        </div>
+                        <div class="table-info">
+                            <div class="rows-per-page">
+                                <span>Rows per page:</span>
+                                <select id="configmaps-page-size" onchange="changePageSize('configmaps')">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="pagination" id="configmaps-pagination-btns">
+                                <button onclick="goToPage('configmaps', 'first')" title="First Page">«</button>
+                                <button onclick="goToPage('configmaps', 'prev')" title="Previous Page">‹</button>
+                                <span class="page-info">Page <span id="configmaps-current-page">1</span> of <span id="configmaps-total-pages">1</span></span>
+                                <button onclick="goToPage('configmaps', 'next')" title="Next Page">›</button>
+                                <button onclick="goToPage('configmaps', 'last')" title="Last Page">»</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1087,6 +1833,315 @@
             <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                 <button onclick="closeConfirmModal()" style="padding: 0.75rem 1.5rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer;">Cancel</button>
                 <button id="confirm-btn" style="padding: 0.75rem 1.5rem; background: #ef4444; border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: 600;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Security Best Practices View -->
+    <div id="security-view" class="tab-content" style="display: none;">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">🛡️ Security Best Practices</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn" onclick="loadSecurity()" style="background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%); border: none; padding: 0.6rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 600; box-shadow: 0 4px 6px rgba(6, 182, 212, 0.3); transition: all 0.3s ease; cursor: pointer;" title="Refresh">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Security Score -->
+                <div id="security-score-section" style="margin-bottom: 2rem;">
+                    <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 200px; background: rgba(30, 41, 59, 0.6); border-radius: 12px; padding: 1.5rem; text-align: center;">
+                            <div style="font-size: 3rem; font-weight: 700;" id="security-score">--</div>
+                            <div style="color: #94a3b8; font-size: 0.875rem;">Security Score</div>
+                        </div>
+                        <div style="flex: 3; min-width: 300px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+                            <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 1.75rem; font-weight: 700; color: #ef4444;" id="security-critical">0</div>
+                                <div style="color: #ef4444; font-size: 0.75rem; font-weight: 600;">CRITICAL</div>
+                            </div>
+                            <div style="background: rgba(249, 115, 22, 0.15); border: 1px solid rgba(249, 115, 22, 0.3); border-radius: 8px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 1.75rem; font-weight: 700; color: #f97316;" id="security-high">0</div>
+                                <div style="color: #f97316; font-size: 0.75rem; font-weight: 600;">HIGH</div>
+                            </div>
+                            <div style="background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 8px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 1.75rem; font-weight: 700; color: #eab308;" id="security-medium">0</div>
+                                <div style="color: #eab308; font-size: 0.75rem; font-weight: 600;">MEDIUM</div>
+                            </div>
+                            <div style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 1.75rem; font-weight: 700; color: #22c55e;" id="security-low">0</div>
+                                <div style="color: #22c55e; font-size: 0.75rem; font-weight: 600;">LOW</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Buttons -->
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button onclick="filterSecurityFindings('all')" id="sec-filter-all" class="btn" style="background: #06b6d4; padding: 0.5rem 1rem; font-size: 0.875rem;">All</button>
+                    <button onclick="filterSecurityFindings('critical')" id="sec-filter-critical" class="btn" style="background: #475569; padding: 0.5rem 1rem; font-size: 0.875rem;">Critical</button>
+                    <button onclick="filterSecurityFindings('high')" id="sec-filter-high" class="btn" style="background: #475569; padding: 0.5rem 1rem; font-size: 0.875rem;">High</button>
+                    <button onclick="filterSecurityFindings('medium')" id="sec-filter-medium" class="btn" style="background: #475569; padding: 0.5rem 1rem; font-size: 0.875rem;">Medium</button>
+                    <button onclick="filterSecurityFindings('low')" id="sec-filter-low" class="btn" style="background: #475569; padding: 0.5rem 1rem; font-size: 0.875rem;">Low</button>
+                    <div style="flex: 1;"></div>
+                    <select id="security-category-filter" onchange="filterSecurityFindings()" style="background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 4px; color: white; padding: 0.5rem;">
+                        <option value="">All Categories</option>
+                        <option value="security-context">Security Context</option>
+                        <option value="network-policy">Network Policy</option>
+                        <option value="ingress-ports">Ingress Ports</option>
+                        <option value="ingress-tls">Ingress TLS</option>
+                        <option value="service-exposure">Service Exposure</option>
+                    </select>
+                </div>
+
+                <!-- Findings List -->
+                <div id="security-findings" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div style="text-align: center; padding: 3rem; color: #64748b;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+                        <p>Click "Refresh" to analyze security best practices</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Helm Releases View -->
+    <div id="helm-view" class="tab-content" style="display: none;">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">⎈ Helm Releases</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn" onclick="loadHelmReleases()" style="background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%); border: none; padding: 0.6rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 600; box-shadow: 0 4px 6px rgba(6, 182, 212, 0.3); transition: all 0.3s ease; cursor: pointer;" title="Refresh">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Summary Stats -->
+                <div id="helm-summary" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div style="background: rgba(30, 41, 59, 0.6); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #06b6d4;" id="helm-count">--</div>
+                        <div style="color: #94a3b8; font-size: 0.875rem;">Total Releases</div>
+                    </div>
+                    <div style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #22c55e;" id="helm-deployed">--</div>
+                        <div style="color: #22c55e; font-size: 0.875rem;">Deployed</div>
+                    </div>
+                    <div style="background: rgba(249, 115, 22, 0.15); border: 1px solid rgba(249, 115, 22, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #f97316;" id="helm-other">--</div>
+                        <div style="color: #f97316; font-size: 0.875rem;">Other Status</div>
+                    </div>
+                </div>
+
+                <!-- Search Box -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="helm-search" placeholder="Search releases..." oninput="filterHelmReleases()" style="width: 100%; max-width: 300px; padding: 0.5rem 1rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 6px; color: white;">
+                </div>
+
+                <!-- Releases Table -->
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="helm-table">
+                        <thead>
+                            <tr>
+                                <th>Release Name</th>
+                                <th>Namespace</th>
+                                <th>Revision</th>
+                                <th>Status</th>
+                                <th>Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="helm-releases-body">
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 3rem; color: #64748b;">
+                                    <div style="font-size: 3rem; margin-bottom: 1rem;">⎈</div>
+                                    <p>Loading Helm releases...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kustomize Resources View -->
+    <div id="kustomize-view" class="tab-content" style="display: none;">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📦 Kustomize Managed Resources</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn" onclick="loadKustomizeResources()" style="background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%); border: none; padding: 0.6rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 600; box-shadow: 0 4px 6px rgba(139, 92, 246, 0.3); transition: all 0.3s ease; cursor: pointer;" title="Refresh">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="kustomize-summary" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #8b5cf6;" id="kustomize-count">--</div>
+                        <div style="color: #a78bfa; font-size: 0.875rem;">Total Resources</div>
+                    </div>
+                </div>
+                <p style="color: #94a3b8; margin-bottom: 1rem; font-size: 0.875rem;">Resources with label <code style="background: rgba(30, 41, 59, 0.8); padding: 0.2rem 0.4rem; border-radius: 4px;">app.kubernetes.io/managed-by=kustomize</code></p>
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="kustomize-search" placeholder="Search resources..." oninput="filterKustomizeResources()" style="width: 100%; max-width: 300px; padding: 0.5rem 1rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 6px; color: white;">
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="kustomize-table">
+                        <thead>
+                            <tr>
+                                <th>Kind</th>
+                                <th>Name</th>
+                                <th>Namespace</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kustomize-resources-body">
+                            <tr>
+                                <td colspan="4" style="text-align: center; padding: 3rem; color: #64748b;">
+                                    <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+                                    <p>Loading Kustomize resources...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ArgoCD Applications View -->
+    <div id="argocd-view" class="tab-content" style="display: none;">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">🦑 ArgoCD Applications</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn" onclick="loadArgoCDApps()" style="background: linear-gradient(135deg, #f97316 0%, #ef4444 100%); border: none; padding: 0.6rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 600; box-shadow: 0 4px 6px rgba(249, 115, 22, 0.3); transition: all 0.3s ease; cursor: pointer;" title="Refresh">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="argocd-summary" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div style="background: rgba(30, 41, 59, 0.6); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #f97316;" id="argocd-count">--</div>
+                        <div style="color: #94a3b8; font-size: 0.875rem;">Total Apps</div>
+                    </div>
+                    <div style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #22c55e;" id="argocd-synced">--</div>
+                        <div style="color: #22c55e; font-size: 0.875rem;">Synced</div>
+                    </div>
+                    <div style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #22c55e;" id="argocd-healthy">--</div>
+                        <div style="color: #22c55e; font-size: 0.875rem;">Healthy</div>
+                    </div>
+                </div>
+                <div id="argocd-not-installed" style="display: none; text-align: center; padding: 2rem; color: #94a3b8; background: rgba(30, 41, 59, 0.6); border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+                    <p>ArgoCD is not installed in this cluster</p>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="argocd-search" placeholder="Search applications..." oninput="filterArgoCDApps()" style="width: 100%; max-width: 300px; padding: 0.5rem 1rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 6px; color: white;">
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="argocd-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Namespace</th>
+                                <th>Project</th>
+                                <th>Sync Status</th>
+                                <th>Health</th>
+                                <th>Repo</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody id="argocd-apps-body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 3rem; color: #64748b;">
+                                    <div style="font-size: 3rem; margin-bottom: 1rem;">🦑</div>
+                                    <p>Loading ArgoCD applications...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flux Resources View -->
+    <div id="flux-view" class="tab-content" style="display: none;">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">🔄 Flux Resources</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn" onclick="loadFluxResources()" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%); border: none; padding: 0.6rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 600; box-shadow: 0 4px 6px rgba(6, 182, 212, 0.3); transition: all 0.3s ease; cursor: pointer;" title="Refresh">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="flux-summary" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div style="background: rgba(30, 41, 59, 0.6); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #06b6d4;" id="flux-count">--</div>
+                        <div style="color: #94a3b8; font-size: 0.875rem;">Total Resources</div>
+                    </div>
+                    <div style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #22c55e;" id="flux-ready">--</div>
+                        <div style="color: #22c55e; font-size: 0.875rem;">Ready</div>
+                    </div>
+                    <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 1rem; flex: 1; min-width: 150px; text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: #ef4444;" id="flux-not-ready">--</div>
+                        <div style="color: #ef4444; font-size: 0.875rem;">Not Ready</div>
+                    </div>
+                </div>
+                <div id="flux-not-installed" style="display: none; text-align: center; padding: 2rem; color: #94a3b8; background: rgba(30, 41, 59, 0.6); border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+                    <p>Flux is not installed in this cluster</p>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="flux-search" placeholder="Search resources..." oninput="filterFluxResources()" style="width: 100%; max-width: 300px; padding: 0.5rem 1rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 6px; color: white;">
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" id="flux-table">
+                        <thead>
+                            <tr>
+                                <th>Kind</th>
+                                <th>Name</th>
+                                <th>Namespace</th>
+                                <th>Ready</th>
+                                <th>Status</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody id="flux-resources-body">
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 3rem; color: #64748b;">
+                                    <div style="font-size: 3rem; margin-bottom: 1rem;">🔄</div>
+                                    <p>Loading Flux resources...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -1187,6 +2242,15 @@
             </div>
         </div>
     </div>
+
+    <!-- Generic Modal -->
+    <div id="generic-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+        <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 900px; margin: 0 auto; position: relative;">
+            <button onclick="closeGenericModal()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
+            <h3 id="generic-modal-title" style="color: #06b6d4; margin-bottom: 1.5rem;"></h3>
+            <div id="generic-modal-content"></div>
+        </div>
+    </div>
     </div>
 
     <!-- Port Forward Modal -->
@@ -1228,6 +2292,221 @@
     </button>
 
     <script>
+        // Theme Management
+        function changeTheme(theme) {
+            if (theme === 'dark') {
+                document.documentElement.removeAttribute('data-theme');
+            } else {
+                document.documentElement.setAttribute('data-theme', theme);
+            }
+            localStorage.setItem('kubegraf-theme', theme);
+
+            // Update theme-dependent elements
+            updateThemeColors(theme);
+        }
+
+        function updateThemeColors(theme) {
+            // Update any inline styles that need theme awareness
+            const isLight = theme === 'light';
+
+            // Update namespace selector styling
+            const nsSelector = document.getElementById('namespace-selector');
+            if (nsSelector) {
+                nsSelector.style.background = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(30, 41, 59, 0.8)';
+                nsSelector.style.color = isLight ? '#0f172a' : 'white';
+                nsSelector.style.borderColor = isLight ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)';
+            }
+        }
+
+        // Initialize theme from localStorage
+        function initTheme() {
+            const savedTheme = localStorage.getItem('kubegraf-theme') || 'dark';
+            const themeSelector = document.getElementById('theme-selector');
+            if (themeSelector) {
+                themeSelector.value = savedTheme;
+            }
+            changeTheme(savedTheme);
+        }
+
+        // Initialize theme on page load
+        document.addEventListener('DOMContentLoaded', initTheme);
+
+        // Global Search functionality
+        let currentSearchTerm = '';
+
+        function globalSearch(term) {
+            currentSearchTerm = term.toLowerCase().trim();
+
+            // Search across all table bodies
+            const tables = [
+                'pods-tbody',
+                'deployments-tbody',
+                'statefulsets-tbody',
+                'daemonsets-tbody',
+                'services-tbody',
+                'ingresses-tbody',
+                'configmaps-tbody',
+                'cronjobs-tbody',
+                'jobs-tbody',
+                'nodes-tbody'
+            ];
+
+            let totalMatches = 0;
+
+            tables.forEach(tableId => {
+                const tbody = document.getElementById(tableId);
+                if (!tbody) return;
+
+                const rows = tbody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    if (currentSearchTerm === '' || text.includes(currentSearchTerm)) {
+                        row.classList.remove('search-no-match');
+                        row.style.display = '';
+                        if (currentSearchTerm !== '') totalMatches++;
+                    } else {
+                        row.classList.add('search-no-match');
+                        row.style.display = 'none';
+                    }
+                });
+            });
+
+            // Update search input styling based on results
+            const searchInput = document.getElementById('global-search');
+            if (currentSearchTerm !== '' && totalMatches === 0) {
+                searchInput.style.color = 'var(--error-color)';
+            } else {
+                searchInput.style.color = '';
+            }
+        }
+
+        // Keyboard shortcut for search (Ctrl+K)
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                const searchInput = document.getElementById('global-search');
+                searchInput.focus();
+                searchInput.select();
+            }
+            // Escape to clear search
+            if (e.key === 'Escape') {
+                const searchInput = document.getElementById('global-search');
+                if (document.activeElement === searchInput) {
+                    searchInput.value = '';
+                    globalSearch('');
+                    searchInput.blur();
+                }
+            }
+        });
+
+        // Pagination State
+        const paginationState = {
+            pods: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            deployments: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            statefulsets: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            daemonsets: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            services: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            ingresses: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            configmaps: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            cronjobs: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            jobs: { page: 1, pageSize: 10, total: 0, filteredData: [] },
+            nodes: { page: 1, pageSize: 10, total: 0, filteredData: [] }
+        };
+
+        // Change page size
+        function changePageSize(resource) {
+            const select = document.getElementById(`${resource}-page-size`);
+            paginationState[resource].pageSize = parseInt(select.value);
+            paginationState[resource].page = 1; // Reset to first page
+            renderPaginatedTable(resource);
+        }
+
+        // Go to page
+        function goToPage(resource, action) {
+            const state = paginationState[resource];
+            const totalPages = Math.ceil(state.filteredData.length / state.pageSize) || 1;
+
+            switch(action) {
+                case 'first':
+                    state.page = 1;
+                    break;
+                case 'prev':
+                    state.page = Math.max(1, state.page - 1);
+                    break;
+                case 'next':
+                    state.page = Math.min(totalPages, state.page + 1);
+                    break;
+                case 'last':
+                    state.page = totalPages;
+                    break;
+                default:
+                    state.page = parseInt(action) || 1;
+            }
+            renderPaginatedTable(resource);
+        }
+
+        // Update pagination UI
+        function updatePaginationUI(resource) {
+            const state = paginationState[resource];
+            const totalItems = state.filteredData.length;
+            const totalPages = Math.ceil(totalItems / state.pageSize) || 1;
+            const startItem = totalItems > 0 ? ((state.page - 1) * state.pageSize) + 1 : 0;
+            const endItem = Math.min(state.page * state.pageSize, totalItems);
+
+            // Update showing text
+            const showingStart = document.getElementById(`${resource}-showing-start`);
+            const showingEnd = document.getElementById(`${resource}-showing-end`);
+            const totalEl = document.getElementById(`${resource}-total`);
+            const currentPage = document.getElementById(`${resource}-current-page`);
+            const totalPagesEl = document.getElementById(`${resource}-total-pages`);
+
+            if (showingStart) showingStart.textContent = startItem;
+            if (showingEnd) showingEnd.textContent = endItem;
+            if (totalEl) totalEl.textContent = totalItems;
+            if (currentPage) currentPage.textContent = state.page;
+            if (totalPagesEl) totalPagesEl.textContent = totalPages;
+
+            // Update button states
+            const paginationBtns = document.getElementById(`${resource}-pagination-btns`);
+            if (paginationBtns) {
+                const buttons = paginationBtns.querySelectorAll('button');
+                if (buttons.length >= 4) {
+                    buttons[0].disabled = state.page === 1; // First
+                    buttons[1].disabled = state.page === 1; // Prev
+                    buttons[2].disabled = state.page === totalPages; // Next
+                    buttons[3].disabled = state.page === totalPages; // Last
+                }
+            }
+        }
+
+        // Generic function to render paginated table
+        function renderPaginatedTable(resource) {
+            const state = paginationState[resource];
+            const startIndex = (state.page - 1) * state.pageSize;
+            const endIndex = startIndex + state.pageSize;
+            const pageData = state.filteredData.slice(startIndex, endIndex);
+
+            // Call the specific render function for each resource type
+            const renderFunctions = {
+                pods: renderPodsRows,
+                deployments: renderDeploymentsRows,
+                statefulsets: renderStatefulSetsRows,
+                daemonsets: renderDaemonSetsRows,
+                services: renderServicesRows,
+                ingresses: renderIngressesRows,
+                configmaps: renderConfigMapsRows,
+                cronjobs: renderCronJobsRows,
+                jobs: renderJobsRows,
+                nodes: renderNodesRows
+            };
+
+            if (renderFunctions[resource]) {
+                renderFunctions[resource](pageData);
+            }
+
+            updatePaginationUI(resource);
+        }
+
         // State
         let currentMainTab = 'dashboard';
         let currentSubTab = '';
@@ -1300,6 +2579,12 @@
             } else if (mainTab === 'cluster') {
                 document.getElementById('cluster-subtabs').style.display = 'flex';
                 switchTab('nodes'); // Default to nodes
+            } else if (mainTab === 'security') {
+                // Show security view
+                switchTab('security');
+            } else if (mainTab === 'plugins') {
+                document.getElementById('plugins-subtabs').style.display = 'flex';
+                switchTab('helm'); // Default to helm
             }
         }
 
@@ -1361,6 +2646,21 @@
             } else if (tabName === 'secrets') {
                 // Secrets view placeholder - to be implemented
                 console.log('Secrets view not yet implemented');
+            } else if (tabName === 'security') {
+                document.getElementById('security-view').style.display = 'block';
+                loadSecurity();
+            } else if (tabName === 'helm') {
+                document.getElementById('helm-view').style.display = 'block';
+                loadHelmReleases();
+            } else if (tabName === 'kustomize') {
+                document.getElementById('kustomize-view').style.display = 'block';
+                loadKustomizeResources();
+            } else if (tabName === 'argocd') {
+                document.getElementById('argocd-view').style.display = 'block';
+                loadArgoCDApps();
+            } else if (tabName === 'flux') {
+                document.getElementById('flux-view').style.display = 'block';
+                loadFluxResources();
             }
         }
 
@@ -1665,6 +2965,645 @@
                 .then(data => {
                     drawResourceMap(data);
                 });
+        }
+
+        // Security analysis data
+        let securityData = { findings: [], summary: {}, score: 100 };
+        let currentSecurityFilter = 'all';
+
+        // Load security summary for dashboard
+        function loadDashboardSecuritySummary() {
+            fetch('/api/security?namespace=_all')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const score = data.score;
+                        let scoreColor = '#22c55e'; // green
+                        if (score < 50) scoreColor = '#ef4444'; // red
+                        else if (score < 70) scoreColor = '#f97316'; // orange
+                        else if (score < 85) scoreColor = '#eab308'; // yellow
+
+                        document.getElementById('dashboard-security-score').innerHTML = score;
+                        document.getElementById('dashboard-security-score').style.color = scoreColor;
+                        document.getElementById('dashboard-critical-count').textContent = data.summary.critical || 0;
+                        document.getElementById('dashboard-high-count').textContent = data.summary.high || 0;
+                        document.getElementById('dashboard-medium-count').textContent = data.summary.medium || 0;
+                        document.getElementById('dashboard-low-count').textContent = data.summary.low || 0;
+                    }
+                })
+                .catch(err => {
+                    console.log('Failed to load dashboard security summary:', err);
+                });
+        }
+
+        // Load security analysis
+        function loadSecurity() {
+            const ns = document.getElementById('namespace-selector').value;
+            const namespaceParam = ns === 'All Namespaces' ? '_all' : (ns || 'default');
+
+            document.getElementById('security-findings').innerHTML = '<div style="text-align: center; padding: 3rem; color: #64748b;"><div class="loading-spinner" style="margin: 0 auto 1rem;"></div>Analyzing security best practices...</div>';
+
+            fetch('/api/security?namespace=' + namespaceParam)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        securityData = data;
+                        displaySecuritySummary(data);
+                        displaySecurityFindings(data.findings);
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('security-findings').innerHTML = '<div style="text-align: center; padding: 3rem; color: #ef4444;">Error loading security analysis: ' + err.message + '</div>';
+                });
+        }
+
+        // Display security summary
+        function displaySecuritySummary(data) {
+            const score = data.score;
+            let scoreColor = '#22c55e'; // green
+            if (score < 50) scoreColor = '#ef4444'; // red
+            else if (score < 70) scoreColor = '#f97316'; // orange
+            else if (score < 85) scoreColor = '#eab308'; // yellow
+
+            document.getElementById('security-score').innerHTML = score + '<span style="font-size: 1rem; color: #94a3b8;">/100</span>';
+            document.getElementById('security-score').style.color = scoreColor;
+
+            document.getElementById('security-critical').textContent = data.summary.critical || 0;
+            document.getElementById('security-high').textContent = data.summary.high || 0;
+            document.getElementById('security-medium').textContent = data.summary.medium || 0;
+            document.getElementById('security-low').textContent = data.summary.low || 0;
+        }
+
+        // Display security findings
+        function displaySecurityFindings(findings) {
+            const container = document.getElementById('security-findings');
+
+            if (!findings || findings.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 3rem; color: #22c55e;"><div style="font-size: 3rem; margin-bottom: 1rem;">✅</div><p style="font-size: 1.25rem; font-weight: 600;">Excellent! No security issues found.</p><p style="color: #94a3b8;">Your cluster follows security best practices.</p></div>';
+                return;
+            }
+
+            // Apply current filter
+            let filtered = findings;
+            const categoryFilter = document.getElementById('security-category-filter').value;
+
+            if (currentSecurityFilter !== 'all') {
+                filtered = filtered.filter(f => f.severity === currentSecurityFilter);
+            }
+            if (categoryFilter) {
+                filtered = filtered.filter(f => f.category === categoryFilter);
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #64748b;">No findings match the current filter.</div>';
+                return;
+            }
+
+            const severityColors = {
+                critical: { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.4)', text: '#ef4444', icon: '🔴' },
+                high: { bg: 'rgba(249, 115, 22, 0.15)', border: 'rgba(249, 115, 22, 0.4)', text: '#f97316', icon: '🟠' },
+                medium: { bg: 'rgba(234, 179, 8, 0.15)', border: 'rgba(234, 179, 8, 0.4)', text: '#eab308', icon: '🟡' },
+                low: { bg: 'rgba(34, 197, 94, 0.15)', border: 'rgba(34, 197, 94, 0.4)', text: '#22c55e', icon: '🟢' }
+            };
+
+            const categoryIcons = {
+                'security-context': '🔐',
+                'network-policy': '🌐',
+                'ingress-ports': '🚪',
+                'ingress-tls': '🔒',
+                'service-exposure': '📡'
+            };
+
+            container.innerHTML = filtered.map(finding => {
+                const colors = severityColors[finding.severity] || severityColors.medium;
+                const catIcon = categoryIcons[finding.category] || '📋';
+
+                return '<div style="background: ' + colors.bg + '; border: 1px solid ' + colors.border + '; border-radius: 8px; padding: 1rem; cursor: pointer;" onclick="this.querySelector(\'.finding-details\').style.display = this.querySelector(\'.finding-details\').style.display === \'none\' ? \'block\' : \'none\'">' +
+                    '<div style="display: flex; align-items: flex-start; gap: 1rem;">' +
+                        '<div style="font-size: 1.5rem;">' + colors.icon + '</div>' +
+                        '<div style="flex: 1;">' +
+                            '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">' +
+                                '<span style="color: ' + colors.text + '; font-weight: 600; font-size: 0.875rem; text-transform: uppercase;">' + finding.severity + '</span>' +
+                                '<span style="color: #64748b; font-size: 0.75rem;">' + catIcon + ' ' + finding.category.replace(/-/g, ' ') + '</span>' +
+                            '</div>' +
+                            '<div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.25rem;">' + finding.title + '</div>' +
+                            '<div style="color: #94a3b8; font-size: 0.875rem;">' +
+                                '<span style="background: #334155; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.5rem;">' + finding.resource + '</span>' +
+                                '<span style="color: #06b6d4;">' + finding.name + '</span>' +
+                                '<span style="color: #64748b;"> in </span>' +
+                                '<span style="color: #a855f7;">' + finding.namespace + '</span>' +
+                            '</div>' +
+                            '<div class="finding-details" style="display: none; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid ' + colors.border + ';">' +
+                                '<div style="margin-bottom: 0.75rem;">' +
+                                    '<div style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Description</div>' +
+                                    '<div style="color: #e2e8f0; font-size: 0.875rem;">' + finding.description + '</div>' +
+                                '</div>' +
+                                '<div>' +
+                                    '<div style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Remediation</div>' +
+                                    '<div style="color: #22c55e; font-size: 0.875rem; background: rgba(34, 197, 94, 0.1); padding: 0.5rem; border-radius: 4px;">' + finding.remediation + '</div>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        // Filter security findings by severity
+        function filterSecurityFindings(severity) {
+            if (severity) {
+                currentSecurityFilter = severity;
+            }
+
+            // Update button styles
+            document.querySelectorAll('[id^="sec-filter-"]').forEach(btn => {
+                btn.style.background = '#475569';
+            });
+            const activeBtn = document.getElementById('sec-filter-' + currentSecurityFilter);
+            if (activeBtn) {
+                activeBtn.style.background = '#06b6d4';
+            }
+
+            displaySecurityFindings(securityData.findings);
+        }
+
+        // Helm releases data
+        let helmData = { releases: [] };
+
+        // Load Helm releases
+        function loadHelmReleases() {
+            const namespace = currentNamespace;
+            fetch(`/api/plugins/helm/releases?namespace=${encodeURIComponent(namespace)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        helmData = data;
+                        displayHelmSummary(data);
+                        displayHelmReleases(data.releases);
+                    } else {
+                        document.getElementById('helm-releases-body').innerHTML = `
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                    ${data.error || 'Failed to load Helm releases'}
+                                </td>
+                            </tr>`;
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('helm-releases-body').innerHTML = `
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                Error: ${err.message}
+                            </td>
+                        </tr>`;
+                });
+        }
+
+        // Display Helm summary stats
+        function displayHelmSummary(data) {
+            document.getElementById('helm-count').textContent = data.count || 0;
+
+            let deployed = 0, other = 0;
+            if (data.releases) {
+                data.releases.forEach(r => {
+                    if (r.status === 'deployed') deployed++;
+                    else other++;
+                });
+            }
+            document.getElementById('helm-deployed').textContent = deployed;
+            document.getElementById('helm-other').textContent = other;
+        }
+
+        // Display Helm releases in table
+        function displayHelmReleases(releases) {
+            const tbody = document.getElementById('helm-releases-body');
+
+            if (!releases || releases.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 3rem; color: #64748b;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">⎈</div>
+                            <p>No Helm releases found in this namespace</p>
+                            <p style="font-size: 0.875rem; margin-top: 0.5rem;">Deploy a Helm chart to see it here</p>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            tbody.innerHTML = releases.map(release => {
+                const statusColor = release.status === 'deployed' ? '#22c55e' :
+                                   release.status === 'failed' ? '#ef4444' :
+                                   release.status === 'pending' ? '#eab308' : '#94a3b8';
+                const statusBg = release.status === 'deployed' ? 'rgba(34, 197, 94, 0.15)' :
+                                release.status === 'failed' ? 'rgba(239, 68, 68, 0.15)' :
+                                release.status === 'pending' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(148, 163, 184, 0.15)';
+
+                return `
+                    <tr>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="font-size: 1.25rem;">⎈</span>
+                                <span style="font-weight: 600; color: #f1f5f9;">${release.name}</span>
+                            </div>
+                        </td>
+                        <td><span style="color: #94a3b8;">${release.namespace}</span></td>
+                        <td><span style="color: #06b6d4; font-weight: 500;">${release.revision}</span></td>
+                        <td>
+                            <span style="background: ${statusBg}; color: ${statusColor}; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">
+                                ${release.status}
+                            </span>
+                        </td>
+                        <td><span style="color: #94a3b8; font-size: 0.875rem;">${release.updated}</span></td>
+                        <td>
+                            <button onclick="viewHelmHistory('${release.name}', '${release.namespace}')" class="btn" style="background: #475569; padding: 0.4rem 0.75rem; font-size: 0.75rem;" title="View History">
+                                History
+                            </button>
+                        </td>
+                    </tr>`;
+            }).join('');
+        }
+
+        // Filter Helm releases
+        function filterHelmReleases() {
+            const searchTerm = document.getElementById('helm-search').value.toLowerCase();
+
+            if (!helmData.releases) return;
+
+            const filtered = helmData.releases.filter(r =>
+                r.name.toLowerCase().includes(searchTerm) ||
+                r.namespace.toLowerCase().includes(searchTerm) ||
+                r.status.toLowerCase().includes(searchTerm)
+            );
+
+            displayHelmReleases(filtered);
+        }
+
+        // View Helm release history
+        function viewHelmHistory(name, namespace) {
+            fetch(`/api/plugins/helm/release?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.history) {
+                        const historyHtml = data.history.map(h => `
+                            <tr>
+                                <td>${h.revision}</td>
+                                <td>
+                                    <span style="background: ${h.status === 'deployed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)'};
+                                          color: ${h.status === 'deployed' ? '#22c55e' : '#94a3b8'};
+                                          padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem;">
+                                        ${h.status}
+                                    </span>
+                                </td>
+                                <td>${h.updated}</td>
+                            </tr>
+                        `).join('');
+
+                        showGenericModal('Helm Release History: ' + name, `
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Revision</th>
+                                        <th>Status</th>
+                                        <th>Updated</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${historyHtml}</tbody>
+                            </table>
+                        `);
+                    }
+                });
+        }
+
+        // Show generic modal
+        function showGenericModal(title, content) {
+            document.getElementById('generic-modal-title').textContent = title;
+            document.getElementById('generic-modal-content').innerHTML = content;
+            document.getElementById('generic-modal').style.display = 'block';
+        }
+
+        // Close generic modal
+        function closeGenericModal() {
+            document.getElementById('generic-modal').style.display = 'none';
+        }
+
+        // =====================
+        // Kustomize Functions
+        // =====================
+        let kustomizeData = { resources: [] };
+
+        function loadKustomizeResources() {
+            const namespace = currentNamespace;
+            fetch(`/api/plugins/kustomize/resources?namespace=${encodeURIComponent(namespace)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        kustomizeData = data;
+                        document.getElementById('kustomize-count').textContent = data.count || 0;
+                        displayKustomizeResources(data.resources);
+                    } else {
+                        document.getElementById('kustomize-resources-body').innerHTML = `
+                            <tr>
+                                <td colspan="4" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                    ${data.error || 'Failed to load Kustomize resources'}
+                                </td>
+                            </tr>`;
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('kustomize-resources-body').innerHTML = `
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                Error: ${err.message}
+                            </td>
+                        </tr>`;
+                });
+        }
+
+        function displayKustomizeResources(resources) {
+            const tbody = document.getElementById('kustomize-resources-body');
+
+            if (!resources || resources.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" style="text-align: center; padding: 3rem; color: #64748b;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+                            <p>No Kustomize managed resources found</p>
+                            <p style="font-size: 0.875rem; margin-top: 0.5rem;">Resources with label app.kubernetes.io/managed-by=kustomize will appear here</p>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            const kindIcons = {
+                'Deployment': '🚀',
+                'Service': '🌐',
+                'ConfigMap': '⚙️',
+                'Secret': '🔐',
+                'default': '📦'
+            };
+
+            tbody.innerHTML = resources.map(res => `
+                <tr>
+                    <td>
+                        <span style="margin-right: 0.5rem;">${kindIcons[res.kind] || kindIcons['default']}</span>
+                        <span style="color: #8b5cf6; font-weight: 500;">${res.kind}</span>
+                    </td>
+                    <td><span style="font-weight: 600; color: #f1f5f9;">${res.name}</span></td>
+                    <td><span style="color: #94a3b8;">${res.namespace}</span></td>
+                    <td><span style="color: #94a3b8;">${res.age}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function filterKustomizeResources() {
+            const searchTerm = document.getElementById('kustomize-search').value.toLowerCase();
+            if (!kustomizeData.resources) return;
+
+            const filtered = kustomizeData.resources.filter(r =>
+                r.name.toLowerCase().includes(searchTerm) ||
+                r.namespace.toLowerCase().includes(searchTerm) ||
+                r.kind.toLowerCase().includes(searchTerm)
+            );
+            displayKustomizeResources(filtered);
+        }
+
+        // =====================
+        // ArgoCD Functions
+        // =====================
+        let argocdData = { apps: [] };
+
+        function loadArgoCDApps() {
+            const namespace = currentNamespace;
+            fetch(`/api/plugins/argocd/apps?namespace=${encodeURIComponent(namespace)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        argocdData = data;
+
+                        // Show/hide not installed message
+                        if (!data.installed) {
+                            document.getElementById('argocd-not-installed').style.display = 'block';
+                            document.getElementById('argocd-count').textContent = '-';
+                            document.getElementById('argocd-synced').textContent = '-';
+                            document.getElementById('argocd-healthy').textContent = '-';
+                        } else {
+                            document.getElementById('argocd-not-installed').style.display = 'none';
+                            document.getElementById('argocd-count').textContent = data.count || 0;
+
+                            let synced = 0, healthy = 0;
+                            if (data.apps) {
+                                data.apps.forEach(a => {
+                                    if (a.syncStatus === 'Synced') synced++;
+                                    if (a.health === 'Healthy') healthy++;
+                                });
+                            }
+                            document.getElementById('argocd-synced').textContent = synced;
+                            document.getElementById('argocd-healthy').textContent = healthy;
+                        }
+
+                        displayArgoCDApps(data.apps);
+                    } else {
+                        document.getElementById('argocd-apps-body').innerHTML = `
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                    ${data.error || 'Failed to load ArgoCD applications'}
+                                </td>
+                            </tr>`;
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('argocd-apps-body').innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                Error: ${err.message}
+                            </td>
+                        </tr>`;
+                });
+        }
+
+        function displayArgoCDApps(apps) {
+            const tbody = document.getElementById('argocd-apps-body');
+
+            if (!apps || apps.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 3rem; color: #64748b;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">🦑</div>
+                            <p>No ArgoCD applications found</p>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            tbody.innerHTML = apps.map(app => {
+                const syncColor = app.syncStatus === 'Synced' ? '#22c55e' :
+                                 app.syncStatus === 'OutOfSync' ? '#eab308' : '#94a3b8';
+                const syncBg = app.syncStatus === 'Synced' ? 'rgba(34, 197, 94, 0.15)' :
+                              app.syncStatus === 'OutOfSync' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(148, 163, 184, 0.15)';
+                const healthColor = app.health === 'Healthy' ? '#22c55e' :
+                                   app.health === 'Degraded' ? '#ef4444' :
+                                   app.health === 'Progressing' ? '#06b6d4' : '#94a3b8';
+                const healthBg = app.health === 'Healthy' ? 'rgba(34, 197, 94, 0.15)' :
+                                app.health === 'Degraded' ? 'rgba(239, 68, 68, 0.15)' :
+                                app.health === 'Progressing' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(148, 163, 184, 0.15)';
+
+                // Truncate repo URL
+                let repoDisplay = app.repoURL || '-';
+                if (repoDisplay.length > 40) {
+                    repoDisplay = repoDisplay.substring(0, 37) + '...';
+                }
+
+                return `
+                    <tr>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="font-size: 1.25rem;">🦑</span>
+                                <span style="font-weight: 600; color: #f1f5f9;">${app.name}</span>
+                            </div>
+                        </td>
+                        <td><span style="color: #94a3b8;">${app.namespace}</span></td>
+                        <td><span style="color: #f97316;">${app.project}</span></td>
+                        <td>
+                            <span style="background: ${syncBg}; color: ${syncColor}; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                ${app.syncStatus}
+                            </span>
+                        </td>
+                        <td>
+                            <span style="background: ${healthBg}; color: ${healthColor}; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                ${app.health}
+                            </span>
+                        </td>
+                        <td><span style="color: #94a3b8; font-size: 0.8rem;" title="${app.repoURL}">${repoDisplay}</span></td>
+                        <td><span style="color: #94a3b8;">${app.age}</span></td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function filterArgoCDApps() {
+            const searchTerm = document.getElementById('argocd-search').value.toLowerCase();
+            if (!argocdData.apps) return;
+
+            const filtered = argocdData.apps.filter(a =>
+                a.name.toLowerCase().includes(searchTerm) ||
+                a.namespace.toLowerCase().includes(searchTerm) ||
+                a.project.toLowerCase().includes(searchTerm) ||
+                a.syncStatus.toLowerCase().includes(searchTerm) ||
+                a.health.toLowerCase().includes(searchTerm)
+            );
+            displayArgoCDApps(filtered);
+        }
+
+        // =====================
+        // Flux Functions
+        // =====================
+        let fluxData = { resources: [] };
+
+        function loadFluxResources() {
+            const namespace = currentNamespace;
+            fetch(`/api/plugins/flux/resources?namespace=${encodeURIComponent(namespace)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        fluxData = data;
+
+                        // Show/hide not installed message
+                        if (!data.installed) {
+                            document.getElementById('flux-not-installed').style.display = 'block';
+                            document.getElementById('flux-count').textContent = '-';
+                            document.getElementById('flux-ready').textContent = '-';
+                            document.getElementById('flux-not-ready').textContent = '-';
+                        } else {
+                            document.getElementById('flux-not-installed').style.display = 'none';
+                            document.getElementById('flux-count').textContent = data.count || 0;
+
+                            let ready = 0, notReady = 0;
+                            if (data.resources) {
+                                data.resources.forEach(r => {
+                                    if (r.ready === 'True') ready++;
+                                    else notReady++;
+                                });
+                            }
+                            document.getElementById('flux-ready').textContent = ready;
+                            document.getElementById('flux-not-ready').textContent = notReady;
+                        }
+
+                        displayFluxResources(data.resources);
+                    } else {
+                        document.getElementById('flux-resources-body').innerHTML = `
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                    ${data.error || 'Failed to load Flux resources'}
+                                </td>
+                            </tr>`;
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('flux-resources-body').innerHTML = `
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 2rem; color: #ef4444;">
+                                Error: ${err.message}
+                            </td>
+                        </tr>`;
+                });
+        }
+
+        function displayFluxResources(resources) {
+            const tbody = document.getElementById('flux-resources-body');
+
+            if (!resources || resources.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 3rem; color: #64748b;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">🔄</div>
+                            <p>No Flux resources found</p>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            const kindIcons = {
+                'Kustomization': '📦',
+                'HelmRelease': '⎈',
+                'GitRepository': '📁',
+                'HelmRepository': '📊',
+                'OCIRepository': '🐳',
+                'default': '🔄'
+            };
+
+            tbody.innerHTML = resources.map(res => {
+                const readyColor = res.ready === 'True' ? '#22c55e' : '#ef4444';
+                const readyBg = res.ready === 'True' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+
+                return `
+                    <tr>
+                        <td>
+                            <span style="margin-right: 0.5rem;">${kindIcons[res.kind] || kindIcons['default']}</span>
+                            <span style="color: #06b6d4; font-weight: 500;">${res.kind}</span>
+                        </td>
+                        <td><span style="font-weight: 600; color: #f1f5f9;">${res.name}</span></td>
+                        <td><span style="color: #94a3b8;">${res.namespace}</span></td>
+                        <td>
+                            <span style="background: ${readyBg}; color: ${readyColor}; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                ${res.ready}
+                            </span>
+                        </td>
+                        <td><span style="color: #94a3b8; font-size: 0.8rem;" title="${res.status}">${res.status || '-'}</span></td>
+                        <td><span style="color: #94a3b8;">${res.age}</span></td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function filterFluxResources() {
+            const searchTerm = document.getElementById('flux-search').value.toLowerCase();
+            if (!fluxData.resources) return;
+
+            const filtered = fluxData.resources.filter(r =>
+                r.name.toLowerCase().includes(searchTerm) ||
+                r.namespace.toLowerCase().includes(searchTerm) ||
+                r.kind.toLowerCase().includes(searchTerm) ||
+                r.ready.toLowerCase().includes(searchTerm)
+            );
+            displayFluxResources(filtered);
         }
 
         // Draw resource map with D3.js
@@ -3701,6 +5640,17 @@
                 loadIngresses();
             } else if (currentTab === 'dashboard') {
                 loadResourceOverview();
+                loadDashboardSecuritySummary();
+            } else if (currentTab === 'security') {
+                loadSecurity();
+            } else if (currentTab === 'helm') {
+                loadHelmReleases();
+            } else if (currentTab === 'kustomize') {
+                loadKustomizeResources();
+            } else if (currentTab === 'argocd') {
+                loadArgoCDApps();
+            } else if (currentTab === 'flux') {
+                loadFluxResources();
             }
         }
 
@@ -3725,22 +5675,34 @@
 
         // Pods filter and sort functions
         function filterPods() {
+            const searchTerm = (document.getElementById('pods-search')?.value || '').toLowerCase();
             const statusFilter = document.getElementById('pods-status-filter').value;
             const ageFilter = document.getElementById('pods-age-filter').value;
 
             let filtered = podsData;
+
+            // Search filter
+            if (searchTerm) {
+                filtered = filtered.filter(p =>
+                    p.name.toLowerCase().includes(searchTerm) ||
+                    p.node?.toLowerCase().includes(searchTerm) ||
+                    p.ip?.toLowerCase().includes(searchTerm)
+                );
+            }
 
             if (statusFilter) {
                 filtered = filtered.filter(p => p.status === statusFilter);
             }
 
             if (ageFilter) {
-                const now = Date.now();
                 const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter];
                 filtered = filtered.filter(p => parseAge(p.age) < ageMs);
             }
 
-            displayPods(filtered);
+            // Store filtered data and reset to page 1
+            paginationState.pods.filteredData = filtered;
+            paginationState.pods.page = 1;
+            renderPaginatedTable('pods');
         }
 
         function sortPods() {
@@ -3755,18 +5717,28 @@
                 sorted.sort((a, b) => a.status.localeCompare(b.status));
             }
 
-            displayPods(sorted);
+            podsData = sorted;
+            filterPods();
         }
 
         function clearFiltersPods() {
+            const searchEl = document.getElementById('pods-search');
+            if (searchEl) searchEl.value = '';
             document.getElementById('pods-status-filter').value = '';
             document.getElementById('pods-age-filter').value = '';
             document.getElementById('pods-sort').value = 'name';
-            displayPods(podsData);
+            paginationState.pods.filteredData = podsData;
+            paginationState.pods.page = 1;
+            renderPaginatedTable('pods');
         }
 
-        function displayPods(pods) {
+        // Render function for pods (used by pagination)
+        function renderPodsRows(pods) {
             const tbody = document.getElementById('pods-tbody');
+            if (pods.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: #94a3b8;">No pods found</td></tr>';
+                return;
+            }
             tbody.innerHTML = pods.map(pod =>
                 '<tr onclick="showPodDetails(\'' + pod.name + '\', \'' + pod.namespace + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'">' +
                     '<td>' + pod.name + '</td>' +
@@ -3786,40 +5758,56 @@
             ).join('');
         }
 
+        function displayPods(pods) {
+            paginationState.pods.filteredData = pods;
+            paginationState.pods.page = 1;
+            renderPaginatedTable('pods');
+        }
+
         // Deployments filter and sort functions
         function filterDeployments() {
+            const searchTerm = (document.getElementById('deployments-search')?.value || '').toLowerCase();
             const ageFilter = document.getElementById('deployments-age-filter').value;
             let filtered = deploymentsData;
 
+            if (searchTerm) {
+                filtered = filtered.filter(d => d.name.toLowerCase().includes(searchTerm));
+            }
             if (ageFilter) {
                 const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter];
                 filtered = filtered.filter(d => parseAge(d.age) < ageMs);
             }
 
-            displayDeployments(filtered);
+            paginationState.deployments.filteredData = filtered;
+            paginationState.deployments.page = 1;
+            renderPaginatedTable('deployments');
         }
 
         function sortDeployments() {
             const sortBy = document.getElementById('deployments-sort').value;
             const sorted = [...deploymentsData];
-
-            if (sortBy === 'name') {
-                sorted.sort((a, b) => a.name.localeCompare(b.name));
-            } else if (sortBy === 'age') {
-                sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age));
-            }
-
-            displayDeployments(sorted);
+            if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name));
+            else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age));
+            deploymentsData = sorted;
+            filterDeployments();
         }
 
         function clearFiltersDeployments() {
+            const searchEl = document.getElementById('deployments-search');
+            if (searchEl) searchEl.value = '';
             document.getElementById('deployments-age-filter').value = '';
             document.getElementById('deployments-sort').value = 'name';
-            displayDeployments(deploymentsData);
+            paginationState.deployments.filteredData = deploymentsData;
+            paginationState.deployments.page = 1;
+            renderPaginatedTable('deployments');
         }
 
-        function displayDeployments(deps) {
+        function renderDeploymentsRows(deps) {
             const tbody = document.getElementById('deployments-tbody');
+            if (deps.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #94a3b8;">No deployments found</td></tr>';
+                return;
+            }
             tbody.innerHTML = deps.map(dep =>
                 '<tr onclick="showDeploymentDetails(\'' + dep.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'">' +
                     '<td>' + dep.name + '</td>' +
@@ -3834,46 +5822,125 @@
             ).join('');
         }
 
-        // Similar filter/sort/display functions for other resources (abbreviated for space)
-        function filterStatefulSets() { const ageFilter = document.getElementById('statefulsets-age-filter').value; let filtered = statefulSetsData; if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(s => parseAge(s.age) < ageMs); } displayStatefulSets(filtered); }
-        function sortStatefulSets() { const sortBy = document.getElementById('statefulsets-sort').value; const sorted = [...statefulSetsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); displayStatefulSets(sorted); }
-        function clearFiltersStatefulSets() { document.getElementById('statefulsets-age-filter').value = ''; document.getElementById('statefulsets-sort').value = 'name'; displayStatefulSets(statefulSetsData); }
-        function displayStatefulSets(ssets) { const tbody = document.getElementById('statefulsets-tbody'); tbody.innerHTML = ssets.map(ss => '<tr onclick="showStatefulSetDetails(\'' + ss.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + ss.name + '</td><td>' + ss.ready + '</td><td>' + (ss.service || '-') + '</td><td>' + ss.age + '</td><td onclick="event.stopPropagation()"><button onclick="restartStatefulSet(\'' + ss.name + '\')" style="padding: 0.25rem 0.75rem; margin-right: 0.5rem; background: #f97316; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Restart</button><button onclick="deleteStatefulSet(\'' + ss.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        function displayDeployments(deps) { paginationState.deployments.filteredData = deps; paginationState.deployments.page = 1; renderPaginatedTable('deployments'); }
 
-        function filterDaemonSets() { const ageFilter = document.getElementById('daemonsets-age-filter').value; let filtered = daemonSetsData; if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(d => parseAge(d.age) < ageMs); } displayDaemonSets(filtered); }
-        function sortDaemonSets() { const sortBy = document.getElementById('daemonsets-sort').value; const sorted = [...daemonSetsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); displayDaemonSets(sorted); }
-        function clearFiltersDaemonSets() { document.getElementById('daemonsets-age-filter').value = ''; document.getElementById('daemonsets-sort').value = 'name'; displayDaemonSets(daemonSetsData); }
-        function displayDaemonSets(dsets) { const tbody = document.getElementById('daemonsets-tbody'); tbody.innerHTML = dsets.map(ds => '<tr onclick="showDaemonSetDetails(\'' + ds.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + ds.name + '</td><td>' + ds.desired + '</td><td>' + ds.current + '</td><td>' + ds.ready + '</td><td>' + ds.age + '</td><td onclick="event.stopPropagation()"><button onclick="restartDaemonSet(\'' + ds.name + '\')" style="padding: 0.25rem 0.75rem; margin-right: 0.5rem; background: #f97316; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Restart</button><button onclick="deleteDaemonSet(\'' + ds.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        // StatefulSets filter functions
+        function filterStatefulSets() {
+            const searchTerm = (document.getElementById('statefulsets-search')?.value || '').toLowerCase();
+            const ageFilter = document.getElementById('statefulsets-age-filter').value;
+            let filtered = statefulSetsData;
+            if (searchTerm) filtered = filtered.filter(s => s.name.toLowerCase().includes(searchTerm));
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(s => parseAge(s.age) < ageMs); }
+            paginationState.statefulsets.filteredData = filtered; paginationState.statefulsets.page = 1; renderPaginatedTable('statefulsets');
+        }
+        function sortStatefulSets() { const sortBy = document.getElementById('statefulsets-sort').value; const sorted = [...statefulSetsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); statefulSetsData = sorted; filterStatefulSets(); }
+        function clearFiltersStatefulSets() { const el = document.getElementById('statefulsets-search'); if (el) el.value = ''; document.getElementById('statefulsets-age-filter').value = ''; document.getElementById('statefulsets-sort').value = 'name'; paginationState.statefulsets.filteredData = statefulSetsData; paginationState.statefulsets.page = 1; renderPaginatedTable('statefulsets'); }
+        function renderStatefulSetsRows(ssets) { const tbody = document.getElementById('statefulsets-tbody'); if (ssets.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #94a3b8;">No statefulsets found</td></tr>'; return; } tbody.innerHTML = ssets.map(ss => '<tr onclick="showStatefulSetDetails(\'' + ss.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + ss.name + '</td><td>' + ss.ready + '</td><td>' + (ss.service || '-') + '</td><td>' + ss.age + '</td><td onclick="event.stopPropagation()"><button onclick="restartStatefulSet(\'' + ss.name + '\')" style="padding: 0.25rem 0.75rem; margin-right: 0.5rem; background: #f97316; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Restart</button><button onclick="deleteStatefulSet(\'' + ss.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        function displayStatefulSets(ssets) { paginationState.statefulsets.filteredData = ssets; paginationState.statefulsets.page = 1; renderPaginatedTable('statefulsets'); }
 
-        function filterServices() { const typeFilter = document.getElementById('services-type-filter').value; const ageFilter = document.getElementById('services-age-filter').value; let filtered = servicesData; if (typeFilter) filtered = filtered.filter(s => s.type === typeFilter); if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(s => parseAge(s.age) < ageMs); } displayServices(filtered); }
-        function sortServices() { const sortBy = document.getElementById('services-sort').value; const sorted = [...servicesData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); else if (sortBy === 'type') sorted.sort((a, b) => a.type.localeCompare(b.type)); displayServices(sorted); }
-        function clearFiltersServices() { document.getElementById('services-type-filter').value = ''; document.getElementById('services-age-filter').value = ''; document.getElementById('services-sort').value = 'name'; displayServices(servicesData); }
-        function displayServices(svcs) { const tbody = document.getElementById('services-tbody'); tbody.innerHTML = svcs.map(svc => '<tr onclick="showServiceDetails(\'' + svc.name + '\', \'' + svc.namespace + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + svc.name + '</td><td>' + svc.type + '</td><td>' + svc.clusterIP + '</td><td>' + svc.ports + '</td><td>' + svc.age + '</td><td onclick="event.stopPropagation()"><button onclick="deleteService(\'' + svc.name + '\', \'' + svc.namespace + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        // DaemonSets filter functions
+        function filterDaemonSets() {
+            const searchTerm = (document.getElementById('daemonsets-search')?.value || '').toLowerCase();
+            const ageFilter = document.getElementById('daemonsets-age-filter').value;
+            let filtered = daemonSetsData;
+            if (searchTerm) filtered = filtered.filter(d => d.name.toLowerCase().includes(searchTerm));
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(d => parseAge(d.age) < ageMs); }
+            paginationState.daemonsets.filteredData = filtered; paginationState.daemonsets.page = 1; renderPaginatedTable('daemonsets');
+        }
+        function sortDaemonSets() { const sortBy = document.getElementById('daemonsets-sort').value; const sorted = [...daemonSetsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); daemonSetsData = sorted; filterDaemonSets(); }
+        function clearFiltersDaemonSets() { const el = document.getElementById('daemonsets-search'); if (el) el.value = ''; document.getElementById('daemonsets-age-filter').value = ''; document.getElementById('daemonsets-sort').value = 'name'; paginationState.daemonsets.filteredData = daemonSetsData; paginationState.daemonsets.page = 1; renderPaginatedTable('daemonsets'); }
+        function renderDaemonSetsRows(dsets) { const tbody = document.getElementById('daemonsets-tbody'); if (dsets.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #94a3b8;">No daemonsets found</td></tr>'; return; } tbody.innerHTML = dsets.map(ds => '<tr onclick="showDaemonSetDetails(\'' + ds.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + ds.name + '</td><td>' + ds.desired + '</td><td>' + ds.current + '</td><td>' + ds.ready + '</td><td>' + ds.age + '</td><td onclick="event.stopPropagation()"><button onclick="restartDaemonSet(\'' + ds.name + '\')" style="padding: 0.25rem 0.75rem; margin-right: 0.5rem; background: #f97316; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Restart</button><button onclick="deleteDaemonSet(\'' + ds.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        function displayDaemonSets(dsets) { paginationState.daemonsets.filteredData = dsets; paginationState.daemonsets.page = 1; renderPaginatedTable('daemonsets'); }
 
-        function filterIngresses() { const ageFilter = document.getElementById('ingresses-age-filter').value; let filtered = ingressesData; if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(i => parseAge(i.age) < ageMs); } displayIngresses(filtered); }
-        function sortIngresses() { const sortBy = document.getElementById('ingresses-sort').value; const sorted = [...ingressesData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); displayIngresses(sorted); }
-        function clearFiltersIngresses() { document.getElementById('ingresses-age-filter').value = ''; document.getElementById('ingresses-sort').value = 'name'; displayIngresses(ingressesData); }
-        function displayIngresses(ingresses) { const tbody = document.getElementById('ingresses-tbody'); if (ingresses.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 2rem; color: #94a3b8;">No ingresses found</td></tr>'; return; } tbody.innerHTML = ingresses.map(ing => '<tr onclick="showIngressDetails(\'' + ing.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + ing.name + '</td><td>' + (ing.hosts || '-') + '</td><td>' + ing.age + '</td></tr>').join(''); }
+        // Services filter functions
+        function filterServices() {
+            const searchTerm = (document.getElementById('services-search')?.value || '').toLowerCase();
+            const typeFilter = document.getElementById('services-type-filter').value;
+            const ageFilter = document.getElementById('services-age-filter').value;
+            let filtered = servicesData;
+            if (searchTerm) filtered = filtered.filter(s => s.name.toLowerCase().includes(searchTerm) || s.clusterIP?.toLowerCase().includes(searchTerm));
+            if (typeFilter) filtered = filtered.filter(s => s.type === typeFilter);
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(s => parseAge(s.age) < ageMs); }
+            paginationState.services.filteredData = filtered; paginationState.services.page = 1; renderPaginatedTable('services');
+        }
+        function sortServices() { const sortBy = document.getElementById('services-sort').value; const sorted = [...servicesData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); else if (sortBy === 'type') sorted.sort((a, b) => a.type.localeCompare(b.type)); servicesData = sorted; filterServices(); }
+        function clearFiltersServices() { const el = document.getElementById('services-search'); if (el) el.value = ''; document.getElementById('services-type-filter').value = ''; document.getElementById('services-age-filter').value = ''; document.getElementById('services-sort').value = 'name'; paginationState.services.filteredData = servicesData; paginationState.services.page = 1; renderPaginatedTable('services'); }
+        function renderServicesRows(svcs) { const tbody = document.getElementById('services-tbody'); if (svcs.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #94a3b8;">No services found</td></tr>'; return; } tbody.innerHTML = svcs.map(svc => '<tr onclick="showServiceDetails(\'' + svc.name + '\', \'' + svc.namespace + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + svc.name + '</td><td>' + svc.type + '</td><td>' + svc.clusterIP + '</td><td>' + svc.ports + '</td><td>' + svc.age + '</td><td onclick="event.stopPropagation()"><button onclick="deleteService(\'' + svc.name + '\', \'' + svc.namespace + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        function displayServices(svcs) { paginationState.services.filteredData = svcs; paginationState.services.page = 1; renderPaginatedTable('services'); }
 
-        function filterConfigMaps() { const ageFilter = document.getElementById('configmaps-age-filter').value; let filtered = configMapsData; if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(c => parseAge(c.age) < ageMs); } displayConfigMaps(filtered); }
-        function sortConfigMaps() { const sortBy = document.getElementById('configmaps-sort').value; const sorted = [...configMapsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); displayConfigMaps(sorted); }
-        function clearFiltersConfigMaps() { document.getElementById('configmaps-age-filter').value = ''; document.getElementById('configmaps-sort').value = 'name'; displayConfigMaps(configMapsData); }
-        function displayConfigMaps(cms) { const tbody = document.getElementById('configmaps-tbody'); if (cms.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 2rem; color: #94a3b8;">No configmaps found</td></tr>'; return; } tbody.innerHTML = cms.map(cm => '<tr onclick="showConfigMapDetails(\'' + cm.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + cm.name + '</td><td>' + (cm.keys || '-') + '</td><td>' + cm.age + '</td></tr>').join(''); }
+        // Ingresses filter functions
+        function filterIngresses() {
+            const searchTerm = (document.getElementById('ingresses-search')?.value || '').toLowerCase();
+            const ageFilter = document.getElementById('ingresses-age-filter').value;
+            let filtered = ingressesData;
+            if (searchTerm) filtered = filtered.filter(i => i.name.toLowerCase().includes(searchTerm) || i.hosts?.toLowerCase().includes(searchTerm));
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(i => parseAge(i.age) < ageMs); }
+            paginationState.ingresses.filteredData = filtered; paginationState.ingresses.page = 1; renderPaginatedTable('ingresses');
+        }
+        function sortIngresses() { const sortBy = document.getElementById('ingresses-sort').value; const sorted = [...ingressesData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); ingressesData = sorted; filterIngresses(); }
+        function clearFiltersIngresses() { const el = document.getElementById('ingresses-search'); if (el) el.value = ''; document.getElementById('ingresses-age-filter').value = ''; document.getElementById('ingresses-sort').value = 'name'; paginationState.ingresses.filteredData = ingressesData; paginationState.ingresses.page = 1; renderPaginatedTable('ingresses'); }
+        function renderIngressesRows(ingresses) { const tbody = document.getElementById('ingresses-tbody'); if (ingresses.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 2rem; color: #94a3b8;">No ingresses found</td></tr>'; return; } tbody.innerHTML = ingresses.map(ing => '<tr onclick="showIngressDetails(\'' + ing.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + ing.name + '</td><td>' + (ing.hosts || '-') + '</td><td>' + ing.age + '</td></tr>').join(''); }
+        function displayIngresses(ingresses) { paginationState.ingresses.filteredData = ingresses; paginationState.ingresses.page = 1; renderPaginatedTable('ingresses'); }
 
-        function filterCronJobs() { const ageFilter = document.getElementById('cronjobs-age-filter').value; let filtered = cronJobsData; if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(c => parseAge(c.age) < ageMs); } displayCronJobs(filtered); }
-        function sortCronJobs() { const sortBy = document.getElementById('cronjobs-sort').value; const sorted = [...cronJobsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); displayCronJobs(sorted); }
-        function clearFiltersCronJobs() { document.getElementById('cronjobs-age-filter').value = ''; document.getElementById('cronjobs-sort').value = 'name'; displayCronJobs(cronJobsData); }
-        function displayCronJobs(cjs) { const tbody = document.getElementById('cronjobs-tbody'); tbody.innerHTML = cjs.map(cj => '<tr onclick="showCronJobDetails(\'' + cj.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + cj.name + '</td><td>' + cj.schedule + '</td><td>' + (cj.suspend ? 'Yes' : 'No') + '</td><td>' + cj.active + '</td><td>' + (cj.lastSchedule || '-') + '</td><td>' + cj.age + '</td><td onclick="event.stopPropagation()"><button onclick="deleteCronJob(\'' + cj.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        // ConfigMaps filter functions
+        function filterConfigMaps() {
+            const searchTerm = (document.getElementById('configmaps-search')?.value || '').toLowerCase();
+            const ageFilter = document.getElementById('configmaps-age-filter').value;
+            let filtered = configMapsData;
+            if (searchTerm) filtered = filtered.filter(c => c.name.toLowerCase().includes(searchTerm));
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(c => parseAge(c.age) < ageMs); }
+            paginationState.configmaps.filteredData = filtered; paginationState.configmaps.page = 1; renderPaginatedTable('configmaps');
+        }
+        function sortConfigMaps() { const sortBy = document.getElementById('configmaps-sort').value; const sorted = [...configMapsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); configMapsData = sorted; filterConfigMaps(); }
+        function clearFiltersConfigMaps() { const el = document.getElementById('configmaps-search'); if (el) el.value = ''; document.getElementById('configmaps-age-filter').value = ''; document.getElementById('configmaps-sort').value = 'name'; paginationState.configmaps.filteredData = configMapsData; paginationState.configmaps.page = 1; renderPaginatedTable('configmaps'); }
+        function renderConfigMapsRows(cms) { const tbody = document.getElementById('configmaps-tbody'); if (cms.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 2rem; color: #94a3b8;">No configmaps found</td></tr>'; return; } tbody.innerHTML = cms.map(cm => '<tr onclick="showConfigMapDetails(\'' + cm.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + cm.name + '</td><td>' + (cm.keys || '-') + '</td><td>' + cm.age + '</td></tr>').join(''); }
+        function displayConfigMaps(cms) { paginationState.configmaps.filteredData = cms; paginationState.configmaps.page = 1; renderPaginatedTable('configmaps'); }
 
-        function filterJobs() { const statusFilter = document.getElementById('jobs-status-filter').value; const ageFilter = document.getElementById('jobs-age-filter').value; let filtered = jobsData; if (statusFilter) filtered = filtered.filter(j => j.status === statusFilter); if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(j => parseAge(j.age) < ageMs); } displayJobs(filtered); }
-        function sortJobs() { const sortBy = document.getElementById('jobs-sort').value; const sorted = [...jobsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); else if (sortBy === 'status') sorted.sort((a, b) => a.status.localeCompare(b.status)); displayJobs(sorted); }
-        function clearFiltersJobs() { document.getElementById('jobs-status-filter').value = ''; document.getElementById('jobs-age-filter').value = ''; document.getElementById('jobs-sort').value = 'name'; displayJobs(jobsData); }
-        function displayJobs(jobs) { const tbody = document.getElementById('jobs-tbody'); tbody.innerHTML = jobs.map(job => '<tr onclick="showJobDetails(\'' + job.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + job.name + '</td><td><span class="badge badge-' + (job.status === 'Complete' ? 'success' : job.status === 'Failed' ? 'error' : 'warning') + '">' + job.status + '</span></td><td>' + job.completions + '</td><td>' + (job.duration || '-') + '</td><td>' + job.age + '</td><td onclick="event.stopPropagation()"><button onclick="deleteJob(\'' + job.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        // CronJobs filter functions
+        function filterCronJobs() {
+            const searchTerm = (document.getElementById('cronjobs-search')?.value || '').toLowerCase();
+            const ageFilter = document.getElementById('cronjobs-age-filter').value;
+            let filtered = cronJobsData;
+            if (searchTerm) filtered = filtered.filter(c => c.name.toLowerCase().includes(searchTerm) || c.schedule?.toLowerCase().includes(searchTerm));
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(c => parseAge(c.age) < ageMs); }
+            paginationState.cronjobs.filteredData = filtered; paginationState.cronjobs.page = 1; renderPaginatedTable('cronjobs');
+        }
+        function sortCronJobs() { const sortBy = document.getElementById('cronjobs-sort').value; const sorted = [...cronJobsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); cronJobsData = sorted; filterCronJobs(); }
+        function clearFiltersCronJobs() { const el = document.getElementById('cronjobs-search'); if (el) el.value = ''; document.getElementById('cronjobs-age-filter').value = ''; document.getElementById('cronjobs-sort').value = 'name'; paginationState.cronjobs.filteredData = cronJobsData; paginationState.cronjobs.page = 1; renderPaginatedTable('cronjobs'); }
+        function renderCronJobsRows(cjs) { const tbody = document.getElementById('cronjobs-tbody'); if (cjs.length === 0) { tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #94a3b8;">No cronjobs found</td></tr>'; return; } tbody.innerHTML = cjs.map(cj => '<tr onclick="showCronJobDetails(\'' + cj.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + cj.name + '</td><td>' + cj.schedule + '</td><td>' + (cj.suspend ? 'Yes' : 'No') + '</td><td>' + cj.active + '</td><td>' + (cj.lastSchedule || '-') + '</td><td>' + cj.age + '</td><td onclick="event.stopPropagation()"><button onclick="deleteCronJob(\'' + cj.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        function displayCronJobs(cjs) { paginationState.cronjobs.filteredData = cjs; paginationState.cronjobs.page = 1; renderPaginatedTable('cronjobs'); }
 
-        function filterNodes() { const statusFilter = document.getElementById('nodes-status-filter').value; const roleFilter = document.getElementById('nodes-role-filter').value; let filtered = nodesData; if (statusFilter) filtered = filtered.filter(n => n.status === statusFilter); if (roleFilter) filtered = filtered.filter(n => n.roles === roleFilter); displayNodes(filtered); }
-        function sortNodes() { const sortBy = document.getElementById('nodes-sort').value; const sorted = [...nodesData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'status') sorted.sort((a, b) => a.status.localeCompare(b.status)); else if (sortBy === 'role') sorted.sort((a, b) => a.roles.localeCompare(b.roles)); displayNodes(sorted); }
-        function clearFiltersNodes() { document.getElementById('nodes-status-filter').value = ''; document.getElementById('nodes-role-filter').value = ''; document.getElementById('nodes-sort').value = 'name'; displayNodes(nodesData); }
-        function displayNodes(nodes) { const tbody = document.getElementById('nodes-tbody'); tbody.innerHTML = nodes.map(node => '<tr onclick="showNodeDetails(\'' + node.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + node.name + '</td><td><span class="badge badge-' + (node.status === 'Ready' ? 'success' : 'error') + '">' + node.status + '</span></td><td>' + node.roles + '</td><td>' + node.version + '</td><td><span style="color: #ec4899; font-weight: 600;">' + node.cpu + '</span> / <span style="color: #ec4899;">' + (node.cpuUsage || '-') + '</span></td><td><span style="color: #f59e0b; font-weight: 600;">' + node.memory + '</span> / <span style="color: #f59e0b;">' + (node.memoryUsage || '-') + '</span></td><td>' + node.age + '</td><td><button onclick="event.stopPropagation(); showNodeDetails(\'' + node.name + '\')" style="padding: 0.25rem 0.75rem; background: #06b6d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Details</button></td></tr>').join(''); }
+        // Jobs filter functions
+        function filterJobs() {
+            const searchTerm = (document.getElementById('jobs-search')?.value || '').toLowerCase();
+            const statusFilter = document.getElementById('jobs-status-filter').value;
+            const ageFilter = document.getElementById('jobs-age-filter').value;
+            let filtered = jobsData;
+            if (searchTerm) filtered = filtered.filter(j => j.name.toLowerCase().includes(searchTerm));
+            if (statusFilter) filtered = filtered.filter(j => j.status === statusFilter);
+            if (ageFilter) { const ageMs = { '1h': 3600000, '1d': 86400000, '7d': 604800000, '30d': 2592000000 }[ageFilter]; filtered = filtered.filter(j => parseAge(j.age) < ageMs); }
+            paginationState.jobs.filteredData = filtered; paginationState.jobs.page = 1; renderPaginatedTable('jobs');
+        }
+        function sortJobs() { const sortBy = document.getElementById('jobs-sort').value; const sorted = [...jobsData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'age') sorted.sort((a, b) => parseAge(b.age) - parseAge(a.age)); else if (sortBy === 'status') sorted.sort((a, b) => a.status.localeCompare(b.status)); jobsData = sorted; filterJobs(); }
+        function clearFiltersJobs() { const el = document.getElementById('jobs-search'); if (el) el.value = ''; document.getElementById('jobs-status-filter').value = ''; document.getElementById('jobs-age-filter').value = ''; document.getElementById('jobs-sort').value = 'name'; paginationState.jobs.filteredData = jobsData; paginationState.jobs.page = 1; renderPaginatedTable('jobs'); }
+        function renderJobsRows(jobs) { const tbody = document.getElementById('jobs-tbody'); if (jobs.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #94a3b8;">No jobs found</td></tr>'; return; } tbody.innerHTML = jobs.map(job => '<tr onclick="showJobDetails(\'' + job.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + job.name + '</td><td><span class="badge badge-' + (job.status === 'Complete' ? 'success' : job.status === 'Failed' ? 'error' : 'warning') + '">' + job.status + '</span></td><td>' + job.completions + '</td><td>' + (job.duration || '-') + '</td><td>' + job.age + '</td><td onclick="event.stopPropagation()"><button onclick="deleteJob(\'' + job.name + '\')" style="padding: 0.25rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Delete</button></td></tr>').join(''); }
+        function displayJobs(jobs) { paginationState.jobs.filteredData = jobs; paginationState.jobs.page = 1; renderPaginatedTable('jobs'); }
+
+        // Nodes filter functions
+        function filterNodes() {
+            const searchTerm = (document.getElementById('nodes-search')?.value || '').toLowerCase();
+            const statusFilter = document.getElementById('nodes-status-filter').value;
+            const roleFilter = document.getElementById('nodes-role-filter').value;
+            let filtered = nodesData;
+            if (searchTerm) filtered = filtered.filter(n => n.name.toLowerCase().includes(searchTerm) || n.version?.toLowerCase().includes(searchTerm));
+            if (statusFilter) filtered = filtered.filter(n => n.status === statusFilter);
+            if (roleFilter) filtered = filtered.filter(n => n.roles === roleFilter);
+            paginationState.nodes.filteredData = filtered; paginationState.nodes.page = 1; renderPaginatedTable('nodes');
+        }
+        function sortNodes() { const sortBy = document.getElementById('nodes-sort').value; const sorted = [...nodesData]; if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name)); else if (sortBy === 'status') sorted.sort((a, b) => a.status.localeCompare(b.status)); else if (sortBy === 'role') sorted.sort((a, b) => a.roles.localeCompare(b.roles)); nodesData = sorted; filterNodes(); }
+        function clearFiltersNodes() { const el = document.getElementById('nodes-search'); if (el) el.value = ''; document.getElementById('nodes-status-filter').value = ''; document.getElementById('nodes-role-filter').value = ''; document.getElementById('nodes-sort').value = 'name'; paginationState.nodes.filteredData = nodesData; paginationState.nodes.page = 1; renderPaginatedTable('nodes'); }
+        function renderNodesRows(nodes) { const tbody = document.getElementById('nodes-tbody'); if (nodes.length === 0) { tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #94a3b8;">No nodes found</td></tr>'; return; } tbody.innerHTML = nodes.map(node => '<tr onclick="showNodeDetails(\'' + node.name + '\')" style="cursor: pointer;" onmouseover="this.style.background=\'rgba(6, 182, 212, 0.1)\'" onmouseout="this.style.background=\'transparent\'"><td>' + node.name + '</td><td><span class="badge badge-' + (node.status === 'Ready' ? 'success' : 'error') + '">' + node.status + '</span></td><td>' + node.roles + '</td><td>' + node.version + '</td><td><span style="color: #ec4899; font-weight: 600;">' + node.cpu + '</span> / <span style="color: #ec4899;">' + (node.cpuUsage || '-') + '</span></td><td><span style="color: #f59e0b; font-weight: 600;">' + node.memory + '</span> / <span style="color: #f59e0b;">' + (node.memoryUsage || '-') + '</span></td><td>' + node.age + '</td><td><button onclick="event.stopPropagation(); showNodeDetails(\'' + node.name + '\')" style="padding: 0.25rem 0.75rem; background: #06b6d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem;">Details</button></td></tr>').join(''); }
+        function displayNodes(nodes) { paginationState.nodes.filteredData = nodes; paginationState.nodes.page = 1; renderPaginatedTable('nodes'); }
 
         // Connection status tracking
         let isConnected = true;
@@ -3917,6 +5984,7 @@
             if (connected) {
                 fetch('/api/metrics').then(r => r.json()).then(updateMetrics);
                 loadResourceOverview();
+                loadDashboardSecuritySummary();
                 // Load namespaces first, then load pods with correct namespace
                 loadNamespaces().then(() => {
                     loadPods();
@@ -3931,6 +5999,7 @@
         setInterval(() => {
             if (isConnected) {
                 loadResourceOverview();
+                loadDashboardSecuritySummary();
             }
         }, 10000);
 

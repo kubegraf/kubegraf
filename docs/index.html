@@ -78,7 +78,15 @@
         }
 
         .logo-icon {
-            font-size: 2rem;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+        }
+
+        .logo-icon svg {
+            width: 36px;
+            height: 36px;
         }
 
         .nav-links {
@@ -582,7 +590,7 @@
     <nav>
         <div class="nav-content">
             <a href="/" class="logo">
-                <span class="logo-icon">⎈</span>
+                <span class="logo-icon"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#06b6d4"/><stop offset="50%" style="stop-color:#3b82f6"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient><filter id="glow"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><circle cx="50" cy="50" r="46" fill="rgba(6, 182, 212, 0.1)" stroke="url(#logoGrad)" stroke-width="2"/><g filter="url(#glow)"><circle cx="50" cy="50" r="12" fill="url(#logoGrad)"/><line x1="50" y1="38" x2="50" y2="18" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="61" y1="41" x2="76" y2="26" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="62" y1="54" x2="80" y2="60" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="56" y1="61" x2="64" y2="80" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="44" y1="61" x2="36" y2="80" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="38" y1="54" x2="20" y2="60" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="39" y1="41" x2="24" y2="26" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><circle cx="50" cy="16" r="5" fill="#06b6d4"/><circle cx="78" cy="24" r="5" fill="#22d3ee"/><circle cx="82" cy="62" r="5" fill="#3b82f6"/><circle cx="66" cy="82" r="5" fill="#6366f1"/><circle cx="34" cy="82" r="5" fill="#8b5cf6"/><circle cx="18" cy="62" r="5" fill="#a855f7"/><circle cx="22" cy="24" r="5" fill="#06b6d4"/><line x1="50" y1="16" x2="78" y2="24" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/><line x1="78" y1="24" x2="82" y2="62" stroke="#3b82f6" stroke-width="1.5" opacity="0.4"/><line x1="82" y1="62" x2="66" y2="82" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/><line x1="66" y1="82" x2="34" y2="82" stroke="#8b5cf6" stroke-width="1.5" opacity="0.4"/><line x1="34" y1="82" x2="18" y2="62" stroke="#a855f7" stroke-width="1.5" opacity="0.4"/><line x1="18" y1="62" x2="22" y2="24" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/><line x1="22" y1="24" x2="50" y2="16" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/></g></svg></span>
                 <span>KubeGraf</span>
             </a>
             <ul class="nav-links">
@@ -682,6 +690,12 @@
                     <div class="feature-icon">🔍</div>
                     <h3>Multi-Namespace</h3>
                     <p>Switch between namespaces instantly or view all resources across your entire cluster with "All Namespaces" mode.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Security Best Practices</h3>
+                    <p>Automated security analysis with recommendations for SecurityContext, NetworkPolicies, TLS, and more. Get a security score for your cluster.</p>
                 </div>
             </div>
         </div>
@@ -809,7 +823,7 @@
             <div class="footer-content">
                 <div class="footer-brand">
                     <a href="/" class="logo">
-                        <span class="logo-icon">⎈</span>
+                        <span class="logo-icon"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#06b6d4"/><stop offset="50%" style="stop-color:#3b82f6"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient><filter id="glow"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><circle cx="50" cy="50" r="46" fill="rgba(6, 182, 212, 0.1)" stroke="url(#logoGrad)" stroke-width="2"/><g filter="url(#glow)"><circle cx="50" cy="50" r="12" fill="url(#logoGrad)"/><line x1="50" y1="38" x2="50" y2="18" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="61" y1="41" x2="76" y2="26" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="62" y1="54" x2="80" y2="60" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="56" y1="61" x2="64" y2="80" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="44" y1="61" x2="36" y2="80" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="38" y1="54" x2="20" y2="60" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><line x1="39" y1="41" x2="24" y2="26" stroke="url(#logoGrad)" stroke-width="4" stroke-linecap="round"/><circle cx="50" cy="16" r="5" fill="#06b6d4"/><circle cx="78" cy="24" r="5" fill="#22d3ee"/><circle cx="82" cy="62" r="5" fill="#3b82f6"/><circle cx="66" cy="82" r="5" fill="#6366f1"/><circle cx="34" cy="82" r="5" fill="#8b5cf6"/><circle cx="18" cy="62" r="5" fill="#a855f7"/><circle cx="22" cy="24" r="5" fill="#06b6d4"/><line x1="50" y1="16" x2="78" y2="24" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/><line x1="78" y1="24" x2="82" y2="62" stroke="#3b82f6" stroke-width="1.5" opacity="0.4"/><line x1="82" y1="62" x2="66" y2="82" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/><line x1="66" y1="82" x2="34" y2="82" stroke="#8b5cf6" stroke-width="1.5" opacity="0.4"/><line x1="34" y1="82" x2="18" y2="62" stroke="#a855f7" stroke-width="1.5" opacity="0.4"/><line x1="18" y1="62" x2="22" y2="24" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/><line x1="22" y1="24" x2="50" y2="16" stroke="#06b6d4" stroke-width="1.5" opacity="0.4"/></g></svg></span>
                         <span>KubeGraf</span>
                     </a>
                     <p>Advanced Kubernetes visualization tool for developers and operators.</p>

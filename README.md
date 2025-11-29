@@ -37,6 +37,7 @@
 - **Deployment Operations** - Scale replicas, restart rolling updates
 - **YAML Viewer** - View complete resource configurations
 - **Multi-Namespace** - Switch namespaces or view all at once
+- **Security Best Practices** - Automated security analysis with recommendations
 
 ### Advanced Visualization
 
@@ -74,11 +75,31 @@ curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-l
 sudo mv kubegraf /usr/local/bin/
 ```
 
-**Windows:**
+**Windows (PowerShell):**
 ```powershell
-# Download from: https://github.com/kubegraf/kubegraf/releases/latest
-# Extract kubegraf-windows-amd64.zip and add to PATH
+# x86_64 (most Windows PCs)
+Invoke-WebRequest -Uri "https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-windows-amd64.zip" -OutFile kubegraf.zip
+Expand-Archive kubegraf.zip -DestinationPath .
+Move-Item kubegraf.exe C:\Windows\System32\
+
+# Or add to a custom directory in PATH
+mkdir C:\kubegraf -Force
+Move-Item kubegraf.exe C:\kubegraf\
+# Add C:\kubegraf to your PATH environment variable
 ```
+
+**Windows (Scoop):**
+```powershell
+# Install scoop first if not installed: https://scoop.sh
+scoop bucket add extras
+scoop install kubegraf
+```
+
+**Windows (Manual):**
+1. Download `kubegraf-windows-amd64.zip` from [Releases](https://github.com/kubegraf/kubegraf/releases/latest)
+2. Extract the ZIP file
+3. Move `kubegraf.exe` to a folder in your PATH (e.g., `C:\Windows\System32\`)
+4. Or add the extracted folder to your PATH environment variable
 
 ### Go Install
 
@@ -152,6 +173,37 @@ kubegraf --web --port=3000
 - **Pod Operations** - Logs, exec shell, restart, delete from browser
 - **All Namespaces** - View resources across entire cluster
 - **Connection Status** - Live cluster connectivity indicator
+- **Security Analysis** - Automated security best practices recommendations
+- **Helm Releases** - View and manage Helm deployments in your cluster
+
+## 🛡️ Security Best Practices
+
+KubeGraf includes automated security analysis to identify and help fix security issues in your cluster. Access the **Security** tab in the web dashboard to see findings.
+
+### Security Score
+
+Your cluster receives a security score from 0-100 based on findings. Higher scores indicate better security posture.
+
+### Security Checks
+
+| Category | What's Checked | Severity |
+|----------|---------------|----------|
+| **SecurityContext** | Missing SecurityContext on pods | Critical |
+| **SecurityContext** | Pods not running as non-root | High |
+| **SecurityContext** | Privileged containers | Critical |
+| **SecurityContext** | allowPrivilegeEscalation enabled | Medium |
+| **SecurityContext** | Writable root filesystem | Low |
+| **NetworkPolicy** | Namespaces without NetworkPolicies | High |
+| **Ingress** | Using insecure ports (80, 8080, 8000, 3000) | Medium/High |
+| **Ingress** | Missing TLS configuration | High |
+| **Services** | NodePort services exposed | Medium |
+| **Services** | LoadBalancer external traffic policy | Low |
+
+### Remediation
+
+Each finding includes:
+- **Description** - What the issue is and why it matters
+- **Remediation** - How to fix the issue with examples
 
 ## 🗺️ Visualization Options
 
