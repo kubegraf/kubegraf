@@ -610,8 +610,8 @@
     <section class="hero">
         <div class="container">
             <span class="hero-badge">
-                <span>v1.0</span>
-                Now with Web UI Dashboard
+                <span>v1.1</span>
+                Now with 3 Powerful Interfaces
             </span>
             <h1>Kubernetes Visualization<br>Made Simple</h1>
             <p>A powerful, intuitive tool for visualizing and managing your Kubernetes clusters. Terminal UI for speed, Web dashboard for insights.</p>
@@ -665,7 +665,13 @@
                 <div class="feature-card">
                     <div class="feature-icon">🌐</div>
                     <h3>Web Dashboard</h3>
-                    <p>Modern web interface with real-time metrics, interactive topology visualization, and comprehensive resource management.</p>
+                    <p>Classic web interface with real-time metrics, interactive topology visualization, and comprehensive resource management.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Solid.js UI</h3>
+                    <p>Modern SPA with reactive components, 5 theme options, AI-powered insights, security scoring, and full CRUD operations.</p>
                 </div>
 
                 <div class="feature-card">
@@ -771,6 +777,7 @@
             <div class="demo-tabs">
                 <button class="demo-tab active" onclick="switchDemo('tui')">Terminal UI</button>
                 <button class="demo-tab" onclick="switchDemo('web')">Web Dashboard</button>
+                <button class="demo-tab" onclick="switchDemo('solid')">Solid.js UI</button>
                 <button class="demo-tab" onclick="switchDemo('topology')">Topology View</button>
             </div>
 
@@ -801,7 +808,12 @@
 
                 <a href="web-dashboard.html" class="doc-card">
                     <h3>🌐 Web Dashboard</h3>
-                    <p>Using the web interface for cluster management</p>
+                    <p>Using the classic web interface for cluster management</p>
+                </a>
+
+                <a href="solid-ui.html" class="doc-card">
+                    <h3>⚡ Solid.js UI</h3>
+                    <p>Modern reactive UI with themes, AI insights, and security</p>
                 </a>
 
                 <a href="topology.html" class="doc-card">
@@ -894,17 +906,39 @@
             document.querySelectorAll('.demo-tab').forEach(tab => tab.classList.remove('active'));
             event.target.classList.add('active');
 
-            // Placeholder - would show different demos
+            // Demo content
             const demos = {
-                tui: 'Terminal UI Demo',
-                web: 'Web Dashboard Demo',
-                topology: 'Topology Visualization Demo'
+                tui: {
+                    title: 'Terminal UI',
+                    desc: 'Lightning-fast TUI with vim-style keybindings',
+                    features: ['Navigate pods, deployments, services', 'Real-time metrics display', 'Shell, logs, YAML viewer', 'Works over SSH']
+                },
+                web: {
+                    title: 'Web Dashboard',
+                    desc: 'Classic browser-based interface',
+                    features: ['Real-time WebSocket updates', 'Interactive D3.js topology', 'Port forwarding management', 'Resource CRUD operations']
+                },
+                solid: {
+                    title: 'Solid.js UI',
+                    desc: 'Modern reactive single-page application',
+                    features: ['5 theme options (Dark, Light, Midnight, Cyberpunk, Ocean)', 'AI-powered insights dashboard', 'Security posture analysis with scoring', 'Plugins: Helm, ArgoCD, Flux']
+                },
+                topology: {
+                    title: 'Topology Visualization',
+                    desc: 'Interactive cluster resource graphs',
+                    features: ['Force-directed D3.js layout', 'Drag and zoom controls', 'Color-coded resource types', 'Real-time relationship mapping']
+                }
             };
 
+            const demo = demos[type];
             document.getElementById('demo-display').innerHTML = `
-                <div class="demo-placeholder">
-                    <p>🎬 ${demos[type]} Coming Soon</p>
-                    <span style="font-size: 0.875rem;">Screenshots and GIFs will be added here</span>
+                <div class="demo-placeholder" style="text-align: left; padding: 3rem;">
+                    <h3 style="font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--light);">${demo.title}</h3>
+                    <p style="color: var(--gray); margin-bottom: 1.5rem;">${demo.desc}</p>
+                    <ul style="list-style: none;">
+                        ${demo.features.map(f => `<li style="padding: 0.5rem 0; color: var(--light); display: flex; align-items: center; gap: 0.75rem;"><span style="color: var(--secondary);">✓</span>${f}</li>`).join('')}
+                    </ul>
+                    ${type === 'solid' ? '<div style="margin-top: 1.5rem;"><a href="getting-started.html#solid-ui" class="btn btn-primary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">Get Started with Solid.js UI →</a></div>' : ''}
                 </div>
             `;
         }

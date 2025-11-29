@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solid.js UI - KubeGraf</title>
+    <meta name="description" content="Modern reactive Solid.js UI for KubeGraf with themes, AI insights, and security analysis.">
+    <link rel="canonical" href="https://kubegraf.io/solid-ui">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--gray);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .nav-links a:hover { color: var(--light); }
+
+        main {
+            padding: 8rem 0 4rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .subtitle {
+            color: var(--gray);
+            font-size: 1.125rem;
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2.5rem 0 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h2:first-of-type { border-top: none; padding-top: 0; }
+
+        h3 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 1.5rem 0 0.75rem;
+        }
+
+        p { margin-bottom: 1rem; color: var(--light); }
+
+        .code-block {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        .code-block code { color: var(--secondary); }
+
+        .code-inline {
+            background: rgba(50, 108, 229, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875em;
+            color: var(--primary);
+        }
+
+        ul, ol {
+            margin: 1rem 0;
+            padding-left: 1.5rem;
+        }
+
+        li { margin-bottom: 0.5rem; }
+
+        .note {
+            background: rgba(50, 108, 229, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .note strong { color: var(--primary); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--gray);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+        }
+
+        .breadcrumb {
+            margin-bottom: 2rem;
+        }
+
+        .breadcrumb a {
+            color: var(--gray);
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover { color: var(--primary); }
+
+        .breadcrumb span { color: var(--gray); margin: 0 0.5rem; }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .feature-card {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .feature-card h4 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-card p {
+            font-size: 0.875rem;
+            color: var(--gray);
+            margin: 0;
+        }
+
+        .theme-preview {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin: 1rem 0;
+        }
+
+        .theme-chip {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        footer {
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo"><span style="width:32px;height:32px;display:inline-flex;"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#06b6d4"/><stop offset="50%" style="stop-color:#3b82f6"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><circle cx="50" cy="50" r="46" fill="rgba(6,182,212,0.1)" stroke="url(#lg)" stroke-width="2"/><circle cx="50" cy="50" r="12" fill="url(#lg)"/><line x1="50" y1="38" x2="50" y2="18" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><line x1="61" y1="41" x2="76" y2="26" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><line x1="62" y1="54" x2="80" y2="60" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><line x1="56" y1="61" x2="64" y2="80" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><line x1="44" y1="61" x2="36" y2="80" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><line x1="38" y1="54" x2="20" y2="60" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><line x1="39" y1="41" x2="24" y2="26" stroke="url(#lg)" stroke-width="4" stroke-linecap="round"/><circle cx="50" cy="16" r="5" fill="#06b6d4"/><circle cx="78" cy="24" r="5" fill="#22d3ee"/><circle cx="82" cy="62" r="5" fill="#3b82f6"/><circle cx="66" cy="82" r="5" fill="#6366f1"/><circle cx="34" cy="82" r="5" fill="#8b5cf6"/><circle cx="18" cy="62" r="5" fill="#a855f7"/><circle cx="22" cy="24" r="5" fill="#06b6d4"/></svg></span><span>KubeGraf</span></a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="terminal-ui.html">Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Web Dashboard</a></li>
+                <li><a href="solid-ui.html">Solid.js UI</a></li>
+                <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="breadcrumb">
+                <a href="/">Home</a>
+                <span>/</span>
+                <span>Solid.js UI</span>
+            </div>
+
+            <h1>Solid.js UI</h1>
+            <p class="subtitle">Modern reactive single-page application with advanced features</p>
+
+            <h2>Overview</h2>
+            <p>The Solid.js UI is a modern, feature-rich frontend for KubeGraf that provides a reactive, single-page application experience. Built with Solid.js for fine-grained reactivity, it offers superior performance and a polished user experience.</p>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h4>Reactive</h4>
+                    <p>Fine-grained reactivity with Solid.js signals</p>
+                </div>
+                <div class="feature-card">
+                    <h4>5 Themes</h4>
+                    <p>Dark, Light, Midnight, Cyberpunk, Ocean</p>
+                </div>
+                <div class="feature-card">
+                    <h4>AI Insights</h4>
+                    <p>AI-powered cluster recommendations</p>
+                </div>
+                <div class="feature-card">
+                    <h4>Security</h4>
+                    <p>Posture analysis with scoring</p>
+                </div>
+            </div>
+
+            <h2>Getting Started</h2>
+
+            <h3>Prerequisites</h3>
+            <ul>
+                <li>Node.js 18+ and npm</li>
+                <li>KubeGraf backend running (<span class="code-inline">kubegraf --web</span>)</li>
+            </ul>
+
+            <h3>Installation</h3>
+            <div class="code-block">
+                <code># Start the backend server
+kubegraf --web --port=8080
+
+# In a new terminal, start the Solid.js frontend
+cd ui/solid
+npm install
+npm run dev</code>
+            </div>
+            <p>Open <span class="code-inline">http://localhost:3000</span> in your browser.</p>
+
+            <div class="note">
+                <strong>Development:</strong> The Vite dev server proxies API requests to the backend at port 8080. In production, you can build the UI with <span class="code-inline">npm run build</span> and serve it statically.
+            </div>
+
+            <h2>Themes</h2>
+            <p>The Solid.js UI includes 5 built-in themes that can be switched from the header:</p>
+
+            <div class="theme-preview">
+                <span class="theme-chip" style="background: #0f172a; color: #f8fafc; border: 1px solid #334155;">Dark</span>
+                <span class="theme-chip" style="background: #f8fafc; color: #0f172a;">Light</span>
+                <span class="theme-chip" style="background: #0a0a1a; color: #818cf8;">Midnight</span>
+                <span class="theme-chip" style="background: #0d0d0d; color: #ff00ff;">Cyberpunk</span>
+                <span class="theme-chip" style="background: #0a192f; color: #64ffda;">Ocean</span>
+            </div>
+
+            <p>Themes are persisted in localStorage, so your preference is remembered across sessions.</p>
+
+            <h2>Features</h2>
+
+            <h3>Dashboard</h3>
+            <p>The dashboard provides an overview of your cluster with:</p>
+            <ul>
+                <li>Cluster metrics (pods, deployments, services, nodes)</li>
+                <li>Resource status indicators</li>
+                <li>AI-powered insights and recommendations</li>
+                <li>Quick actions for common operations</li>
+            </ul>
+
+            <h3>Workloads</h3>
+            <p>Manage all workload types with full CRUD operations:</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Resource</th>
+                        <th>Operations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>Pods</td><td>Shell, Logs, YAML, Describe, Restart, Delete</td></tr>
+                    <tr><td>Deployments</td><td>Scale, Restart, YAML, Describe, Delete</td></tr>
+                    <tr><td>StatefulSets</td><td>Scale, YAML, Describe, Delete</td></tr>
+                    <tr><td>DaemonSets</td><td>YAML, Describe, Delete</td></tr>
+                    <tr><td>CronJobs</td><td>Trigger, Suspend, YAML, Describe, Delete</td></tr>
+                    <tr><td>Jobs</td><td>YAML, Describe, Delete</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Network</h3>
+            <ul>
+                <li><strong>Services:</strong> Port forwarding with session management, endpoint discovery</li>
+                <li><strong>Ingresses:</strong> TLS status, host rules, backend services</li>
+            </ul>
+
+            <h3>Configuration</h3>
+            <ul>
+                <li><strong>ConfigMaps:</strong> View and edit with syntax-highlighted YAML</li>
+            </ul>
+
+            <h3>Cluster</h3>
+            <ul>
+                <li><strong>Nodes:</strong> Status, capacity, allocatable resources, conditions</li>
+                <li><strong>Resource Map:</strong> Interactive topology visualization with D3.js</li>
+            </ul>
+
+            <h2>Security Dashboard</h2>
+            <p>The Security section provides automated security analysis:</p>
+            <ul>
+                <li><strong>Security Score:</strong> 0-100 score based on best practices</li>
+                <li><strong>Findings:</strong> Categorized by severity (Critical, High, Medium, Low)</li>
+                <li><strong>Remediation:</strong> Actionable guidance for each finding</li>
+            </ul>
+
+            <p><strong>Security checks include:</strong></p>
+            <ul>
+                <li>Pods running as root</li>
+                <li>Missing SecurityContext</li>
+                <li>Privileged containers</li>
+                <li>Missing resource limits</li>
+                <li>Namespaces without NetworkPolicies</li>
+                <li>Ingresses without TLS</li>
+                <li>Services using insecure ports</li>
+            </ul>
+
+            <h2>Plugins</h2>
+            <p>The Plugins section integrates with popular Kubernetes tools:</p>
+
+            <h3>Helm</h3>
+            <ul>
+                <li>View installed Helm releases</li>
+                <li>Release status, chart version, app version</li>
+                <li>Upgrade, rollback, uninstall operations</li>
+            </ul>
+
+            <h3>ArgoCD</h3>
+            <ul>
+                <li>List ArgoCD applications</li>
+                <li>Sync status and health</li>
+                <li>Sync and refresh actions</li>
+            </ul>
+
+            <h3>Flux</h3>
+            <ul>
+                <li>View Flux GitRepositories, HelmReleases, Kustomizations</li>
+                <li>Reconciliation status</li>
+                <li>Force reconcile actions</li>
+            </ul>
+
+            <h2>Real-time Updates</h2>
+            <p>The Solid.js UI uses WebSocket connections for real-time updates:</p>
+            <ul>
+                <li>Live resource status changes</li>
+                <li>Event stream notifications</li>
+                <li>Connection status indicator</li>
+            </ul>
+
+            <h2>AI Chat</h2>
+            <p>An AI assistant is available in the sidebar to help with:</p>
+            <ul>
+                <li>Cluster troubleshooting</li>
+                <li>Kubernetes best practices</li>
+                <li>Resource configuration advice</li>
+                <li>Security recommendations</li>
+            </ul>
+
+            <h2>Technical Stack</h2>
+            <ul>
+                <li><strong>Solid.js:</strong> Reactive UI framework with fine-grained reactivity</li>
+                <li><strong>Vite:</strong> Fast build tool with HMR</li>
+                <li><strong>Tailwind CSS:</strong> Utility-first CSS with CSS custom properties for theming</li>
+                <li><strong>TypeScript:</strong> Type-safe development</li>
+                <li><strong>D3.js:</strong> Topology visualization</li>
+            </ul>
+
+            <h2>Building for Production</h2>
+            <div class="code-block">
+                <code># Build optimized bundle
+cd ui/solid
+npm run build
+
+# Preview the build
+npm run preview</code>
+            </div>
+            <p>The build output is in <span class="code-inline">ui/solid/dist/</span> and can be served by any static file server.</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 KubeGraf. <a href="https://github.com/kubegraf/kubegraf">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

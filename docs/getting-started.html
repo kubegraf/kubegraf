@@ -313,6 +313,29 @@ kubegraf --web --port=3000</code>
                 <strong>Tip:</strong> The web dashboard will start even if your cluster is not connected, showing a connection error banner. This allows you to see the UI and diagnose connection issues.
             </div>
 
+            <h3 id="solid-ui">Solid.js UI (New!)</h3>
+            <p>The new Solid.js UI provides a modern, reactive single-page application with advanced features:</p>
+            <div class="code-block">
+                <code># First, start the backend server
+kubegraf --web --port=8080
+
+# Then, in a new terminal, start the Solid.js frontend
+cd ui/solid
+npm install
+npm run dev</code>
+            </div>
+            <p>Open <span class="code-inline">http://localhost:3000</span> for the Solid.js UI.</p>
+
+            <p><strong>Solid.js UI Features:</strong></p>
+            <ul>
+                <li>5 theme options: Dark, Light, Midnight, Cyberpunk, Ocean</li>
+                <li>AI-powered dashboard with cluster insights</li>
+                <li>Security posture analysis with scoring</li>
+                <li>Plugins support: Helm, ArgoCD, Flux integrations</li>
+                <li>Full CRUD operations for all resource types</li>
+                <li>WebSocket real-time updates</li>
+            </ul>
+
             <h2>Keyboard Shortcuts (Terminal UI)</h2>
             <table>
                 <thead>
@@ -341,6 +364,7 @@ kubegraf --web --port=3000</code>
             <ul>
                 <li><a href="terminal-ui.html">Learn more about the Terminal UI</a></li>
                 <li><a href="web-dashboard.html">Explore the Web Dashboard features</a></li>
+                <li><a href="solid-ui.html">Discover the Solid.js UI</a></li>
                 <li><a href="topology.html">Understand Topology Visualization</a></li>
             </ul>
         </div>
