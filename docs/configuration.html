@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - KubeGraf</title>
+    <meta name="description" content="Configure KubeGraf for your Kubernetes environment.">
+    <link rel="canonical" href="https://kubegraf.io/configuration">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        .container { max-width: 800px; margin: 0 auto; padding: 0 2rem; }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .nav-links { display: flex; gap: 2rem; list-style: none; }
+        .nav-links a { color: var(--gray); text-decoration: none; font-weight: 500; }
+        .nav-links a:hover { color: var(--light); }
+
+        main { padding: 8rem 0 4rem; }
+
+        h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; }
+        .subtitle { color: var(--gray); font-size: 1.125rem; margin-bottom: 3rem; }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2.5rem 0 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h2:first-of-type { border-top: none; padding-top: 0; }
+
+        h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
+
+        p { margin-bottom: 1rem; color: var(--light); }
+
+        .code-block {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        .code-block code { color: var(--secondary); }
+
+        .code-inline {
+            background: rgba(50, 108, 229, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875em;
+            color: var(--primary);
+        }
+
+        ul { margin: 1rem 0; padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        th { font-weight: 600; color: var(--gray); font-size: 0.875rem; }
+
+        .breadcrumb { margin-bottom: 2rem; }
+        .breadcrumb a { color: var(--gray); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--primary); }
+        .breadcrumb span { color: var(--gray); margin: 0 0.5rem; }
+
+        footer {
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo"><span>⎈</span><span>KubeGraf</span></a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="terminal-ui.html">Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Web Dashboard</a></li>
+                <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="breadcrumb">
+                <a href="/">Home</a><span>/</span><span>Configuration</span>
+            </div>
+
+            <h1>Configuration</h1>
+            <p class="subtitle">Customize KubeGraf for your environment</p>
+
+            <h2>Kubeconfig</h2>
+            <p>KubeGraf uses the standard Kubernetes client configuration. It automatically reads from:</p>
+            <ol>
+                <li><span class="code-inline">$KUBECONFIG</span> environment variable (if set)</li>
+                <li><span class="code-inline">~/.kube/config</span> (default location)</li>
+                <li>In-cluster config (when running inside Kubernetes)</li>
+            </ol>
+
+            <h3>Multiple Contexts</h3>
+            <p>If your kubeconfig has multiple contexts, KubeGraf uses the current context. Switch contexts with:</p>
+            <div class="code-block">
+                <code>kubectl config use-context my-cluster</code>
+            </div>
+
+            <h2>Command Line Options</h2>
+            <table>
+                <thead>
+                    <tr><th>Flag</th><th>Description</th><th>Default</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code-inline">[namespace]</span></td>
+                        <td>Initial namespace to view</td>
+                        <td>default</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">--web</span></td>
+                        <td>Launch web dashboard instead of TUI</td>
+                        <td>false</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">--port=PORT</span></td>
+                        <td>Web server port (with --web)</td>
+                        <td>8080</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">--version, -v</span></td>
+                        <td>Show version information</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">--help, -h</span></td>
+                        <td>Show help message</td>
+                        <td>-</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Examples</h2>
+            <div class="code-block">
+                <code># Terminal UI in default namespace
+kubegraf
+
+# Terminal UI in production namespace
+kubegraf production
+
+# Web dashboard on default port
+kubegraf --web
+
+# Web dashboard on custom port
+kubegraf --web --port=3000
+
+# Check version
+kubegraf --version</code>
+            </div>
+
+            <h2>Metrics Server</h2>
+            <p>For CPU and memory metrics, you need the Kubernetes Metrics Server installed in your cluster:</p>
+            <div class="code-block">
+                <code># Check if metrics server is installed
+kubectl get deployment metrics-server -n kube-system
+
+# Install metrics server (if not present)
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml</code>
+            </div>
+            <p>KubeGraf will still work without the metrics server, but resource usage data won't be available.</p>
+
+            <h2>RBAC Requirements</h2>
+            <p>KubeGraf needs read access to cluster resources. The minimum required permissions:</p>
+            <ul>
+                <li><strong>get, list, watch</strong> on pods, deployments, services, etc.</li>
+                <li><strong>get</strong> on pod logs (for log viewing)</li>
+                <li><strong>create</strong> on pods/exec (for shell access)</li>
+                <li><strong>delete</strong> on resources (for delete operations)</li>
+            </ul>
+
+            <h2>Troubleshooting</h2>
+            <h3>Connection Issues</h3>
+            <p>If KubeGraf can't connect to your cluster:</p>
+            <div class="code-block">
+                <code># Verify kubectl works
+kubectl cluster-info
+
+# Check current context
+kubectl config current-context
+
+# Test API access
+kubectl get namespaces</code>
+            </div>
+
+            <h3>Metrics Not Showing</h3>
+            <p>If CPU/memory metrics aren't appearing:</p>
+            <div class="code-block">
+                <code># Check metrics server
+kubectl top nodes
+kubectl top pods</code>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 KubeGraf. <a href="https://github.com/kubegraf/kubegraf">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

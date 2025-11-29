@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Dashboard - KubeGraf</title>
+    <meta name="description" content="Guide to using the KubeGraf Web Dashboard for Kubernetes cluster visualization and management.">
+    <link rel="canonical" href="https://kubegraf.io/web-dashboard">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #326ce5;
+            --secondary: #00d4aa;
+            --dark: #0f172a;
+            --darker: #020617;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        .container { max-width: 800px; margin: 0 auto; padding: 0 2rem; }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light);
+            text-decoration: none;
+        }
+
+        .nav-links { display: flex; gap: 2rem; list-style: none; }
+        .nav-links a { color: var(--gray); text-decoration: none; font-weight: 500; }
+        .nav-links a:hover { color: var(--light); }
+
+        main { padding: 8rem 0 4rem; }
+
+        h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; }
+        .subtitle { color: var(--gray); font-size: 1.125rem; margin-bottom: 3rem; }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2.5rem 0 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h2:first-of-type { border-top: none; padding-top: 0; }
+
+        h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
+
+        p { margin-bottom: 1rem; color: var(--light); }
+
+        .code-block {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        .code-block code { color: var(--secondary); }
+
+        .code-inline {
+            background: rgba(50, 108, 229, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875em;
+            color: var(--primary);
+        }
+
+        ul, ol { margin: 1rem 0; padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .feature-item {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .feature-item h4 { font-size: 1rem; margin-bottom: 0.5rem; }
+        .feature-item p { color: var(--gray); font-size: 0.875rem; margin: 0; }
+
+        .note {
+            background: rgba(50, 108, 229, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .note strong { color: var(--primary); }
+
+        .breadcrumb { margin-bottom: 2rem; }
+        .breadcrumb a { color: var(--gray); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--primary); }
+        .breadcrumb span { color: var(--gray); margin: 0 0.5rem; }
+
+        footer {
+            padding: 2rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-content">
+            <a href="/" class="logo"><span>⎈</span><span>KubeGraf</span></a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="terminal-ui.html">Terminal UI</a></li>
+                <li><a href="web-dashboard.html">Web Dashboard</a></li>
+                <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="breadcrumb">
+                <a href="/">Home</a><span>/</span><span>Web Dashboard</span>
+            </div>
+
+            <h1>Web Dashboard</h1>
+            <p class="subtitle">Modern browser-based interface for comprehensive cluster management</p>
+
+            <h2>Launching the Dashboard</h2>
+            <div class="code-block">
+                <code># Default port (8080)
+kubegraf --web
+
+# Custom port
+kubegraf --web --port=3000</code>
+            </div>
+            <p>Open <span class="code-inline">http://localhost:8080</span> (or your custom port) in your browser.</p>
+
+            <h2>Dashboard Overview</h2>
+            <p>The web dashboard provides:</p>
+            <ul>
+                <li><strong>Resource Overview</strong> - Quick summary of all resource types</li>
+                <li><strong>Real-time Metrics</strong> - CPU, memory, and pod counts with sparklines</li>
+                <li><strong>Resource Tables</strong> - Detailed view with action buttons</li>
+                <li><strong>Connection Status</strong> - Live cluster connectivity indicator</li>
+            </ul>
+
+            <h2>Resource Management</h2>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h4>Pods</h4>
+                    <p>View logs, exec shell, restart, delete, view YAML</p>
+                </div>
+                <div class="feature-item">
+                    <h4>Deployments</h4>
+                    <p>Scale replicas, restart, view YAML and details</p>
+                </div>
+                <div class="feature-item">
+                    <h4>Services</h4>
+                    <p>Port forward, view endpoints, YAML view</p>
+                </div>
+                <div class="feature-item">
+                    <h4>All Resources</h4>
+                    <p>StatefulSets, DaemonSets, Ingresses, ConfigMaps, CronJobs, Jobs, Nodes</p>
+                </div>
+            </div>
+
+            <h2>Namespace Selection</h2>
+            <p>Use the namespace dropdown in the header to:</p>
+            <ul>
+                <li>Select a specific namespace to filter resources</li>
+                <li>Choose "All Namespaces" to view resources across the entire cluster</li>
+            </ul>
+
+            <h2>Port Forwarding</h2>
+            <p>Port forwarding lets you access services running in your cluster locally:</p>
+            <ol>
+                <li>Navigate to the Services tab</li>
+                <li>Click the <strong>PF</strong> (Port Forward) button on any service</li>
+                <li>The service becomes accessible at <span class="code-inline">localhost:[port]</span></li>
+                <li>A green <strong>PF</strong> indicator appears at the bottom-right showing active forwards</li>
+                <li>Click <strong>Stop</strong> to terminate the port forward</li>
+            </ol>
+
+            <div class="note">
+                <strong>Note:</strong> Port forwards run in the background and persist until stopped or the server is restarted.
+            </div>
+
+            <h2>Topology View</h2>
+            <p>Access the interactive topology visualization at <span class="code-inline">/topology</span> or click "Topology" in the navigation.</p>
+            <p>The D3.js force-directed graph shows:</p>
+            <ul>
+                <li>Resource relationships (Deployments → ReplicaSets → Pods)</li>
+                <li>Service connections to pods</li>
+                <li>Ingress routing</li>
+                <li>Color-coded resource types</li>
+            </ul>
+            <p>Interact by dragging nodes, zooming, and hovering for details.</p>
+
+            <h2>Connection Status</h2>
+            <p>The top-right corner shows your cluster connection status:</p>
+            <ul>
+                <li><span style="color: #22c55e;">●</span> <strong>Connected</strong> - Cluster is reachable</li>
+                <li><span style="color: #ef4444;">●</span> <strong>Disconnected</strong> - Cluster is unreachable</li>
+            </ul>
+            <p>When disconnected, a red error banner appears with troubleshooting information. The status updates automatically every 5 seconds.</p>
+
+            <h2>WebSocket Updates</h2>
+            <p>The dashboard uses WebSocket connections for real-time updates. Resources refresh automatically when changes occur in your cluster.</p>
+
+            <h2>Graceful Degradation</h2>
+            <p>The web dashboard starts even if your cluster is unreachable, allowing you to:</p>
+            <ul>
+                <li>See connection error details</li>
+                <li>Wait for the cluster to become available</li>
+                <li>Troubleshoot connectivity issues</li>
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 KubeGraf. <a href="https://github.com/kubegraf/kubegraf">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>
