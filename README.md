@@ -166,6 +166,11 @@ kubegraf --web --port=3000
 
 ## 🌐 Web Dashboard Features
 
+<div align="center">
+<img src="docs/dashboard-screenshot.png" alt="KubeGraf Web Dashboard" width="800">
+<p><em>KubeGraf Web Dashboard - Resource management with real-time metrics</em></p>
+</div>
+
 - **Resource Overview** - Quick summary cards for all resource types
 - **Real-time Metrics** - CPU, memory, pod counts with live updates
 - **Topology Visualization** - Interactive D3.js graph of cluster resources
@@ -175,11 +180,6 @@ kubegraf --web --port=3000
 - **Connection Status** - Live cluster connectivity indicator
 - **Security Analysis** - Automated security best practices recommendations
 - **Helm Releases** - View and manage Helm deployments in your cluster
-
-<div align="center">
-<img src="docs/dashboard-screenshot.png" alt="KubeGraf Web Dashboard" width="800">
-<p><em>KubeGraf Web Dashboard - Resource management with real-time metrics</em></p>
-</div>
 
 ## 🛡️ Security Best Practices
 
