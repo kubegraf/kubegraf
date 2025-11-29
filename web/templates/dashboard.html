@@ -353,30 +353,56 @@
             padding: 0 0.5rem;
         }
 
-        /* Theme Selector */
-        .theme-selector {
+        /* Theme Toggle Button */
+        .theme-toggle {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-        }
-
-        .theme-selector select {
-            padding: 0.4rem 0.8rem;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
             background: var(--bg-input);
             border: 1px solid var(--border-light);
-            border-radius: 6px;
-            color: var(--text-primary);
+            border-radius: 10px;
             cursor: pointer;
-            font-size: 0.8rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent-primary);
+            background: var(--bg-hover);
+            transform: scale(1.05);
+        }
+
+        .theme-toggle:active {
+            transform: scale(0.95);
+        }
+
+        .theme-toggle svg {
+            width: 20px;
+            height: 20px;
             transition: all 0.3s ease;
         }
 
-        .theme-selector select:hover {
-            border-color: var(--accent-primary);
+        .theme-toggle .sun-icon {
+            color: #f59e0b;
         }
 
-        .theme-icon {
-            font-size: 1rem;
+        .theme-toggle .moon-icon {
+            color: #a78bfa;
+        }
+
+        .theme-toggle .cyber-icon {
+            color: #f472b6;
+        }
+
+        .theme-toggle .ocean-icon {
+            color: #06b6d4;
+        }
+
+        .theme-toggle .midnight-icon {
+            color: #6366f1;
         }
 
         /* Top Navigation */
@@ -389,12 +415,18 @@
             align-items: center;
             backdrop-filter: blur(10px);
             transition: background 0.3s ease, border-color 0.3s ease;
+            position: relative;
+            z-index: 100000;
         }
 
         .logo {
             display: flex;
             align-items: center;
             gap: 1rem;
+            cursor: pointer;
+        }
+        .logo:hover .logo-text {
+            opacity: 0.8;
         }
 
         .logo-icon {
@@ -769,13 +801,252 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* Namespace Dropdown Styles */
+        .namespace-dropdown {
+            position: relative;
+            min-width: 180px;
+            z-index: 99999;
+        }
+        .namespace-selected {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(100, 116, 139, 0.5);
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+        }
+        .namespace-selected:hover {
+            border-color: var(--accent-primary);
+            background: rgba(30, 41, 59, 0.95);
+        }
+        .namespace-dropdown.open .namespace-selected {
+            border-color: var(--accent-primary);
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+        .namespace-options {
+            display: none;
+            position: fixed;
+            background: rgba(30, 41, 59, 0.98);
+            border: 1px solid var(--accent-primary);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            max-height: 300px;
+            min-width: 180px;
+            overflow: hidden;
+            z-index: 999999;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+        .namespace-dropdown.open .namespace-options {
+            display: block;
+        }
+        #namespace-search {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: none;
+            border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+            background: rgba(15, 23, 42, 0.8);
+            color: white;
+            font-size: 0.875rem;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #namespace-search::placeholder {
+            color: #64748b;
+        }
+        #namespace-search:focus {
+            background: rgba(15, 23, 42, 1);
+        }
+        #namespace-list {
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .namespace-option {
+            padding: 0.6rem 1rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: #cbd5e1;
+            transition: background 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .namespace-option:hover {
+            background: rgba(59, 130, 246, 0.15);
+            color: white;
+        }
+        .namespace-option.selected {
+            background: rgba(6, 182, 212, 0.2);
+            color: var(--accent-primary);
+            font-weight: 500;
+        }
+        .namespace-option.highlighted {
+            background: rgba(59, 130, 246, 0.25);
+            color: white;
+        }
+        .namespace-option .ns-icon {
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+        #namespace-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        #namespace-list::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+        }
+        #namespace-list::-webkit-scrollbar-thumb {
+            background: rgba(100, 116, 139, 0.5);
+            border-radius: 3px;
+        }
+
+        /* Loading Indicator Styles */
+        .loading-indicator {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent-primary);
+            border-radius: 8px;
+            padding: 8px 16px;
+            z-index: 9999;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+            opacity: 0;
+            transform: translateX(100px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+        }
+
+        .loading-indicator.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .loading-indicator .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(6, 182, 212, 0.2);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .loading-indicator .loading-text {
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .loading-indicator .loading-icon {
+            font-size: 1rem;
+        }
+
+        /* Table loading overlay */
+        .table-loading {
+            position: relative;
+        }
+
+        .table-loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        /* Content loading overlay - full screen semi-transparent */
+        .content-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 99998;
+            backdrop-filter: blur(2px);
+        }
+        .content-loading-overlay.visible {
+            display: flex;
+        }
+        .content-loading-box {
+            background: var(--bg-card);
+            border: 1px solid var(--accent-primary);
+            border-radius: 12px;
+            padding: 2rem 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            box-shadow: 0 8px 32px rgba(6, 182, 212, 0.3);
+        }
+        .content-loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(6, 182, 212, 0.2);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .content-loading-text {
+            color: var(--text-primary);
+            font-size: 1rem;
+            font-weight: 500;
+        }
+        .content-loading-subtext {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        /* Pulse animation for loading */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
     </style>
 </head>
 <body>
+    <!-- Loading Indicator -->
+    <div id="loading-indicator" class="loading-indicator">
+        <div class="loading-spinner"></div>
+        <span class="loading-icon">&#9881;</span>
+        <span class="loading-text">Loading...</span>
+    </div>
+
+    <!-- Content Loading Overlay -->
+    <div id="content-loading-overlay" class="content-loading-overlay">
+        <div class="content-loading-box">
+            <div class="content-loading-spinner"></div>
+            <div class="content-loading-text" id="content-loading-text">Loading resources...</div>
+            <div class="content-loading-subtext" id="content-loading-subtext">Please wait</div>
+        </div>
+    </div>
+
     <div class="main-wrapper">
     <!-- Navigation -->
     <nav class="navbar">
-        <div class="logo">
+        <div class="logo" onclick="switchMainTab('dashboard')" title="Go to Dashboard">
             <div class="logo-icon">
                 <svg viewBox="0 0 100 100" width="44" height="44" xmlns="http://www.w3.org/2000/svg">
                     <defs>
@@ -842,22 +1113,60 @@
                     <option value="">Loading...</option>
                 </select>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; position: relative;">
                 <span style="color: #94a3b8; font-size: 0.875rem;">Namespace:</span>
-                <select id="namespace-selector" onchange="changeNamespace(this.value)" style="padding: 0.5rem 1rem; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.5); border-radius: 6px; color: white; cursor: pointer; font-size: 0.875rem;">
-                    <option value="default">default</option>
+                <div id="namespace-dropdown" class="namespace-dropdown">
+                    <div class="namespace-selected" onclick="toggleNamespaceDropdown()">
+                        <span id="namespace-display">All</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                    <div class="namespace-options" id="namespace-options">
+                        <input type="text" id="namespace-search" placeholder="Search namespaces..." oninput="filterNamespaces(this.value)" onkeydown="handleNamespaceKeydown(event)">
+                        <div id="namespace-list">
+                            <div class="namespace-option selected" data-value="" onclick="selectNamespace('')">All</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Hidden select for compatibility -->
+                <select id="namespace-selector" style="display: none;" onchange="changeNamespace(this.value)">
+                    <option value="" selected>All</option>
                 </select>
             </div>
-            <!-- Theme Selector -->
-            <div class="theme-selector">
-                <select id="theme-selector" onchange="changeTheme(this.value)">
-                    <option value="dark">Dark</option>
-                    <option value="light">Light</option>
-                    <option value="midnight">Midnight</option>
-                    <option value="cyberpunk">Cyberpunk</option>
-                    <option value="ocean">Ocean</option>
-                </select>
-            </div>
+            <!-- Theme Toggle Button -->
+            <button class="theme-toggle" id="theme-toggle" onclick="cycleTheme()" title="Change theme">
+                <!-- Sun icon (for light theme) -->
+                <svg id="theme-icon-sun" class="sun-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+                <!-- Moon icon (for dark theme) -->
+                <svg id="theme-icon-moon" class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+                <!-- Midnight icon (stars) -->
+                <svg id="theme-icon-midnight" class="midnight-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+                <!-- Cyberpunk icon (lightning) -->
+                <svg id="theme-icon-cyber" class="cyber-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                <!-- Ocean icon (wave) -->
+                <svg id="theme-icon-ocean" class="ocean-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12c2-2 4-4 6-4s4 2 6 4 4 4 6 4 4-2 6-4"></path>
+                    <path d="M2 6c2-2 4-4 6-4s4 2 6 4 4 4 6 4 4-2 6-4"></path>
+                    <path d="M2 18c2-2 4-4 6-4s4 2 6 4 4 4 6 4 4-2 6-4"></path>
+                </svg>
+            </button>
             <div class="status-badge" id="connection-status">
                 <div class="status-dot" id="connection-dot"></div>
                 <span id="connection-text">Checking...</span>
@@ -1789,9 +2098,6 @@
                             <button id="view-force" onclick="switchResourceMapView('force')" class="view-btn active" style="padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%); color: white; transition: all 0.3s;">
                                 🔮 Force
                             </button>
-                            <button id="view-tree" onclick="switchResourceMapView('tree')" class="view-btn" style="padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; background: #475569; color: white; transition: all 0.3s;">
-                                🌳 Tree
-                            </button>
                             <button id="view-cluster" onclick="switchResourceMapView('cluster')" class="view-btn" style="padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; background: #475569; color: white; transition: all 0.3s;">
                                 📦 Cluster
                             </button>
@@ -1828,7 +2134,7 @@
     </div>
 
     <!-- Confirmation Modal -->
-    <div id="confirm-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center;">
+    <div id="confirm-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000001; align-items: center; justify-content: center;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 500px; width: 90%;">
             <h3 style="margin-bottom: 1rem; color: #ef4444;" id="confirm-title">Confirm Action</h3>
             <p style="margin-bottom: 2rem; color: #cbd5e1;" id="confirm-message">Are you sure?</p>
@@ -2149,7 +2455,7 @@
     </div>
 
     <!-- Pod Details Modal -->
-    <div id="pod-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="pod-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closePodDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="pod-details-content"></div>
@@ -2157,7 +2463,7 @@
     </div>
 
     <!-- Deployment Details Modal -->
-    <div id="deployment-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="deployment-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeDeploymentDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="deployment-details-content"></div>
@@ -2165,7 +2471,7 @@
     </div>
 
     <!-- Service Details Modal -->
-    <div id="service-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="service-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeServiceDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="service-details-content"></div>
@@ -2173,7 +2479,7 @@
     </div>
 
     <!-- Ingress Details Modal -->
-    <div id="ingress-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="ingress-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeIngressDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="ingress-details-content"></div>
@@ -2181,7 +2487,7 @@
     </div>
 
     <!-- ConfigMap Details Modal -->
-    <div id="configmap-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="configmap-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeConfigMapDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="configmap-details-content"></div>
@@ -2189,7 +2495,7 @@
     </div>
 
     <!-- StatefulSet Details Modal -->
-    <div id="statefulset-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="statefulset-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeStatefulSetDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="statefulset-details-content"></div>
@@ -2197,7 +2503,7 @@
     </div>
 
     <!-- DaemonSet Details Modal -->
-    <div id="daemonset-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="daemonset-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeDaemonSetDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="daemonset-details-content"></div>
@@ -2205,7 +2511,7 @@
     </div>
 
     <!-- CronJob Details Modal -->
-    <div id="cronjob-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="cronjob-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeCronJobDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="cronjob-details-content"></div>
@@ -2213,7 +2519,7 @@
     </div>
 
     <!-- Job Details Modal -->
-    <div id="job-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="job-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeJobDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="job-details-content"></div>
@@ -2221,7 +2527,7 @@
     </div>
 
     <!-- Node Details Modal -->
-    <div id="node-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="node-details-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 1200px; margin: 0 auto; position: relative;">
             <button onclick="closeNodeDetails()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <div id="node-details-content"></div>
@@ -2229,7 +2535,7 @@
     </div>
 
     <!-- Terminal Modal -->
-    <div id="terminal-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); z-index: 10000; padding: 2rem;">
+    <div id="terminal-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); z-index: 1000000; padding: 2rem;">
         <div style="background: #0f172a; border-radius: 12px; border: 1px solid #475569; max-width: 1400px; margin: 0 auto; height: 90%; display: flex; flex-direction: column;">
             <div style="padding: 1rem; border-bottom: 1px solid #475569; display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; color: #06b6d4; font-size: 1.125rem;" id="terminal-title">Terminal</h3>
@@ -2246,7 +2552,7 @@
     </div>
 
     <!-- Generic Modal -->
-    <div id="generic-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; padding: 2rem; overflow-y: auto;">
+    <div id="generic-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; padding: 2rem; overflow-y: auto;">
         <div style="background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #475569; max-width: 900px; margin: 0 auto; position: relative;">
             <button onclick="closeGenericModal()" style="position: absolute; top: 1rem; right: 1rem; background: #475569; border: none; border-radius: 8px; color: white; cursor: pointer; padding: 0.5rem 1rem; font-size: 1.25rem;">&times;</button>
             <h3 id="generic-modal-title" style="color: #06b6d4; margin-bottom: 1.5rem;"></h3>
@@ -2256,7 +2562,7 @@
     </div>
 
     <!-- Port Forward Modal -->
-    <div id="portforward-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center;">
+    <div id="portforward-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000000; align-items: center; justify-content: center;">
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 2rem; border-radius: 16px; border: 1px solid rgba(100, 116, 139, 0.3); max-width: 500px; width: 90%;">
             <h3 style="margin: 0 0 1.5rem 0; color: #06b6d4; display: flex; align-items: center; gap: 0.5rem;">Port Forward</h3>
             <p style="color: #94a3b8; margin-bottom: 1.5rem;" id="pf-resource-info">Forward ports to access the resource locally</p>
@@ -2318,15 +2624,61 @@
                 nsSelector.style.color = isLight ? '#0f172a' : 'white';
                 nsSelector.style.borderColor = isLight ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)';
             }
+
+            // Update theme icon
+            updateThemeIcon(theme);
+        }
+
+        // Theme cycle order
+        const themeOrder = ['dark', 'light', 'midnight', 'cyberpunk', 'ocean'];
+
+        // Cycle through themes
+        function cycleTheme() {
+            const currentTheme = localStorage.getItem('kubegraf-theme') || 'dark';
+            const currentIndex = themeOrder.indexOf(currentTheme);
+            const nextIndex = (currentIndex + 1) % themeOrder.length;
+            const nextTheme = themeOrder[nextIndex];
+            changeTheme(nextTheme);
+        }
+
+        // Update theme icon based on current theme
+        function updateThemeIcon(theme) {
+            // Hide all icons
+            document.getElementById('theme-icon-sun').style.display = 'none';
+            document.getElementById('theme-icon-moon').style.display = 'none';
+            document.getElementById('theme-icon-midnight').style.display = 'none';
+            document.getElementById('theme-icon-cyber').style.display = 'none';
+            document.getElementById('theme-icon-ocean').style.display = 'none';
+
+            // Show the icon for current theme
+            const iconMap = {
+                'light': 'theme-icon-sun',
+                'dark': 'theme-icon-moon',
+                'midnight': 'theme-icon-midnight',
+                'cyberpunk': 'theme-icon-cyber',
+                'ocean': 'theme-icon-ocean'
+            };
+
+            const iconId = iconMap[theme] || 'theme-icon-moon';
+            document.getElementById(iconId).style.display = 'block';
+
+            // Update tooltip
+            const themeNames = {
+                'light': 'Light',
+                'dark': 'Dark',
+                'midnight': 'Midnight',
+                'cyberpunk': 'Cyberpunk',
+                'ocean': 'Ocean'
+            };
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                themeToggle.title = `Current: ${themeNames[theme] || 'Dark'} - Click to change`;
+            }
         }
 
         // Initialize theme from localStorage
         function initTheme() {
             const savedTheme = localStorage.getItem('kubegraf-theme') || 'dark';
-            const themeSelector = document.getElementById('theme-selector');
-            if (themeSelector) {
-                themeSelector.value = savedTheme;
-            }
             changeTheme(savedTheme);
         }
 
@@ -2513,7 +2865,7 @@
         let currentMainTab = 'dashboard';
         let currentSubTab = '';
         let currentTab = 'dashboard';
-        let currentNamespace = 'default';
+        let currentNamespace = ''; // Empty = All (default)
         let metricsHistory = {
             cpu: Array(20).fill(0),
             memory: Array(20).fill(0)
@@ -2530,6 +2882,157 @@
         let cronJobsData = [];
         let jobsData = [];
         let nodesData = [];
+
+        // ========== LOADING INDICATOR ==========
+        let activeLoaders = 0;
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const loadingText = loadingIndicator?.querySelector('.loading-text');
+
+        function showLoading(message = 'Loading...') {
+            activeLoaders++;
+            if (loadingText) loadingText.textContent = message;
+            if (loadingIndicator) loadingIndicator.classList.add('visible');
+        }
+
+        function hideLoading() {
+            activeLoaders = Math.max(0, activeLoaders - 1);
+            if (activeLoaders === 0 && loadingIndicator) {
+                loadingIndicator.classList.remove('visible');
+            }
+        }
+
+        function setLoadingMessage(message) {
+            if (loadingText) loadingText.textContent = message;
+        }
+        // ========== END LOADING INDICATOR ==========
+
+        // ========== CONTENT LOADING OVERLAY ==========
+        const contentLoadingOverlay = document.getElementById('content-loading-overlay');
+        const contentLoadingText = document.getElementById('content-loading-text');
+        const contentLoadingSubtext = document.getElementById('content-loading-subtext');
+
+        function showContentLoading(message = 'Loading resources...', subtext = 'Please wait') {
+            if (contentLoadingText) contentLoadingText.textContent = message;
+            if (contentLoadingSubtext) contentLoadingSubtext.textContent = subtext;
+            if (contentLoadingOverlay) contentLoadingOverlay.classList.add('visible');
+        }
+
+        function hideContentLoading() {
+            if (contentLoadingOverlay) contentLoadingOverlay.classList.remove('visible');
+        }
+        // ========== END CONTENT LOADING OVERLAY ==========
+
+        // ========== CACHING SYSTEM ==========
+        // Cache with 30-second TTL for fast namespace switching
+        const CACHE_TTL = 30000; // 30 seconds
+        const dataCache = new Map();
+
+        function getCacheKey(resource, namespace) {
+            return `${resource}:${namespace || '_all'}`;
+        }
+
+        function getCachedData(resource, namespace) {
+            const key = getCacheKey(resource, namespace);
+            const cached = dataCache.get(key);
+            if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+                return cached.data;
+            }
+            return null;
+        }
+
+        function setCachedData(resource, namespace, data) {
+            const key = getCacheKey(resource, namespace);
+            dataCache.set(key, { data, timestamp: Date.now() });
+        }
+
+        // Cached fetch with optimistic UI - shows cached data instantly, refreshes in background
+        async function cachedFetch(url, resource, namespace, displayFn) {
+            // Check cache first
+            const cached = getCachedData(resource, namespace);
+            if (cached) {
+                // Show cached data immediately (no loading indicator - it's instant!)
+                displayFn(cached);
+                // Refresh in background silently (don't await, don't show loading)
+                fetch(url).then(r => r.json()).then(data => {
+                    setCachedData(resource, namespace, data);
+                    displayFn(data);
+                }).catch(() => {});
+                return cached;
+            }
+
+            // No cache - show loading indicator and fetch
+            const resourceName = resource.charAt(0).toUpperCase() + resource.slice(1);
+            showLoading(`Loading ${resourceName}...`);
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                setCachedData(resource, namespace, data);
+                displayFn(data);
+                return data;
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Pre-fetch namespace data in background for instant switching
+        function prefetchNamespaceData(namespace) {
+            const ns = encodeURIComponent(namespace || '');
+            // Pre-fetch all namespaced resources in parallel
+            Promise.all([
+                fetch('/api/pods?namespace=' + ns).then(r => r.json()).then(d => setCachedData('pods', namespace, d)),
+                fetch('/api/deployments?namespace=' + ns).then(r => r.json()).then(d => setCachedData('deployments', namespace, d)),
+                fetch('/api/services?namespace=' + ns).then(r => r.json()).then(d => setCachedData('services', namespace, d)),
+                fetch('/api/statefulsets?namespace=' + ns).then(r => r.json()).then(d => setCachedData('statefulsets', namespace, d)),
+                fetch('/api/daemonsets?namespace=' + ns).then(r => r.json()).then(d => setCachedData('daemonsets', namespace, d)),
+                fetch('/api/ingresses?namespace=' + ns).then(r => r.json()).then(d => setCachedData('ingresses', namespace, d)),
+                fetch('/api/configmaps?namespace=' + ns).then(r => r.json()).then(d => setCachedData('configmaps', namespace, d)),
+                fetch('/api/cronjobs?namespace=' + ns).then(r => r.json()).then(d => setCachedData('cronjobs', namespace, d)),
+                fetch('/api/jobs?namespace=' + ns).then(r => r.json()).then(d => setCachedData('jobs', namespace, d))
+            ]).catch(() => {});
+        }
+
+        // Clear cache when data becomes stale or on manual refresh
+        function clearCache(namespace) {
+            if (namespace) {
+                // Clear cache for specific namespace
+                for (const key of dataCache.keys()) {
+                    if (key.endsWith(':' + (namespace || '_all'))) {
+                        dataCache.delete(key);
+                    }
+                }
+            } else {
+                // Clear all cache
+                dataCache.clear();
+            }
+        }
+
+        // Force refresh bypassing cache
+        function forceRefresh() {
+            clearCache(currentNamespace);
+            refreshAllData();
+        }
+
+        // Prefetch all namespaces when user clicks on selector
+        let prefetchingAllNamespaces = false;
+        function prefetchAllNamespaces() {
+            if (prefetchingAllNamespaces) return; // Avoid multiple triggers
+            prefetchingAllNamespaces = true;
+
+            const selector = document.getElementById('namespace-selector');
+            const namespaces = Array.from(selector.options).map(opt => opt.value);
+            console.log('Prefetching all namespaces on focus:', namespaces);
+
+            // Prefetch all namespaces (limit to first 10 to avoid overwhelming the server)
+            namespaces.slice(0, 10).forEach(ns => {
+                if (!getCachedData('pods', ns)) {
+                    prefetchNamespaceData(ns);
+                }
+            });
+
+            // Reset after 30 seconds (cache TTL) to allow re-prefetch
+            setTimeout(() => { prefetchingAllNamespaces = false; }, 30000);
+        }
+        // ========== END CACHING SYSTEM ==========
 
         // WebSocket connection
         const ws = new WebSocket('ws://' + location.host + '/ws');
@@ -2718,7 +3221,7 @@
 
         // Load topology
         function loadTopology() {
-            fetch('/api/topology')
+            fetch('/api/topology?namespace=' + encodeURIComponent(currentNamespace))
                 .then(r => r.json())
                 .then(data => {
                     drawTopology(data);
@@ -2802,92 +3305,85 @@
             }
         }
 
-        // Load pods
+        // Load pods (with caching for fast namespace switching)
         function loadPods() {
-            fetch('/api/pods?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(pods => {
-                    podsData = pods;
-                    displayPods(pods);
-                });
+            const url = '/api/pods?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'pods', currentNamespace, (pods) => {
+                podsData = pods;
+                displayPods(pods);
+            });
         }
 
-        // Load deployments
+        // Load deployments (with caching for fast namespace switching)
         function loadDeployments() {
-            fetch('/api/deployments?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(deps => {
-                    deploymentsData = deps;
-                    displayDeployments(deps);
-                });
+            const url = '/api/deployments?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'deployments', currentNamespace, (deps) => {
+                deploymentsData = deps;
+                displayDeployments(deps);
+            });
         }
 
-        // Load services
+        // Load services (with caching for fast namespace switching)
         function loadServices() {
-            fetch('/api/services?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(svcs => {
-                    servicesData = svcs;
-                    displayServices(svcs);
-                });
+            const url = '/api/services?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'services', currentNamespace, (svcs) => {
+                servicesData = svcs;
+                displayServices(svcs);
+            });
         }
 
-        // Load statefulsets
+        // Load statefulsets (with caching for fast namespace switching)
         function loadStatefulSets() {
-            fetch('/api/statefulsets?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(ssets => {
-                    statefulSetsData = ssets;
-                    displayStatefulSets(ssets);
-                });
+            const url = '/api/statefulsets?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'statefulsets', currentNamespace, (ssets) => {
+                statefulSetsData = ssets;
+                displayStatefulSets(ssets);
+            });
         }
 
-        // Load daemonsets
+        // Load daemonsets (with caching for fast namespace switching)
         function loadDaemonSets() {
-            fetch('/api/daemonsets?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(dsets => {
-                    daemonSetsData = dsets;
-                    displayDaemonSets(dsets);
-                });
+            const url = '/api/daemonsets?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'daemonsets', currentNamespace, (dsets) => {
+                daemonSetsData = dsets;
+                displayDaemonSets(dsets);
+            });
         }
 
-        // Load cronjobs
+        // Load cronjobs (with caching for fast namespace switching)
         function loadCronJobs() {
-            fetch('/api/cronjobs?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(cjs => {
-                    cronJobsData = cjs;
-                    displayCronJobs(cjs);
-                });
+            const url = '/api/cronjobs?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'cronjobs', currentNamespace, (cjs) => {
+                cronJobsData = cjs;
+                displayCronJobs(cjs);
+            });
         }
 
-        // Load jobs
+        // Load jobs (with caching for fast namespace switching)
         function loadJobs() {
-            fetch('/api/jobs?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(jobs => {
-                    jobsData = jobs;
-                    displayJobs(jobs);
-                });
+            const url = '/api/jobs?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'jobs', currentNamespace, (jobs) => {
+                jobsData = jobs;
+                displayJobs(jobs);
+            });
         }
 
-        // Load nodes
+        // Load nodes (with caching - cluster-wide, no namespace)
         function loadNodes() {
-            fetch('/api/nodes')
-                .then(r => r.json())
-                .then(nodes => {
-                    nodesData = nodes;
-                    displayNodes(nodes);
-                });
+            const url = '/api/nodes';
+            return cachedFetch(url, 'nodes', '_cluster', (nodes) => {
+                nodesData = nodes;
+                displayNodes(nodes);
+            });
         }
 
         // Load resource overview
         function loadResourceOverview() {
-            Promise.all([
-                fetch('/api/pods').then(r => r.json()),
-                fetch('/api/deployments').then(r => r.json()),
-                fetch('/api/services').then(r => r.json())
+            const ns = currentNamespace || '';
+            return Promise.all([
+                fetch('/api/pods?namespace=' + encodeURIComponent(ns)).then(r => r.json()),
+                fetch('/api/deployments?namespace=' + encodeURIComponent(ns)).then(r => r.json()),
+                fetch('/api/services?namespace=' + encodeURIComponent(ns)).then(r => r.json())
             ]).then(([pods, deployments, services]) => {
                 const overview = document.getElementById('resources-overview');
 
@@ -2940,29 +3436,27 @@
             });
         }
 
-        // Load ingresses
+        // Load ingresses (with caching for fast namespace switching)
         function loadIngresses() {
-            fetch('/api/ingresses?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(ingresses => {
-                    ingressesData = ingresses;
-                    displayIngresses(ingresses);
-                });
+            const url = '/api/ingresses?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'ingresses', currentNamespace, (ingresses) => {
+                ingressesData = ingresses;
+                displayIngresses(ingresses);
+            });
         }
 
-        // Load configmaps
+        // Load configmaps (with caching for fast namespace switching)
         function loadConfigMaps() {
-            fetch('/api/configmaps?namespace=' + currentNamespace)
-                .then(r => r.json())
-                .then(cms => {
-                    configMapsData = cms;
-                    displayConfigMaps(cms);
-                });
+            const url = '/api/configmaps?namespace=' + encodeURIComponent(currentNamespace);
+            return cachedFetch(url, 'configmaps', currentNamespace, (cms) => {
+                configMapsData = cms;
+                displayConfigMaps(cms);
+            });
         }
 
         // Load resource map
         function loadResourceMap() {
-            fetch('/api/resourcemap')
+            fetch('/api/resourcemap?namespace=' + encodeURIComponent(currentNamespace))
                 .then(r => r.json())
                 .then(data => {
                     drawResourceMap(data);
@@ -3001,7 +3495,7 @@
         // Load security analysis
         function loadSecurity() {
             const ns = document.getElementById('namespace-selector').value;
-            const namespaceParam = ns === 'All Namespaces' ? '_all' : (ns || 'default');
+            const namespaceParam = ns === 'All' ? '_all' : (ns || 'default');
 
             document.getElementById('security-findings').innerHTML = '<div style="text-align: center; padding: 3rem; color: #64748b;"><div class="loading-spinner" style="margin: 0 auto 1rem;"></div>Analyzing security best practices...</div>';
 
@@ -3741,7 +4235,6 @@
             // Update help text
             const helpTexts = {
                 'force': '<strong>🔮 Force Graph:</strong> Drag nodes to rearrange • Scroll to zoom • Click and drag background to pan',
-                'tree': '<strong>🌳 Tree View:</strong> Hierarchical tree structure showing resource relationships • Scroll to zoom • Drag to pan',
                 'cluster': '<strong>📦 Cluster View:</strong> Resources grouped by type in separate clusters • Drag nodes to rearrange',
                 'hierarchical': '<strong>📊 Hierarchy View:</strong> Top-down hierarchical layout showing dependency flow • Scroll to zoom'
             };
@@ -3757,7 +4250,7 @@
 
         // Modified load function to cache data
         function loadResourceMapWithView() {
-            fetch('/api/resourcemap')
+            fetch('/api/resourcemap?namespace=' + encodeURIComponent(currentNamespace))
                 .then(r => r.json())
                 .then(data => {
                     cachedResourceMapData = JSON.parse(JSON.stringify(data)); // Deep copy
@@ -3773,9 +4266,6 @@
             switch(viewType) {
                 case 'force':
                     drawResourceMapForce(dataCopy);
-                    break;
-                case 'tree':
-                    drawResourceMapTree(dataCopy);
                     break;
                 case 'cluster':
                     drawResourceMapCluster(dataCopy);
@@ -3847,68 +4337,6 @@
                 link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y);
                 node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
             });
-        }
-
-        // Tree View - Hierarchical tree layout
-        function drawResourceMapTree(data) {
-            const svg = d3.select('#resourcemap-svg');
-            svg.selectAll('*').remove();
-
-            const width = document.getElementById('resourcemap-svg').clientWidth;
-            const height = 700;
-            const margin = { top: 40, right: 120, bottom: 40, left: 120 };
-
-            const g = svg.append('g').attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
-
-            svg.call(d3.zoom()
-                .scaleExtent([0.3, 3])
-                .on('zoom', (event) => g.attr('transform', event.transform))
-            );
-
-            // Convert flat data to hierarchy
-            const root = buildHierarchy(data);
-
-            const treeLayout = d3.tree().size([height - margin.top - margin.bottom, width - margin.left - margin.right]);
-            const treeData = treeLayout(root);
-
-            // Draw links
-            g.selectAll('.link')
-                .data(treeData.links())
-                .join('path')
-                .attr('class', 'link')
-                .attr('fill', 'none')
-                .attr('stroke', '#475569')
-                .attr('stroke-width', 2)
-                .attr('d', d3.linkHorizontal()
-                    .x(d => d.y)
-                    .y(d => d.x));
-
-            // Draw nodes
-            const node = g.selectAll('.node')
-                .data(treeData.descendants())
-                .join('g')
-                .attr('class', 'node')
-                .attr('transform', d => 'translate(' + d.y + ',' + d.x + ')');
-
-            node.append('circle')
-                .attr('r', 20)
-                .attr('fill', d => d.data.color || '#64748b')
-                .attr('stroke', '#fff')
-                .attr('stroke-width', 2);
-
-            node.append('text')
-                .text(d => d.data.icon || '📦')
-                .attr('text-anchor', 'middle')
-                .attr('dy', '0.35em')
-                .attr('font-size', '16px');
-
-            node.append('text')
-                .text(d => d.data.name)
-                .attr('text-anchor', 'middle')
-                .attr('dy', 35)
-                .attr('font-size', 10)
-                .attr('fill', 'white')
-                .attr('font-weight', 'bold');
         }
 
         // Cluster View - Grouped by type
@@ -4145,7 +4573,7 @@
         // Override loadResourceMap to use new system
         const originalLoadResourceMap = loadResourceMap;
         loadResourceMap = function() {
-            fetch('/api/resourcemap')
+            fetch('/api/resourcemap?namespace=' + encodeURIComponent(currentNamespace))
                 .then(r => r.json())
                 .then(data => {
                     cachedResourceMapData = JSON.parse(JSON.stringify(data));
@@ -5657,18 +6085,64 @@
 
         // Load namespaces
         function loadNamespaces() {
+            console.log('loadNamespaces: starting fetch');
+            showLoading('Loading Namespaces...');
             return fetch('/api/namespaces')
-                .then(r => r.json())
+                .then(r => {
+                    console.log('loadNamespaces: fetch response status', r.status);
+                    if (!r.ok) {
+                        throw new Error('HTTP error ' + r.status);
+                    }
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('loadNamespaces: data received', data);
                     const selector = document.getElementById('namespace-selector');
-                    // Add "All Namespaces" option first
-                    let options = '<option value="">All Namespaces</option>';
+                    if (!selector) {
+                        console.error('loadNamespaces: namespace-selector element not found');
+                        return;
+                    }
+                    if (!data || !data.namespaces || !Array.isArray(data.namespaces)) {
+                        console.error('loadNamespaces: invalid data structure', data);
+                        throw new Error('Invalid namespace data');
+                    }
+                    // Add "All" option first (selected by default)
+                    let options = '<option value="" selected>All</option>';
                     options += data.namespaces.map(ns =>
-                        '<option value="' + ns + '"' + (ns === 'default' ? ' selected' : '') + '>' + ns + '</option>'
+                        '<option value="' + ns + '">' + ns + '</option>'
                     ).join('');
                     selector.innerHTML = options;
+                    console.log('loadNamespaces: selector updated with', data.namespaces.length, 'namespaces');
                     // Set currentNamespace to match selector
                     currentNamespace = selector.value;
+
+                    // Store namespaces for the searchable dropdown
+                    allNamespaces = data.namespaces.slice().sort();
+                    // Populate custom dropdown
+                    const namespaceList = document.getElementById('namespace-list');
+                    if (namespaceList) {
+                        let listHtml = '<div class="namespace-option selected" data-value="" onclick="selectNamespace(\'\')">All</div>';
+                        listHtml += allNamespaces.map(ns =>
+                            '<div class="namespace-option" data-value="' + ns + '" onclick="selectNamespace(\'' + ns + '\')">' + ns + '</div>'
+                        ).join('');
+                        namespaceList.innerHTML = listHtml;
+                    }
+
+                    // CACHING: Pre-fetch data for first 5 namespaces in background for instant switching
+                    const namespacesToPrefetch = data.namespaces.slice(0, 5);
+                    console.log('Prefetching data for namespaces:', namespacesToPrefetch);
+                    setTimeout(() => {
+                        namespacesToPrefetch.forEach(ns => prefetchNamespaceData(ns));
+                        // Also prefetch "All" (empty namespace)
+                        prefetchNamespaceData('');
+                    }, 500); // Small delay to prioritize initial load
+                })
+                .catch(err => {
+                    console.error('loadNamespaces: error', err);
+                    throw err;
+                })
+                .finally(() => {
+                    hideLoading();
                 });
         }
 
@@ -5676,42 +6150,181 @@
         function changeNamespace(namespace) {
             currentNamespace = namespace;
             console.log('Namespace changed to:', namespace);
+
+            // Show loading overlay with namespace info
+            const nsDisplay = namespace || 'All Namespaces';
+            showContentLoading('Switching namespace...', `Loading resources from ${nsDisplay}`);
+
+            // Use Promise to ensure loading overlay is shown for a minimum time
+            const minDelay = new Promise(resolve => setTimeout(resolve, 300));
+
             // Refresh current tab
+            let loadPromise;
             if (currentTab === 'pods') {
-                loadPods();
+                loadPromise = loadPods();
             } else if (currentTab === 'deployments') {
-                loadDeployments();
+                loadPromise = loadDeployments();
             } else if (currentTab === 'services') {
-                loadServices();
+                loadPromise = loadServices();
             } else if (currentTab === 'statefulsets') {
-                loadStatefulSets();
+                loadPromise = loadStatefulSets();
             } else if (currentTab === 'daemonsets') {
-                loadDaemonSets();
+                loadPromise = loadDaemonSets();
             } else if (currentTab === 'cronjobs') {
-                loadCronJobs();
+                loadPromise = loadCronJobs();
             } else if (currentTab === 'jobs') {
-                loadJobs();
+                loadPromise = loadJobs();
             } else if (currentTab === 'nodes') {
-                loadNodes();
+                loadPromise = loadNodes();
             } else if (currentTab === 'configmaps') {
-                loadConfigMaps();
+                loadPromise = loadConfigMaps();
             } else if (currentTab === 'ingresses') {
-                loadIngresses();
+                loadPromise = loadIngresses();
             } else if (currentTab === 'dashboard') {
-                loadResourceOverview();
-                loadDashboardSecuritySummary();
+                loadPromise = Promise.all([loadResourceOverview(), loadDashboardSecuritySummary()]);
             } else if (currentTab === 'security') {
-                loadSecurity();
+                loadPromise = loadSecurity();
             } else if (currentTab === 'helm') {
-                loadHelmReleases();
+                loadPromise = loadHelmReleases();
             } else if (currentTab === 'kustomize') {
-                loadKustomizeResources();
+                loadPromise = loadKustomizeResources();
             } else if (currentTab === 'argocd') {
-                loadArgoCDApps();
+                loadPromise = loadArgoCDApps();
             } else if (currentTab === 'flux') {
-                loadFluxResources();
+                loadPromise = loadFluxResources();
+            }
+
+            // Hide loading after both minimum delay and actual loading complete
+            Promise.all([minDelay, loadPromise || Promise.resolve()])
+                .finally(() => hideContentLoading());
+        }
+
+        // Namespace dropdown functions
+        let allNamespaces = []; // Store all namespaces for filtering
+        let highlightedIndex = 0; // For keyboard navigation
+
+        function toggleNamespaceDropdown() {
+            const dropdown = document.getElementById('namespace-dropdown');
+            const options = document.getElementById('namespace-options');
+            const searchInput = document.getElementById('namespace-search');
+            const selected = dropdown.querySelector('.namespace-selected');
+
+            if (dropdown.classList.contains('open')) {
+                dropdown.classList.remove('open');
+                searchInput.value = '';
+                filterNamespaces('');
+            } else {
+                // Position the fixed dropdown correctly
+                const rect = selected.getBoundingClientRect();
+                options.style.top = rect.bottom + 'px';
+                options.style.left = rect.left + 'px';
+                options.style.width = rect.width + 'px';
+
+                dropdown.classList.add('open');
+                searchInput.focus();
+                highlightedIndex = 0;
+                updateHighlight();
             }
         }
+
+        function filterNamespaces(query) {
+            const list = document.getElementById('namespace-list');
+            const normalizedQuery = query.toLowerCase().trim();
+
+            // Always include "All" option
+            let html = '';
+            const allNsMatch = 'all'.includes(normalizedQuery);
+            if (allNsMatch || !normalizedQuery) {
+                const isSelected = currentNamespace === '';
+                html += '<div class="namespace-option' + (isSelected ? ' selected' : '') + '" data-value="" onclick="selectNamespace(\'\')">All</div>';
+            }
+
+            // Filter namespaces
+            const filtered = allNamespaces.filter(ns => ns.toLowerCase().includes(normalizedQuery));
+            filtered.forEach(ns => {
+                const isSelected = currentNamespace === ns;
+                html += '<div class="namespace-option' + (isSelected ? ' selected' : '') + '" data-value="' + ns + '" onclick="selectNamespace(\'' + ns + '\')">' + ns + '</div>';
+            });
+
+            if (!html) {
+                html = '<div class="namespace-option" style="color: var(--text-muted); pointer-events: none;">No namespaces found</div>';
+            }
+
+            list.innerHTML = html;
+            highlightedIndex = 0;
+            updateHighlight();
+        }
+
+        function selectNamespace(value) {
+            // Update display text
+            const display = document.getElementById('namespace-display');
+            display.textContent = value || 'All';
+
+            // Close dropdown
+            const dropdown = document.getElementById('namespace-dropdown');
+            dropdown.classList.remove('open');
+
+            // Clear search
+            const searchInput = document.getElementById('namespace-search');
+            searchInput.value = '';
+            filterNamespaces('');
+
+            // Update hidden selector for compatibility
+            const selector = document.getElementById('namespace-selector');
+            selector.value = value;
+
+            // Mark selected in list
+            const options = document.querySelectorAll('.namespace-option');
+            options.forEach(opt => {
+                opt.classList.toggle('selected', opt.dataset.value === value);
+            });
+
+            // Trigger namespace change
+            changeNamespace(value);
+        }
+
+        function handleNamespaceKeydown(event) {
+            const options = document.querySelectorAll('#namespace-list .namespace-option:not([style*="pointer-events: none"])');
+
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                highlightedIndex = Math.min(highlightedIndex + 1, options.length - 1);
+                updateHighlight();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                highlightedIndex = Math.max(highlightedIndex - 1, 0);
+                updateHighlight();
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                const highlighted = options[highlightedIndex];
+                if (highlighted) {
+                    selectNamespace(highlighted.dataset.value);
+                }
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                const dropdown = document.getElementById('namespace-dropdown');
+                dropdown.classList.remove('open');
+            }
+        }
+
+        function updateHighlight() {
+            const options = document.querySelectorAll('#namespace-list .namespace-option:not([style*="pointer-events: none"])');
+            options.forEach((opt, idx) => {
+                opt.classList.toggle('highlighted', idx === highlightedIndex);
+            });
+            // Scroll highlighted item into view
+            if (options[highlightedIndex]) {
+                options[highlightedIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('namespace-dropdown');
+            if (dropdown && !dropdown.contains(event.target)) {
+                dropdown.classList.remove('open');
+            }
+        });
 
         // Helper function to parse age string to milliseconds
         function parseAge(ageStr) {
@@ -6050,24 +6663,21 @@
                 });
         }
 
-        // Initial load - check connection first
-        checkConnectionStatus().then(connected => {
-            // Always load clusters (shows available contexts even if disconnected)
-            loadClusters();
-
-            if (connected) {
-                fetch('/api/metrics').then(r => r.json()).then(updateMetrics);
+        // Initial load - always try to load all data
+        loadClusters();
+        loadNamespaces()
+            .then(() => {
+                loadPods();
+                fetch('/api/metrics').then(r => r.json()).then(updateMetrics).catch(() => {});
                 loadResourceOverview();
                 loadDashboardSecuritySummary();
-                // Load namespaces first, then load pods with correct namespace
-                loadNamespaces().then(() => {
-                    loadPods();
-                });
-            } else {
-                // Still load namespaces structure but they'll be empty
+            })
+            .catch(() => {
+                // Only show "No cluster connected" if loadNamespaces fails
                 document.getElementById('namespace-selector').innerHTML = '<option value="">No cluster connected</option>';
-            }
-        });
+            });
+        // Also check connection status for the status indicator
+        checkConnectionStatus();
 
         // Refresh resource overview every 10 seconds (only if connected)
         setInterval(() => {
@@ -6102,8 +6712,294 @@
         </div>
     </footer>
 
+    <!-- AI Chat Floating Button -->
+    <button id="ai-chat-fab" onclick="toggleAIChat()" style="position: fixed; bottom: 24px; right: 24px; width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); border: none; color: white; font-size: 24px; cursor: pointer; box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4); z-index: 100001; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+            <circle cx="7.5" cy="14.5" r="1"/>
+            <circle cx="16.5" cy="14.5" r="1"/>
+        </svg>
+    </button>
+
+    <!-- AI Chat Panel (Slide-out) -->
+    <div id="ai-chat-panel" style="position: fixed; top: 0; right: -420px; width: 420px; height: 100vh; background: var(--bg-primary); border-left: 1px solid var(--border-color); z-index: 100002; display: flex; flex-direction: column; transition: right 0.3s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.3);">
+        <!-- Chat Header -->
+        <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+                </svg>
+                <span style="color: white; font-weight: 600; font-size: 1.1rem;">KubeGraf AI</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <select id="ai-provider-select" onchange="switchAIProvider(this.value)" style="background: rgba(255,255,255,0.2); border: none; border-radius: 6px; padding: 0.4rem 0.6rem; color: white; font-size: 0.8rem; cursor: pointer;">
+                    <option value="ollama" style="color: #1e293b;">Ollama (Local)</option>
+                    <option value="openai" style="color: #1e293b;">OpenAI GPT-4</option>
+                    <option value="anthropic" style="color: #1e293b;">Claude</option>
+                </select>
+                <button onclick="toggleAIChat()" style="background: rgba(255,255,255,0.2); border: none; border-radius: 6px; width: 32px; height: 32px; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Chat Messages -->
+        <div id="ai-chat-messages" style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem;">
+            <!-- Welcome Message -->
+            <div style="text-align: center; padding: 2rem 1rem; color: var(--text-secondary);">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.5;">
+                        <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+                    </svg>
+                </div>
+                <h3 style="color: var(--text-primary); margin-bottom: 0.5rem; font-size: 1.1rem;">Ask me anything about your cluster</h3>
+                <p style="font-size: 0.875rem; margin-bottom: 1.5rem;">I can help you troubleshoot, scale deployments, analyze logs, and more.</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;">
+                    <button onclick="sendSuggestion('Why is my nginx pod failing?')" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 20px; padding: 0.5rem 1rem; color: var(--text-primary); font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">Why is my nginx pod failing?</button>
+                    <button onclick="sendSuggestion('Scale api deployment to 3')" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 20px; padding: 0.5rem 1rem; color: var(--text-primary); font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">Scale api deployment to 3</button>
+                    <button onclick="sendSuggestion('Show high memory pods')" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 20px; padding: 0.5rem 1rem; color: var(--text-primary); font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">Show high memory pods</button>
+                    <button onclick="sendSuggestion('Generate Redis deployment')" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 20px; padding: 0.5rem 1rem; color: var(--text-primary); font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">Generate Redis deployment</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Input -->
+        <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: var(--bg-secondary);">
+            <div style="display: flex; gap: 0.5rem;">
+                <textarea id="ai-chat-input" placeholder="Ask about your cluster..." rows="1" style="flex: 1; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 0.75rem 1rem; color: var(--text-primary); font-size: 0.9rem; resize: none; font-family: inherit; min-height: 44px; max-height: 120px;" onkeydown="handleAIChatKeyDown(event)" oninput="autoResizeTextarea(this)"></textarea>
+                <button id="ai-send-btn" onclick="sendAIMessage()" style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+            </div>
+            <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                Press Enter to send, Shift+Enter for new line
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Chat Overlay -->
+    <div id="ai-chat-overlay" onclick="toggleAIChat()" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100000; display: none;"></div>
+
+    <script>
+        // AI Chat State
+        let aiChatOpen = false;
+        let aiSessionId = '';
+        let aiProvider = 'ollama';
+        let aiChatHistory = [];
+
+        function toggleAIChat() {
+            aiChatOpen = !aiChatOpen;
+            const panel = document.getElementById('ai-chat-panel');
+            const overlay = document.getElementById('ai-chat-overlay');
+            const fab = document.getElementById('ai-chat-fab');
+
+            if (aiChatOpen) {
+                panel.style.right = '0';
+                overlay.style.display = 'block';
+                fab.style.transform = 'rotate(180deg) scale(0.9)';
+                document.getElementById('ai-chat-input').focus();
+                // Initialize session if needed
+                if (!aiSessionId) {
+                    initAISession();
+                }
+            } else {
+                panel.style.right = '-420px';
+                overlay.style.display = 'none';
+                fab.style.transform = 'rotate(0) scale(1)';
+            }
+        }
+
+        async function initAISession() {
+            try {
+                const res = await fetch('/api/ai/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: aiProvider })
+                });
+                const data = await res.json();
+                aiSessionId = data.id;
+            } catch (e) {
+                console.error('Failed to init AI session:', e);
+            }
+        }
+
+        function switchAIProvider(provider) {
+            aiProvider = provider;
+            aiSessionId = ''; // Reset session for new provider
+        }
+
+        function handleAIChatKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendAIMessage();
+            }
+        }
+
+        function autoResizeTextarea(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        }
+
+        function sendSuggestion(text) {
+            document.getElementById('ai-chat-input').value = text;
+            sendAIMessage();
+        }
+
+        async function sendAIMessage() {
+            const input = document.getElementById('ai-chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            // Clear input and reset height
+            input.value = '';
+            input.style.height = 'auto';
+
+            // Add user message to chat
+            addChatMessage('user', message);
+
+            // Show loading indicator
+            const loadingId = addChatMessage('assistant', '<div class="ai-typing"><span></span><span></span><span></span></div>', true);
+
+            try {
+                const res = await fetch('/api/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: aiSessionId,
+                        message: message,
+                        provider: aiProvider
+                    })
+                });
+
+                const data = await res.json();
+
+                // Remove loading indicator
+                document.getElementById(loadingId)?.remove();
+
+                // Add assistant response
+                if (data.error) {
+                    addChatMessage('assistant', 'Error: ' + data.error);
+                } else {
+                    const content = data.message?.content || data.message || 'No response';
+                    addChatMessage('assistant', content);
+                    aiSessionId = data.session_id || aiSessionId;
+                }
+            } catch (e) {
+                document.getElementById(loadingId)?.remove();
+                addChatMessage('assistant', 'Error: Failed to connect to AI service. ' + e.message);
+            }
+        }
+
+        function addChatMessage(role, content, isLoading = false) {
+            const container = document.getElementById('ai-chat-messages');
+            const msgId = 'ai-msg-' + Date.now();
+
+            // Clear welcome message on first real message
+            if (!isLoading && container.querySelector('[data-welcome]')) {
+                container.innerHTML = '';
+            }
+
+            const isUser = role === 'user';
+            const bgColor = isUser ? 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)' : 'var(--bg-secondary)';
+            const textColor = isUser ? 'white' : 'var(--text-primary)';
+            const align = isUser ? 'flex-end' : 'flex-start';
+
+            // Format content (handle markdown-like formatting)
+            let formattedContent = content;
+            if (!isLoading && !isUser) {
+                formattedContent = formatAIResponse(content);
+            }
+
+            const msgDiv = document.createElement('div');
+            msgDiv.id = msgId;
+            msgDiv.style.cssText = `display: flex; justify-content: ${align};`;
+            msgDiv.innerHTML = `
+                <div style="max-width: 85%; background: ${bgColor}; padding: 0.75rem 1rem; border-radius: 12px; color: ${textColor}; font-size: 0.9rem; line-height: 1.5; word-break: break-word;">
+                    ${formattedContent}
+                </div>
+            `;
+
+            container.appendChild(msgDiv);
+            container.scrollTop = container.scrollHeight;
+
+            return msgId;
+        }
+
+        function formatAIResponse(content) {
+            // Basic markdown formatting
+            let formatted = content
+                .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre style="background: var(--bg-tertiary); padding: 0.75rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; font-size: 0.8rem;"><code>$2</code></pre>')
+                .replace(/`([^`]+)`/g, '<code style="background: var(--bg-tertiary); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.85em;">$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+            return formatted;
+        }
+    </script>
+
+    <style>
+        /* AI Chat Styles */
+        #ai-chat-fab:hover {
+            transform: scale(1.1) !important;
+            box-shadow: 0 6px 24px rgba(139, 92, 246, 0.5);
+        }
+
+        #ai-chat-panel select option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .ai-typing {
+            display: flex;
+            gap: 4px;
+            padding: 4px 0;
+        }
+
+        .ai-typing span {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            animation: ai-bounce 1.4s infinite ease-in-out;
+        }
+
+        .ai-typing span:nth-child(1) { animation-delay: -0.32s; }
+        .ai-typing span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes ai-bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        #ai-chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #ai-chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #ai-chat-messages::-webkit-scrollbar-thumb {
+            background: var(--scrollbar-thumb);
+            border-radius: 3px;
+        }
+
+        #ai-chat-input:focus {
+            outline: none;
+            border-color: #8b5cf6;
+        }
+
+        #ai-send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        }
+
+        #ai-chat-panel button:hover {
+            background: rgba(255,255,255,0.3) !important;
+        }
+    </style>
+
     <!-- Credits Modal -->
-    <div id="credits-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
+    <div id="credits-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000000; align-items: center; justify-content: center;">
         <div style="background: #1e293b; padding: 1.5rem; border-radius: 8px; border: 1px solid #334155; max-width: 480px; width: 90%; position: relative;">
             <button onclick="closeCreditsModal()" style="position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none; color: #64748b; cursor: pointer; font-size: 1.25rem; line-height: 1;">&times;</button>
             <h3 style="margin: 0 0 1rem 0; color: #f1f5f9; font-size: 1rem; font-weight: 600;">Third-Party Libraries</h3>

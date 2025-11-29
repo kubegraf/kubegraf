@@ -103,27 +103,139 @@ type WebEvent struct {
 	Source    string    `json:"source"`
 }
 
+// CacheEntry represents a cached API response
+type CacheEntry struct {
+	Data      interface{}
+	Timestamp time.Time
+}
+
+// APICache provides server-side caching for Kubernetes API responses
+type APICache struct {
+	entries map[string]*CacheEntry
+	mu      sync.RWMutex
+	ttl     time.Duration
+}
+
+// NewAPICache creates a new API cache with the specified TTL
+func NewAPICache(ttl time.Duration) *APICache {
+	return &APICache{
+		entries: make(map[string]*CacheEntry),
+		ttl:     ttl,
+	}
+}
+
+// Get retrieves a cached entry if it exists and is not expired
+func (c *APICache) Get(key string) (interface{}, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	entry, exists := c.entries[key]
+	if !exists {
+		return nil, false
+	}
+
+	if time.Since(entry.Timestamp) > c.ttl {
+		return nil, false
+	}
+
+	return entry.Data, true
+}
+
+// Set stores a value in the cache
+func (c *APICache) Set(key string, data interface{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.entries[key] = &CacheEntry{
+		Data:      data,
+		Timestamp: time.Now(),
+	}
+}
+
+// Invalidate removes an entry from the cache
+func (c *APICache) Invalidate(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}
+
+// InvalidatePrefix removes all entries with the given prefix
+func (c *APICache) InvalidatePrefix(prefix string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for key := range c.entries {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.entries, key)
+		}
+	}
+}
+
+// Clear removes all entries from the cache
+func (c *APICache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries = make(map[string]*CacheEntry)
+}
+
+// Cleanup removes expired entries from the cache
+func (c *APICache) Cleanup() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for key, entry := range c.entries {
+		if now.Sub(entry.Timestamp) > c.ttl {
+			delete(c.entries, key)
+		}
+	}
+}
+
 // WebServer handles the web UI
 type WebServer struct {
-	app          *App
-	clients      map[*websocket.Conn]bool
-	mu           sync.Mutex
-	portForwards map[string]*PortForwardSession
-	pfMu         sync.Mutex
-	events       []WebEvent
-	eventsMu     sync.RWMutex
-	stopCh       chan struct{}
+	app           *App
+	clients       map[*websocket.Conn]bool
+	mu            sync.Mutex
+	portForwards  map[string]*PortForwardSession
+	pfMu          sync.Mutex
+	events        []WebEvent
+	eventsMu      sync.RWMutex
+	stopCh        chan struct{}
+	cache         *APICache      // Server-side API response cache
+	aiManager     *AIManager     // AI chat manager
+	pluginManager *PluginManager // Plugin manager
 }
 
 // NewWebServer creates a new web server
 func NewWebServer(app *App) *WebServer {
-	return &WebServer{
+	ws := &WebServer{
 		app:          app,
 		clients:      make(map[*websocket.Conn]bool),
 		portForwards: make(map[string]*PortForwardSession),
 		events:       make([]WebEvent, 0, 500),
 		stopCh:       make(chan struct{}),
+		cache:        NewAPICache(10 * time.Second), // 10-second TTL for server-side cache
+		aiManager:    NewAIManager(),                // Initialize AI manager
 	}
+
+	// Initialize plugin manager
+	ws.pluginManager = NewPluginManager("plugins", app)
+
+	// Start background cache cleanup every 30 seconds
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ws.cache.Cleanup()
+			case <-ws.stopCh:
+				return
+			}
+		}
+	}()
+
+	return ws
 }
 
 // Start starts the web server
@@ -222,6 +334,15 @@ func (ws *WebServer) Start(port int) error {
 	// Plugin endpoints - Flux
 	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
 
+	// AI endpoints
+	http.HandleFunc("/api/ai/session", ws.handleAISession)
+	http.HandleFunc("/api/ai/chat", ws.handleAIChat)
+	http.HandleFunc("/api/ai/providers", ws.handleAIProviders)
+
+	// Plugin management endpoints
+	http.HandleFunc("/api/plugins", ws.handlePluginList)
+	http.HandleFunc("/api/plugins/execute", ws.handlePluginExecute)
+
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("🌐 Web UI available at http://localhost%s", addr)
 	log.Printf("📊 Dashboard: http://localhost%s", addr)
@@ -286,10 +407,36 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("pods:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Batch fetch all pod metrics in one API call (instead of per-pod calls)
+	podMetricsMap := make(map[string]map[string]int64) // key: "namespace/name", value: {cpu, memory}
+	if ws.app.metricsClient != nil {
+		if allMetrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for _, pm := range allMetrics.Items {
+				var totalCPU, totalMemory int64
+				for _, cm := range pm.Containers {
+					totalCPU += cm.Usage.Cpu().MilliValue()
+					totalMemory += cm.Usage.Memory().Value()
+				}
+				key := pm.Namespace + "/" + pm.Name
+				podMetricsMap[key] = map[string]int64{"cpu": totalCPU, "memory": totalMemory}
+			}
+		}
 	}
 
 	podList := []map[string]interface{}{}
@@ -338,19 +485,13 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Get metrics for this pod if available
+		// Look up metrics from pre-fetched batch (fast map lookup instead of API call)
 		cpu := "-"
 		memory := "-"
-		if ws.app.metricsClient != nil {
-			if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).Get(ws.app.ctx, pod.Name, metav1.GetOptions{}); err == nil {
-				var totalCPU, totalMemory int64
-				for _, cm := range metrics.Containers {
-					totalCPU += cm.Usage.Cpu().MilliValue()
-					totalMemory += cm.Usage.Memory().Value()
-				}
-				cpu = fmt.Sprintf("%dm", totalCPU)
-				memory = fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024))
-			}
+		metricsKey := pod.Namespace + "/" + pod.Name
+		if m, ok := podMetricsMap[metricsKey]; ok {
+			cpu = fmt.Sprintf("%dm", m["cpu"])
+			memory = fmt.Sprintf("%.0fMi", float64(m["memory"])/(1024*1024))
 		}
 
 		podList = append(podList, map[string]interface{}{
@@ -367,6 +508,8 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Cache the result
+	ws.cache.Set(cacheKey, podList)
 	json.NewEncoder(w).Encode(podList)
 }
 
@@ -376,6 +519,16 @@ func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("deployments:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -393,6 +546,7 @@ func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, depList)
 	json.NewEncoder(w).Encode(depList)
 }
 
@@ -402,6 +556,16 @@ func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) 
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("statefulsets:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -419,6 +583,7 @@ func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 
+	ws.cache.Set(cacheKey, ssList)
 	json.NewEncoder(w).Encode(ssList)
 }
 
@@ -428,6 +593,16 @@ func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("daemonsets:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -447,6 +622,7 @@ func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, dsList)
 	json.NewEncoder(w).Encode(dsList)
 }
 
@@ -456,6 +632,16 @@ func (ws *WebServer) handleServices(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("services:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	services, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -474,11 +660,21 @@ func (ws *WebServer) handleServices(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, svcList)
 	json.NewEncoder(w).Encode(svcList)
 }
 
 // handleNodes returns node list
 func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
+	// Check cache first (nodes are cluster-scoped, no namespace)
+	cacheKey := "nodes:_cluster"
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	nodes, err := ws.app.clientset.CoreV1().Nodes().List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -543,12 +739,17 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, nodeList)
 	json.NewEncoder(w).Encode(nodeList)
 }
 
 // handleTopology returns topology data for visualization
 func (ws *WebServer) handleTopology(w http.ResponseWriter, r *http.Request) {
-	topology := ws.buildTopologyData()
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	topology := ws.buildTopologyData(namespace)
 	json.NewEncoder(w).Encode(topology)
 }
 
@@ -1415,40 +1616,48 @@ func (ws *WebServer) getClusterMetrics() map[string]interface{} {
 }
 
 // buildTopologyData builds topology data for D3.js visualization
-func (ws *WebServer) buildTopologyData() map[string]interface{} {
+func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} {
 	nodes := []map[string]interface{}{}
 	links := []map[string]interface{}{}
 
+	// Handle "All Namespaces" - use empty string to query all
+	ns := namespace
+	if namespace == "All Namespaces" {
+		ns = ""
+	}
+
 	// Get deployments
-	deployments, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	deployments, err := ws.app.clientset.AppsV1().Deployments(ns).List(ws.app.ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, dep := range deployments.Items {
 			nodes = append(nodes, map[string]interface{}{
-				"id":    fmt.Sprintf("deployment-%s", dep.Name),
-				"name":  dep.Name,
-				"type":  "deployment",
-				"group": 1,
+				"id":        fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+				"name":      dep.Name,
+				"type":      "deployment",
+				"group":     1,
+				"namespace": dep.Namespace,
 			})
 		}
 	}
 
 	// Get services
-	services, err := ws.app.clientset.CoreV1().Services(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	services, err := ws.app.clientset.CoreV1().Services(ns).List(ws.app.ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, svc := range services.Items {
 			nodes = append(nodes, map[string]interface{}{
-				"id":    fmt.Sprintf("service-%s", svc.Name),
-				"name":  svc.Name,
-				"type":  "service",
-				"group": 2,
+				"id":        fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+				"name":      svc.Name,
+				"type":      "service",
+				"group":     2,
+				"namespace": svc.Namespace,
 			})
 
-			// Link services to deployments (simplified)
+			// Link services to deployments (simplified, same namespace only)
 			for _, dep := range deployments.Items {
-				if matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
+				if svc.Namespace == dep.Namespace && matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
 					links = append(links, map[string]interface{}{
-						"source": fmt.Sprintf("service-%s", svc.Name),
-						"target": fmt.Sprintf("deployment-%s", dep.Name),
+						"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+						"target": fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
 						"value":  1,
 					})
 				}
@@ -1481,6 +1690,16 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("ingresses:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1502,6 +1721,7 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, ingList)
 	json.NewEncoder(w).Encode(ingList)
 }
 
@@ -1511,6 +1731,16 @@ func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("configmaps:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1527,6 +1757,7 @@ func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, cmList)
 	json.NewEncoder(w).Encode(cmList)
 }
 
@@ -1535,12 +1766,24 @@ func (ws *WebServer) handleResourceMap(w http.ResponseWriter, r *http.Request) {
 	nodes := []map[string]interface{}{}
 	links := []map[string]interface{}{}
 
+	// Get namespace from query param
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	// Handle "All Namespaces" - use empty string to query all
+	ns := namespace
+	if namespace == "All Namespaces" {
+		ns = ""
+	}
+
 	// Get all resources
-	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	services, _ := ws.app.clientset.CoreV1().Services(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	deployments, _ := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	pods, _ := ws.app.clientset.CoreV1().Pods(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	configmaps, _ := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(ns).List(ws.app.ctx, metav1.ListOptions{})
+	services, _ := ws.app.clientset.CoreV1().Services(ns).List(ws.app.ctx, metav1.ListOptions{})
+	deployments, _ := ws.app.clientset.AppsV1().Deployments(ns).List(ws.app.ctx, metav1.ListOptions{})
+	pods, _ := ws.app.clientset.CoreV1().Pods(ns).List(ws.app.ctx, metav1.ListOptions{})
+	configmaps, _ := ws.app.clientset.CoreV1().ConfigMaps(ns).List(ws.app.ctx, metav1.ListOptions{})
 
 	// Add ingresses
 	for _, ing := range ingresses.Items {
@@ -3057,6 +3300,16 @@ func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("cronjobs:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -3085,6 +3338,7 @@ func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	ws.cache.Set(cacheKey, cjList)
 	json.NewEncoder(w).Encode(cjList)
 }
 
@@ -3094,6 +3348,16 @@ func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("jobs:%s", namespace)
+	if cached, ok := ws.cache.Get(cacheKey); ok {
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+	w.Header().Set("X-Cache", "MISS")
+
 	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -3133,6 +3397,8 @@ func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 			"namespace":   job.Namespace,
 		})
 	}
+
+	ws.cache.Set(cacheKey, jobList)
 
 	json.NewEncoder(w).Encode(jobList)
 }

@@ -1,0 +1,138 @@
+name: helm
+version: 1.0.0
+description: Helm chart management for Kubernetes
+author: KubeGraf
+icon: "⎈"
+entrypoint: builtin
+
+capabilities:
+  - kubernetes:read
+  - kubernetes:write
+  - network:access
+
+hooks:
+  - on_deployment_view
+  - on_resource_action
+
+commands:
+  - name: helm:list
+    description: List Helm releases
+    returns: "[]HelmRelease"
+    args: []
+
+  - name: helm:install
+    description: Install a Helm chart
+    args:
+      - name: chart
+        type: string
+        required: true
+        description: Chart name (e.g., nginx/nginx, bitnami/redis)
+      - name: release
+        type: string
+        required: true
+        description: Release name
+      - name: namespace
+        type: string
+        required: false
+        default: default
+        description: Target namespace
+      - name: values
+        type: object
+        required: false
+        description: Values to override (key-value pairs)
+
+  - name: helm:upgrade
+    description: Upgrade a Helm release
+    args:
+      - name: release
+        type: string
+        required: true
+      - name: chart
+        type: string
+        required: false
+      - name: namespace
+        type: string
+        required: false
+
+  - name: helm:rollback
+    description: Rollback a Helm release to a previous revision
+    args:
+      - name: release
+        type: string
+        required: true
+      - name: revision
+        type: string
+        required: false
+        description: Revision number (empty for previous)
+      - name: namespace
+        type: string
+        required: false
+
+  - name: helm:uninstall
+    description: Uninstall a Helm release
+    args:
+      - name: release
+        type: string
+        required: true
+      - name: namespace
+        type: string
+        required: false
+
+  - name: helm:history
+    description: Show release history
+    args:
+      - name: release
+        type: string
+        required: true
+      - name: namespace
+        type: string
+        required: false
+
+  - name: helm:values
+    description: Get current values of a release
+    args:
+      - name: release
+        type: string
+        required: true
+      - name: namespace
+        type: string
+        required: false
+
+  - name: helm:status
+    description: Get status of a release
+    args:
+      - name: release
+        type: string
+        required: true
+      - name: namespace
+        type: string
+        required: false
+
+  - name: helm:search
+    description: Search Helm repositories for charts
+    args:
+      - name: query
+        type: string
+        required: false
+      - name: repo
+        type: string
+        required: false
+        description: Repository name to search
+
+ui_extensions:
+  - type: sidebar
+    location: main
+    label: Helm Releases
+    icon: "⎈"
+    order: 100
+  - type: panel
+    location: deployment-detail
+    label: Helm Info
+    component: helm-info
+    order: 50
+
+config:
+  # Optional: Override default Helm binary path
+  # helm_path: /usr/local/bin/helm
+  # Optional: Default repository
+  # default_repo: https://charts.helm.sh/stable
