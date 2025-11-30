@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -27,17 +28,34 @@ const Jobs: Component = () => {
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Job | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
 
   const [jobs, { refetch }] = createResource(namespace, api.getJobs);
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getJobYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const job = selected();
+    if (!job) return;
+    try {
+      await api.updateJob(job.name, job.namespace, yaml);
+      addNotification(`✅ Job ${job.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update job: ${errorMsg}`, 'error');
+      throw error;
+    }
+  };
 
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
@@ -264,6 +282,7 @@ const Jobs: Component = () => {
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(job); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(job); setShowEdit(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteJob(job), variant: 'danger', divider: true },
                           ]}
                         />
@@ -327,6 +346,20 @@ const Jobs: Component = () => {
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
         </Show>
       </Modal>
 

@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createEffect } from 'solid-js';
+import { Component, For, Show, createSignal, createEffect, createMemo } from 'solid-js';
 import { currentTheme, setTheme, themes, type ThemeName } from '../stores/theme';
 import { namespace, setNamespace, namespaces } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -239,7 +239,8 @@ const Settings: Component = () => {
 
   const SettingItemComponent: Component<{ item: SettingItem }> = (props) => {
     const item = props.item;
-    const value = item.value();
+    // Use createMemo to make value reactive - it will re-evaluate when the signal changes
+    const value = createMemo(() => item.value());
 
     return (
       <div class="card p-4">
@@ -258,14 +259,21 @@ const Settings: Component = () => {
           <div class="flex-shrink-0">
             <Show when={item.type === 'toggle'}>
               <button
-                onClick={() => item.onChange(!value)}
-                class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  value ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-tertiary)]'
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const currentValue = item.value();
+                  item.onChange(!currentValue);
+                }}
+                class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                  value() ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-tertiary)]'
                 }`}
+                style={{ outline: 'none' }}
               >
                 <span
-                  class={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    value ? 'translate-x-6' : 'translate-x-1'
+                  class={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform pointer-events-none ${
+                    value() ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>

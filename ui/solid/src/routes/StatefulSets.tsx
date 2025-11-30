@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -26,19 +27,37 @@ const StatefulSets: Component = () => {
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<StatefulSet | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showScale, setShowScale] = createSignal(false);
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
+  const [restarting, setRestarting] = createSignal<string | null>(null); // Track which statefulset is restarting
 
   const [statefulsets, { refetch }] = createResource(namespace, api.getStatefulSets);
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getStatefulSetYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const sts = selected();
+    if (!sts) return;
+    try {
+      await api.updateStatefulSet(sts.name, sts.namespace, yaml);
+      addNotification(`✅ StatefulSet ${sts.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update StatefulSet: ${errorMsg}`, 'error');
+      throw error;
+    }
+  };
 
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
@@ -134,11 +153,25 @@ const StatefulSets: Component = () => {
   );
 
   const restart = async (sts: StatefulSet) => {
+    const statefulSetKey = `${sts.namespace}/${sts.name}`;
+    setRestarting(statefulSetKey);
     try {
-      await api.restartStatefulSet(sts.name, sts.namespace);
-      refetch();
+      const result = await api.restartStatefulSet(sts.name, sts.namespace);
+      if (result?.success) {
+        addNotification(`✅ StatefulSet ${sts.name} restart initiated - pods will restart shortly`, 'success');
+      } else {
+        addNotification(`⚠️ Restart initiated but may not have completed: ${result?.message || 'Unknown status'}`, 'warning');
+      }
+      // Refetch multiple times to see the restart progress
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+      setTimeout(() => refetch(), 5000);
     } catch (error) {
       console.error('Failed to restart StatefulSet:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to restart StatefulSet ${sts.name}: ${errorMsg}`, 'error');
+    } finally {
+      setTimeout(() => setRestarting(null), 2000); // Clear loading state after 2 seconds
     }
   };
 
@@ -146,11 +179,19 @@ const StatefulSets: Component = () => {
     const sts = selected();
     if (!sts) return;
     try {
-      await api.scaleStatefulSet(sts.name, sts.namespace, scaleReplicas());
+      const result = await api.scaleStatefulSet(sts.name, sts.namespace, scaleReplicas());
+      if (result?.success) {
+        addNotification(`✅ StatefulSet ${sts.name} scaled to ${scaleReplicas()} replicas`, 'success');
+      } else {
+        addNotification(`⚠️ Scale may not have completed: ${result?.message || 'Unknown status'}`, 'warning');
+      }
       setShowScale(false);
-      refetch();
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
     } catch (error) {
       console.error('Failed to scale StatefulSet:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to scale StatefulSet: ${errorMsg}`, 'error');
     }
   };
 
@@ -302,8 +343,14 @@ const StatefulSets: Component = () => {
                         <ActionMenu
                           actions={[
                             { label: 'Scale', icon: 'scale', onClick: () => openScale(sts) },
-                            { label: 'Restart', icon: 'restart', onClick: () => restart(sts) },
+                            { 
+                              label: 'Restart', 
+                              icon: 'restart', 
+                              onClick: () => restart(sts),
+                              loading: restarting() === `${sts.namespace}/${sts.name}`
+                            },
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(sts); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(sts); setShowEdit(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteStatefulSet(sts), variant: 'danger', divider: true },
                           ]}
                         />
@@ -367,6 +414,20 @@ const StatefulSets: Component = () => {
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
         </Show>
       </Modal>
 

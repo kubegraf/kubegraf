@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -38,6 +39,7 @@ const Services: Component = () => {
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Service | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showPortForward, setShowPortForward] = createSignal(false);
   const [localPort, setLocalPort] = createSignal(8080);
@@ -46,13 +48,29 @@ const Services: Component = () => {
   const [services, { refetch }] = createResource(namespace, api.getServices);
   const [portForwards, { refetch: refetchPF }] = createResource(api.listPortForwards);
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getServiceYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const svc = selected();
+    if (!svc) return;
+    try {
+      await api.updateService(svc.name, svc.namespace, yaml);
+      addNotification(`✅ Service ${svc.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update service: ${errorMsg}`, 'error');
+      throw error;
+    }
+  };
 
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
@@ -344,6 +362,7 @@ const Services: Component = () => {
                           actions={[
                             { label: 'Port Forward', icon: 'portforward', onClick: () => openPortForward(svc) },
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(svc); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(svc); setShowEdit(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteService(svc), variant: 'danger', divider: true },
                           ]}
                         />
@@ -407,6 +426,20 @@ const Services: Component = () => {
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
         </Show>
       </Modal>
 

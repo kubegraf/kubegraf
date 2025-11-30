@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -28,18 +29,35 @@ const ConfigMaps: Component = () => {
 
   // Modal states
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
 
   const [configmaps, { refetch }] = createResource(namespace, api.getConfigMaps);
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getConfigMapYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const cm = selected();
+    if (!cm) return;
+    try {
+      await api.updateConfigMap(cm.name, cm.namespace, yaml);
+      addNotification(`✅ ConfigMap ${cm.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update ConfigMap: ${errorMsg}`, 'error');
+      throw error;
+    }
+  };
 
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
@@ -251,6 +269,7 @@ const ConfigMaps: Component = () => {
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(cm); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(cm); setShowEdit(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteConfigMap(cm), variant: 'danger', divider: true },
                           ]}
                         />

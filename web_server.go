@@ -35,8 +35,12 @@ import (
 
 	"github.com/gorilla/websocket"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
@@ -186,6 +190,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/services", ws.handleServices)
 	http.HandleFunc("/api/ingresses", ws.handleIngresses)
 	http.HandleFunc("/api/configmaps", ws.handleConfigMaps)
+	http.HandleFunc("/api/secrets", ws.handleSecrets)
 	http.HandleFunc("/api/cronjobs", ws.handleCronJobs)
 	http.HandleFunc("/api/jobs", ws.handleJobs)
 	http.HandleFunc("/api/nodes", ws.handleNodes)
@@ -213,6 +218,7 @@ func (ws *WebServer) Start(port int) error {
 	// Operations endpoints
 	http.HandleFunc("/api/pod/details", ws.handlePodDetails)
 	http.HandleFunc("/api/pod/yaml", ws.handlePodYAML)
+	http.HandleFunc("/api/pod/update", ws.handlePodUpdate)
 	http.HandleFunc("/api/pod/describe", ws.handlePodDescribe)
 	http.HandleFunc("/api/pod/exec", ws.handlePodExec)
 	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
@@ -221,41 +227,56 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
 	http.HandleFunc("/api/deployment/details", ws.handleDeploymentDetails)
 	http.HandleFunc("/api/deployment/yaml", ws.handleDeploymentYAML)
+	http.HandleFunc("/api/deployment/update", ws.handleDeploymentUpdate)
 	http.HandleFunc("/api/deployment/describe", ws.handleDeploymentDescribe)
 	http.HandleFunc("/api/deployment/restart", ws.handleDeploymentRestart)
+	http.HandleFunc("/api/deployment/scale", ws.handleDeploymentScale)
 	http.HandleFunc("/api/deployment/delete", ws.handleDeploymentDelete)
 	http.HandleFunc("/api/statefulset/details", ws.handleStatefulSetDetails)
 	http.HandleFunc("/api/statefulset/yaml", ws.handleStatefulSetYAML)
+	http.HandleFunc("/api/statefulset/update", ws.handleStatefulSetUpdate)
 	http.HandleFunc("/api/statefulset/describe", ws.handleStatefulSetDescribe)
 	http.HandleFunc("/api/statefulset/restart", ws.handleStatefulSetRestart)
+	http.HandleFunc("/api/statefulset/scale", ws.handleStatefulSetScale)
 	http.HandleFunc("/api/statefulset/delete", ws.handleStatefulSetDelete)
 	http.HandleFunc("/api/daemonset/details", ws.handleDaemonSetDetails)
 	http.HandleFunc("/api/daemonset/yaml", ws.handleDaemonSetYAML)
+	http.HandleFunc("/api/daemonset/update", ws.handleDaemonSetUpdate)
 	http.HandleFunc("/api/daemonset/describe", ws.handleDaemonSetDescribe)
 	http.HandleFunc("/api/daemonset/restart", ws.handleDaemonSetRestart)
 	http.HandleFunc("/api/daemonset/delete", ws.handleDaemonSetDelete)
 	http.HandleFunc("/api/cronjob/details", ws.handleCronJobDetails)
 	http.HandleFunc("/api/cronjob/yaml", ws.handleCronJobYAML)
+	http.HandleFunc("/api/cronjob/update", ws.handleCronJobUpdate)
 	http.HandleFunc("/api/cronjob/describe", ws.handleCronJobDescribe)
 	http.HandleFunc("/api/cronjob/delete", ws.handleCronJobDelete)
 	http.HandleFunc("/api/job/details", ws.handleJobDetails)
 	http.HandleFunc("/api/job/yaml", ws.handleJobYAML)
+	http.HandleFunc("/api/job/update", ws.handleJobUpdate)
 	http.HandleFunc("/api/job/describe", ws.handleJobDescribe)
 	http.HandleFunc("/api/job/delete", ws.handleJobDelete)
 	http.HandleFunc("/api/service/details", ws.handleServiceDetails)
 	http.HandleFunc("/api/service/yaml", ws.handleServiceYAML)
+	http.HandleFunc("/api/service/update", ws.handleServiceUpdate)
 	http.HandleFunc("/api/service/describe", ws.handleServiceDescribe)
 	http.HandleFunc("/api/service/delete", ws.handleServiceDelete)
 	http.HandleFunc("/api/ingress/details", ws.handleIngressDetails)
 	http.HandleFunc("/api/ingress/yaml", ws.handleIngressYAML)
+	http.HandleFunc("/api/ingress/update", ws.handleIngressUpdate)
 	http.HandleFunc("/api/ingress/describe", ws.handleIngressDescribe)
 	http.HandleFunc("/api/ingress/delete", ws.handleIngressDelete)
 	http.HandleFunc("/api/configmap/details", ws.handleConfigMapDetails)
 	http.HandleFunc("/api/configmap/yaml", ws.handleConfigMapYAML)
+	http.HandleFunc("/api/configmap/update", ws.handleConfigMapUpdate)
 	http.HandleFunc("/api/configmap/describe", ws.handleConfigMapDescribe)
 	http.HandleFunc("/api/configmap/delete", ws.handleConfigMapDelete)
+	http.HandleFunc("/api/secret/yaml", ws.handleSecretYAML)
+	http.HandleFunc("/api/secret/update", ws.handleSecretUpdate)
+	http.HandleFunc("/api/secret/describe", ws.handleSecretDescribe)
+	http.HandleFunc("/api/secret/delete", ws.handleSecretDelete)
 	http.HandleFunc("/api/certificates", ws.handleCertificates)
 	http.HandleFunc("/api/certificate/yaml", ws.handleCertificateYAML)
+	http.HandleFunc("/api/certificate/update", ws.handleCertificateUpdate)
 	http.HandleFunc("/api/certificate/describe", ws.handleCertificateDescribe)
 	http.HandleFunc("/api/certificate/delete", ws.handleCertificateDelete)
 	http.HandleFunc("/api/node/details", ws.handleNodeDetails)
@@ -294,7 +315,24 @@ func (ws *WebServer) Start(port int) error {
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 
-	addr := fmt.Sprintf(":%d", port)
+	// Check if port is available, if not find next available port
+	actualPort := port
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		// Port is in use, find next available port
+		log.Printf("⚠️  Port %d is already in use, searching for available port...", port)
+		actualPort, err = findAvailablePort(port)
+		if err != nil {
+			return fmt.Errorf("failed to find available port: %v", err)
+		}
+		if actualPort != port {
+			log.Printf("✅ Using port %d instead (port %d was in use)", actualPort, port)
+		}
+	} else {
+		listener.Close()
+	}
+
+	addr := fmt.Sprintf(":%d", actualPort)
 	log.Printf("🌐 Web UI available at http://localhost%s", addr)
 	log.Printf("📊 Dashboard: http://localhost%s", addr)
 	log.Printf("🗺️  Topology: http://localhost%s/topology", addr)
@@ -1846,6 +1884,32 @@ func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(cmList)
 }
 
+// handleSecrets returns secrets list
+func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	secretList := []map[string]interface{}{}
+	for _, secret := range secrets.Items {
+		secretList = append(secretList, map[string]interface{}{
+			"name":      secret.Name,
+			"type":      string(secret.Type),
+			"data":      len(secret.Data),
+			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
+			"namespace": secret.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(secretList)
+}
+
 // handleResourceMap returns enhanced topology data
 func (ws *WebServer) handleResourceMap(w http.ResponseWriter, r *http.Request) {
 	nodes := []map[string]interface{}{}
@@ -2731,7 +2795,7 @@ func (ws *WebServer) handlePodDelete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeploymentRestart restarts a deployment by scaling to 0 then back
+// handleDeploymentRestart restarts a deployment by adding restart annotation using Patch
 func (ws *WebServer) handleDeploymentRestart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -2752,8 +2816,13 @@ func (ws *WebServer) handleDeploymentRestart(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get deployment
-	dep, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Get deployment first to check current annotations
+	dep, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2762,36 +2831,42 @@ func (ws *WebServer) handleDeploymentRestart(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	originalReplicas := *dep.Spec.Replicas
+	// Prepare annotations map - merge with existing annotations
+	annotations := make(map[string]string)
+	if dep.Spec.Template.Annotations != nil {
+		for k, v := range dep.Spec.Template.Annotations {
+			annotations[k] = v
+		}
+	}
+	// Add restart annotation
+	annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
 
-	// Scale to 0
-	zero := int32(0)
-	dep.Spec.Replicas = &zero
-	_, err = ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Update(ws.app.ctx, dep, metav1.UpdateOptions{})
+	// Create patch with proper JSON encoding
+	patchData := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": annotations,
+				},
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patchData)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"error":   err.Error(),
+			"error":   fmt.Sprintf("Failed to create patch: %v", err),
 		})
 		return
 	}
 
-	// Wait a moment
-	time.Sleep(2 * time.Second)
-
-	// Refetch deployment to get latest resource version
-	dep, err = ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Scale back
-	dep.Spec.Replicas = &originalReplicas
-	_, err = ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Update(ws.app.ctx, dep, metav1.UpdateOptions{})
+	_, err = ws.app.clientset.AppsV1().Deployments(namespace).Patch(
+		ws.app.ctx,
+		name,
+		types.StrategicMergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2802,7 +2877,82 @@ func (ws *WebServer) handleDeploymentRestart(w http.ResponseWriter, r *http.Requ
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("Deployment %s restarted successfully", name),
+		"message": fmt.Sprintf("Deployment %s restarted successfully - pods will restart shortly", name),
+	})
+}
+
+// handleDeploymentScale scales a deployment to the specified number of replicas
+func (ws *WebServer) handleDeploymentScale(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	replicasStr := r.URL.Query().Get("replicas")
+	if replicasStr == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Replicas parameter is required",
+		})
+		return
+	}
+
+	replicas, err := strconv.Atoi(replicasStr)
+	if err != nil || replicas < 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid replicas value (must be a non-negative integer)",
+		})
+		return
+	}
+
+	// Get deployment
+	dep, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Update replicas
+	dep.Spec.Replicas = func() *int32 {
+		r := int32(replicas)
+		return &r
+	}()
+
+	_, err = ws.app.clientset.AppsV1().Deployments(namespace).Update(ws.app.ctx, dep, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment %s scaled to %d replicas", name, replicas),
 	})
 }
 
@@ -2962,6 +3112,80 @@ func (ws *WebServer) handleConfigMapDelete(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("ConfigMap %s deleted successfully", name),
+	})
+}
+
+// handleSecretDescribe returns kubectl describe output for a secret
+func (ws *WebServer) handleSecretDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Secret name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("secret", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleSecretDelete deletes a secret
+func (ws *WebServer) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" && r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Secret name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().Secrets(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Secret %s deleted successfully", name),
 	})
 }
 
@@ -3199,6 +3423,70 @@ func (ws *WebServer) handlePodYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleResourceUpdate is a generic handler for updating resources from YAML
+func (ws *WebServer) handleResourceUpdate(w http.ResponseWriter, r *http.Request, resourceType string, updateFunc func(yamlData []byte, namespace string) error) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("%s name is required", resourceType),
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Read YAML from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+		})
+		return
+	}
+	defer r.Body.Close()
+
+	// Update the resource
+	if err := updateFunc(body, namespace); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("%s %s updated successfully", resourceType, name),
+	})
+}
+
+// handlePodUpdate updates a pod from YAML
+func (ws *WebServer) handlePodUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "pod", func(yamlData []byte, namespace string) error {
+		var pod v1.Pod
+		if err := yaml.Unmarshal(yamlData, &pod); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().Pods(namespace).Update(ws.app.ctx, &pod, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 // handlePodDescribe returns the describe output for a pod using kubectl describe
 func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -3263,6 +3551,18 @@ func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"yaml":    string(yamlData),
+	})
+}
+
+// handleDeploymentUpdate updates a deployment from YAML
+func (ws *WebServer) handleDeploymentUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "deployment", func(yamlData []byte, namespace string) error {
+		var dep appsv1.Deployment
+		if err := yaml.Unmarshal(yamlData, &dep); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.AppsV1().Deployments(namespace).Update(ws.app.ctx, &dep, metav1.UpdateOptions{})
+		return err
 	})
 }
 
@@ -3333,6 +3633,18 @@ func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleServiceUpdate updates a service from YAML
+func (ws *WebServer) handleServiceUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "service", func(yamlData []byte, namespace string) error {
+		var svc corev1.Service
+		if err := yaml.Unmarshal(yamlData, &svc); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().Services(namespace).Update(ws.app.ctx, &svc, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 // handleServiceDescribe returns kubectl describe output for a service
 func (ws *WebServer) handleServiceDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -3400,6 +3712,18 @@ func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleIngressUpdate updates an ingress from YAML
+func (ws *WebServer) handleIngressUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "ingress", func(yamlData []byte, namespace string) error {
+		var ing networkingv1.Ingress
+		if err := yaml.Unmarshal(yamlData, &ing); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Update(ws.app.ctx, &ing, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 // handleIngressDescribe returns kubectl describe output for an ingress
 func (ws *WebServer) handleIngressDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -3463,6 +3787,63 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"yaml":    string(yamlData),
+	})
+}
+
+// handleSecretYAML returns the YAML representation of a secret
+func (ws *WebServer) handleSecretYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "secret name required", http.StatusBadRequest)
+		return
+	}
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	secret, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	secret.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(secret, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleSecretUpdate updates a secret from YAML
+func (ws *WebServer) handleSecretUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "secret", func(yamlData []byte, namespace string) error {
+		var secret v1.Secret
+		if err := yaml.Unmarshal(yamlData, &secret); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().Secrets(namespace).Update(ws.app.ctx, &secret, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleConfigMapUpdate updates a configmap from YAML
+func (ws *WebServer) handleConfigMapUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "configmap", func(yamlData []byte, namespace string) error {
+		var cm v1.ConfigMap
+		if err := yaml.Unmarshal(yamlData, &cm); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Update(ws.app.ctx, &cm, metav1.UpdateOptions{})
+		return err
 	})
 }
 
@@ -3679,6 +4060,84 @@ func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"yaml":    string(yamlData),
+	})
+}
+
+// handleCertificateUpdate updates a certificate from YAML
+func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Read YAML from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+		})
+		return
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	// Unmarshal YAML to unstructured object
+	var cert unstructured.Unstructured
+	if err := yaml.Unmarshal(body, &cert); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
+		})
+		return
+	}
+
+	// Update the certificate
+	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Certificate %s updated successfully", name),
 	})
 }
 
@@ -3934,6 +4393,18 @@ func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// handleStatefulSetUpdate updates a statefulset from YAML
+func (ws *WebServer) handleStatefulSetUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "statefulset", func(yamlData []byte, namespace string) error {
+		var ss appsv1.StatefulSet
+		if err := yaml.Unmarshal(yamlData, &ss); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Update(ws.app.ctx, &ss, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 // handleStatefulSetDescribe returns kubectl describe-style output for a statefulset
 func (ws *WebServer) handleStatefulSetDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -3967,7 +4438,7 @@ func (ws *WebServer) handleStatefulSetDescribe(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// handleStatefulSetRestart restarts a statefulset by scaling to 0 then back
+// handleStatefulSetRestart restarts a statefulset by adding restart annotation using Patch
 func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -3988,8 +4459,124 @@ func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// For StatefulSets, delete pods directly (they'll be recreated by StatefulSet controller)
+	// This is more reliable than the annotation method for StatefulSets
+	pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Find pods belonging to this StatefulSet by checking owner references and name prefix
+	var podsToDelete []string
+	for _, pod := range pods.Items {
+		// Check if pod belongs to this StatefulSet
+		belongsToStatefulSet := false
+		
+		// Method 1: Check owner references
+		for _, ownerRef := range pod.OwnerReferences {
+			if ownerRef.Kind == "StatefulSet" && ownerRef.Name == name {
+				belongsToStatefulSet = true
+				break
+			}
+		}
+		
+		// Method 2: Check name prefix (StatefulSet pods follow pattern: <statefulset-name>-<ordinal>)
+		if !belongsToStatefulSet && strings.HasPrefix(pod.Name, name+"-") {
+			belongsToStatefulSet = true
+		}
+		
+		if belongsToStatefulSet {
+			podsToDelete = append(podsToDelete, pod.Name)
+		}
+	}
+
+	if len(podsToDelete) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("No pods found for StatefulSet %s", name),
+		})
+		return
+	}
+
+	// Delete pods (they'll be recreated by StatefulSet controller in order)
+	var deleteErrors []string
+	for _, podName := range podsToDelete {
+		err = ws.app.clientset.CoreV1().Pods(namespace).Delete(ws.app.ctx, podName, metav1.DeleteOptions{})
+		if err != nil {
+			deleteErrors = append(deleteErrors, fmt.Sprintf("pod %s: %v", podName, err))
+			log.Printf("Warning: Failed to delete pod %s: %v", podName, err)
+		}
+	}
+
+	if len(deleteErrors) > 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Some pods failed to delete: %s", strings.Join(deleteErrors, "; ")),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("StatefulSet %s restart initiated - %d pod(s) deleted, will be recreated by StatefulSet controller", name, len(podsToDelete)),
+	})
+}
+
+// handleStatefulSetScale scales a statefulset to the specified number of replicas
+func (ws *WebServer) handleStatefulSetScale(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	replicasStr := r.URL.Query().Get("replicas")
+	if replicasStr == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Replicas parameter is required",
+		})
+		return
+	}
+
+	replicas, err := strconv.Atoi(replicasStr)
+	if err != nil || replicas < 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid replicas value (must be a non-negative integer)",
+		})
+		return
+	}
+
 	// Get statefulset
-	ss, err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	ss, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3998,36 +4585,13 @@ func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	originalReplicas := *ss.Spec.Replicas
+	// Update replicas
+	ss.Spec.Replicas = func() *int32 {
+		r := int32(replicas)
+		return &r
+	}()
 
-	// Scale to 0
-	zero := int32(0)
-	ss.Spec.Replicas = &zero
-	_, err = ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Update(ws.app.ctx, ss, metav1.UpdateOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Wait a moment
-	time.Sleep(2 * time.Second)
-
-	// Refetch statefulset to get latest resource version
-	ss, err = ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Scale back
-	ss.Spec.Replicas = &originalReplicas
-	_, err = ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Update(ws.app.ctx, ss, metav1.UpdateOptions{})
+	_, err = ws.app.clientset.AppsV1().StatefulSets(namespace).Update(ws.app.ctx, ss, metav1.UpdateOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4038,7 +4602,7 @@ func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Req
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("StatefulSet %s restarted successfully", name),
+		"message": fmt.Sprintf("StatefulSet %s scaled to %d replicas", name, replicas),
 	})
 }
 
@@ -4146,6 +4710,18 @@ func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"yaml":    string(yamlData),
+	})
+}
+
+// handleDaemonSetUpdate updates a daemonset from YAML
+func (ws *WebServer) handleDaemonSetUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "daemonset", func(yamlData []byte, namespace string) error {
+		var ds appsv1.DaemonSet
+		if err := yaml.Unmarshal(yamlData, &ds); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Update(ws.app.ctx, &ds, metav1.UpdateOptions{})
+		return err
 	})
 }
 
@@ -4365,6 +4941,18 @@ func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleCronJobUpdate updates a cronjob from YAML
+func (ws *WebServer) handleCronJobUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "cronjob", func(yamlData []byte, namespace string) error {
+		var cj batchv1.CronJob
+		if err := yaml.Unmarshal(yamlData, &cj); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.BatchV1().CronJobs(namespace).Update(ws.app.ctx, &cj, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 // handleCronJobDescribe returns kubectl describe output for a cronjob
 func (ws *WebServer) handleCronJobDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -4529,6 +5117,18 @@ func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"yaml":    string(yamlData),
+	})
+}
+
+// handleJobUpdate updates a job from YAML
+func (ws *WebServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "job", func(yamlData []byte, namespace string) error {
+		var job batchv1.Job
+		if err := yaml.Unmarshal(yamlData, &job); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.BatchV1().Jobs(namespace).Update(ws.app.ctx, &job, metav1.UpdateOptions{})
+		return err
 	})
 }
 

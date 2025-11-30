@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -31,17 +32,34 @@ const Certificates: Component = () => {
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Certificate | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
 
   const [certificates, { refetch }] = createResource(namespace, api.getCertificates);
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getCertificateYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const cert = selected();
+    if (!cert) return;
+    try {
+      await api.updateCertificate(cert.name, cert.namespace, yaml);
+      addNotification(`✅ Certificate ${cert.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update certificate: ${errorMsg}`, 'error');
+      throw error;
+    }
+  };
 
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
@@ -282,6 +300,7 @@ const Certificates: Component = () => {
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(cert); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(cert); setShowEdit(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteCertificate(cert), variant: 'danger', divider: true },
                           ]}
                         />
@@ -345,6 +364,20 @@ const Certificates: Component = () => {
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
         </Show>
       </Modal>
 

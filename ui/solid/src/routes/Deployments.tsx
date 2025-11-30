@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -28,19 +29,37 @@ const Deployments: Component = () => {
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Deployment | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showScale, setShowScale] = createSignal(false);
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
+  const [restarting, setRestarting] = createSignal<string | null>(null); // Track which deployment is restarting
 
   const [deployments, { refetch }] = createResource(namespace, api.getDeployments);
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getDeploymentYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const dep = selected();
+    if (!dep) return;
+    try {
+      await api.updateDeployment(dep.name, dep.namespace, yaml);
+      addNotification(`✅ Deployment ${dep.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update deployment: ${errorMsg}`, 'error');
+      throw error; // Re-throw so YAMLEditor can handle it
+    }
+  };
 
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
@@ -136,11 +155,25 @@ const Deployments: Component = () => {
   );
 
   const restart = async (dep: Deployment) => {
+    const deploymentKey = `${dep.namespace}/${dep.name}`;
+    setRestarting(deploymentKey);
     try {
-      await api.restartDeployment(dep.name, dep.namespace);
-      refetch();
+      const result = await api.restartDeployment(dep.name, dep.namespace);
+      if (result?.success) {
+        addNotification(`✅ Deployment ${dep.name} restart initiated - pods will restart shortly`, 'success');
+      } else {
+        addNotification(`⚠️ Restart initiated but may not have completed: ${result?.message || 'Unknown status'}`, 'warning');
+      }
+      // Refetch multiple times to see the restart progress
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+      setTimeout(() => refetch(), 5000);
     } catch (error) {
       console.error('Failed to restart deployment:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to restart deployment ${dep.name}: ${errorMsg}`, 'error');
+    } finally {
+      setTimeout(() => setRestarting(null), 2000); // Clear loading state after 2 seconds
     }
   };
 
@@ -148,11 +181,19 @@ const Deployments: Component = () => {
     const dep = selected();
     if (!dep) return;
     try {
-      await api.scaleDeployment(dep.name, dep.namespace, scaleReplicas());
+      const result = await api.scaleDeployment(dep.name, dep.namespace, scaleReplicas());
+      if (result?.success) {
+        addNotification(`✅ Deployment ${dep.name} scaled to ${scaleReplicas()} replicas`, 'success');
+      } else {
+        addNotification(`⚠️ Scale may not have completed: ${result?.message || 'Unknown status'}`, 'warning');
+      }
       setShowScale(false);
-      refetch();
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
     } catch (error) {
       console.error('Failed to scale deployment:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to scale deployment: ${errorMsg}`, 'error');
     }
   };
 
@@ -306,8 +347,14 @@ const Deployments: Component = () => {
                         <ActionMenu
                           actions={[
                             { label: 'Scale', icon: 'scale', onClick: () => openScale(dep) },
-                            { label: 'Restart', icon: 'restart', onClick: () => restart(dep) },
+                            { 
+                              label: 'Restart', 
+                              icon: 'restart', 
+                              onClick: () => restart(dep),
+                              loading: restarting() === `${dep.namespace}/${dep.name}`
+                            },
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(dep); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(dep); setShowEdit(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteDeployment(dep), variant: 'danger', divider: true },
                           ]}
                         />
@@ -371,6 +418,20 @@ const Deployments: Component = () => {
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
         </Show>
       </Modal>
 

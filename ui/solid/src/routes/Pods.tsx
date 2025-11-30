@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
@@ -36,11 +37,14 @@ const Pods: Component = () => {
 
   // Modal states
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showLogs, setShowLogs] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showShell, setShowShell] = createSignal(false);
   const [showPortForward, setShowPortForward] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [podToDelete, setPodToDelete] = createSignal<Pod | null>(null);
 
   // Port forward state
   const [localPort, setLocalPort] = createSignal(8080);
@@ -148,13 +152,29 @@ const Pods: Component = () => {
   const [namespaces] = createResource(api.getNamespaces);
   const [pods, { refetch }] = createResource(namespace, api.getPods);
   const [yamlContent] = createResource(
-    () => showYaml() && selectedPod() ? { name: selectedPod()!.name, ns: selectedPod()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selectedPod() ? { name: selectedPod()!.name, ns: selectedPod()!.namespace } : null,
     async (params) => {
       if (!params) return '';
       const data = await api.getPodYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
+
+  const handleSaveYAML = async (yaml: string) => {
+    const pod = selectedPod();
+    if (!pod) return;
+    try {
+      await api.updatePod(pod.name, pod.namespace, yaml);
+      addNotification(`✅ Pod ${pod.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => refetch(), 500);
+      setTimeout(() => refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update pod: ${errorMsg}`, 'error');
+      throw error;
+    }
+  };
 
   // Parse CPU value for sorting (e.g., "1m" -> 1, "100m" -> 100)
   const parseCpu = (cpu: string | undefined): number => {
@@ -393,8 +413,16 @@ const Pods: Component = () => {
     URL.revokeObjectURL(url);
   };
 
-  const deletePod = async (pod: Pod) => {
-    if (!confirm(`Are you sure you want to delete pod "${pod.name}" in namespace "${pod.namespace}"?`)) return;
+  const openDeleteConfirm = (pod: Pod) => {
+    setPodToDelete(pod);
+    setShowDeleteConfirm(true);
+  };
+
+  const deletePod = async () => {
+    const pod = podToDelete();
+    if (!pod) return;
+    
+    setShowDeleteConfirm(false);
     try {
       await api.deletePod(pod.name, pod.namespace);
       addNotification(`Pod ${pod.name} deleted successfully`, 'success');
@@ -403,17 +431,11 @@ const Pods: Component = () => {
     } catch (error) {
       console.error('Failed to delete pod:', error);
       addNotification(`Failed to delete pod: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setPodToDelete(null);
     }
   };
 
-  const restartPod = async (pod: Pod) => {
-    try {
-      await api.restartPod(pod.name, pod.namespace);
-      refetch();
-    } catch (error) {
-      console.error('Failed to restart pod:', error);
-    }
-  };
 
   return (
     <div class="space-y-4">
@@ -615,9 +637,9 @@ const Pods: Component = () => {
                             { label: 'Port Forward', icon: 'portforward', onClick: () => openModal(pod, 'portforward') },
                             { label: 'View Logs', icon: 'logs', onClick: () => openModal(pod, 'logs') },
                             { label: 'View YAML', icon: 'yaml', onClick: () => openModal(pod, 'yaml') },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPod(pod); setShowEdit(true); } },
                             { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
-                            { label: 'Restart', icon: 'restart', onClick: () => restartPod(pod), divider: true },
-                            { label: 'Delete', icon: 'delete', onClick: () => deletePod(pod), variant: 'danger' },
+                            { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger' },
                           ]}
                         />
                       </td>
@@ -970,6 +992,65 @@ const Pods: Component = () => {
           <div class="flex gap-2">
             <button onClick={() => setShowPortForward(false)} class="btn-secondary flex-1">Cancel</button>
             <button onClick={startPortForward} class="btn-primary flex-1">Start</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setPodToDelete(null);
+        }}
+        title="Delete Pod"
+        size="md"
+      >
+        <div class="space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(239, 68, 68, 0.15)' }}>
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error-color)' }}>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div class="flex-1">
+              <p class="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
+                Are you sure you want to delete this pod?
+              </p>
+              <div class="p-3 rounded-lg mb-4" style={{ background: 'var(--bg-tertiary)' }}>
+                <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                  {podToDelete()?.name}
+                </div>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  Namespace: {podToDelete()?.namespace}
+                </div>
+              </div>
+              <p class="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+                This action cannot be undone. The pod will be permanently deleted from the cluster.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-3 pt-4 border-t" style={{ 'border-color': 'var(--border-color)' }}>
+            <button
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setPodToDelete(null);
+              }}
+              class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={deletePod}
+              class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80 flex items-center gap-2"
+              style={{ background: 'var(--error-color)', color: 'white' }}
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete Pod
+            </button>
           </div>
         </div>
       </Modal>
