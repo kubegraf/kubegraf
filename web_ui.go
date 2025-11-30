@@ -15,8 +15,14 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
+	"io/fs"
 )
 
-//go:embed web/templates/dashboard.html
-var dashboardHTML string
+//go:embed web/dist/*
+var webDistFS embed.FS
+
+// GetWebFS returns the embedded web UI filesystem, stripped of the "web/dist" prefix
+func GetWebFS() (fs.FS, error) {
+	return fs.Sub(webDistFS, "web/dist")
+}

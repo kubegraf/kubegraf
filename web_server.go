@@ -18,10 +18,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os/exec"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -158,7 +160,14 @@ func NewWebServer(app *App) *WebServer {
 
 // Start starts the web server
 func (ws *WebServer) Start(port int) error {
-	http.HandleFunc("/", ws.handleIndex)
+	// Get the embedded web UI filesystem
+	webFS, err := GetWebFS()
+	if err != nil {
+		return fmt.Errorf("failed to get web filesystem: %v", err)
+	}
+
+	// Serve static files with SPA routing (must be registered last)
+	staticHandler := ws.handleStaticFiles(webFS)
 	http.HandleFunc("/api/status", ws.handleConnectionStatus)
 	http.HandleFunc("/api/metrics", ws.handleMetrics)
 	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
@@ -253,6 +262,9 @@ func (ws *WebServer) Start(port int) error {
 	// Plugin endpoints - Flux
 	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
 
+	// Static files and SPA routing (must be last to not override API routes)
+	http.HandleFunc("/", staticHandler)
+
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("🌐 Web UI available at http://localhost%s", addr)
 	log.Printf("📊 Dashboard: http://localhost%s", addr)
@@ -267,10 +279,38 @@ func (ws *WebServer) Start(port int) error {
 	return http.ListenAndServe(addr, nil)
 }
 
-// handleIndex serves the main dashboard
-func (ws *WebServer) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(dashboardHTML))
+// handleStaticFiles serves static files from the embedded filesystem
+// It implements SPA routing: serves static files if they exist, otherwise serves index.html
+func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
+	fileServer := http.FileServer(http.FS(webFS))
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Clean the path
+		upath := r.URL.Path
+		if !strings.HasPrefix(upath, "/") {
+			upath = "/" + upath
+		}
+		upath = path.Clean(upath)
+
+		// Try to serve the file directly
+		if upath != "/" {
+			// Check if file exists in embedded FS
+			filePath := strings.TrimPrefix(upath, "/")
+			if _, err := fs.Stat(webFS, filePath); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Serve index.html for SPA routing (root path or file not found)
+		indexContent, err := fs.ReadFile(webFS, "index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexContent)
+	}
 }
 
 // handleConnectionStatus returns the cluster connection status
