@@ -66,56 +66,117 @@ func (a *App) Initialize() error {
 	a.contextManager.CurrentContext = rawConfig.CurrentContext
 	a.cluster = rawConfig.CurrentContext
 
-	// Load all available contexts
+	// Load all available contexts (with timeout to avoid blocking startup)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	contextChan := make(chan struct {
+		name    string
+		context *ClusterContext
+	}, len(rawConfig.Contexts))
+	
+	// Load contexts in parallel with timeout
 	for contextName := range rawConfig.Contexts {
 		a.contextManager.ContextOrder = append(a.contextManager.ContextOrder, contextName)
+		
+		go func(name string) {
+			// Create config for this context
+			contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+				loadingRules,
+				&clientcmd.ConfigOverrides{CurrentContext: name},
+			)
 
-		// Create config for this context
-		contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-			loadingRules,
-			&clientcmd.ConfigOverrides{CurrentContext: contextName},
-		)
-
-		config, err := contextConfig.ClientConfig()
-		if err != nil {
-			// Store context with error
-			a.contextManager.Contexts[contextName] = &ClusterContext{
-				Name:      contextName,
-				Connected: false,
-				Error:     err.Error(),
+			config, err := contextConfig.ClientConfig()
+			if err != nil {
+				contextChan <- struct {
+					name    string
+					context *ClusterContext
+				}{
+					name: name,
+					context: &ClusterContext{
+						Name:      name,
+						Connected: false,
+						Error:     err.Error(),
+					},
+				}
+				return
 			}
-			continue
-		}
 
-		// Create clientset for this context
-		clientset, err := kubernetes.NewForConfig(config)
-		if err != nil {
-			a.contextManager.Contexts[contextName] = &ClusterContext{
-				Name:      contextName,
-				Config:    config,
-				Connected: false,
-				Error:     err.Error(),
+			// Create clientset for this context
+			clientset, err := kubernetes.NewForConfig(config)
+			if err != nil {
+				contextChan <- struct {
+					name    string
+					context *ClusterContext
+				}{
+					name: name,
+					context: &ClusterContext{
+						Name:      name,
+						Config:    config,
+						Connected: false,
+						Error:     err.Error(),
+					},
+				}
+				return
 			}
-			continue
-		}
 
-		// Create metrics client for this context
-		metricsClient, _ := metricsclientset.NewForConfig(config)
+			// Create metrics client for this context
+			metricsClient, _ := metricsclientset.NewForConfig(config)
 
-		// Get server version to verify connection
-		serverVersion := ""
-		if versionInfo, err := clientset.Discovery().ServerVersion(); err == nil {
-			serverVersion = versionInfo.GitVersion
-		}
+			// Get server version to verify connection (with timeout to avoid blocking)
+			serverVersion := ""
+			versionChan := make(chan string, 1)
+			go func() {
+				if versionInfo, err := clientset.Discovery().ServerVersion(); err == nil {
+					versionChan <- versionInfo.GitVersion
+				} else {
+					versionChan <- ""
+				}
+			}()
+			
+			select {
+			case serverVersion = <-versionChan:
+			case <-time.After(2 * time.Second):
+				// Timeout - mark as connected but without version
+				serverVersion = ""
+			}
 
-		// Store the context
-		a.contextManager.Contexts[contextName] = &ClusterContext{
-			Name:          contextName,
-			Clientset:     clientset,
-			MetricsClient: metricsClient,
-			Config:        config,
-			Connected:     true,
-			ServerVersion: serverVersion,
+			contextChan <- struct {
+				name    string
+				context *ClusterContext
+			}{
+				name: name,
+				context: &ClusterContext{
+					Name:          name,
+					Clientset:     clientset,
+					MetricsClient: metricsClient,
+					Config:        config,
+					Connected:     true,
+					ServerVersion: serverVersion,
+				},
+			}
+		}(contextName)
+	}
+	
+	// Collect all contexts with timeout
+	collected := 0
+	for collected < len(rawConfig.Contexts) {
+		select {
+		case result := <-contextChan:
+			a.contextManager.Contexts[result.name] = result.context
+			collected++
+		case <-ctx.Done():
+			// Timeout - mark remaining contexts as not connected
+			for _, contextName := range a.contextManager.ContextOrder {
+				if _, exists := a.contextManager.Contexts[contextName]; !exists {
+					a.contextManager.Contexts[contextName] = &ClusterContext{
+						Name:      contextName,
+						Connected: false,
+						Error:     "Connection timeout",
+					}
+				}
+			}
+			break
 		}
 	}
 
