@@ -1125,6 +1125,78 @@
             display: block;
         }
 
+        /* Rotating Text Animation */
+        .rotating-text-wrapper {
+            display: inline-block;
+            position: relative;
+            height: 1.2em;
+            overflow: hidden;
+            vertical-align: bottom;
+        }
+
+        .rotating-text {
+            display: inline-block;
+            animation: rotateText 8s ease-in-out infinite;
+            background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        @keyframes rotateText {
+            0%, 20% {
+                content: "Monitoring";
+                transform: translateY(0);
+                opacity: 1;
+            }
+            25%, 45% {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+            50%, 70% {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            75%, 100% {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .rotating-words {
+            display: inline-flex;
+            flex-direction: column;
+            height: 1.2em;
+            overflow: hidden;
+            line-height: 1.2em;
+        }
+
+        .rotating-words span {
+            display: block;
+            height: 1.2em;
+            animation: cycleWords 12s ease-in-out infinite;
+            background: linear-gradient(135deg, #06b6d4, #8b5cf6, #ec4899);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: cycleWords 12s ease-in-out infinite, gradientShift 3s ease infinite;
+        }
+
+        @keyframes cycleWords {
+            0%, 15% { transform: translateY(0); }
+            20%, 35% { transform: translateY(-100%); }
+            40%, 55% { transform: translateY(-200%); }
+            60%, 75% { transform: translateY(-300%); }
+            80%, 95% { transform: translateY(-400%); }
+            100% { transform: translateY(-500%); }
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
         .comparison-table tr:last-child td {
             border-bottom: none;
         }
@@ -1330,7 +1402,16 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
                 <span>Open Source</span>
             </span>
-            <h1>Kubernetes Cluster<br>Visualization & Management</h1>
+            <h1>Kubernetes<br>
+                <span class="rotating-words">
+                    <span>Monitoring</span>
+                    <span>Visualization</span>
+                    <span>Debugging</span>
+                    <span>Management</span>
+                    <span>Security</span>
+                    <span>Monitoring</span>
+                </span>
+            </h1>
             <p>Monitor, debug, and manage your Kubernetes clusters with an intuitive terminal UI or modern web dashboard. Built for engineers who value speed and clarity.</p>
             <div class="hero-buttons">
                 <a href="#installation" class="btn btn-primary">Get Started</a>
