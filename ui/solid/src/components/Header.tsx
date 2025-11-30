@@ -1,6 +1,6 @@
 import { Component, For, Show, createSignal, createMemo, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { namespace, setNamespace, namespaces, clusterStatus, refreshAll, namespacesResource } from '../stores/cluster';
+import { namespace, setNamespace, namespaces, clusterStatus, refreshAll, namespacesResource, contexts, currentContext, switchContext, contextsResource } from '../stores/cluster';
 import { toggleAIPanel, searchQuery, setSearchQuery } from '../stores/ui';
 import ThemeToggle from './ThemeToggle';
 
@@ -8,14 +8,26 @@ const Header: Component = () => {
   const [searchFocused, setSearchFocused] = createSignal(false);
   const [nsDropdownOpen, setNsDropdownOpen] = createSignal(false);
   const [nsSearch, setNsSearch] = createSignal('');
+  const [ctxDropdownOpen, setCtxDropdownOpen] = createSignal(false);
+  const [ctxSearch, setCtxSearch] = createSignal('');
+  const [switching, setSwitching] = createSignal(false);
   let nsDropdownRef: HTMLDivElement | undefined;
   let nsButtonRef: HTMLButtonElement | undefined;
+  let ctxDropdownRef: HTMLDivElement | undefined;
+  let ctxButtonRef: HTMLButtonElement | undefined;
 
   // Filtered namespaces based on search
   const filteredNamespaces = createMemo(() => {
     const search = nsSearch().toLowerCase();
     if (!search) return namespaces();
     return namespaces().filter(ns => ns.toLowerCase().includes(search));
+  });
+
+  // Filtered contexts based on search
+  const filteredContexts = createMemo(() => {
+    const search = ctxSearch().toLowerCase();
+    if (!search) return contexts();
+    return contexts().filter(ctx => ctx.name.toLowerCase().includes(search));
   });
 
   // Keyboard shortcut for search
@@ -34,6 +46,11 @@ const Header: Component = () => {
         setNsDropdownOpen(false);
         setNsSearch('');
       }
+      if (ctxDropdownOpen() && ctxDropdownRef && !ctxDropdownRef.contains(e.target as Node) &&
+          ctxButtonRef && !ctxButtonRef.contains(e.target as Node)) {
+        setCtxDropdownOpen(false);
+        setCtxSearch('');
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
@@ -43,6 +60,20 @@ const Header: Component = () => {
     setNamespace(ns);
     setNsDropdownOpen(false);
     setNsSearch('');
+  };
+
+  const selectContext = async (ctxName: string) => {
+    if (ctxName === currentContext()) return;
+    setSwitching(true);
+    try {
+      await switchContext(ctxName);
+    } catch (err) {
+      console.error('Failed to switch context:', err);
+    } finally {
+      setSwitching(false);
+      setCtxDropdownOpen(false);
+      setCtxSearch('');
+    }
   };
 
   const getDisplayName = () => {
@@ -211,16 +242,125 @@ const Header: Component = () => {
         </div>
       </div>
 
-      {/* Right side - Status and actions */}
+      {/* Right side - Cluster selector, Status and actions */}
       <div class="flex items-center gap-4">
-        {/* Connection status */}
-        <div class="flex items-center gap-3 text-sm">
-          <div class="flex items-center gap-2">
-            <span class={`status-dot ${clusterStatus().connected ? 'connected' : 'disconnected'}`}></span>
-            <span style={{ color: clusterStatus().connected ? 'var(--success-color)' : 'var(--text-muted)' }}>
-              {clusterStatus().connected ? clusterStatus().context : 'Not connected'}
-            </span>
-          </div>
+        {/* Cluster/Context selector */}
+        <div class="flex items-center gap-2 relative">
+          <label class="text-sm" style={{ color: 'var(--text-secondary)' }}>Cluster:</label>
+          <button
+            ref={ctxButtonRef}
+            onClick={() => setCtxDropdownOpen(!ctxDropdownOpen())}
+            disabled={switching()}
+            class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm min-w-[160px] justify-between"
+            style={{
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              opacity: switching() ? 0.7 : 1,
+            }}
+          >
+            <div class="flex items-center gap-2">
+              <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span class="truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
+            </div>
+            <svg class={`w-4 h-4 transition-transform ${ctxDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {/* Context Dropdown */}
+          <Show when={ctxDropdownOpen()}>
+            <div
+              ref={ctxDropdownRef}
+              class="absolute top-full right-0 mt-1 w-72 rounded-lg shadow-xl z-[200] overflow-hidden"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              {/* Search input */}
+              <div class="p-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                <div class="relative">
+                  <svg
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4"
+                    style={{ color: 'var(--text-muted)' }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Search clusters..."
+                    value={ctxSearch()}
+                    onInput={(e) => setCtxSearch(e.target.value)}
+                    class="w-full rounded-md pl-8 pr-3 py-1.5 text-sm"
+                    style={{
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border-color)',
+                    }}
+                    autofocus
+                  />
+                </div>
+              </div>
+
+              {/* Context list */}
+              <div class="max-h-64 overflow-y-auto">
+                <Show when={!contextsResource.loading} fallback={
+                  <div class="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Loading clusters...</div>
+                }>
+                  <For each={filteredContexts()}>
+                    {(ctx) => (
+                      <button
+                        onClick={() => selectContext(ctx.name)}
+                        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
+                        style={{
+                          background: ctx.isCurrent ? 'var(--bg-tertiary)' : 'transparent',
+                          color: ctx.isCurrent ? 'var(--accent-primary)' : 'var(--text-primary)',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = ctx.isCurrent ? 'var(--bg-tertiary)' : 'transparent'}
+                      >
+                        <span class={`w-2 h-2 rounded-full flex-shrink-0 ${ctx.connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                        <div class="flex-1 min-w-0">
+                          <span class="truncate block">{ctx.name}</span>
+                          <Show when={ctx.serverVersion}>
+                            <span class="text-xs" style={{ color: 'var(--text-muted)' }}>{ctx.serverVersion}</span>
+                          </Show>
+                        </div>
+                        <Show when={ctx.isCurrent}>
+                          <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                          </svg>
+                        </Show>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+
+                {/* No results */}
+                <Show when={ctxSearch() && filteredContexts().length === 0}>
+                  <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+                    No clusters found
+                  </div>
+                </Show>
+
+                {/* Empty state */}
+                <Show when={!contextsResource.loading && contexts().length === 0}>
+                  <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+                    No clusters available
+                  </div>
+                </Show>
+              </div>
+
+              {/* Footer with count */}
+              <div class="px-3 py-2 text-xs border-t" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
+                {contexts().length} cluster{contexts().length !== 1 ? 's' : ''} available
+              </div>
+            </div>
+          </Show>
         </div>
 
         {/* Refresh button */}

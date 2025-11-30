@@ -1,6 +1,14 @@
 import { createSignal, createResource, createEffect } from 'solid-js';
+import { api } from '../services/api';
 
 // Types
+export interface ClusterContext {
+  name: string;
+  connected: boolean;
+  serverVersion?: string;
+  isCurrent: boolean;
+}
+
 export interface Pod {
   name: string;
   namespace: string;
@@ -55,6 +63,8 @@ export interface ClusterStatus {
 // Reactive signals with fine-grained updates
 const [namespace, setNamespace] = createSignal<string>('_all');
 const [namespaces, setNamespaces] = createSignal<string[]>(['default']);
+const [contexts, setContexts] = createSignal<ClusterContext[]>([]);
+const [currentContext, setCurrentContext] = createSignal<string>('');
 const [clusterStatus, setClusterStatus] = createSignal<ClusterStatus>({
   connected: false,
   context: '',
@@ -123,6 +133,40 @@ async function fetchClusterStatus(): Promise<ClusterStatus> {
   };
 }
 
+async function fetchContexts(): Promise<ClusterContext[]> {
+  const res = await fetch('/api/contexts');
+  if (!res.ok) throw new Error('Failed to fetch contexts');
+  const data = await res.json();
+  return data.contexts || [];
+}
+
+// Switch context and refresh all data
+async function switchContext(contextName: string): Promise<void> {
+  const res = await fetch('/api/contexts/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context: contextName }),
+  });
+  if (!res.ok) throw new Error('Failed to switch context');
+
+  // Update current context
+  setCurrentContext(contextName);
+
+  // Refresh all data for the new context
+  refreshAll();
+
+  // Refetch contexts to update isCurrent flags
+  const ctxData = await fetchContexts();
+  setContexts(ctxData);
+
+  // Refetch namespaces for new cluster
+  const nsRes = await fetch('/api/namespaces');
+  if (nsRes.ok) {
+    const nsData = await nsRes.json();
+    setNamespaces(nsData.namespaces || []);
+  }
+}
+
 // Create resources with fine-grained reactivity
 const [namespacesResource] = createResource(fetchNamespaces);
 const [podsResource, { refetch: refetchPods }] = createResource(namespace, fetchPods);
@@ -130,6 +174,7 @@ const [deploymentsResource, { refetch: refetchDeployments }] = createResource(na
 const [servicesResource, { refetch: refetchServices }] = createResource(namespace, fetchServices);
 const [nodesResource, { refetch: refetchNodes }] = createResource(fetchNodes);
 const [statusResource, { refetch: refetchStatus }] = createResource(fetchClusterStatus);
+const [contextsResource, { refetch: refetchContexts }] = createResource(fetchContexts);
 
 // Update namespaces when resource loads
 createEffect(() => {
@@ -141,7 +186,17 @@ createEffect(() => {
 createEffect(() => {
   const status = statusResource();
   console.log('Status resource loaded:', status);
-  if (status) setClusterStatus(status);
+  if (status) {
+    setClusterStatus(status);
+    setCurrentContext(status.context);
+  }
+});
+
+// Update contexts when resource loads
+createEffect(() => {
+  const ctx = contextsResource();
+  console.log('Contexts resource loaded:', ctx);
+  if (ctx) setContexts(ctx);
 });
 
 // Log any errors
@@ -166,6 +221,10 @@ export {
   setNamespace,
   namespaces,
   clusterStatus,
+  contexts,
+  currentContext,
+  switchContext,
+  contextsResource,
   podsResource,
   deploymentsResource,
   servicesResource,
@@ -178,4 +237,7 @@ export {
   refetchServices,
   refetchNodes,
   refetchStatus,
+  refetchContexts,
 };
+
+export type { ClusterContext };
