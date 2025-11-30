@@ -6,11 +6,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -1671,13 +1669,4 @@ func checkNodeUnschedulable(ctx context.Context, app *App) ([]Finding, error) {
 		}
 	}
 	return findings, nil
-}
-
-// Helper function for parsing quantities
-func parseQuantityToFloat(q resource.Quantity) float64 {
-	if q.IsZero() {
-		return 0
-	}
-	val, _ := strconv.ParseFloat(q.AsDec().String(), 64)
-	return val
 }

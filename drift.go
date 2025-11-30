@@ -27,16 +27,16 @@ const (
 
 // DriftResult represents the drift detection result for a resource
 type DriftResult struct {
-	Resource      string            `json:"resource"`
-	Namespace     string            `json:"namespace"`
-	Kind          string            `json:"kind"`
-	Status        DriftStatus       `json:"status"`
-	Differences   []DriftDifference `json:"differences,omitempty"`
-	LastApplied   string            `json:"lastApplied,omitempty"`
-	LastModified  string            `json:"lastModified,omitempty"`
-	ModifiedBy    string            `json:"modifiedBy,omitempty"`
-	GitOpsSource  string            `json:"gitOpsSource,omitempty"`
-	GitOpsSynced  bool              `json:"gitOpsSynced,omitempty"`
+	Resource     string            `json:"resource"`
+	Namespace    string            `json:"namespace"`
+	Kind         string            `json:"kind"`
+	Status       DriftStatus       `json:"status"`
+	Differences  []DriftDifference `json:"differences,omitempty"`
+	LastApplied  string            `json:"lastApplied,omitempty"`
+	LastModified string            `json:"lastModified,omitempty"`
+	ModifiedBy   string            `json:"modifiedBy,omitempty"`
+	GitOpsSource string            `json:"gitOpsSource,omitempty"`
+	GitOpsSynced bool              `json:"gitOpsSynced,omitempty"`
 }
 
 // DriftDifference represents a specific field difference
@@ -287,13 +287,13 @@ func (d *DriftDetector) compareObjects(path string, expected, actual map[string]
 
 	// Fields to ignore during comparison
 	ignoreFields := map[string]bool{
-		"resourceVersion":            true,
-		"uid":                        true,
-		"creationTimestamp":          true,
-		"generation":                 true,
-		"managedFields":              true,
-		"selfLink":                   true,
-		"status":                     true,
+		"resourceVersion":   true,
+		"uid":               true,
+		"creationTimestamp": true,
+		"generation":        true,
+		"managedFields":     true,
+		"selfLink":          true,
+		"status":            true,
 		"kubectl.kubernetes.io/last-applied-configuration": true,
 	}
 

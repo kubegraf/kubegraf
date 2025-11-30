@@ -78,10 +78,10 @@ type PluginAPI interface {
 
 // ColumnDefinition defines a custom column
 type ColumnDefinition struct {
-	Name     string                                             `json:"name" yaml:"name"`
-	Header   string                                             `json:"header" yaml:"header"`
-	Width    int                                                `json:"width" yaml:"width"`
-	Priority int                                                `json:"priority" yaml:"priority"`
+	Name     string                                                `json:"name" yaml:"name"`
+	Header   string                                                `json:"header" yaml:"header"`
+	Width    int                                                   `json:"width" yaml:"width"`
+	Priority int                                                   `json:"priority" yaml:"priority"`
 	GetValue func(resource map[string]interface{}) (string, error) `json:"-"`
 	// For external plugins, use command instead
 	Command string   `json:"command" yaml:"command"`
@@ -116,11 +116,11 @@ type ViewDefinition struct {
 
 // HookDefinition defines a hook for resource events
 type HookDefinition struct {
-	Name       string   `json:"name" yaml:"name"`
-	Events     []string `json:"events" yaml:"events"` // created, updated, deleted
-	Resources  []string `json:"resources" yaml:"resources"`
-	Command    string   `json:"command" yaml:"command"`
-	Args       []string `json:"args" yaml:"args"`
+	Name      string   `json:"name" yaml:"name"`
+	Events    []string `json:"events" yaml:"events"` // created, updated, deleted
+	Resources []string `json:"resources" yaml:"resources"`
+	Command   string   `json:"command" yaml:"command"`
+	Args      []string `json:"args" yaml:"args"`
 	// For Go plugins
 	OnEvent func(ctx context.Context, event HookEvent) error `json:"-"`
 }
@@ -136,22 +136,22 @@ type HookEvent struct {
 
 // PluginManager manages plugin lifecycle
 type PluginManager struct {
-	plugins     map[string]*LoadedPlugin
-	pluginDir   string
-	api         PluginAPI
-	mu          sync.RWMutex
-	columns     map[string][]ColumnDefinition
-	actions     map[string][]ActionDefinition
-	views       []ViewDefinition
-	hooks       []HookDefinition
+	plugins   map[string]*LoadedPlugin
+	pluginDir string
+	api       PluginAPI
+	mu        sync.RWMutex
+	columns   map[string][]ColumnDefinition
+	actions   map[string][]ActionDefinition
+	views     []ViewDefinition
+	hooks     []HookDefinition
 }
 
 // LoadedPlugin represents a loaded plugin
 type LoadedPlugin struct {
 	Metadata PluginMetadata
 	Path     string
-	Type     string // "builtin", "go", "exec"
-	Plugin   Plugin // For Go plugins
+	Type     string    // "builtin", "go", "exec"
+	Plugin   Plugin    // For Go plugins
 	Process  *exec.Cmd // For external plugins
 }
 

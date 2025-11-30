@@ -498,17 +498,17 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		}
 
 		podList = append(podList, map[string]interface{}{
-			"name":       pod.Name,
-			"status":     status,
-			"ready":      fmt.Sprintf("%d/%d", ready, total),
-			"restarts":   restarts,
-			"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
-			"createdAt":  pod.CreationTimestamp.Time.Format(time.RFC3339),
-			"ip":         pod.Status.PodIP,
-			"node":       pod.Spec.NodeName,
-			"namespace":  pod.Namespace,
-			"cpu":        cpu,
-			"memory":     memory,
+			"name":      pod.Name,
+			"status":    status,
+			"ready":     fmt.Sprintf("%d/%d", ready, total),
+			"restarts":  restarts,
+			"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+			"createdAt": pod.CreationTimestamp.Time.Format(time.RFC3339),
+			"ip":        pod.Status.PodIP,
+			"node":      pod.Spec.NodeName,
+			"namespace": pod.Namespace,
+			"cpu":       cpu,
+			"memory":    memory,
 		})
 	}
 
@@ -6148,14 +6148,14 @@ func (ws *WebServer) handleArgoCDAppDetails(w http.ResponseWriter, r *http.Reque
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":     true,
-		"name":        app.GetName(),
-		"namespace":   app.GetNamespace(),
-		"spec":        spec,
-		"status":      status,
-		"history":     syncHistory,
-		"resources":   resources,
-		"conditions":  conditions,
+		"success":      true,
+		"name":         app.GetName(),
+		"namespace":    app.GetNamespace(),
+		"spec":         spec,
+		"status":       status,
+		"history":      syncHistory,
+		"resources":    resources,
+		"conditions":   conditions,
 		"historyCount": len(syncHistory),
 	})
 }
