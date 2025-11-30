@@ -69,16 +69,16 @@ func (a *App) Initialize() error {
 	// Load all available contexts (with timeout to avoid blocking startup)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	contextChan := make(chan struct {
 		name    string
 		context *ClusterContext
 	}, len(rawConfig.Contexts))
-	
+
 	// Load contexts in parallel with timeout
 	for contextName := range rawConfig.Contexts {
 		a.contextManager.ContextOrder = append(a.contextManager.ContextOrder, contextName)
-		
+
 		go func(name string) {
 			// Create config for this context
 			contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -133,7 +133,7 @@ func (a *App) Initialize() error {
 					versionChan <- ""
 				}
 			}()
-			
+
 			select {
 			case serverVersion = <-versionChan:
 			case <-time.After(2 * time.Second):
@@ -157,7 +157,7 @@ func (a *App) Initialize() error {
 			}
 		}(contextName)
 	}
-	
+
 	// Collect all contexts with timeout
 	collected := 0
 	for collected < len(rawConfig.Contexts) {

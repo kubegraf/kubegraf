@@ -320,12 +320,12 @@ func (ws *WebServer) prewarmCostCache() {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	
+
 	if ws.app.clientset == nil || !ws.app.connected {
 		log.Printf("⚠️ Skipping cost cache pre-warm: cluster not connected")
 		return
 	}
-	
+
 	log.Printf("💰 Pre-warming cost cache in background...")
 	estimator := NewCostEstimator(ws.app)
 	ctx := context.Background()
@@ -831,7 +831,7 @@ func (ws *WebServer) watchKubernetesEvents() {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	
+
 	if ws.app.clientset == nil || !ws.app.connected {
 		log.Printf("⚠️ Skipping Kubernetes event watcher: cluster not connected")
 		return
@@ -850,7 +850,7 @@ func (ws *WebServer) watchKubernetesEvents() {
 				time.Sleep(2 * time.Second)
 				continue
 			}
-			
+
 			// Watch all namespaces for events
 			watcher, err := ws.app.clientset.CoreV1().Events("").Watch(ws.app.ctx, metav1.ListOptions{})
 			if err != nil {
