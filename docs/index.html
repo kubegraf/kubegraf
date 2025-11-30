@@ -1523,14 +1523,14 @@
     <section class="comparison-section">
         <div class="container">
             <div class="section-header">
-                <h2>Why KubeGraf?</h2>
-                <p>See how KubeGraf compares to other Kubernetes tools</p>
+                <h2>Choose Your Interface</h2>
+                <p>KubeGraf offers multiple UI modes in a single lightweight binary</p>
             </div>
 
             <table class="comparison-table">
                 <thead>
                     <tr>
-                        <th>Feature</th>
+                        <th>Capability</th>
                         <th class="kubegraf-highlight">KubeGraf</th>
                         <th>kubectl</th>
                         <th>k9s</th>
@@ -1539,53 +1539,46 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td>Terminal UI</td>
+                        <td>Terminal UI (TUI)</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td>CLI only</td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="x-icon">-</span></td>
                     </tr>
                     <tr>
-                        <td>Web Dashboard</td>
+                        <td>Web Browser UI</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">-</span></td>
+                    </tr>
+                    <tr>
+                        <td>Desktop GUI</td>
+                        <td class="kubegraf-highlight"><span class="x-icon">-</span></td>
                         <td><span class="x-icon">-</span></td>
                         <td><span class="x-icon">-</span></td>
                         <td><span class="check-icon">✓</span></td>
                     </tr>
                     <tr>
-                        <td>Modern SPA UI</td>
+                        <td>Topology Graph</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td>Tree view</td>
                         <td><span class="check-icon">✓</span></td>
                     </tr>
                     <tr>
-                        <td>Topology Visualization</td>
-                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td>Partial</td>
-                    </tr>
-                    <tr>
-                        <td>Security Analysis</td>
-                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td>Extension</td>
-                    </tr>
-                    <tr>
-                        <td>Resource Footprint</td>
-                        <td class="kubegraf-highlight">~15MB</td>
-                        <td>~50MB</td>
-                        <td>~30MB</td>
-                        <td>~500MB</td>
-                    </tr>
-                    <tr>
-                        <td>Open Source</td>
+                        <td>Single Binary</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td>Freemium</td>
+                        <td><span class="x-icon">-</span></td>
+                    </tr>
+                    <tr>
+                        <td>Works over SSH</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
                     </tr>
                     <tr>
                         <td>No Electron</td>
@@ -1595,14 +1588,14 @@
                         <td><span class="x-icon">-</span></td>
                     </tr>
                     <tr>
-                        <td>SSH Compatible</td>
+                        <td>Open Source</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td>OpenLens <span class="check-icon">✓</span></td>
                     </tr>
                     <tr>
-                        <td>Plugin Support</td>
+                        <td>Plugin System</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
@@ -1610,6 +1603,9 @@
                     </tr>
                 </tbody>
             </table>
+            <p style="text-align: center; color: var(--gray); font-size: 0.875rem; margin-top: 1.5rem;">
+                Each tool has its strengths. KubeGraf's unique value: TUI + Web UI in one lightweight Go binary.
+            </p>
         </div>
     </section>
 
