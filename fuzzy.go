@@ -95,7 +95,7 @@ func (ff *FuzzyFinder) SetOnSelect(fn func(item string, data interface{})) {
 	ff.onSelect = fn
 }
 
-// SetOnCancel sets the callback when the finder is cancelled
+// SetOnCancel sets the callback when the finder is canceled
 func (ff *FuzzyFinder) SetOnCancel(fn func()) {
 	ff.onCancel = fn
 }

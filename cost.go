@@ -16,25 +16,25 @@ import (
 type CloudProvider string
 
 const (
-	CloudGCP          CloudProvider = "gcp"
-	CloudAWS          CloudProvider = "aws"
-	CloudAzure        CloudProvider = "azure"
-	CloudIBM          CloudProvider = "ibm"
-	CloudOracle       CloudProvider = "oracle"
-	CloudDigitalOcean CloudProvider = "digitalocean"
-	CloudAlibaba      CloudProvider = "alibaba"
-	CloudLinode       CloudProvider = "linode"
-	CloudVultr        CloudProvider = "vultr"
-	CloudOVH          CloudProvider = "ovh"
-	CloudHetzner      CloudProvider = "hetzner"
-	CloudKind         CloudProvider = "kind"
-	CloudMinikube     CloudProvider = "minikube"
+	CloudGCP           CloudProvider = "gcp"
+	CloudAWS           CloudProvider = "aws"
+	CloudAzure         CloudProvider = "azure"
+	CloudIBM           CloudProvider = "ibm"
+	CloudOracle        CloudProvider = "oracle"
+	CloudDigitalOcean  CloudProvider = "digitalocean"
+	CloudAlibaba       CloudProvider = "alibaba"
+	CloudLinode        CloudProvider = "linode"
+	CloudVultr         CloudProvider = "vultr"
+	CloudOVH           CloudProvider = "ovh"
+	CloudHetzner       CloudProvider = "hetzner"
+	CloudKind          CloudProvider = "kind"
+	CloudMinikube      CloudProvider = "minikube"
 	CloudDockerDesktop CloudProvider = "docker-desktop"
-	CloudK3s          CloudProvider = "k3s"
-	CloudK3d          CloudProvider = "k3d"
-	CloudRancher      CloudProvider = "rancher"
-	CloudOpenShift    CloudProvider = "openshift"
-	CloudUnknown      CloudProvider = "unknown"
+	CloudK3s           CloudProvider = "k3s"
+	CloudK3d           CloudProvider = "k3d"
+	CloudRancher       CloudProvider = "rancher"
+	CloudOpenShift     CloudProvider = "openshift"
+	CloudUnknown       CloudProvider = "unknown"
 )
 
 // CloudInfo contains detected cloud platform information
@@ -82,11 +82,11 @@ func GCPPricingTable(region string) *PricingTable {
 	return &PricingTable{
 		Provider:           "GCP",
 		Region:             region,
-		CPUPerCoreHour:     0.02399,  // E2 predefined vCPU
-		MemoryPerGBHour:    0.00322,  // E2 predefined memory
-		StoragePerGBMonth:  0.088,    // pd-balanced
-		NetworkEgressPerGB: 0.12,     // Internet egress (Europe)
-		SpotDiscount:       0.70,     // ~70% discount for spot/preemptible
+		CPUPerCoreHour:     0.02399, // E2 predefined vCPU
+		MemoryPerGBHour:    0.00322, // E2 predefined memory
+		StoragePerGBMonth:  0.088,   // pd-balanced
+		NetworkEgressPerGB: 0.12,    // Internet egress (Europe)
+		SpotDiscount:       0.70,    // ~70% discount for spot/preemptible
 		InstancePricing: map[string]float64{
 			// E2 series (europe-north1) - on-demand
 			"e2-micro":       0.00838,
@@ -107,11 +107,11 @@ func GCPPricingTable(region string) *PricingTable {
 			"t2d-standard-8":  0.33869,
 			"t2d-standard-16": 0.67739,
 			// N2 series
-			"n2-standard-2":  0.09712,
-			"n2-standard-4":  0.19425,
-			"n2-standard-8":  0.38849,
-			"n2-highmem-2":   0.13112,
-			"n2-highcpu-2":   0.07182,
+			"n2-standard-2": 0.09712,
+			"n2-standard-4": 0.19425,
+			"n2-standard-8": 0.38849,
+			"n2-highmem-2":  0.13112,
+			"n2-highcpu-2":  0.07182,
 			// N1 series (legacy)
 			"n1-standard-1": 0.04749,
 			"n1-standard-2": 0.09499,
@@ -119,9 +119,9 @@ func GCPPricingTable(region string) *PricingTable {
 		},
 		SpotPricing: map[string]float64{
 			// Spot/Preemptible pricing (~60-80% discount)
-			"e2-standard-2":  0.02010,  // ~70% off
+			"e2-standard-2":  0.02010, // ~70% off
 			"e2-standard-4":  0.04021,
-			"t2d-standard-1": 0.01270,  // ~70% off
+			"t2d-standard-1": 0.01270, // ~70% off
 			"t2d-standard-2": 0.02540,
 			"t2d-standard-4": 0.05081,
 			"n2-standard-2":  0.02914,
@@ -138,38 +138,38 @@ func AWSPricingTable(region string) *PricingTable {
 		Region:             region,
 		CPUPerCoreHour:     0.0336,
 		MemoryPerGBHour:    0.0045,
-		StoragePerGBMonth:  0.10,     // gp3
+		StoragePerGBMonth:  0.10, // gp3
 		NetworkEgressPerGB: 0.09,
 		SpotDiscount:       0.70,
 		InstancePricing: map[string]float64{
-			"t3.micro":    0.0104,
-			"t3.small":    0.0208,
-			"t3.medium":   0.0416,
-			"t3.large":    0.0832,
-			"t3.xlarge":   0.1664,
-			"t3.2xlarge":  0.3328,
-			"m5.large":    0.096,
-			"m5.xlarge":   0.192,
-			"m5.2xlarge":  0.384,
-			"m5.4xlarge":  0.768,
-			"m6i.large":   0.096,
-			"m6i.xlarge":  0.192,
-			"c5.large":    0.085,
-			"c5.xlarge":   0.17,
-			"c5.2xlarge":  0.34,
-			"c6i.large":   0.085,
-			"c6i.xlarge":  0.17,
-			"r5.large":    0.126,
-			"r5.xlarge":   0.252,
-			"r5.2xlarge":  0.504,
+			"t3.micro":   0.0104,
+			"t3.small":   0.0208,
+			"t3.medium":  0.0416,
+			"t3.large":   0.0832,
+			"t3.xlarge":  0.1664,
+			"t3.2xlarge": 0.3328,
+			"m5.large":   0.096,
+			"m5.xlarge":  0.192,
+			"m5.2xlarge": 0.384,
+			"m5.4xlarge": 0.768,
+			"m6i.large":  0.096,
+			"m6i.xlarge": 0.192,
+			"c5.large":   0.085,
+			"c5.xlarge":  0.17,
+			"c5.2xlarge": 0.34,
+			"c6i.large":  0.085,
+			"c6i.xlarge": 0.17,
+			"r5.large":   0.126,
+			"r5.xlarge":  0.252,
+			"r5.2xlarge": 0.504,
 		},
 		SpotPricing: map[string]float64{
-			"t3.medium":  0.0125,
-			"t3.large":   0.025,
-			"m5.large":   0.029,
-			"m5.xlarge":  0.058,
-			"c5.large":   0.026,
-			"c5.xlarge":  0.051,
+			"t3.medium": 0.0125,
+			"t3.large":  0.025,
+			"m5.large":  0.029,
+			"m5.xlarge": 0.058,
+			"c5.large":  0.026,
+			"c5.xlarge": 0.051,
 		},
 	}
 }
@@ -181,22 +181,22 @@ func AzurePricingTable(region string) *PricingTable {
 		Region:             region,
 		CPUPerCoreHour:     0.0340,
 		MemoryPerGBHour:    0.0046,
-		StoragePerGBMonth:  0.12,     // Premium SSD
+		StoragePerGBMonth:  0.12, // Premium SSD
 		NetworkEgressPerGB: 0.087,
 		SpotDiscount:       0.70,
 		InstancePricing: map[string]float64{
-			"Standard_B1s":     0.0104,
-			"Standard_B2s":     0.0416,
-			"Standard_B2ms":    0.0832,
-			"Standard_D2s_v3":  0.096,
-			"Standard_D4s_v3":  0.192,
-			"Standard_D8s_v3":  0.384,
-			"Standard_D2s_v5":  0.096,
-			"Standard_D4s_v5":  0.192,
-			"Standard_E2s_v3":  0.126,
-			"Standard_E4s_v3":  0.252,
-			"Standard_F2s_v2":  0.085,
-			"Standard_F4s_v2":  0.169,
+			"Standard_B1s":    0.0104,
+			"Standard_B2s":    0.0416,
+			"Standard_B2ms":   0.0832,
+			"Standard_D2s_v3": 0.096,
+			"Standard_D4s_v3": 0.192,
+			"Standard_D8s_v3": 0.384,
+			"Standard_D2s_v5": 0.096,
+			"Standard_D4s_v5": 0.192,
+			"Standard_E2s_v3": 0.126,
+			"Standard_E4s_v3": 0.252,
+			"Standard_F2s_v2": 0.085,
+			"Standard_F4s_v2": 0.169,
 		},
 		SpotPricing: map[string]float64{
 			"Standard_D2s_v3": 0.029,
@@ -224,16 +224,16 @@ func DefaultPricingTable() *PricingTable {
 
 // ResourceCost represents the estimated cost for a resource
 type ResourceCost struct {
-	Resource      string  `json:"resource"`
-	Namespace     string  `json:"namespace"`
-	Kind          string  `json:"kind"`
-	CPUCores      float64 `json:"cpuCores"`
-	MemoryGB      float64 `json:"memoryGB"`
-	StorageGB     float64 `json:"storageGB"`
-	HourlyCost    float64 `json:"hourlyCost"`
-	DailyCost     float64 `json:"dailyCost"`
-	MonthlyCost   float64 `json:"monthlyCost"`
-	Breakdown     string  `json:"breakdown"`
+	Resource    string  `json:"resource"`
+	Namespace   string  `json:"namespace"`
+	Kind        string  `json:"kind"`
+	CPUCores    float64 `json:"cpuCores"`
+	MemoryGB    float64 `json:"memoryGB"`
+	StorageGB   float64 `json:"storageGB"`
+	HourlyCost  float64 `json:"hourlyCost"`
+	DailyCost   float64 `json:"dailyCost"`
+	MonthlyCost float64 `json:"monthlyCost"`
+	Breakdown   string  `json:"breakdown"`
 }
 
 // NamespaceCost represents aggregated cost for a namespace
@@ -267,13 +267,13 @@ type ClusterCost struct {
 
 // PricingInfo contains the pricing rates being used
 type PricingInfo struct {
-	Provider          string  `json:"provider"`
-	Region            string  `json:"region"`
-	CPUPerCoreHour    float64 `json:"cpuPerCoreHour"`
-	MemoryPerGBHour   float64 `json:"memoryPerGBHour"`
-	StoragePerGBMonth float64 `json:"storagePerGBMonth"`
-	SpotNodesCount    int     `json:"spotNodesCount"`
-	OnDemandNodesCount int    `json:"onDemandNodesCount"`
+	Provider           string  `json:"provider"`
+	Region             string  `json:"region"`
+	CPUPerCoreHour     float64 `json:"cpuPerCoreHour"`
+	MemoryPerGBHour    float64 `json:"memoryPerGBHour"`
+	StoragePerGBMonth  float64 `json:"storagePerGBMonth"`
+	SpotNodesCount     int     `json:"spotNodesCount"`
+	OnDemandNodesCount int     `json:"onDemandNodesCount"`
 }
 
 // DetectCloudProvider detects the cloud platform from node information
@@ -985,10 +985,7 @@ func (c *CostEstimator) isNodeSpotInstance(node *corev1.Node) bool {
 	}
 	// Check node pool name for "spot" keyword
 	nodePool := node.Labels["cloud.google.com/gke-nodepool"]
-	if strings.Contains(strings.ToLower(nodePool), "spot") {
-		return true
-	}
-	return false
+	return strings.Contains(strings.ToLower(nodePool), "spot")
 }
 
 // EstimateDeploymentCost calculates cost for a deployment

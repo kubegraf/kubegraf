@@ -191,25 +191,6 @@ func (ws *WebServer) handleApps(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(appsCatalog)
 }
 
-// handleAppDetails returns details for a specific app
-func (ws *WebServer) handleAppDetails(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	// Get app name from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/api/apps/")
-	appName := strings.TrimSuffix(path, "/")
-
-	for _, app := range appsCatalog {
-		if app.Name == appName {
-			json.NewEncoder(w).Encode(app)
-			return
-		}
-	}
-
-	http.Error(w, "App not found", http.StatusNotFound)
-}
-
 // handleInstalledApps returns the list of installed apps (Helm releases)
 func (ws *WebServer) handleInstalledApps(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
