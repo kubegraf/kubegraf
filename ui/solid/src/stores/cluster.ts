@@ -53,7 +53,7 @@ export interface ClusterStatus {
 }
 
 // Reactive signals with fine-grained updates
-const [namespace, setNamespace] = createSignal<string>('default');
+const [namespace, setNamespace] = createSignal<string>('_all');
 const [namespaces, setNamespaces] = createSignal<string[]>(['default']);
 const [clusterStatus, setClusterStatus] = createSignal<ClusterStatus>({
   connected: false,

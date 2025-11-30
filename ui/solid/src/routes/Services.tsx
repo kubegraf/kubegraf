@@ -1,8 +1,10 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
+import { namespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import DescribeModal from '../components/DescribeModal';
+import ActionMenu from '../components/ActionMenu';
 
 interface Service {
   name: string;
@@ -24,18 +26,22 @@ interface PortForward {
   status: string;
 }
 
+type SortField = 'name' | 'namespace' | 'type' | 'age';
+type SortDirection = 'asc' | 'desc';
+
 const Services: Component = () => {
-  const [namespace, setNamespace] = createSignal('_all');
   const [search, setSearch] = createSignal('');
+  const [sortField, setSortField] = createSignal<SortField>('name');
+  const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
+  const [currentPage, setCurrentPage] = createSignal(1);
+  const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Service | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showPortForward, setShowPortForward] = createSignal(false);
-  const [showDetails, setShowDetails] = createSignal(false);
   const [localPort, setLocalPort] = createSignal(8080);
   const [remotePort, setRemotePort] = createSignal(80);
 
-  const [namespaces] = createResource(api.getNamespaces);
   const [services, { refetch }] = createResource(namespace, api.getServices);
   const [portForwards, { refetch: refetchPF }] = createResource(api.listPortForwards);
   const [yamlContent] = createResource(
@@ -47,16 +53,90 @@ const Services: Component = () => {
     }
   );
 
-  const filtered = createMemo(() => {
-    const all = services() || [];
+  // Parse age for sorting
+  const parseAge = (age: string | undefined): number => {
+    if (!age) return 0;
+    let total = 0;
+    const days = age.match(/(\d+)d/);
+    const hours = age.match(/(\d+)h/);
+    const mins = age.match(/(\d+)m/);
+    if (days) total += parseInt(days[1]) * 24 * 60;
+    if (hours) total += parseInt(hours[1]) * 60;
+    if (mins) total += parseInt(mins[1]);
+    return total;
+  };
+
+  const filteredAndSorted = createMemo(() => {
+    let all = services() || [];
     const query = search().toLowerCase();
-    if (!query) return all;
-    return all.filter((s: Service) =>
-      s.name.toLowerCase().includes(query) ||
-      s.namespace.toLowerCase().includes(query) ||
-      s.type.toLowerCase().includes(query)
-    );
+
+    // Filter by search
+    if (query) {
+      all = all.filter((s: Service) =>
+        s.name.toLowerCase().includes(query) ||
+        s.namespace.toLowerCase().includes(query) ||
+        s.type.toLowerCase().includes(query)
+      );
+    }
+
+    // Sort
+    const field = sortField();
+    const direction = sortDirection();
+    all = [...all].sort((a: Service, b: Service) => {
+      let comparison = 0;
+      switch (field) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'namespace':
+          comparison = a.namespace.localeCompare(b.namespace);
+          break;
+        case 'type':
+          comparison = a.type.localeCompare(b.type);
+          break;
+        case 'age':
+          comparison = parseAge(a.age) - parseAge(b.age);
+          break;
+      }
+      return direction === 'asc' ? comparison : -comparison;
+    });
+
+    return all;
   });
+
+  // Pagination
+  const totalPages = createMemo(() => Math.ceil(filteredAndSorted().length / pageSize()));
+  const paginatedServices = createMemo(() => {
+    const start = (currentPage() - 1) * pageSize();
+    return filteredAndSorted().slice(start, start + pageSize());
+  });
+
+  const statusCounts = createMemo(() => {
+    const all = services() || [];
+    return {
+      total: all.length,
+      clusterIP: all.filter((s: Service) => s.type === 'ClusterIP').length,
+      nodePort: all.filter((s: Service) => s.type === 'NodePort').length,
+      loadBalancer: all.filter((s: Service) => s.type === 'LoadBalancer').length,
+    };
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField() === field) {
+      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1);
+  };
+
+  const SortIcon = (props: { field: SortField }) => (
+    <span class="ml-1 inline-flex flex-col text-xs leading-none">
+      <span style={{ color: sortField() === props.field && sortDirection() === 'asc' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>▲</span>
+      <span style={{ color: sortField() === props.field && sortDirection() === 'desc' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>▼</span>
+    </span>
+  );
 
   const startPortForward = async () => {
     const svc = selected();
@@ -81,7 +161,6 @@ const Services: Component = () => {
 
   const openPortForward = (svc: Service) => {
     setSelected(svc);
-    // Try to parse port from service
     const portMatch = svc.ports?.match(/(\d+)/);
     if (portMatch) {
       setRemotePort(parseInt(portMatch[1]));
@@ -89,19 +168,73 @@ const Services: Component = () => {
     setShowPortForward(true);
   };
 
+  const deleteService = async (svc: Service) => {
+    if (!confirm(`Are you sure you want to delete service ${svc.name}?`)) return;
+    try {
+      await api.deleteService(svc.name, svc.namespace);
+      refetch();
+    } catch (error) {
+      console.error('Failed to delete service:', error);
+    }
+  };
+
   return (
-    <div class="space-y-6">
-      <div class="flex items-center justify-between">
+    <div class="space-y-4">
+      {/* Header */}
+      <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Services</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Network services and load balancers</p>
         </div>
-        <button onClick={() => refetch()} class="btn-primary flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+        <div class="flex items-center gap-3">
+          <button onClick={() => refetch()} class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Refresh Services">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Status summary */}
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">ClusterIP</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().clusterIP}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">NodePort</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().nodePort}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #3b82f6' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">LoadBalancer</span>
+          <span class="text-xl font-bold" style={{ color: '#3b82f6' }}>{statusCounts().loadBalancer}</span>
+        </div>
+
+        <div class="flex-1" />
+
+        <input
+          type="text"
+          placeholder="Search..."
+          value={search()}
+          onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
+          class="px-3 py-2 rounded-lg text-sm w-48"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+        />
+
+        <select
+          value={pageSize()}
+          onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
+          class="px-3 py-2 rounded-lg text-sm"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+        >
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
       </div>
 
       {/* Active Port Forwards */}
@@ -135,60 +268,72 @@ const Services: Component = () => {
         </div>
       </Show>
 
-      <div class="flex flex-wrap gap-4">
-        <select value={namespace()} onChange={(e) => setNamespace(e.currentTarget.value)}
-          class="px-4 py-2 rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-          <option value="_all">All Namespaces</option>
-          <For each={namespaces() || []}>{(ns) => <option value={ns}>{ns}</option>}</For>
-        </select>
-        <input type="text" placeholder="Search services..." value={search()} onInput={(e) => setSearch(e.currentTarget.value)}
-          class="flex-1 min-w-[200px] px-4 py-2 rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
-      </div>
-
-      <div class="card overflow-hidden">
-        <Show when={!services.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto mb-2" /><span style={{ color: 'var(--text-muted)' }}>Loading services...</span></div>}>
+      {/* Services table */}
+      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+        <Show
+          when={!services.loading}
+          fallback={
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading services...</span>
+            </div>
+          }
+        >
           <div class="overflow-x-auto">
-            <table class="data-table">
-              <thead><tr><th>Name</th><th>Namespace</th><th>Type</th><th>Cluster IP</th><th>External IP</th><th>Ports</th><th>Age</th><th>Actions</th></tr></thead>
+            <table class="data-table terminal-table">
+              <thead>
+                <tr>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                    <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
+                  </th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
+                    <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
+                  </th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('type')}>
+                    <div class="flex items-center gap-1">Type <SortIcon field="type" /></div>
+                  </th>
+                  <th class="whitespace-nowrap">Cluster IP</th>
+                  <th class="whitespace-nowrap">External IP</th>
+                  <th class="whitespace-nowrap">Ports</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                    <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
+                  </th>
+                  <th class="whitespace-nowrap">Actions</th>
+                </tr>
+              </thead>
               <tbody>
-                <For each={filtered()} fallback={<tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No services found</td></tr>}>
+                <For each={paginatedServices()} fallback={
+                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No services found</td></tr>
+                }>
                   {(svc: Service) => (
                     <tr>
                       <td>
                         <button
-                          onClick={() => { setSelected(svc); setShowDetails(true); }}
-                          class="font-medium hover:underline"
+                          onClick={() => { setSelected(svc); setShowDescribe(true); }}
+                          class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
-                          {svc.name}
+                          {svc.name.length > 40 ? svc.name.slice(0, 37) + '...' : svc.name}
                         </button>
                       </td>
                       <td>{svc.namespace}</td>
-                      <td><span class={`badge ${svc.type === 'LoadBalancer' ? 'badge-info' : svc.type === 'NodePort' ? 'badge-warning' : 'badge-success'}`}>{svc.type}</span></td>
+                      <td>
+                        <span class={`badge ${svc.type === 'LoadBalancer' ? 'badge-info' : svc.type === 'NodePort' ? 'badge-warning' : 'badge-success'}`}>
+                          {svc.type}
+                        </span>
+                      </td>
                       <td class="font-mono text-sm">{svc.clusterIP}</td>
                       <td class="font-mono text-sm">{svc.externalIP || '-'}</td>
                       <td class="text-sm">{svc.ports}</td>
                       <td>{svc.age}</td>
                       <td>
-                        <div class="flex items-center gap-1">
-                          <button onClick={() => { setSelected(svc); setShowDetails(true); }} class="action-btn" title="Details">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => openPortForward(svc)} class="action-btn" title="Port Forward">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => { setSelected(svc); setShowYaml(true); }} class="action-btn" title="YAML">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                          </button>
-                          <button onClick={() => { setSelected(svc); setShowDescribe(true); }} class="action-btn" title="Describe">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                          </button>
-                        </div>
+                        <ActionMenu
+                          actions={[
+                            { label: 'Port Forward', icon: 'portforward', onClick: () => openPortForward(svc) },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(svc); setShowYaml(true); } },
+                            { label: 'Delete', icon: 'delete', onClick: () => deleteService(svc), variant: 'danger', divider: true },
+                          ]}
+                        />
                       </td>
                     </tr>
                   )}
@@ -196,6 +341,52 @@ const Services: Component = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          <Show when={totalPages() > 1}>
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#161b22' }}>
+              <div style={{ color: '#8b949e' }}>
+                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} services
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage() === 1}
+                  class="px-3 py-1 rounded text-sm disabled:opacity-50"
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage() === 1}
+                  class="px-3 py-1 rounded text-sm disabled:opacity-50"
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                >
+                  ← Prev
+                </button>
+                <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
+                  Page {currentPage()} of {totalPages()}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages(), p + 1))}
+                  disabled={currentPage() === totalPages()}
+                  class="px-3 py-1 rounded text-sm disabled:opacity-50"
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                >
+                  Next →
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages())}
+                  disabled={currentPage() === totalPages()}
+                  class="px-3 py-1 rounded text-sm disabled:opacity-50"
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+          </Show>
         </Show>
       </div>
 
@@ -208,54 +399,6 @@ const Services: Component = () => {
 
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="service" name={selected()?.name || ''} namespace={selected()?.namespace} />
-
-      {/* Details Modal */}
-      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Service: ${selected()?.name}`} size="lg">
-        <Show when={selected()}>
-          <div class="space-y-4">
-            {/* Basic Info */}
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Name</div>
-                <div class="font-medium" style={{ color: 'var(--text-primary)' }}>{selected()?.name}</div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
-                <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Type</div>
-                <div><span class={`badge ${selected()?.type === 'LoadBalancer' ? 'badge-info' : selected()?.type === 'NodePort' ? 'badge-warning' : 'badge-success'}`}>{selected()?.type}</span></div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Cluster IP</div>
-                <div class="font-mono text-sm" style={{ color: 'var(--accent-primary)' }}>{selected()?.clusterIP}</div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>External IP</div>
-                <div class="font-mono text-sm" style={{ color: 'var(--text-primary)' }}>{selected()?.externalIP || '-'}</div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
-                <div style={{ color: 'var(--text-primary)' }}>{selected()?.age}</div>
-              </div>
-            </div>
-
-            {/* Ports */}
-            <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-              <div class="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Ports</div>
-              <div class="font-mono text-sm" style={{ color: 'var(--text-primary)' }}>{selected()?.ports}</div>
-            </div>
-
-            {/* Actions */}
-            <div class="flex flex-wrap gap-2 pt-2">
-              <button onClick={() => { setShowDetails(false); openPortForward(selected()!); }} class="btn-primary flex-1">Port Forward</button>
-              <button onClick={() => { setShowDetails(false); setShowYaml(true); }} class="btn-secondary flex-1">View YAML</button>
-              <button onClick={() => { setShowDetails(false); setShowDescribe(true); }} class="btn-secondary flex-1">Describe</button>
-            </div>
-          </div>
-        </Show>
-      </Modal>
 
       {/* Port Forward Modal */}
       <Modal isOpen={showPortForward()} onClose={() => setShowPortForward(false)} title={`Port Forward: ${selected()?.name}`} size="sm">

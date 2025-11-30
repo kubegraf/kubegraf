@@ -247,7 +247,7 @@ const Topology: Component = () => {
         <div>
           <h1 class="text-2xl font-bold text-white">Topology</h1>
           <p class="text-gray-400 mt-1">
-            Interactive cluster visualization - {namespace() === '_all' ? 'All Namespaces' : namespace()}
+            Interactive cluster visualization - {namespace() === '_all' ? 'All' : namespace()}
           </p>
         </div>
         <div class="flex items-center gap-4">
@@ -272,12 +272,13 @@ const Topology: Component = () => {
           </div>
           <button
             onClick={renderGraph}
-            class="flex items-center gap-2 px-4 py-2 bg-k8s-blue rounded-lg hover:bg-k8s-blue/80 transition-colors text-white"
+            class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+            title="Refresh Topology"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
-            Refresh
           </button>
         </div>
       </div>

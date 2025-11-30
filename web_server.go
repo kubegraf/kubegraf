@@ -21,6 +21,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,7 +29,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,14 +38,44 @@ import (
 	"k8s.io/client-go/transport/spdy"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/yaml"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins for development
 	},
+}
+
+// toKubectlYAML converts a Kubernetes object to YAML format matching kubectl output
+// It sets the TypeMeta (Kind/APIVersion) and removes managed fields for cleaner output
+func toKubectlYAML(obj runtime.Object, gvk schema.GroupVersionKind) ([]byte, error) {
+	// Set the TypeMeta on the object so it appears in the YAML
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
+
+	// Use sigs.k8s.io/yaml which properly handles JSON struct tags
+	return yaml.Marshal(obj)
+}
+
+// runKubectlDescribe runs kubectl describe and returns the output
+// resourceType: pod, deployment, service, statefulset, daemonset, cronjob, job, ingress, configmap, node
+func runKubectlDescribe(resourceType, name, namespace string) (string, error) {
+	var cmd *exec.Cmd
+	if namespace != "" {
+		cmd = exec.Command("kubectl", "describe", resourceType, name, "-n", namespace)
+	} else {
+		// For cluster-scoped resources like nodes
+		cmd = exec.Command("kubectl", "describe", resourceType, name)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl describe failed: %s - %v", string(output), err)
+	}
+	return string(output), nil
 }
 
 // formatAge converts a duration to human-readable format (e.g., "5d", "3h", "45m")
@@ -133,6 +163,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/metrics", ws.handleMetrics)
 	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
 	http.HandleFunc("/api/pods", ws.handlePods)
+	http.HandleFunc("/api/pods/metrics", ws.handlePodMetrics)
 	http.HandleFunc("/api/deployments", ws.handleDeployments)
 	http.HandleFunc("/api/statefulsets", ws.handleStatefulSets)
 	http.HandleFunc("/api/daemonsets", ws.handleDaemonSets)
@@ -292,6 +323,31 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Batch fetch all pod metrics at once (much faster than individual calls)
+	metricsMap := make(map[string]struct {
+		cpu    string
+		memory string
+	})
+	if ws.app.metricsClient != nil {
+		if metricsList, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for _, pm := range metricsList.Items {
+				var totalCPU, totalMemory int64
+				for _, cm := range pm.Containers {
+					totalCPU += cm.Usage.Cpu().MilliValue()
+					totalMemory += cm.Usage.Memory().Value()
+				}
+				key := pm.Namespace + "/" + pm.Name
+				metricsMap[key] = struct {
+					cpu    string
+					memory string
+				}{
+					cpu:    fmt.Sprintf("%dm", totalCPU),
+					memory: fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024)),
+				}
+			}
+		}
+	}
+
 	podList := []map[string]interface{}{}
 	for _, pod := range pods.Items {
 		// Calculate ready count from container statuses
@@ -338,19 +394,12 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Get metrics for this pod if available
+		// Get metrics from pre-fetched map
 		cpu := "-"
 		memory := "-"
-		if ws.app.metricsClient != nil {
-			if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).Get(ws.app.ctx, pod.Name, metav1.GetOptions{}); err == nil {
-				var totalCPU, totalMemory int64
-				for _, cm := range metrics.Containers {
-					totalCPU += cm.Usage.Cpu().MilliValue()
-					totalMemory += cm.Usage.Memory().Value()
-				}
-				cpu = fmt.Sprintf("%dm", totalCPU)
-				memory = fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024))
-			}
+		if m, ok := metricsMap[pod.Namespace+"/"+pod.Name]; ok {
+			cpu = m.cpu
+			memory = m.memory
 		}
 
 		podList = append(podList, map[string]interface{}{
@@ -368,6 +417,34 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(podList)
+}
+
+// handlePodMetrics returns only CPU/memory metrics for pods (lightweight, for live updates)
+func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	metricsMap := make(map[string]map[string]string)
+	if ws.app.metricsClient != nil {
+		if metricsList, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for _, pm := range metricsList.Items {
+				var totalCPU, totalMemory int64
+				for _, cm := range pm.Containers {
+					totalCPU += cm.Usage.Cpu().MilliValue()
+					totalMemory += cm.Usage.Memory().Value()
+				}
+				key := pm.Namespace + "/" + pm.Name
+				metricsMap[key] = map[string]string{
+					"cpu":    fmt.Sprintf("%dm", totalCPU),
+					"memory": fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024)),
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(metricsMap)
 }
 
 // handleDeployments returns deployment list
@@ -548,7 +625,9 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 // handleTopology returns topology data for visualization
 func (ws *WebServer) handleTopology(w http.ResponseWriter, r *http.Request) {
-	topology := ws.buildTopologyData()
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means all namespaces
+	topology := ws.buildTopologyData(namespace)
 	json.NewEncoder(w).Encode(topology)
 }
 
@@ -1415,44 +1494,154 @@ func (ws *WebServer) getClusterMetrics() map[string]interface{} {
 }
 
 // buildTopologyData builds topology data for D3.js visualization
-func (ws *WebServer) buildTopologyData() map[string]interface{} {
+func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} {
 	nodes := []map[string]interface{}{}
 	links := []map[string]interface{}{}
 
+	// Use empty string for all namespaces
+	ns := namespace
+	if ns == "" {
+		ns = "" // Empty string lists from all namespaces in Kubernetes API
+	}
+
 	// Get deployments
-	deployments, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	deployments, err := ws.app.clientset.AppsV1().Deployments(ns).List(ws.app.ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, dep := range deployments.Items {
 			nodes = append(nodes, map[string]interface{}{
-				"id":    fmt.Sprintf("deployment-%s", dep.Name),
-				"name":  dep.Name,
-				"type":  "deployment",
-				"group": 1,
+				"id":        fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+				"name":      dep.Name,
+				"type":      "deployment",
+				"namespace": dep.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get statefulsets
+	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, sts := range statefulsets.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("statefulset-%s-%s", sts.Namespace, sts.Name),
+				"name":      sts.Name,
+				"type":      "statefulset",
+				"namespace": sts.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get daemonsets
+	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, ds := range daemonsets.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("daemonset-%s-%s", ds.Namespace, ds.Name),
+				"name":      ds.Name,
+				"type":      "daemonset",
+				"namespace": ds.Namespace,
+				"group":     1,
 			})
 		}
 	}
 
 	// Get services
-	services, err := ws.app.clientset.CoreV1().Services(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	services, err := ws.app.clientset.CoreV1().Services(ns).List(ws.app.ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, svc := range services.Items {
 			nodes = append(nodes, map[string]interface{}{
-				"id":    fmt.Sprintf("service-%s", svc.Name),
-				"name":  svc.Name,
-				"type":  "service",
-				"group": 2,
+				"id":        fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+				"name":      svc.Name,
+				"type":      "service",
+				"namespace": svc.Namespace,
+				"group":     2,
 			})
 
-			// Link services to deployments (simplified)
-			for _, dep := range deployments.Items {
-				if matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
-					links = append(links, map[string]interface{}{
-						"source": fmt.Sprintf("service-%s", svc.Name),
-						"target": fmt.Sprintf("deployment-%s", dep.Name),
-						"value":  1,
-					})
+			// Link services to deployments
+			if deployments != nil {
+				for _, dep := range deployments.Items {
+					if dep.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+							"value":  1,
+						})
+					}
 				}
 			}
+
+			// Link services to statefulsets
+			if statefulsets != nil {
+				for _, sts := range statefulsets.Items {
+					if sts.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, sts.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("statefulset-%s-%s", sts.Namespace, sts.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+
+			// Link services to daemonsets
+			if daemonsets != nil {
+				for _, ds := range daemonsets.Items {
+					if ds.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, ds.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("daemonset-%s-%s", ds.Namespace, ds.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Get ingresses
+	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, ing := range ingresses.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("ingress-%s-%s", ing.Namespace, ing.Name),
+				"name":      ing.Name,
+				"type":      "ingress",
+				"namespace": ing.Namespace,
+				"group":     3,
+			})
+
+			// Link ingresses to services
+			for _, rule := range ing.Spec.Rules {
+				if rule.HTTP != nil {
+					for _, path := range rule.HTTP.Paths {
+						svcName := path.Backend.Service.Name
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("ingress-%s-%s", ing.Namespace, ing.Name),
+							"target": fmt.Sprintf("service-%s-%s", ing.Namespace, svcName),
+							"value":  1,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Get configmaps (limit to avoid clutter)
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, cm := range configmaps.Items {
+			// Skip kube-system configmaps to reduce clutter
+			if cm.Namespace == "kube-system" {
+				continue
+			}
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("configmap-%s-%s", cm.Namespace, cm.Name),
+				"name":      cm.Name,
+				"type":      "configmap",
+				"namespace": cm.Namespace,
+				"group":     4,
+			})
 		}
 	}
 
@@ -1786,8 +1975,9 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Generate YAML
-	yamlData, _ := yaml.Marshal(pod)
+	// Generate YAML (using kubectl-style format)
+	pod.ManagedFields = nil
+	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
 
 	// Get real-time metrics if available
 	var podMetrics map[string]interface{}
@@ -2379,7 +2569,7 @@ func (ws *WebServer) handlePodYAML(w http.ResponseWriter, r *http.Request) {
 	// Remove managed fields for cleaner YAML
 	pod.ManagedFields = nil
 
-	yamlData, err := yaml.Marshal(pod)
+	yamlData, err := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2394,7 +2584,7 @@ func (ws *WebServer) handlePodYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handlePodDescribe returns the describe output for a pod
+// handlePodDescribe returns the describe output for a pod using kubectl describe
 func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -2412,7 +2602,7 @@ func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 		namespace = ws.app.namespace
 	}
 
-	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	describe, err := runKubectlDescribe("pod", name, namespace)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2421,74 +2611,9 @@ func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get events for this pod
-	events, _ := ws.app.clientset.CoreV1().Events(namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Pod", name),
-	})
-
-	// Build describe output similar to kubectl describe
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:         %s\n", pod.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:    %s\n", pod.Namespace))
-	describe.WriteString(fmt.Sprintf("Node:         %s\n", pod.Spec.NodeName))
-	describe.WriteString(fmt.Sprintf("Start Time:   %s\n", pod.CreationTimestamp.String()))
-	describe.WriteString(fmt.Sprintf("Status:       %s\n", pod.Status.Phase))
-	describe.WriteString(fmt.Sprintf("IP:           %s\n", pod.Status.PodIP))
-
-	// Labels
-	if len(pod.Labels) > 0 {
-		describe.WriteString("\nLabels:\n")
-		for k, v := range pod.Labels {
-			describe.WriteString(fmt.Sprintf("  %s=%s\n", k, v))
-		}
-	}
-
-	// Annotations
-	if len(pod.Annotations) > 0 {
-		describe.WriteString("\nAnnotations:\n")
-		for k, v := range pod.Annotations {
-			describe.WriteString(fmt.Sprintf("  %s=%s\n", k, v))
-		}
-	}
-
-	// Containers
-	describe.WriteString("\nContainers:\n")
-	for _, container := range pod.Spec.Containers {
-		describe.WriteString(fmt.Sprintf("  %s:\n", container.Name))
-		describe.WriteString(fmt.Sprintf("    Image:         %s\n", container.Image))
-		describe.WriteString(fmt.Sprintf("    Image Pull Policy: %s\n", container.ImagePullPolicy))
-		if len(container.Ports) > 0 {
-			describe.WriteString("    Ports:\n")
-			for _, port := range container.Ports {
-				describe.WriteString(fmt.Sprintf("      %d/%s\n", port.ContainerPort, port.Protocol))
-			}
-		}
-	}
-
-	// Conditions
-	describe.WriteString("\nConditions:\n")
-	describe.WriteString("  Type              Status\n")
-	for _, condition := range pod.Status.Conditions {
-		describe.WriteString(fmt.Sprintf("  %-17s %s\n", condition.Type, condition.Status))
-	}
-
-	// Events
-	if len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
-	}
-
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -2500,14 +2625,21 @@ func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	deployment, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(deployment)
+	// Remove managed fields for cleaner YAML
+	deployment.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(deployment, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2519,114 +2651,36 @@ func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// handleDeploymentDescribe returns kubectl describe-style output for a deployment
+// handleDeploymentDescribe returns kubectl describe output for a deployment
 func (ws *WebServer) handleDeploymentDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "deployment name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
 		return
 	}
 
-	deployment, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("deployment", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get related ReplicaSets
-	replicaSets, _ := ws.app.clientset.AppsV1().ReplicaSets(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
-	})
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Deployment", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:               %s\n", deployment.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:          %s\n", deployment.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp:  %s\n", deployment.CreationTimestamp.String()))
-
-	// Labels
-	if len(deployment.Labels) > 0 {
-		describe.WriteString("Labels:             ")
-		labels := []string{}
-		for k, v := range deployment.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                    "))
-		describe.WriteString("\n")
-	}
-
-	// Selector
-	describe.WriteString(fmt.Sprintf("Selector:           %s\n", metav1.FormatLabelSelector(deployment.Spec.Selector)))
-	describe.WriteString(fmt.Sprintf("Replicas:           %d desired | %d updated | %d total | %d available | %d unavailable\n",
-		*deployment.Spec.Replicas,
-		deployment.Status.UpdatedReplicas,
-		deployment.Status.Replicas,
-		deployment.Status.AvailableReplicas,
-		deployment.Status.UnavailableReplicas))
-
-	// Strategy
-	describe.WriteString(fmt.Sprintf("StrategyType:       %s\n", deployment.Spec.Strategy.Type))
-	if deployment.Spec.Strategy.RollingUpdate != nil {
-		describe.WriteString(fmt.Sprintf("RollingUpdateStrategy:  %s max unavailable, %s max surge\n",
-			deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.String(),
-			deployment.Spec.Strategy.RollingUpdate.MaxSurge.String()))
-	}
-
-	// Pod Template
-	describe.WriteString("\nPod Template:\n")
-	describe.WriteString("  Containers:\n")
-	for _, container := range deployment.Spec.Template.Spec.Containers {
-		describe.WriteString(fmt.Sprintf("   %s:\n", container.Name))
-		describe.WriteString(fmt.Sprintf("    Image:      %s\n", container.Image))
-		if len(container.Ports) > 0 {
-			describe.WriteString("    Ports:\n")
-			for _, port := range container.Ports {
-				describe.WriteString(fmt.Sprintf("      %d/%s\n", port.ContainerPort, port.Protocol))
-			}
-		}
-	}
-
-	// Conditions
-	if len(deployment.Status.Conditions) > 0 {
-		describe.WriteString("\nConditions:\n")
-		describe.WriteString("  Type           Status  Reason\n")
-		for _, condition := range deployment.Status.Conditions {
-			describe.WriteString(fmt.Sprintf("  %-14s %-7s %s\n", condition.Type, condition.Status, condition.Reason))
-		}
-	}
-
-	// ReplicaSets
-	if replicaSets != nil && len(replicaSets.Items) > 0 {
-		describe.WriteString("\nOldReplicaSets:  ")
-		rsNames := []string{}
-		for _, rs := range replicaSets.Items {
-			rsNames = append(rsNames, fmt.Sprintf("%s (%d/%d replicas)", rs.Name, rs.Status.ReadyReplicas, *rs.Spec.Replicas))
-		}
-		describe.WriteString(strings.Join(rsNames, ", "))
-		describe.WriteString("\n")
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -2649,8 +2703,10 @@ func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(service)
+	// Remove managed fields for cleaner YAML
+	service.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(service, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2662,11 +2718,16 @@ func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleServiceDescribe returns kubectl describe-style output for a service
+// handleServiceDescribe returns kubectl describe output for a service
 func (ws *WebServer) handleServiceDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "service name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Service name is required",
+		})
 		return
 	}
 
@@ -2675,118 +2736,18 @@ func (ws *WebServer) handleServiceDescribe(w http.ResponseWriter, r *http.Reques
 		namespace = ws.app.namespace
 	}
 
-	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	describe, err := runKubectlDescribe("service", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Service", name),
-	})
-
-	// Get endpoints
-	endpoints, _ := ws.app.clientset.CoreV1().Endpoints(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:              %s\n", service.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:         %s\n", service.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp: %s\n", service.CreationTimestamp.String()))
-
-	// Labels
-	if len(service.Labels) > 0 {
-		describe.WriteString("Labels:            ")
-		labels := []string{}
-		for k, v := range service.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                   "))
-		describe.WriteString("\n")
-	}
-
-	// Selector
-	if len(service.Spec.Selector) > 0 {
-		describe.WriteString("Selector:          ")
-		selectors := []string{}
-		for k, v := range service.Spec.Selector {
-			selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(selectors, ","))
-		describe.WriteString("\n")
-	}
-
-	describe.WriteString(fmt.Sprintf("Type:              %s\n", service.Spec.Type))
-	describe.WriteString(fmt.Sprintf("IP:                %s\n", service.Spec.ClusterIP))
-
-	if service.Spec.Type == v1.ServiceTypeLoadBalancer {
-		lbIngress := ""
-		if len(service.Status.LoadBalancer.Ingress) > 0 {
-			if service.Status.LoadBalancer.Ingress[0].IP != "" {
-				lbIngress = service.Status.LoadBalancer.Ingress[0].IP
-			} else if service.Status.LoadBalancer.Ingress[0].Hostname != "" {
-				lbIngress = service.Status.LoadBalancer.Ingress[0].Hostname
-			}
-		}
-		if lbIngress != "" {
-			describe.WriteString(fmt.Sprintf("LoadBalancer Ingress: %s\n", lbIngress))
-		}
-	}
-
-	// Ports
-	if len(service.Spec.Ports) > 0 {
-		describe.WriteString("Port(s):           ")
-		ports := []string{}
-		for _, port := range service.Spec.Ports {
-			portStr := fmt.Sprintf("%d/%s", port.Port, port.Protocol)
-			if port.NodePort != 0 {
-				portStr += fmt.Sprintf(" (NodePort: %d)", port.NodePort)
-			}
-			ports = append(ports, portStr)
-		}
-		describe.WriteString(strings.Join(ports, ", "))
-		describe.WriteString("\n")
-	}
-
-	// Endpoints
-	if endpoints != nil {
-		describe.WriteString("Endpoints:         ")
-		endpointList := []string{}
-		for _, subset := range endpoints.Subsets {
-			for _, addr := range subset.Addresses {
-				for _, port := range subset.Ports {
-					endpointList = append(endpointList, fmt.Sprintf("%s:%d", addr.IP, port.Port))
-				}
-			}
-		}
-		if len(endpointList) > 0 {
-			describe.WriteString(strings.Join(endpointList, ","))
-		} else {
-			describe.WriteString("<none>")
-		}
-		describe.WriteString("\n")
-	}
-
-	// Session Affinity
-	describe.WriteString(fmt.Sprintf("Session Affinity:  %s\n", service.Spec.SessionAffinity))
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -2798,14 +2759,21 @@ func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ingress, err := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	ingress, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(ingress)
+	// Remove managed fields for cleaner YAML
+	ingress.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(ingress, schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2817,118 +2785,36 @@ func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleIngressDescribe returns kubectl describe-style output for an ingress
+// handleIngressDescribe returns kubectl describe output for an ingress
 func (ws *WebServer) handleIngressDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "ingress name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Ingress name is required",
+		})
 		return
 	}
 
-	ingress, err := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("ingress", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Ingress", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:             %s\n", ingress.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:        %s\n", ingress.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp: %s\n", ingress.CreationTimestamp.String()))
-
-	// Labels
-	if len(ingress.Labels) > 0 {
-		describe.WriteString("Labels:           ")
-		labels := []string{}
-		for k, v := range ingress.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                  "))
-		describe.WriteString("\n")
-	}
-
-	// Ingress Class
-	if ingress.Spec.IngressClassName != nil {
-		describe.WriteString(fmt.Sprintf("Ingress Class:    %s\n", *ingress.Spec.IngressClassName))
-	}
-
-	// Default Backend
-	if ingress.Spec.DefaultBackend != nil && ingress.Spec.DefaultBackend.Service != nil {
-		describe.WriteString(fmt.Sprintf("Default backend:  %s:%d\n",
-			ingress.Spec.DefaultBackend.Service.Name,
-			ingress.Spec.DefaultBackend.Service.Port.Number))
-	}
-
-	// Rules
-	if len(ingress.Spec.Rules) > 0 {
-		describe.WriteString("\nRules:\n")
-		for _, rule := range ingress.Spec.Rules {
-			host := rule.Host
-			if host == "" {
-				host = "*"
-			}
-			describe.WriteString(fmt.Sprintf("  Host: %s\n", host))
-			if rule.HTTP != nil {
-				describe.WriteString("  HTTP:\n")
-				for _, path := range rule.HTTP.Paths {
-					pathType := "Prefix"
-					if path.PathType != nil {
-						pathType = string(*path.PathType)
-					}
-					describe.WriteString(fmt.Sprintf("    Path: %s (%s)\n", path.Path, pathType))
-					if path.Backend.Service != nil {
-						describe.WriteString(fmt.Sprintf("    Backend: %s:%d\n",
-							path.Backend.Service.Name,
-							path.Backend.Service.Port.Number))
-					}
-				}
-			}
-		}
-	}
-
-	// TLS
-	if len(ingress.Spec.TLS) > 0 {
-		describe.WriteString("\nTLS:\n")
-		for _, tls := range ingress.Spec.TLS {
-			hosts := strings.Join(tls.Hosts, ",")
-			describe.WriteString(fmt.Sprintf("  %s terminates %s\n", tls.SecretName, hosts))
-		}
-	}
-
-	// Load Balancer
-	if len(ingress.Status.LoadBalancer.Ingress) > 0 {
-		describe.WriteString("\nAddress:\n")
-		for _, lb := range ingress.Status.LoadBalancer.Ingress {
-			if lb.IP != "" {
-				describe.WriteString(fmt.Sprintf("  %s\n", lb.IP))
-			} else if lb.Hostname != "" {
-				describe.WriteString(fmt.Sprintf("  %s\n", lb.Hostname))
-			}
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -2939,15 +2825,21 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "configmap name required", http.StatusBadRequest)
 		return
 	}
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	configMap, err := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	configMap, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(configMap)
+	// Remove managed fields for cleaner YAML
+	configMap.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(configMap, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2959,95 +2851,36 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// handleConfigMapDescribe returns kubectl describe-style output for a configmap
+// handleConfigMapDescribe returns kubectl describe output for a configmap
 func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "configmap name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ConfigMap name is required",
+		})
 		return
 	}
 
-	configMap, err := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("configmap", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=ConfigMap", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:         %s\n", configMap.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:    %s\n", configMap.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp: %s\n", configMap.CreationTimestamp.String()))
-
-	// Labels
-	if len(configMap.Labels) > 0 {
-		describe.WriteString("Labels:       ")
-		labels := []string{}
-		for k, v := range configMap.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n              "))
-		describe.WriteString("\n")
-	}
-
-	// Annotations
-	if len(configMap.Annotations) > 0 {
-		describe.WriteString("Annotations:  ")
-		annotations := []string{}
-		for k, v := range configMap.Annotations {
-			annotations = append(annotations, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(annotations, "\n              "))
-		describe.WriteString("\n")
-	}
-
-	// Data
-	if len(configMap.Data) > 0 {
-		describe.WriteString("\nData\n")
-		describe.WriteString("====\n")
-		for key, value := range configMap.Data {
-			describe.WriteString(fmt.Sprintf("%s:\n", key))
-			describe.WriteString("----\n")
-			// Limit data output to avoid huge responses
-			if len(value) > 500 {
-				describe.WriteString(value[:500] + "\n... (truncated)\n")
-			} else {
-				describe.WriteString(value + "\n")
-			}
-			describe.WriteString("\n")
-		}
-	}
-
-	// Binary Data
-	if len(configMap.BinaryData) > 0 {
-		describe.WriteString("\nBinaryData\n")
-		describe.WriteString("==========\n")
-		for key := range configMap.BinaryData {
-			describe.WriteString(fmt.Sprintf("%s: <binary data>\n", key))
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -3187,7 +3020,12 @@ func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	statefulSet, err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	statefulSet, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3196,8 +3034,7 @@ func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Reques
 	// Remove managed fields for cleaner YAML
 	statefulSet.ManagedFields = nil
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(statefulSet)
+	yamlData, err := toKubectlYAML(statefulSet, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3211,110 +3048,34 @@ func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Reques
 
 // handleStatefulSetDescribe returns kubectl describe-style output for a statefulset
 func (ws *WebServer) handleStatefulSetDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "statefulset name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
 		return
 	}
 
-	statefulSet, err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("statefulset", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=StatefulSet", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:               %s\n", statefulSet.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:          %s\n", statefulSet.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp:  %s\n", statefulSet.CreationTimestamp.String()))
-
-	// Labels
-	if len(statefulSet.Labels) > 0 {
-		describe.WriteString("Labels:             ")
-		labels := []string{}
-		for k, v := range statefulSet.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                    "))
-		describe.WriteString("\n")
-	}
-
-	// Selector
-	describe.WriteString(fmt.Sprintf("Selector:           %s\n", metav1.FormatLabelSelector(statefulSet.Spec.Selector)))
-	describe.WriteString(fmt.Sprintf("Service Name:       %s\n", statefulSet.Spec.ServiceName))
-	describe.WriteString(fmt.Sprintf("Replicas:           %d desired | %d total | %d ready | %d current\n",
-		*statefulSet.Spec.Replicas,
-		statefulSet.Status.Replicas,
-		statefulSet.Status.ReadyReplicas,
-		statefulSet.Status.CurrentReplicas))
-
-	// Update Strategy
-	describe.WriteString(fmt.Sprintf("Update Strategy:    %s\n", statefulSet.Spec.UpdateStrategy.Type))
-	if statefulSet.Spec.UpdateStrategy.RollingUpdate != nil && statefulSet.Spec.UpdateStrategy.RollingUpdate.Partition != nil {
-		describe.WriteString(fmt.Sprintf("  Partition:        %d\n", *statefulSet.Spec.UpdateStrategy.RollingUpdate.Partition))
-	}
-
-	// Pod Template
-	describe.WriteString("\nPod Template:\n")
-	describe.WriteString("  Containers:\n")
-	for _, container := range statefulSet.Spec.Template.Spec.Containers {
-		describe.WriteString(fmt.Sprintf("   %s:\n", container.Name))
-		describe.WriteString(fmt.Sprintf("    Image:      %s\n", container.Image))
-		if len(container.Ports) > 0 {
-			describe.WriteString("    Ports:\n")
-			for _, port := range container.Ports {
-				describe.WriteString(fmt.Sprintf("      %d/%s\n", port.ContainerPort, port.Protocol))
-			}
-		}
-	}
-
-	// Volume Claim Templates
-	if len(statefulSet.Spec.VolumeClaimTemplates) > 0 {
-		describe.WriteString("\nVolume Claim Templates:\n")
-		for _, vct := range statefulSet.Spec.VolumeClaimTemplates {
-			describe.WriteString(fmt.Sprintf("  Name:         %s\n", vct.Name))
-			if vct.Spec.StorageClassName != nil {
-				describe.WriteString(fmt.Sprintf("  Storage Class: %s\n", *vct.Spec.StorageClassName))
-			}
-			if len(vct.Spec.Resources.Requests) > 0 {
-				if storage, ok := vct.Spec.Resources.Requests["storage"]; ok {
-					describe.WriteString(fmt.Sprintf("  Storage:      %s\n", storage.String()))
-				}
-			}
-		}
-	}
-
-	// Conditions
-	if len(statefulSet.Status.Conditions) > 0 {
-		describe.WriteString("\nConditions:\n")
-		describe.WriteString("  Type           Status  Reason\n")
-		for _, condition := range statefulSet.Status.Conditions {
-			describe.WriteString(fmt.Sprintf("  %-14s %-7s %s\n", condition.Type, condition.Status, condition.Reason))
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -3474,7 +3235,12 @@ func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	daemonSet, err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	daemonSet, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3483,8 +3249,7 @@ func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request)
 	// Remove managed fields for cleaner YAML
 	daemonSet.ManagedFields = nil
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(daemonSet)
+	yamlData, err := toKubectlYAML(daemonSet, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3498,94 +3263,34 @@ func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request)
 
 // handleDaemonSetDescribe returns kubectl describe-style output for a daemonset
 func (ws *WebServer) handleDaemonSetDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "daemonset name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "DaemonSet name is required",
+		})
 		return
 	}
 
-	daemonSet, err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("daemonset", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=DaemonSet", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:               %s\n", daemonSet.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:          %s\n", daemonSet.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp:  %s\n", daemonSet.CreationTimestamp.String()))
-
-	// Labels
-	if len(daemonSet.Labels) > 0 {
-		describe.WriteString("Labels:             ")
-		labels := []string{}
-		for k, v := range daemonSet.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                    "))
-		describe.WriteString("\n")
-	}
-
-	// Selector
-	describe.WriteString(fmt.Sprintf("Selector:           %s\n", metav1.FormatLabelSelector(daemonSet.Spec.Selector)))
-	describe.WriteString(fmt.Sprintf("Node-Selector:      %v\n", daemonSet.Spec.Template.Spec.NodeSelector))
-	describe.WriteString(fmt.Sprintf("Desired Number Scheduled: %d\n", daemonSet.Status.DesiredNumberScheduled))
-	describe.WriteString(fmt.Sprintf("Current Number Scheduled: %d\n", daemonSet.Status.CurrentNumberScheduled))
-	describe.WriteString(fmt.Sprintf("Number Ready:       %d\n", daemonSet.Status.NumberReady))
-	describe.WriteString(fmt.Sprintf("Number Available:   %d\n", daemonSet.Status.NumberAvailable))
-	describe.WriteString(fmt.Sprintf("Number Unavailable: %d\n", daemonSet.Status.NumberUnavailable))
-
-	// Update Strategy
-	describe.WriteString(fmt.Sprintf("Update Strategy:    %s\n", daemonSet.Spec.UpdateStrategy.Type))
-	if daemonSet.Spec.UpdateStrategy.RollingUpdate != nil && daemonSet.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable != nil {
-		describe.WriteString(fmt.Sprintf("  Max Unavailable:  %s\n", daemonSet.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable.String()))
-	}
-
-	// Pod Template
-	describe.WriteString("\nPod Template:\n")
-	describe.WriteString("  Containers:\n")
-	for _, container := range daemonSet.Spec.Template.Spec.Containers {
-		describe.WriteString(fmt.Sprintf("   %s:\n", container.Name))
-		describe.WriteString(fmt.Sprintf("    Image:      %s\n", container.Image))
-		if len(container.Ports) > 0 {
-			describe.WriteString("    Ports:\n")
-			for _, port := range container.Ports {
-				describe.WriteString(fmt.Sprintf("      %d/%s\n", port.ContainerPort, port.Protocol))
-			}
-		}
-	}
-
-	// Conditions
-	if len(daemonSet.Status.Conditions) > 0 {
-		describe.WriteString("\nConditions:\n")
-		describe.WriteString("  Type           Status  Reason\n")
-		for _, condition := range daemonSet.Status.Conditions {
-			describe.WriteString(fmt.Sprintf("  %-14s %-7s %s\n", condition.Type, condition.Status, condition.Reason))
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -3746,7 +3451,12 @@ func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cronJob, err := ws.app.clientset.BatchV1().CronJobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	cronJob, err := ws.app.clientset.BatchV1().CronJobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3755,8 +3465,7 @@ func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
 	// Remove managed fields for cleaner YAML
 	cronJob.ManagedFields = nil
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(cronJob)
+	yamlData, err := toKubectlYAML(cronJob, schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "CronJob"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3768,103 +3477,36 @@ func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleCronJobDescribe returns kubectl describe-style output for a cronjob
+// handleCronJobDescribe returns kubectl describe output for a cronjob
 func (ws *WebServer) handleCronJobDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "cronjob name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "CronJob name is required",
+		})
 		return
 	}
 
-	cronJob, err := ws.app.clientset.BatchV1().CronJobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("cronjob", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=CronJob", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:                       %s\n", cronJob.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:                  %s\n", cronJob.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp:          %s\n", cronJob.CreationTimestamp.String()))
-
-	// Labels
-	if len(cronJob.Labels) > 0 {
-		describe.WriteString("Labels:                     ")
-		labels := []string{}
-		for k, v := range cronJob.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                            "))
-		describe.WriteString("\n")
-	}
-
-	describe.WriteString(fmt.Sprintf("Schedule:                   %s\n", cronJob.Spec.Schedule))
-	describe.WriteString(fmt.Sprintf("Concurrency Policy:         %s\n", cronJob.Spec.ConcurrencyPolicy))
-
-	suspended := "False"
-	if cronJob.Spec.Suspend != nil && *cronJob.Spec.Suspend {
-		suspended = "True"
-	}
-	describe.WriteString(fmt.Sprintf("Suspend:                    %s\n", suspended))
-
-	if cronJob.Spec.SuccessfulJobsHistoryLimit != nil {
-		describe.WriteString(fmt.Sprintf("Successful Job History Limit: %d\n", *cronJob.Spec.SuccessfulJobsHistoryLimit))
-	}
-	if cronJob.Spec.FailedJobsHistoryLimit != nil {
-		describe.WriteString(fmt.Sprintf("Failed Job History Limit:   %d\n", *cronJob.Spec.FailedJobsHistoryLimit))
-	}
-
-	// Last Schedule Time
-	if cronJob.Status.LastScheduleTime != nil {
-		describe.WriteString(fmt.Sprintf("Last Schedule Time:         %s\n", cronJob.Status.LastScheduleTime.Time.Format(time.RFC3339)))
-	}
-
-	// Active Jobs
-	if len(cronJob.Status.Active) > 0 {
-		describe.WriteString(fmt.Sprintf("Active Jobs:                %d\n", len(cronJob.Status.Active)))
-		for _, job := range cronJob.Status.Active {
-			describe.WriteString(fmt.Sprintf("  %s\n", job.Name))
-		}
-	} else {
-		describe.WriteString("Active Jobs:                <none>\n")
-	}
-
-	// Job Template
-	describe.WriteString("\nJob Template:\n")
-	describe.WriteString("  Containers:\n")
-	for _, container := range cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers {
-		describe.WriteString(fmt.Sprintf("   %s:\n", container.Name))
-		describe.WriteString(fmt.Sprintf("    Image:      %s\n", container.Image))
-		if len(container.Command) > 0 {
-			describe.WriteString(fmt.Sprintf("    Command:    %v\n", container.Command))
-		}
-		if len(container.Args) > 0 {
-			describe.WriteString(fmt.Sprintf("    Args:       %v\n", container.Args))
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -3976,7 +3618,12 @@ func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := ws.app.clientset.BatchV1().Jobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	job, err := ws.app.clientset.BatchV1().Jobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3985,8 +3632,7 @@ func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
 	// Remove managed fields for cleaner YAML
 	job.ManagedFields = nil
 
-	// Convert to YAML
-	yamlData, err := yaml.Marshal(job)
+	yamlData, err := toKubectlYAML(job, schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3998,133 +3644,36 @@ func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleJobDescribe returns kubectl describe-style output for a job
+// handleJobDescribe returns kubectl describe output for a job
 func (ws *WebServer) handleJobDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "job name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Job name is required",
+		})
 		return
 	}
 
-	job, err := ws.app.clientset.BatchV1().Jobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("job", name, namespace)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Job", name),
-	})
-
-	// Get pods for this job
-	pods, _ := ws.app.clientset.CoreV1().Pods(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("job-name=%s", name),
-	})
-
-	var describe strings.Builder
-	describe.WriteString(fmt.Sprintf("Name:           %s\n", job.Name))
-	describe.WriteString(fmt.Sprintf("Namespace:      %s\n", job.Namespace))
-	describe.WriteString(fmt.Sprintf("CreationTimestamp: %s\n", job.CreationTimestamp.String()))
-
-	// Labels
-	if len(job.Labels) > 0 {
-		describe.WriteString("Labels:         ")
-		labels := []string{}
-		for k, v := range job.Labels {
-			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-		}
-		describe.WriteString(strings.Join(labels, "\n                "))
-		describe.WriteString("\n")
-	}
-
-	// Selector
-	if job.Spec.Selector != nil {
-		describe.WriteString(fmt.Sprintf("Selector:       %s\n", metav1.FormatLabelSelector(job.Spec.Selector)))
-	}
-
-	// Completions and Parallelism
-	completions := "?"
-	if job.Spec.Completions != nil {
-		completions = fmt.Sprintf("%d", *job.Spec.Completions)
-	}
-	parallelism := int32(1)
-	if job.Spec.Parallelism != nil {
-		parallelism = *job.Spec.Parallelism
-	}
-	describe.WriteString(fmt.Sprintf("Completions:    %s\n", completions))
-	describe.WriteString(fmt.Sprintf("Parallelism:    %d\n", parallelism))
-
-	// Backoff limit
-	if job.Spec.BackoffLimit != nil {
-		describe.WriteString(fmt.Sprintf("Backoff Limit:  %d\n", *job.Spec.BackoffLimit))
-	}
-
-	// Start Time
-	if job.Status.StartTime != nil {
-		describe.WriteString(fmt.Sprintf("Start Time:     %s\n", job.Status.StartTime.Time.Format(time.RFC3339)))
-	}
-
-	// Completion Time
-	if job.Status.CompletionTime != nil {
-		describe.WriteString(fmt.Sprintf("Completion Time: %s\n", job.Status.CompletionTime.Time.Format(time.RFC3339)))
-		duration := job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time).Round(time.Second)
-		describe.WriteString(fmt.Sprintf("Duration:       %s\n", duration.String()))
-	}
-
-	// Status
-	describe.WriteString(fmt.Sprintf("Active:         %d\n", job.Status.Active))
-	describe.WriteString(fmt.Sprintf("Succeeded:      %d\n", job.Status.Succeeded))
-	describe.WriteString(fmt.Sprintf("Failed:         %d\n", job.Status.Failed))
-
-	// Pod Template
-	describe.WriteString("\nPod Template:\n")
-	describe.WriteString("  Containers:\n")
-	for _, container := range job.Spec.Template.Spec.Containers {
-		describe.WriteString(fmt.Sprintf("   %s:\n", container.Name))
-		describe.WriteString(fmt.Sprintf("    Image:      %s\n", container.Image))
-		if len(container.Command) > 0 {
-			describe.WriteString(fmt.Sprintf("    Command:    %v\n", container.Command))
-		}
-		if len(container.Args) > 0 {
-			describe.WriteString(fmt.Sprintf("    Args:       %v\n", container.Args))
-		}
-	}
-
-	// Pods
-	if pods != nil && len(pods.Items) > 0 {
-		describe.WriteString("\nPods Statuses:\n")
-		for _, pod := range pods.Items {
-			describe.WriteString(fmt.Sprintf("  %s: %s\n", pod.Name, pod.Status.Phase))
-		}
-	}
-
-	// Conditions
-	if len(job.Status.Conditions) > 0 {
-		describe.WriteString("\nConditions:\n")
-		describe.WriteString("  Type           Status  Reason\n")
-		for _, condition := range job.Status.Conditions {
-			describe.WriteString(fmt.Sprintf("  %-14s %-7s %s\n", condition.Type, condition.Status, condition.Reason))
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
@@ -4256,7 +3805,10 @@ func (ws *WebServer) handleNodeYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	yamlData, err := yaml.Marshal(node)
+	// Remove managed fields for cleaner YAML
+	node.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(node, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Node"})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4271,7 +3823,7 @@ func (ws *WebServer) handleNodeYAML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleNodeDescribe returns kubectl describe-style output for a node
+// handleNodeDescribe returns kubectl describe output for a node
 func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -4284,7 +3836,8 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	node, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, name, metav1.GetOptions{})
+	// Nodes are cluster-scoped, no namespace needed
+	describe, err := runKubectlDescribe("node", name, "")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4293,113 +3846,9 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Get events for this node
-	events, _ := ws.app.clientset.CoreV1().Events("").List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Node", name),
-	})
-
-	// Get pods running on this node
-	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", name),
-	})
-
-	var describe bytes.Buffer
-	describe.WriteString(fmt.Sprintf("Name:               %s\n", node.Name))
-
-	// Roles
-	roles := []string{}
-	for label := range node.Labels {
-		if strings.Contains(label, "node-role.kubernetes.io/") {
-			role := strings.TrimPrefix(label, "node-role.kubernetes.io/")
-			roles = append(roles, role)
-		}
-	}
-	if len(roles) == 0 {
-		roles = append(roles, "worker")
-	}
-	describe.WriteString(fmt.Sprintf("Roles:              %s\n", strings.Join(roles, ",")))
-
-	// Labels
-	describe.WriteString("Labels:             ")
-	first := true
-	for k, v := range node.Labels {
-		if !first {
-			describe.WriteString("                    ")
-		}
-		describe.WriteString(fmt.Sprintf("%s=%s\n", k, v))
-		first = false
-	}
-
-	// Addresses
-	describe.WriteString("Addresses:\n")
-	for _, addr := range node.Status.Addresses {
-		describe.WriteString(fmt.Sprintf("  %s: %s\n", addr.Type, addr.Address))
-	}
-
-	// Capacity
-	describe.WriteString("\nCapacity:\n")
-	describe.WriteString(fmt.Sprintf("  cpu:     %s\n", node.Status.Capacity.Cpu().String()))
-	describe.WriteString(fmt.Sprintf("  memory:  %s\n", node.Status.Capacity.Memory().String()))
-	describe.WriteString(fmt.Sprintf("  pods:    %s\n", node.Status.Capacity.Pods().String()))
-
-	// Allocatable
-	describe.WriteString("\nAllocatable:\n")
-	describe.WriteString(fmt.Sprintf("  cpu:     %s\n", node.Status.Allocatable.Cpu().String()))
-	describe.WriteString(fmt.Sprintf("  memory:  %s\n", node.Status.Allocatable.Memory().String()))
-	describe.WriteString(fmt.Sprintf("  pods:    %s\n", node.Status.Allocatable.Pods().String()))
-
-	// System Info
-	describe.WriteString("\nSystem Info:\n")
-	describe.WriteString(fmt.Sprintf("  OS Image:                   %s\n", node.Status.NodeInfo.OSImage))
-	describe.WriteString(fmt.Sprintf("  Operating System:           %s\n", node.Status.NodeInfo.OperatingSystem))
-	describe.WriteString(fmt.Sprintf("  Architecture:               %s\n", node.Status.NodeInfo.Architecture))
-	describe.WriteString(fmt.Sprintf("  Container Runtime Version:  %s\n", node.Status.NodeInfo.ContainerRuntimeVersion))
-	describe.WriteString(fmt.Sprintf("  Kubelet Version:            %s\n", node.Status.NodeInfo.KubeletVersion))
-	describe.WriteString(fmt.Sprintf("  Kube-Proxy Version:         %s\n", node.Status.NodeInfo.KubeProxyVersion))
-
-	// Conditions
-	describe.WriteString("\nConditions:\n")
-	describe.WriteString("  Type             Status  Reason                       Message\n")
-	for _, condition := range node.Status.Conditions {
-		describe.WriteString(fmt.Sprintf("  %-16s %-7s %-28s %s\n",
-			condition.Type, condition.Status, condition.Reason, condition.Message))
-	}
-
-	// Pods
-	if pods != nil && len(pods.Items) > 0 {
-		describe.WriteString(fmt.Sprintf("\nNon-terminated Pods:          (%d in total)\n", len(pods.Items)))
-		describe.WriteString("  Namespace  Name                              CPU Requests  Memory Requests\n")
-		for _, pod := range pods.Items {
-			cpuReq := int64(0)
-			memReq := int64(0)
-			for _, container := range pod.Spec.Containers {
-				cpuReq += container.Resources.Requests.Cpu().MilliValue()
-				memReq += container.Resources.Requests.Memory().Value()
-			}
-			describe.WriteString(fmt.Sprintf("  %-10s %-33s %-13s %s\n",
-				pod.Namespace, pod.Name,
-				fmt.Sprintf("%dm", cpuReq),
-				fmt.Sprintf("%.0fMi", float64(memReq)/(1024*1024))))
-		}
-	}
-
-	// Events
-	if events != nil && len(events.Items) > 0 {
-		describe.WriteString("\nEvents:\n")
-		describe.WriteString("  Type    Reason   Age   Message\n")
-		for _, event := range events.Items {
-			age := formatAge(time.Since(event.LastTimestamp.Time))
-			describe.WriteString(fmt.Sprintf("  %-7s %-8s %-5s %s\n",
-				event.Type,
-				event.Reason,
-				age,
-				event.Message))
-		}
-	}
-
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"describe": describe.String(),
+		"describe": describe,
 	})
 }
 
