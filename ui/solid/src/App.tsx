@@ -21,6 +21,7 @@ import Cost from './routes/Cost';
 import Drift from './routes/Drift';
 import Events from './routes/Events';
 import Apps from './routes/Apps';
+import Settings from './routes/Settings';
 import AIChat from './components/AIChat';
 import { currentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
@@ -48,6 +49,7 @@ const views: Record<string, Component> = {
   drift: Drift,
   events: Events,
   apps: Apps,
+  settings: Settings,
 };
 
 const App: Component = () => {
