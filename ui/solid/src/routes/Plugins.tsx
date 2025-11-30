@@ -1,6 +1,7 @@
-import { Component, For, Show, createSignal, createResource, JSX } from 'solid-js';
+import { Component, For, Show, createSignal, createResource, createEffect, JSX } from 'solid-js';
 import { api } from '../services/api';
 import Modal from '../components/Modal';
+import { currentContext } from '../stores/cluster';
 
 interface Plugin {
   name: string;
@@ -33,66 +34,210 @@ interface ArgoCDApp {
   age: string;
 }
 
+interface HelmHistoryEntry {
+  revision: number;
+  status: string;
+  updated: string;
+  description?: string;
+}
+
 const Plugins: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'overview' | 'helm' | 'argocd' | 'flux'>('overview');
   const [selectedRelease, setSelectedRelease] = createSignal<HelmRelease | null>(null);
   const [selectedArgoApp, setSelectedArgoApp] = createSignal<ArgoCDApp | null>(null);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showArgoDetails, setShowArgoDetails] = createSignal(false);
+  const [releaseHistory, setReleaseHistory] = createSignal<HelmHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = createSignal(false);
+  const [actionLoading, setActionLoading] = createSignal(false);
+  const [actionMessage, setActionMessage] = createSignal<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const [helmReleases] = createResource(
-    () => activeTab() === 'helm',
+  // Resources now depend on currentContext to auto-refetch when cluster changes
+  const [helmReleases, { refetch: refetchHelm, mutate: mutateHelm }] = createResource(
+    () => activeTab() === 'helm' ? currentContext() : false,
     async () => api.getHelmReleases()
   );
-  const [argoCDApps] = createResource(
-    () => activeTab() === 'argocd',
+  const [argoCDApps, { refetch: refetchArgo, mutate: mutateArgo }] = createResource(
+    () => activeTab() === 'argocd' ? currentContext() : false,
     async () => api.getArgoCDApps()
   );
-  const [fluxResources] = createResource(
-    () => activeTab() === 'flux',
+  const [fluxResources, { refetch: refetchFlux, mutate: mutateFlux }] = createResource(
+    () => activeTab() === 'flux' ? currentContext() : false,
     async () => api.getFluxResources()
   );
 
-  // SVG Icons for plugins
+  // Clear plugin data when context changes (to prevent showing stale data)
+  createEffect(() => {
+    const ctx = currentContext();
+    if (ctx) {
+      // Clear all plugin data when context changes
+      mutateHelm(undefined);
+      mutateArgo(undefined);
+      mutateFlux(undefined);
+    }
+  });
+
+  // Fetch helm release history when modal opens
+  const fetchHistory = async (name: string, namespace: string) => {
+    setHistoryLoading(true);
+    try {
+      const result = await api.getHelmReleaseHistory(name, namespace);
+      setReleaseHistory(result.history || []);
+    } catch (e) {
+      console.error('Failed to fetch release history:', e);
+      setReleaseHistory([]);
+    }
+    setHistoryLoading(false);
+  };
+
+  // Handle helm rollback
+  const handleRollback = async (revision: number) => {
+    const release = selectedRelease();
+    if (!release) return;
+
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      await api.rollbackHelmRelease(release.name, release.namespace, revision);
+      setActionMessage({ type: 'success', text: `Rolled back to revision ${revision}` });
+      // Refresh history and releases
+      fetchHistory(release.name, release.namespace);
+      refetchHelm();
+    } catch (e: any) {
+      setActionMessage({ type: 'error', text: e.message || 'Rollback failed' });
+    }
+    setActionLoading(false);
+  };
+
+  // Handle ArgoCD sync
+  const handleArgoSync = async () => {
+    const app = selectedArgoApp();
+    if (!app) return;
+
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      await api.syncArgoCDApp(app.name, app.namespace);
+      setActionMessage({ type: 'success', text: 'Sync triggered successfully' });
+      refetchArgo();
+    } catch (e: any) {
+      setActionMessage({ type: 'error', text: e.message || 'Sync failed' });
+    }
+    setActionLoading(false);
+  };
+
+  // Handle ArgoCD refresh
+  const handleArgoRefresh = async () => {
+    const app = selectedArgoApp();
+    if (!app) return;
+
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      await api.refreshArgoCDApp(app.name, app.namespace);
+      setActionMessage({ type: 'success', text: 'Refresh triggered successfully' });
+      refetchArgo();
+    } catch (e: any) {
+      setActionMessage({ type: 'error', text: e.message || 'Refresh failed' });
+    }
+    setActionLoading(false);
+  };
+
+  // Open helm details and fetch history
+  const openHelmDetails = (release: HelmRelease) => {
+    setSelectedRelease(release);
+    setShowDetails(true);
+    setActionMessage(null);
+    fetchHistory(release.name, release.namespace);
+  };
+
+  // Open ArgoCD details
+  const openArgoDetails = (app: ArgoCDApp) => {
+    setSelectedArgoApp(app);
+    setShowArgoDetails(true);
+    setActionMessage(null);
+  };
+
+  // Official SVG Icons for plugins
   const HelmIcon = () => (
-    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="1.5">
-      <circle cx="12" cy="12" r="10" stroke="var(--accent-primary)" />
-      <circle cx="12" cy="12" r="3" fill="var(--accent-primary)" />
-      <line x1="12" y1="2" x2="12" y2="6" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="12" y1="18" x2="12" y2="22" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="2" y1="12" x2="6" y2="12" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="18" y1="12" x2="22" y2="12" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke="var(--accent-primary)" stroke-width="2" />
-      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" stroke="var(--accent-primary)" stroke-width="2" />
+    // Official Helm ship wheel logo
+    <svg viewBox="0 0 512 512" class="w-8 h-8">
+      <path fill="#0F1689" d="M256 0C114.6 0 0 114.6 0 256s114.6 256 256 256 256-114.6 256-256S397.4 0 256 0z"/>
+      <g fill="#fff">
+        <circle cx="256" cy="256" r="50"/>
+        <rect x="248" y="96" width="16" height="80" rx="8"/>
+        <rect x="248" y="336" width="16" height="80" rx="8"/>
+        <rect x="96" y="248" width="80" height="16" rx="8"/>
+        <rect x="336" y="248" width="80" height="16" rx="8"/>
+        <rect x="132" y="132" width="16" height="80" rx="8" transform="rotate(-45 140 172)"/>
+        <rect x="364" y="300" width="16" height="80" rx="8" transform="rotate(-45 372 340)"/>
+        <rect x="300" y="132" width="16" height="80" rx="8" transform="rotate(45 308 172)"/>
+        <rect x="132" y="300" width="16" height="80" rx="8" transform="rotate(45 140 340)"/>
+      </g>
     </svg>
   );
 
   const ArgoCDIcon = () => (
-    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="var(--accent-secondary)" stroke-width="2">
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
-      <path d="M12 6v6l4 2" stroke-linecap="round" />
-      <path d="M8 12a4 4 0 1 0 8 0" stroke-linecap="round" />
-      <circle cx="12" cy="12" r="2" fill="var(--accent-secondary)" />
+    // Official ArgoCD octopus logo
+    <svg viewBox="0 0 128 128" class="w-8 h-8">
+      <defs>
+        <linearGradient id="argoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#EF7B4D"/>
+          <stop offset="100%" style="stop-color:#E96D3F"/>
+        </linearGradient>
+      </defs>
+      <circle cx="64" cy="64" r="60" fill="url(#argoGrad)"/>
+      <g fill="#fff">
+        <ellipse cx="64" cy="52" rx="28" ry="24"/>
+        <circle cx="52" cy="48" r="6" fill="#E96D3F"/>
+        <circle cx="76" cy="48" r="6" fill="#E96D3F"/>
+        <circle cx="52" cy="48" r="3" fill="#1a1a1a"/>
+        <circle cx="76" cy="48" r="3" fill="#1a1a1a"/>
+        <path d="M44 76 Q34 90 28 100" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M52 78 Q48 94 44 106" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M64 80 Q64 96 64 108" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M76 78 Q80 94 84 106" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M84 76 Q94 90 100 100" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/>
+      </g>
     </svg>
   );
 
   const FluxIcon = () => (
-    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round">
-      <path d="M2 6c3-3 6-3 9 0s6 3 9 0" />
-      <path d="M2 12c3-3 6-3 9 0s6 3 9 0" />
-      <path d="M2 18c3-3 6-3 9 0s6 3 9 0" />
+    // Official Flux logo - blue waves
+    <svg viewBox="0 0 128 128" class="w-8 h-8">
+      <defs>
+        <linearGradient id="fluxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#5468FF"/>
+          <stop offset="100%" style="stop-color:#316CE6"/>
+        </linearGradient>
+      </defs>
+      <circle cx="64" cy="64" r="60" fill="url(#fluxGrad)"/>
+      <g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round">
+        <path d="M24 44 Q44 28 64 44 Q84 60 104 44"/>
+        <path d="M24 64 Q44 48 64 64 Q84 80 104 64"/>
+        <path d="M24 84 Q44 68 64 84 Q84 100 104 84"/>
+      </g>
     </svg>
   );
 
   const KustomizeIcon = () => (
-    <svg viewBox="0 0 24 24" class="w-8 h-8" fill="none" stroke="var(--success-color)" stroke-width="2">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M3 9h18" />
-      <path d="M3 15h18" />
-      <path d="M9 3v18" />
-      <path d="M15 3v18" />
+    // Official Kustomize logo - K with squares
+    <svg viewBox="0 0 128 128" class="w-8 h-8">
+      <defs>
+        <linearGradient id="kustomizeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#326CE5"/>
+          <stop offset="100%" style="stop-color:#1D4ED8"/>
+        </linearGradient>
+      </defs>
+      <circle cx="64" cy="64" r="60" fill="url(#kustomizeGrad)"/>
+      <g fill="#fff">
+        <rect x="32" y="28" width="16" height="72" rx="2"/>
+        <polygon points="48,64 80,28 96,28 56,72 96,100 80,100"/>
+      </g>
+      <g fill="none" stroke="#fff" stroke-width="3">
+        <rect x="76" y="52" width="20" height="20" rx="2"/>
+        <rect x="86" y="62" width="20" height="20" rx="2"/>
+      </g>
     </svg>
   );
 
@@ -192,6 +337,27 @@ const Plugins: Component = () => {
 
       {/* Helm Tab */}
       <Show when={activeTab() === 'helm'}>
+        <div class="flex items-center justify-between mb-4">
+          <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
+            {helmReleases()?.length || 0} releases
+          </div>
+          <button
+            onClick={() => refetchHelm()}
+            disabled={helmReleases.loading}
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              opacity: helmReleases.loading ? 0.5 : 1,
+            }}
+          >
+            <svg class={`w-4 h-4 ${helmReleases.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
         <div class="card overflow-hidden">
           <Show when={!helmReleases.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
             <table class="data-table">
@@ -205,7 +371,7 @@ const Plugins: Component = () => {
                   {(release: HelmRelease) => (
                     <tr
                       class="cursor-pointer hover:bg-[var(--bg-tertiary)]"
-                      onClick={() => { setSelectedRelease(release); setShowDetails(true); }}
+                      onClick={() => openHelmDetails(release)}
                     >
                       <td class="font-medium" style={{ color: 'var(--accent-primary)' }}>{release.name}</td>
                       <td>{release.namespace}</td>
@@ -214,9 +380,9 @@ const Plugins: Component = () => {
                       <td><span class={`badge ${release.status === 'deployed' ? 'badge-success' : 'badge-warning'}`}>{release.status}</span></td>
                       <td>{release.updated}</td>
                       <td>
-                        <button onClick={(e) => { e.stopPropagation(); setSelectedRelease(release); setShowDetails(true); }} class="action-btn" title="Details">
+                        <button onClick={(e) => { e.stopPropagation(); openHelmDetails(release); }} class="action-btn" title="Details & History">
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </button>
                       </td>
@@ -231,6 +397,27 @@ const Plugins: Component = () => {
 
       {/* ArgoCD Tab */}
       <Show when={activeTab() === 'argocd'}>
+        <div class="flex items-center justify-between mb-4">
+          <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
+            {argoCDApps()?.length || 0} applications
+          </div>
+          <button
+            onClick={() => refetchArgo()}
+            disabled={argoCDApps.loading}
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              opacity: argoCDApps.loading ? 0.5 : 1,
+            }}
+          >
+            <svg class={`w-4 h-4 ${argoCDApps.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
         <div class="card overflow-hidden">
           <Show when={!argoCDApps.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
             <Show when={(argoCDApps() || []).length > 0} fallback={
@@ -249,15 +436,35 @@ const Plugins: Component = () => {
                     {(app: ArgoCDApp) => (
                       <tr
                         class="cursor-pointer hover:bg-[var(--bg-tertiary)]"
-                        onClick={() => { setSelectedArgoApp(app); setShowArgoDetails(true); }}
+                        onClick={() => openArgoDetails(app)}
                       >
                         <td class="font-medium" style={{ color: 'var(--accent-primary)' }}>{app.name}</td>
                         <td>{app.project}</td>
                         <td><span class={`badge ${app.syncStatus === 'Synced' ? 'badge-success' : 'badge-warning'}`}>{app.syncStatus}</span></td>
                         <td><span class={`badge ${app.health === 'Healthy' ? 'badge-success' : 'badge-error'}`}>{app.health}</span></td>
-                        <td class="text-sm">{app.age}</td>
-                        <td>
-                          <button onClick={(e) => { e.stopPropagation(); setSelectedArgoApp(app); setShowArgoDetails(true); }} class="action-btn" title="Details">
+                        <td>{app.age}</td>
+                        <td class="flex gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedArgoApp(app); handleArgoSync(); }}
+                            class="action-btn"
+                            title="Sync - Apply changes from Git"
+                          >
+                            {/* Cloud upload/sync icon for GitOps sync */}
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedArgoApp(app); handleArgoRefresh(); }}
+                            class="action-btn"
+                            title="Refresh - Fetch latest state"
+                          >
+                            {/* Circular arrows for refresh/reload */}
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); openArgoDetails(app); }} class="action-btn" title="Details">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
@@ -275,6 +482,27 @@ const Plugins: Component = () => {
 
       {/* Flux Tab */}
       <Show when={activeTab() === 'flux'}>
+        <div class="flex items-center justify-between mb-4">
+          <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
+            {fluxResources()?.length || 0} resources
+          </div>
+          <button
+            onClick={() => refetchFlux()}
+            disabled={fluxResources.loading}
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              opacity: fluxResources.loading ? 0.5 : 1,
+            }}
+          >
+            <svg class={`w-4 h-4 ${fluxResources.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
         <div class="card overflow-hidden">
           <Show when={!fluxResources.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
             <Show when={(fluxResources() || []).length > 0} fallback={
@@ -296,7 +524,7 @@ const Plugins: Component = () => {
                         <td>{resource.kind}</td>
                         <td>{resource.namespace}</td>
                         <td><span class={`badge ${resource.ready ? 'badge-success' : 'badge-error'}`}>{resource.ready ? 'True' : 'False'}</span></td>
-                        <td class="text-sm">{resource.status}</td>
+                        <td>{resource.status}</td>
                       </tr>
                     )}
                   </For>
@@ -311,13 +539,21 @@ const Plugins: Component = () => {
       <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Helm Release: ${selectedRelease()?.name}`} size="lg">
         <Show when={selectedRelease()}>
           <div class="space-y-4">
+            {/* Action Message */}
+            <Show when={actionMessage()}>
+              <div class={`p-3 rounded-lg ${actionMessage()?.type === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                {actionMessage()?.text}
+              </div>
+            </Show>
+
+            {/* Release Info */}
             <div class="grid grid-cols-2 gap-4">
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                 <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Chart</div>
                 <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.chart}</div>
               </div>
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Revision</div>
+                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Current Revision</div>
                 <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.revision}</div>
               </div>
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
@@ -333,6 +569,74 @@ const Plugins: Component = () => {
                 <div style={{ color: 'var(--text-primary)' }}>{selectedRelease()?.updated}</div>
               </div>
             </div>
+
+            {/* Release History */}
+            <div>
+              <h4 class="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Release History
+              </h4>
+              <Show when={!historyLoading()} fallback={
+                <div class="p-4 text-center"><div class="spinner mx-auto" /></div>
+              }>
+                <Show when={releaseHistory().length > 0} fallback={
+                  <div class="p-4 text-center" style={{ color: 'var(--text-muted)' }}>No history available</div>
+                }>
+                  <div class="border rounded-lg overflow-hidden" style={{ 'border-color': 'var(--border-color)' }}>
+                    <table class="data-table w-full">
+                      <thead>
+                        <tr>
+                          <th>Revision</th>
+                          <th>Status</th>
+                          <th>Updated</th>
+                          <th>Description</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={releaseHistory()}>
+                          {(entry: HelmHistoryEntry) => (
+                            <tr>
+                              <td style={{ color: 'var(--accent-primary)' }}>
+                                {entry.revision}
+                                <Show when={entry.revision === selectedRelease()?.revision}>
+                                  <span class="ml-2 badge badge-success">current</span>
+                                </Show>
+                              </td>
+                              <td>
+                                <span class={`badge ${entry.status === 'deployed' ? 'badge-success' : entry.status === 'superseded' ? 'badge-secondary' : 'badge-warning'}`}>
+                                  {entry.status}
+                                </span>
+                              </td>
+                              <td style={{ color: 'var(--text-secondary)' }}>{entry.updated}</td>
+                              <td class="max-w-xs truncate" style={{ color: 'var(--text-muted)' }}>{entry.description || '-'}</td>
+                              <td>
+                                <Show when={entry.revision !== selectedRelease()?.revision}>
+                                  <button
+                                    onClick={() => handleRollback(entry.revision)}
+                                    disabled={actionLoading()}
+                                    class="px-3 py-1.5 rounded transition-colors font-medium"
+                                    style={{
+                                      background: 'var(--warning-color)',
+                                      color: '#000',
+                                      opacity: actionLoading() ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {actionLoading() ? 'Rolling back...' : 'Rollback'}
+                                  </button>
+                                </Show>
+                              </td>
+                            </tr>
+                          )}
+                        </For>
+                      </tbody>
+                    </table>
+                  </div>
+                </Show>
+              </Show>
+            </div>
           </div>
         </Show>
       </Modal>
@@ -341,6 +645,51 @@ const Plugins: Component = () => {
       <Modal isOpen={showArgoDetails()} onClose={() => setShowArgoDetails(false)} title={`ArgoCD App: ${selectedArgoApp()?.name}`} size="lg">
         <Show when={selectedArgoApp()}>
           <div class="space-y-4">
+            {/* Action Message */}
+            <Show when={actionMessage()}>
+              <div class={`p-3 rounded-lg ${actionMessage()?.type === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                {actionMessage()?.text}
+              </div>
+            </Show>
+
+            {/* Action Buttons */}
+            <div class="flex gap-2">
+              <button
+                onClick={handleArgoSync}
+                disabled={actionLoading()}
+                class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+                style={{
+                  background: 'var(--accent-primary)',
+                  color: '#fff',
+                  opacity: actionLoading() ? 0.5 : 1,
+                }}
+                title="Apply changes from Git repository"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                {actionLoading() ? 'Syncing...' : 'Sync'}
+              </button>
+              <button
+                onClick={handleArgoRefresh}
+                title="Fetch latest state from cluster"
+                disabled={actionLoading()}
+                class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+                style={{
+                  background: 'var(--bg-tertiary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  opacity: actionLoading() ? 0.5 : 1,
+                }}
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {actionLoading() ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+
+            {/* App Info */}
             <div class="grid grid-cols-2 gap-4">
               <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                 <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Project</div>

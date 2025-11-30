@@ -1,216 +1,258 @@
-import { Component, For, Show, createResource } from 'solid-js';
+import { Component, For, Show, createResource, createSignal } from 'solid-js';
 import { api } from '../services/api';
+import { namespace } from '../stores/cluster';
 
-interface SecurityCheck {
-  name: string;
-  status: 'pass' | 'warning' | 'fail';
-  description: string;
-  recommendation?: string;
+interface Finding {
+  rule: string;
+  severity: 'critical' | 'warning' | 'info';
+  resource: string;
+  namespace: string;
+  message: string;
+  remediation: string;
+  category: string;
+}
+
+interface DiagnosticsSummary {
+  total: number;
+  critical: number;
+  warning: number;
+  info: number;
+  byCategory: Record<string, number>;
 }
 
 const Security: Component = () => {
-  const [pods] = createResource(() => api.getPods('_all'));
-  const [deployments] = createResource(() => api.getDeployments('_all'));
-  const [secrets] = createResource(api.getSecrets);
+  const [selectedCategory, setSelectedCategory] = createSignal<string>('');
 
-  // Generate security checks based on cluster state
-  const getSecurityChecks = (): SecurityCheck[] => {
-    const checks: SecurityCheck[] = [];
-    const podList = pods() || [];
-    const deployList = deployments() || [];
+  const [categories] = createResource(api.getDiagnosticsCategories);
 
-    // Check for pods running as root
-    const rootPods = podList.filter((p: any) => p.securityContext?.runAsRoot);
-    checks.push({
-      name: 'Pods Running as Non-Root',
-      status: rootPods.length === 0 ? 'pass' : 'warning',
-      description: `${rootPods.length} pods may be running as root`,
-      recommendation: 'Set securityContext.runAsNonRoot: true in pod specs',
-    });
+  const [diagnostics, { refetch }] = createResource(
+    () => ({ ns: namespace(), cat: selectedCategory() }),
+    async (params) => {
+      const ns = params.ns === '_all' ? undefined : params.ns;
+      const cat = params.cat || undefined;
+      return api.runDiagnostics(ns, cat);
+    }
+  );
 
-    // Check for resource limits
-    const podsWithoutLimits = podList.filter((p: any) => !p.hasResourceLimits);
-    checks.push({
-      name: 'Resource Limits Configured',
-      status: podsWithoutLimits.length === 0 ? 'pass' : podsWithoutLimits.length < podList.length / 2 ? 'warning' : 'fail',
-      description: `${podList.length - podsWithoutLimits.length}/${podList.length} pods have resource limits`,
-      recommendation: 'Configure CPU and memory limits for all pods',
-    });
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'var(--error-color)';
+      case 'warning': return 'var(--warning-color)';
+      case 'info': return 'var(--accent-primary)';
+      default: return 'var(--text-secondary)';
+    }
+  };
 
-    // Check for privileged containers
-    checks.push({
-      name: 'No Privileged Containers',
-      status: 'pass',
-      description: 'No privileged containers detected',
-      recommendation: 'Avoid using privileged: true unless absolutely necessary',
-    });
+  const getSeverityBg = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'rgba(239, 68, 68, 0.1)';
+      case 'warning': return 'rgba(245, 158, 11, 0.1)';
+      case 'info': return 'rgba(6, 182, 212, 0.1)';
+      default: return 'var(--bg-tertiary)';
+    }
+  };
 
-    // Check for host network/PID
-    checks.push({
-      name: 'Host Network Isolation',
-      status: 'pass',
-      description: 'Pods are properly isolated from host network',
-      recommendation: 'Avoid hostNetwork: true unless required',
-    });
-
-    // Check for image pull policy
-    checks.push({
-      name: 'Image Pull Policy',
-      status: 'warning',
-      description: 'Some images may use :latest tag',
-      recommendation: 'Use specific image tags and imagePullPolicy: Always for production',
-    });
-
-    // Network policies
-    checks.push({
-      name: 'Network Policies',
-      status: 'warning',
-      description: 'Network policies should be reviewed',
-      recommendation: 'Implement NetworkPolicies to restrict pod-to-pod communication',
-    });
-
-    // RBAC
-    checks.push({
-      name: 'RBAC Enabled',
-      status: 'pass',
-      description: 'Role-Based Access Control is enabled',
-      recommendation: 'Follow principle of least privilege for service accounts',
-    });
-
-    // Secrets encryption
-    checks.push({
-      name: 'Secrets Encryption at Rest',
-      status: 'pass',
-      description: 'Secrets are encrypted at rest',
-      recommendation: 'Use external secret management for sensitive data',
-    });
-
-    // Pod Security Standards
-    checks.push({
-      name: 'Pod Security Standards',
-      status: 'warning',
-      description: 'Consider enabling Pod Security Standards',
-      recommendation: 'Apply restricted or baseline Pod Security Standards',
-    });
-
-    // Image scanning
-    checks.push({
-      name: 'Container Image Scanning',
-      status: 'warning',
-      description: 'Ensure images are scanned for vulnerabilities',
-      recommendation: 'Integrate vulnerability scanning in CI/CD pipeline',
-    });
-
-    return checks;
+  const getSeverityBorder = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'rgba(239, 68, 68, 0.3)';
+      case 'warning': return 'rgba(245, 158, 11, 0.3)';
+      case 'info': return 'rgba(6, 182, 212, 0.3)';
+      default: return 'var(--border-color)';
+    }
   };
 
   const calculateScore = () => {
-    const checks = getSecurityChecks();
-    const passed = checks.filter(c => c.status === 'pass').length;
-    const warned = checks.filter(c => c.status === 'warning').length;
-    return Math.round(((passed + warned * 0.5) / checks.length) * 100);
+    const summary = diagnostics()?.summary as DiagnosticsSummary;
+    if (!summary || summary.total === 0) return 100;
+    const criticalWeight = summary.critical * 20;
+    const warningWeight = summary.warning * 5;
+    return Math.max(0, 100 - criticalWeight - warningWeight);
   };
 
   return (
     <div class="space-y-6">
-      <div>
-        <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Security</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>Security posture and best practices analysis</p>
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Security & Diagnostics</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>Cluster health checks, security posture, and best practices analysis</p>
+        </div>
+        <button
+          onClick={() => refetch()}
+          class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
+          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Run Diagnostics
+        </button>
       </div>
 
       {/* Score Overview */}
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="card p-6 col-span-1">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="card p-6">
           <div class="text-center">
-            <div class="text-5xl font-bold mb-2" style={{ color: calculateScore() >= 80 ? 'var(--success-color)' : calculateScore() >= 60 ? 'var(--warning-color)' : 'var(--error-color)' }}>
+            <div class="text-5xl font-bold mb-2" style={{
+              color: calculateScore() >= 80 ? 'var(--success-color)' :
+                     calculateScore() >= 60 ? 'var(--warning-color)' : 'var(--error-color)'
+            }}>
               {calculateScore()}
             </div>
-            <div style={{ color: 'var(--text-secondary)' }}>Security Score</div>
+            <div style={{ color: 'var(--text-secondary)' }}>Health Score</div>
             <div class="mt-4 h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
               <div
                 class="h-full rounded-full transition-all"
                 style={{
                   width: `${calculateScore()}%`,
-                  background: calculateScore() >= 80 ? 'var(--success-color)' : calculateScore() >= 60 ? 'var(--warning-color)' : 'var(--error-color)',
+                  background: calculateScore() >= 80 ? 'var(--success-color)' :
+                             calculateScore() >= 60 ? 'var(--warning-color)' : 'var(--error-color)',
                 }}
               />
             </div>
           </div>
         </div>
 
-        <div class="card p-6 col-span-2">
-          <h3 class="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Summary</h3>
-          <div class="grid grid-cols-3 gap-4">
-            <div class="text-center p-4 rounded-lg" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
-              <div class="text-2xl font-bold" style={{ color: 'var(--success-color)' }}>
-                {getSecurityChecks().filter(c => c.status === 'pass').length}
-              </div>
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Passed</div>
+        <div class="card p-6">
+          <div class="text-center">
+            <div class="text-3xl font-bold" style={{ color: 'var(--error-color)' }}>
+              {diagnostics()?.summary?.critical || 0}
             </div>
-            <div class="text-center p-4 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
-              <div class="text-2xl font-bold" style={{ color: 'var(--warning-color)' }}>
-                {getSecurityChecks().filter(c => c.status === 'warning').length}
-              </div>
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Warnings</div>
+            <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical Issues</div>
+          </div>
+        </div>
+
+        <div class="card p-6">
+          <div class="text-center">
+            <div class="text-3xl font-bold" style={{ color: 'var(--warning-color)' }}>
+              {diagnostics()?.summary?.warning || 0}
             </div>
-            <div class="text-center p-4 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.1)' }}>
-              <div class="text-2xl font-bold" style={{ color: 'var(--error-color)' }}>
-                {getSecurityChecks().filter(c => c.status === 'fail').length}
-              </div>
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Failed</div>
+            <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Warnings</div>
+          </div>
+        </div>
+
+        <div class="card p-6">
+          <div class="text-center">
+            <div class="text-3xl font-bold" style={{ color: 'var(--accent-primary)' }}>
+              {diagnostics()?.summary?.info || 0}
             </div>
+            <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Info</div>
           </div>
         </div>
       </div>
 
-      {/* Security Checks */}
+      {/* Category Filter */}
+      <div class="flex gap-2 flex-wrap">
+        <button
+          onClick={() => setSelectedCategory('')}
+          class="px-3 py-1.5 rounded-lg text-sm transition-colors"
+          style={{
+            background: selectedCategory() === '' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+            color: selectedCategory() === '' ? 'white' : 'var(--text-secondary)',
+          }}
+        >
+          All Categories
+        </button>
+        <For each={categories() || []}>
+          {(cat: any) => (
+            <button
+              onClick={() => setSelectedCategory(cat.id)}
+              class="px-3 py-1.5 rounded-lg text-sm transition-colors"
+              style={{
+                background: selectedCategory() === cat.id ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                color: selectedCategory() === cat.id ? 'white' : 'var(--text-secondary)',
+              }}
+            >
+              {cat.name}
+              <Show when={diagnostics()?.summary?.byCategory?.[cat.id]}>
+                <span class="ml-1 opacity-70">({diagnostics()?.summary?.byCategory?.[cat.id]})</span>
+              </Show>
+            </button>
+          )}
+        </For>
+      </div>
+
+      {/* Findings List */}
       <div class="card p-6">
         <h3 class="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
-          Security Checks
+          Findings ({diagnostics()?.total || 0})
         </h3>
+
+        <Show when={diagnostics.loading}>
+          <div class="text-center py-8">
+            <div class="spinner mx-auto mb-4" />
+            <p style={{ color: 'var(--text-muted)' }}>Running diagnostics...</p>
+          </div>
+        </Show>
+
+        <Show when={!diagnostics.loading && (diagnostics()?.findings?.length || 0) === 0}>
+          <div class="text-center py-8" style={{ color: 'var(--text-muted)' }}>
+            <svg class="w-12 h-12 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-lg">All checks passed!</p>
+            <p class="text-sm">No issues found in the selected scope.</p>
+          </div>
+        </Show>
+
         <div class="space-y-3">
-          <For each={getSecurityChecks()}>
-            {(check) => (
-              <div class="p-4 rounded-lg border" style={{
-                background: check.status === 'pass' ? 'rgba(34, 197, 94, 0.05)' : check.status === 'warning' ? 'rgba(245, 158, 11, 0.05)' : 'rgba(239, 68, 68, 0.05)',
-                'border-color': check.status === 'pass' ? 'rgba(34, 197, 94, 0.2)' : check.status === 'warning' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-              }}>
-                <div class="flex items-start justify-between">
-                  <div class="flex items-start gap-3">
+          <For each={diagnostics()?.findings || []}>
+            {(finding: Finding) => (
+              <div
+                class="p-4 rounded-lg border"
+                style={{
+                  background: getSeverityBg(finding.severity),
+                  'border-color': getSeverityBorder(finding.severity),
+                }}
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex items-start gap-3 flex-1">
                     <div class="mt-0.5">
-                      {check.status === 'pass' ? (
-                        <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      {finding.severity === 'critical' ? (
+                        <svg class="w-5 h-5" style={{ color: 'var(--error-color)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
-                      ) : check.status === 'warning' ? (
-                        <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      ) : finding.severity === 'warning' ? (
+                        <svg class="w-5 h-5" style={{ color: 'var(--warning-color)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
                       ) : (
-                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        <svg class="w-5 h-5" style={{ color: 'var(--accent-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       )}
                     </div>
-                    <div>
-                      <div class="font-medium" style={{ color: 'var(--text-primary)' }}>{check.name}</div>
-                      <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>{check.description}</div>
-                      <Show when={check.recommendation}>
-                        <div class="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
-                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{finding.rule}</span>
+                        <span class="px-2 py-0.5 rounded text-xs" style={{
+                          background: getSeverityBg(finding.severity),
+                          color: getSeverityColor(finding.severity),
+                          border: `1px solid ${getSeverityBorder(finding.severity)}`
+                        }}>
+                          {finding.severity}
+                        </span>
+                        <span class="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                          {finding.category}
+                        </span>
+                      </div>
+                      <div class="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>{finding.message}</div>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <span class="font-mono">{finding.resource}</span>
+                        {finding.namespace && <span> in {finding.namespace}</span>}
+                      </div>
+                      <Show when={finding.remediation}>
+                        <div class="mt-2 text-xs flex items-start gap-1" style={{ color: 'var(--accent-primary)' }}>
+                          <svg class="w-3 h-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-                          {check.recommendation}
+                          <span>{finding.remediation}</span>
                         </div>
                       </Show>
                     </div>
                   </div>
-                  <span class={`badge ${check.status === 'pass' ? 'badge-success' : check.status === 'warning' ? 'badge-warning' : 'badge-error'}`}>
-                    {check.status === 'pass' ? 'Pass' : check.status === 'warning' ? 'Warning' : 'Fail'}
-                  </span>
                 </div>
               </div>
             )}

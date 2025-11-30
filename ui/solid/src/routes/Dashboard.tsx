@@ -29,19 +29,19 @@ const MemoryIcon = () => (
 );
 
 const PodIcon = () => (
-  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-    <line x1="12" y1="22.08" x2="12" y2="12" />
+  // Official Kubernetes Pod icon style
+  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.85L12 11.9 5.1 8.03 12 4.18zM5 9.48l6 3.35v6.7l-6-3.35v-6.7zm8 10.05v-6.7l6-3.35v6.7l-6 3.35z"/>
   </svg>
 );
 
 const NodeIcon = () => (
-  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <rect x="2" y="3" width="20" height="14" rx="2" />
-    <line x1="8" y1="21" x2="16" y2="21" />
-    <line x1="12" y1="17" x2="12" y2="21" />
-    <circle cx="12" cy="10" r="3" />
+  // Official Kubernetes Node/Server icon style
+  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M4 4h16v4H4V4zm0 6h16v4H4v-4zm0 6h16v4H4v-4z"/>
+    <circle cx="6" cy="6" r="1"/>
+    <circle cx="6" cy="12" r="1"/>
+    <circle cx="6" cy="18" r="1"/>
   </svg>
 );
 
@@ -120,6 +120,7 @@ const Dashboard: Component = () => {
   const [services] = createResource(() => api.getServices('_all'));
   const [nodes] = createResource(api.getNodes);
   const [events] = createResource(api.getEvents);
+  const [clusterCost] = createResource(api.getClusterCost);
 
   // Calculate stats
   const runningPods = () => (pods() || []).filter((p: any) => p.status === 'Running').length;
@@ -422,7 +423,7 @@ const Dashboard: Component = () => {
       {/* Resource Overview */}
       <div class="card p-6">
         <h2 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Resource Overview</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div
             class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
             style={{ background: 'var(--bg-tertiary)' }}
@@ -454,6 +455,16 @@ const Dashboard: Component = () => {
           >
             <div class="text-3xl font-bold" style={{ color: '#22c55e' }}>{totalNodes()}</div>
             <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Nodes</div>
+          </div>
+          <div
+            class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ background: 'var(--bg-tertiary)' }}
+            onClick={() => setCurrentView('cost')}
+          >
+            <div class="text-3xl font-bold" style={{ color: '#f59e0b' }}>
+              ${clusterCost()?.monthlyCost?.toFixed(0) || '--'}
+            </div>
+            <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Est. Monthly Cost</div>
           </div>
         </div>
       </div>

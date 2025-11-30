@@ -433,9 +433,14 @@ const ResourceMap: Component = () => {
         </div>
         <div class="flex items-center gap-3">
           <button
-            onClick={() => refetch()}
-            class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]"
-            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+            onClick={(e) => {
+              const btn = e.currentTarget;
+              btn.classList.add('refreshing');
+              setTimeout(() => btn.classList.remove('refreshing'), 500);
+              refetch();
+            }}
+            class="icon-btn"
+            style={{ background: 'var(--bg-secondary)' }}
             title="Refresh"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,6 +1,7 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
+import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import DescribeModal from '../components/DescribeModal';
@@ -133,12 +134,14 @@ const DaemonSets: Component = () => {
   };
 
   const deleteDaemonSet = async (ds: DaemonSet) => {
-    if (!confirm(`Are you sure you want to delete DaemonSet ${ds.name}?`)) return;
+    if (!confirm(`Are you sure you want to delete DaemonSet "${ds.name}" in namespace "${ds.namespace}"?`)) return;
     try {
       await api.deleteDaemonSet(ds.name, ds.namespace);
+      addNotification(`DaemonSet ${ds.name} deleted successfully`, 'success');
       refetch();
     } catch (error) {
       console.error('Failed to delete DaemonSet:', error);
+      addNotification(`Failed to delete DaemonSet: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -151,7 +154,17 @@ const DaemonSets: Component = () => {
           <p style={{ color: 'var(--text-secondary)' }}>Node-level workloads running on all or selected nodes</p>
         </div>
         <div class="flex items-center gap-3">
-          <button onClick={() => refetch()} class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Refresh DaemonSets">
+          <button
+            onClick={(e) => {
+              const btn = e.currentTarget;
+              btn.classList.add('refreshing');
+              setTimeout(() => btn.classList.remove('refreshing'), 500);
+              refetch();
+            }}
+            class="icon-btn"
+            style={{ background: 'var(--bg-secondary)' }}
+            title="Refresh DaemonSets"
+          >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
