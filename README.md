@@ -65,7 +65,12 @@ The easiest way to install on macOS:
 
 ```bash
 brew tap kubegraf/tap
-brew install kubegraf
+brew install kubegraf/tap/kubegraf
+```
+
+Or in one command:
+```bash
+brew install kubegraf/tap/kubegraf
 ```
 
 After installation, start the web UI:
