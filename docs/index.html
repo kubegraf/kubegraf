@@ -1091,7 +1091,7 @@
         .comparison-table th {
             background: rgba(50, 108, 229, 0.1);
             padding: 1.25rem 1rem;
-            text-align: left;
+            text-align: center;
             font-weight: 600;
             color: var(--light);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -1099,6 +1099,10 @@
 
         .comparison-table th:first-child {
             text-align: left;
+        }
+
+        .comparison-table th:not(:first-child) {
+            min-width: 90px;
         }
 
         .comparison-table td {
@@ -1584,29 +1588,29 @@
                     <tr>
                         <td>Terminal UI (TUI)</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td>CLI only</td>
+                        <td><span class="x-icon">✗</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">✗</span></td>
                     </tr>
                     <tr>
                         <td>Web Browser UI</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
                     </tr>
                     <tr>
                         <td>Desktop GUI</td>
-                        <td class="kubegraf-highlight"><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td class="kubegraf-highlight"><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
                         <td><span class="check-icon">✓</span></td>
                     </tr>
                     <tr>
                         <td>Topology Graph</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
-                        <td>Tree view</td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                     </tr>
                     <tr>
@@ -1614,34 +1618,41 @@
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">✗</span></td>
                     </tr>
                     <tr>
                         <td>Works over SSH</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">✗</span></td>
                     </tr>
                     <tr>
                         <td>No Electron</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">✗</span></td>
                     </tr>
                     <tr>
                         <td>Open Source</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
                         <td><span class="check-icon">✓</span></td>
-                        <td>OpenLens <span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td>Resource Map</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
                     </tr>
                     <tr>
                         <td>Plugin System</td>
                         <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
-                        <td><span class="check-icon">✓</span></td>
-                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">✗</span></td>
+                        <td><span class="x-icon">✗</span></td>
                         <td><span class="check-icon">✓</span></td>
                     </tr>
                 </tbody>
