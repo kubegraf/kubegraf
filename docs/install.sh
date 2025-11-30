@@ -1,6 +1,7 @@
 #!/bin/bash
 # KubeGraf Installation Script
 # Usage: curl -sSL https://kubegraf.io/install.sh | bash
+# Alternative: curl -sSL https://raw.githubusercontent.com/kubegraf/kubegraf/main/docs/install.sh | bash
 
 set -e
 
@@ -41,31 +42,58 @@ detect_arch() {
 
 # Get latest release version
 get_latest_version() {
-    VERSION=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [ -z "$VERSION" ]; then
-        error "Failed to fetch latest version"
+    local api_response
+    api_response=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" 2>&1)
+    
+    if [ $? -ne 0 ] || [ -z "$api_response" ]; then
+        error "Failed to fetch latest version from GitHub API"
     fi
+    
+    VERSION=$(echo "$api_response" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
+    
+    if [ -z "$VERSION" ]; then
+        error "Failed to parse version from GitHub API response"
+    fi
+    
+    # Remove 'v' prefix if present
+    VERSION="${VERSION#v}"
 }
 
 # Download and install
 install() {
-    local DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${BINARY_NAME}-${OS}-${ARCH}.tar.gz"
+    local DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${BINARY_NAME}-${OS}-${ARCH}.tar.gz"
     local TMP_DIR=$(mktemp -d)
+    local download_file="${TMP_DIR}/${BINARY_NAME}.tar.gz"
 
-    info "Downloading KubeGraf ${VERSION} for ${OS}/${ARCH}..."
+    info "Downloading KubeGraf v${VERSION} for ${OS}/${ARCH}..."
+    info "URL: ${DOWNLOAD_URL}"
 
-    if ! curl -sSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${BINARY_NAME}.tar.gz"; then
+    if ! curl -f -sSL "$DOWNLOAD_URL" -o "$download_file"; then
         error "Failed to download from ${DOWNLOAD_URL}"
     fi
 
+    if [ ! -f "$download_file" ] || [ ! -s "$download_file" ]; then
+        error "Downloaded file is empty or missing"
+    fi
+
     info "Extracting..."
-    tar xzf "${TMP_DIR}/${BINARY_NAME}.tar.gz" -C "$TMP_DIR"
+    if ! tar xzf "$download_file" -C "$TMP_DIR" 2>/dev/null; then
+        error "Failed to extract archive"
+    fi
+
+    if [ ! -f "${TMP_DIR}/${BINARY_NAME}" ]; then
+        error "Binary not found in archive"
+    fi
 
     info "Installing to ${INSTALL_DIR}..."
     if [ -w "$INSTALL_DIR" ]; then
         mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
     else
         sudo mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
+    fi
+
+    if [ $? -ne 0 ]; then
+        error "Failed to install binary to ${INSTALL_DIR}"
     fi
 
     chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
