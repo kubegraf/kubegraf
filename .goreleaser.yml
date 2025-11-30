@@ -61,17 +61,18 @@ release:
   prerelease: auto
   name_template: "v{{.Version}}"
 
-# Homebrew tap - uncomment when kubegraf/homebrew-tap repository exists
-# brews:
-#   - name: kubegraf
-#     repository:
-#       owner: kubegraf
-#       name: homebrew-tap
-#     directory: Formula
-#     homepage: "https://kubegraf.io"
-#     description: "Advanced Kubernetes visualization tool with terminal UI and web dashboard"
-#     license: "Apache-2.0"
-#     install: |
-#       bin.install "kubegraf"
-#     test: |
-#       system "#{bin}/kubegraf", "--version"
+# Homebrew tap
+brews:
+  - name: kubegraf
+    repository:
+      owner: kubegraf
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://kubegraf.io"
+    description: "Advanced Kubernetes visualization tool with terminal UI and web dashboard"
+    license: "Apache-2.0"
+    install: |
+      bin.install "kubegraf"
+    test: |
+      system "#{bin}/kubegraf", "--version"
