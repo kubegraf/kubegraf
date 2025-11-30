@@ -16,15 +16,13 @@ import Nodes from './routes/Nodes';
 import ResourceMap from './routes/ResourceMap';
 import Security from './routes/Security';
 import Plugins from './routes/Plugins';
-import LandingPage from './routes/LandingPage';
 import AIChat from './components/AIChat';
-import { currentView, aiPanelOpen, sidebarCollapsed, notifications, setCurrentView } from './stores/ui';
+import { currentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
 import { wsService } from './services/websocket';
 import { api } from './services/api';
 import { createSignal, createResource } from 'solid-js';
 
 const views: Record<string, Component> = {
-  landing: LandingPage,
   dashboard: Dashboard,
   pods: Pods,
   deployments: Deployments,
@@ -64,17 +62,13 @@ const App: Component = () => {
 
   const isConnected = () => connectionStatus()?.connected !== false;
 
-  // Check if we're on the landing page
-  const isLandingPage = () => currentView() === 'landing';
-
   return (
-    <Show when={!isLandingPage()} fallback={<LandingPage />}>
-      <div class="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+    <div class="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
         {/* Sidebar */}
         <Sidebar />
 
         {/* Main content */}
-        <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-64'}`}>
+        <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-52'}`}>
           {/* Header */}
           <Header />
 
@@ -187,7 +181,7 @@ const App: Component = () => {
       </div>
 
       {/* WebSocket Status Indicator */}
-      <div class="fixed bottom-4 left-4 z-50">
+      <div class="fixed bottom-4 z-50" style={{ left: '80px' }}>
         <Show when={sidebarCollapsed()}>
           <div
             class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
@@ -199,7 +193,6 @@ const App: Component = () => {
         </Show>
       </div>
     </div>
-    </Show>
   );
 };
 

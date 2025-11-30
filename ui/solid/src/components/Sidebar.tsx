@@ -1,4 +1,5 @@
-import { Component, For, Show } from 'solid-js';
+import { Component, For, Show, createSignal } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, type View } from '../stores/ui';
 
 interface NavSection {
@@ -61,10 +62,10 @@ const navSections: NavSection[] = [
 
 const Sidebar: Component = () => {
   return (
-    <aside class={`fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40 ${sidebarCollapsed() ? 'w-16' : 'w-64'}`}>
+    <aside class={`fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40 ${sidebarCollapsed() ? 'w-16' : 'w-52'}`}>
       {/* Logo */}
       <div class="h-16 flex items-center justify-between px-4 border-b border-white/10">
-        <button onClick={() => setCurrentView('landing')} class="flex items-center gap-3 hover:opacity-80 transition-opacity" title="Back to Home">
+        <button onClick={() => setCurrentView('dashboard')} class="flex items-center gap-3 hover:opacity-80 transition-opacity" title="Go to Dashboard">
           <svg viewBox="0 0 100 100" width="40" height="40" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -105,10 +106,10 @@ const Sidebar: Component = () => {
         </button>
         <button
           onClick={toggleSidebar}
-          class="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+          class={`p-1.5 rounded-lg transition-colors ${sidebarCollapsed() ? 'bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40' : 'hover:bg-white/10'}`}
           title={sidebarCollapsed() ? 'Expand' : 'Collapse'}
         >
-          <svg class={`w-5 h-5 transition-transform ${sidebarCollapsed() ? 'rotate-180' : ''}`} style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class={`w-5 h-5 transition-transform ${sidebarCollapsed() ? 'rotate-180' : ''}`} style={{ color: sidebarCollapsed() ? '#06b6d4' : 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
           </svg>
         </button>
@@ -126,27 +127,56 @@ const Sidebar: Component = () => {
               </Show>
               <div class="space-y-0.5">
                 <For each={section.items}>
-                  {(item) => (
-                    <button
-                      onClick={() => setCurrentView(item.id)}
-                      class={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
-                        currentView() === item.id
-                          ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30'
-                          : 'hover:bg-white/5'
-                      }`}
-                      style={{
-                        color: currentView() === item.id ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                      }}
-                      title={sidebarCollapsed() ? item.label : undefined}
-                    >
-                      <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={item.icon} />
-                      </svg>
-                      <Show when={!sidebarCollapsed()}>
-                        <span class="text-sm font-medium">{item.label}</span>
-                      </Show>
-                    </button>
-                  )}
+                  {(item) => {
+                    const [hovered, setHovered] = createSignal(false);
+                    const [pos, setPos] = createSignal({ top: 0, left: 0 });
+                    return (
+                      <button
+                        onClick={() => setCurrentView(item.id)}
+                        onMouseEnter={(e) => {
+                          if (sidebarCollapsed()) {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
+                            setHovered(true);
+                          }
+                        }}
+                        onMouseLeave={() => setHovered(false)}
+                        class={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                          currentView() === item.id
+                            ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30'
+                            : 'hover:bg-white/5'
+                        }`}
+                        style={{
+                          color: currentView() === item.id ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={item.icon} />
+                        </svg>
+                        <Show when={!sidebarCollapsed()}>
+                          <span class="text-sm font-medium">{item.label}</span>
+                        </Show>
+                        <Show when={sidebarCollapsed() && hovered()}>
+                          <Portal>
+                            <div
+                              class="fixed px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap z-[9999]"
+                              style={{
+                                top: `${pos().top}px`,
+                                left: `${pos().left}px`,
+                                transform: 'translateY(-50%)',
+                                background: '#1e293b',
+                                color: '#fff',
+                                border: '1px solid #334155',
+                                'box-shadow': '0 4px 12px rgba(0,0,0,0.4)',
+                              }}
+                            >
+                              {item.label}
+                            </div>
+                          </Portal>
+                        </Show>
+                      </button>
+                    );
+                  }}
                 </For>
               </div>
             </div>

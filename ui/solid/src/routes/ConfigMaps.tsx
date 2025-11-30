@@ -1,8 +1,10 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
+import { namespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import DescribeModal from '../components/DescribeModal';
+import ActionMenu from '../components/ActionMenu';
 
 interface ConfigMap {
   name: string;
@@ -16,7 +18,6 @@ type SortField = 'name' | 'namespace' | 'data' | 'age';
 type SortDirection = 'asc' | 'desc';
 
 const ConfigMaps: Component = () => {
-  const [namespace, setNamespace] = createSignal('_all');
   const [search, setSearch] = createSignal('');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
@@ -29,7 +30,6 @@ const ConfigMaps: Component = () => {
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
 
-  const [namespaces] = createResource(api.getNamespaces);
   const [configmaps, { refetch }] = createResource(namespace, api.getConfigMaps);
   const [yamlContent] = createResource(
     () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
@@ -119,94 +119,101 @@ const ConfigMaps: Component = () => {
     setShowDetails(true);
   };
 
+  const deleteConfigMap = async (cm: ConfigMap) => {
+    if (!confirm(`Are you sure you want to delete ConfigMap ${cm.name}?`)) return;
+    try {
+      await api.deleteConfigMap(cm.name, cm.namespace);
+      refetch();
+    } catch (error) {
+      console.error('Failed to delete ConfigMap:', error);
+    }
+  };
+
   return (
-    <div class="space-y-6">
+    <div class="space-y-4">
       {/* Header */}
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>ConfigMaps</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Configuration data storage</p>
         </div>
-        <button onClick={() => refetch()} class="btn-primary flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+        <div class="flex items-center gap-3">
+          <button onClick={() => refetch()} class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Refresh ConfigMaps">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div class="flex flex-wrap gap-4">
-        <select
-          value={namespace()}
-          onChange={(e) => { setNamespace(e.currentTarget.value); setCurrentPage(1); }}
-          class="px-4 py-2 rounded-lg"
-          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-        >
-          <option value="_all">All Namespaces</option>
-          <For each={namespaces() || []}>{(ns) => <option value={ns}>{ns}</option>}</For>
-        </select>
+      {/* Status summary */}
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{(configmaps() || []).length}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #8b5cf6' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Filtered</span>
+          <span class="text-xl font-bold" style={{ color: '#8b5cf6' }}>{filteredAndSorted().length}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #22c55e' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Namespaces</span>
+          <span class="text-xl font-bold" style={{ color: '#22c55e' }}>
+            {new Set((configmaps() || []).map((c: ConfigMap) => c.namespace)).size}
+          </span>
+        </div>
+
+        <div class="flex-1" />
 
         <input
           type="text"
-          placeholder="Search by name or namespace..."
+          placeholder="Search..."
           value={search()}
           onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
-          class="flex-1 min-w-[200px] px-4 py-2 rounded-lg"
+          class="px-3 py-2 rounded-lg text-sm w-48"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         />
 
         <select
           value={pageSize()}
           onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
-          class="px-4 py-2 rounded-lg"
+          class="px-3 py-2 rounded-lg text-sm"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         >
-          <option value="10">10 per page</option>
-          <option value="20">20 per page</option>
-          <option value="50">50 per page</option>
-          <option value="100">100 per page</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
         </select>
       </div>
 
-      {/* Summary */}
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--accent-primary)' }}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Total ConfigMaps</div>
-          <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{(configmaps() || []).length}</div>
-        </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #8b5cf6' }}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Filtered</div>
-          <div class="text-2xl font-bold" style={{ color: '#8b5cf6' }}>{filteredAndSorted().length}</div>
-        </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #22c55e' }}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Namespaces</div>
-          <div class="text-2xl font-bold" style={{ color: '#22c55e' }}>
-            {new Set((configmaps() || []).map((c: ConfigMap) => c.namespace)).size}
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div class="card overflow-hidden">
-        <Show when={!configmaps.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
+      {/* ConfigMaps table */}
+      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+        <Show
+          when={!configmaps.loading}
+          fallback={
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading ConfigMaps...</span>
+            </div>
+          }
+        >
           <div class="overflow-x-auto">
-            <table class="data-table">
+            <table class="data-table terminal-table">
               <thead>
                 <tr>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('name')}>
-                    Name <SortIcon field="name" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                    <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('namespace')}>
-                    Namespace <SortIcon field="namespace" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
+                    <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('data')}>
-                    Data <SortIcon field="data" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('data')}>
+                    <div class="flex items-center gap-1">Data <SortIcon field="data" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('age')}>
-                    Age <SortIcon field="age" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                    <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th>Actions</th>
+                  <th class="whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -217,35 +224,23 @@ const ConfigMaps: Component = () => {
                     <tr>
                       <td>
                         <button
-                          onClick={() => openDetails(cm)}
-                          class="font-medium hover:underline"
+                          onClick={() => { setSelected(cm); setShowDescribe(true); }}
+                          class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
-                          {cm.name}
+                          {cm.name.length > 40 ? cm.name.slice(0, 37) + '...' : cm.name}
                         </button>
                       </td>
-                      <td><span class="text-sm px-2 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>{cm.namespace}</span></td>
+                      <td>{cm.namespace}</td>
                       <td><span class="badge badge-info">{cm.data} keys</span></td>
                       <td>{cm.age}</td>
                       <td>
-                        <div class="flex items-center gap-1">
-                          <button onClick={() => openDetails(cm)} class="action-btn" title="Details">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => { setSelected(cm); setShowYaml(true); }} class="action-btn" title="View YAML">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                            </svg>
-                          </button>
-                          <button onClick={() => { setSelected(cm); setShowDescribe(true); }} class="action-btn" title="Describe">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </button>
-                        </div>
+                        <ActionMenu
+                          actions={[
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(cm); setShowYaml(true); } },
+                            { label: 'Delete', icon: 'delete', onClick: () => deleteConfigMap(cm), variant: 'danger', divider: true },
+                          ]}
+                        />
                       </td>
                     </tr>
                   )}
@@ -256,16 +251,16 @@ const ConfigMaps: Component = () => {
 
           {/* Pagination */}
           <Show when={totalPages() > 1}>
-            <div class="flex items-center justify-between p-4 border-t" style={{ 'border-color': 'var(--border-color)' }}>
-              <div style={{ color: 'var(--text-secondary)' }} class="text-sm">
-                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length}
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#161b22' }}>
+              <div style={{ color: '#8b949e' }}>
+                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} ConfigMaps
               </div>
               <div class="flex items-center gap-2">
                 <button
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   First
                 </button>
@@ -273,18 +268,18 @@ const ConfigMaps: Component = () => {
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   ← Prev
                 </button>
-                <span class="px-3 py-1" style={{ color: 'var(--text-primary)' }}>
+                <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
                   Page {currentPage()} of {totalPages()}
                 </span>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages(), p + 1))}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   Next →
                 </button>
@@ -292,7 +287,7 @@ const ConfigMaps: Component = () => {
                   onClick={() => setCurrentPage(totalPages())}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   Last
                 </button>

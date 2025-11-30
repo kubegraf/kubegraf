@@ -1,8 +1,25 @@
-import { Component, For, Show, createMemo } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, Match, Switch } from 'solid-js';
 import { nodesResource, refetchNodes } from '../stores/cluster';
 import { searchQuery } from '../stores/ui';
+import DescribeModal from '../components/DescribeModal';
+
+interface Node {
+  name: string;
+  status: string;
+  roles: string;
+  age: string;
+  version: string;
+  cpu?: string;
+  memory?: string;
+}
+
+type ViewMode = 'card' | 'list' | 'grid';
 
 const Nodes: Component = () => {
+  const [selected, setSelected] = createSignal<Node | null>(null);
+  const [showDescribe, setShowDescribe] = createSignal(false);
+  const [viewMode, setViewMode] = createSignal<ViewMode>('card');
+
   const nodes = createMemo(() => {
     const all = nodesResource() || [];
     const query = searchQuery().toLowerCase();
@@ -24,27 +41,244 @@ const Nodes: Component = () => {
     };
   });
 
+  const ViewIcon = (props: { mode: ViewMode }) => (
+    <Switch>
+      <Match when={props.mode === 'card'}>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+        </svg>
+      </Match>
+      <Match when={props.mode === 'list'}>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+        </svg>
+      </Match>
+      <Match when={props.mode === 'grid'}>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+        </svg>
+      </Match>
+    </Switch>
+  );
+
+  // Card View Component
+  const CardView = () => (
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <For each={nodes()}>
+        {(node) => {
+          const isReady = node.status === 'Ready';
+          const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
+          return (
+            <div class={`bg-k8s-card border rounded-xl p-6 card-hover ${
+              isReady ? 'border-k8s-border' : 'border-red-500/30'
+            }`}>
+              <div class="flex items-start justify-between mb-4">
+                <div class="flex items-center gap-3">
+                  <div class={`p-2 rounded-lg ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
+                    <svg class={`w-6 h-6 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    </svg>
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => { setSelected(node); setShowDescribe(true); }}
+                      class="text-white font-semibold hover:underline text-left"
+                    >
+                      {node.name}
+                    </button>
+                    <p class="text-gray-500 text-sm">{node.roles || 'worker'}</p>
+                  </div>
+                </div>
+                <span class={`px-2 py-1 rounded text-xs font-medium ${
+                  isReady ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                }`}>
+                  {node.status}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="bg-k8s-dark rounded-lg p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-400 text-sm">CPU</span>
+                    <span class="text-white font-medium">{node.cpu || 'N/A'}</span>
+                  </div>
+                  <div class="h-2 bg-k8s-border rounded-full overflow-hidden">
+                    <div class="h-full bg-blue-500 rounded-full" style={{ width: '45%' }}></div>
+                  </div>
+                </div>
+
+                <div class="bg-k8s-dark rounded-lg p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-400 text-sm">Memory</span>
+                    <span class="text-white font-medium">{node.memory || 'N/A'}</span>
+                  </div>
+                  <div class="h-2 bg-k8s-border rounded-full overflow-hidden">
+                    <div class="h-full bg-purple-500 rounded-full" style={{ width: '60%' }}></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between text-sm text-gray-400 pt-4 border-t border-k8s-border">
+                <span>Version: {node.version}</span>
+                <span>Age: {node.age}</span>
+              </div>
+            </div>
+          );
+        }}
+      </For>
+    </div>
+  );
+
+  // List View Component (Table)
+  const ListView = () => (
+    <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-x-auto">
+        <table class="data-table terminal-table">
+          <thead>
+            <tr>
+              <th class="whitespace-nowrap">Name</th>
+              <th class="whitespace-nowrap">Status</th>
+              <th class="whitespace-nowrap">Roles</th>
+              <th class="whitespace-nowrap">CPU</th>
+              <th class="whitespace-nowrap">Memory</th>
+              <th class="whitespace-nowrap">Version</th>
+              <th class="whitespace-nowrap">Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={nodes()} fallback={
+              <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No nodes found</td></tr>
+            }>
+              {(node) => {
+                const isReady = node.status === 'Ready';
+                const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
+                return (
+                  <tr>
+                    <td>
+                      <div class="flex items-center gap-2">
+                        <div class={`p-1 rounded ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
+                          <svg class={`w-4 h-4 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                          </svg>
+                        </div>
+                        <button
+                          onClick={() => { setSelected(node); setShowDescribe(true); }}
+                          class="font-medium hover:underline text-left"
+                          style={{ color: 'var(--accent-primary)' }}
+                        >
+                          {node.name}
+                        </button>
+                      </div>
+                    </td>
+                    <td>
+                      <span class={`badge ${isReady ? 'badge-success' : 'badge-error'}`}>
+                        {node.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span class={`text-sm ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`}>
+                        {node.roles || 'worker'}
+                      </span>
+                    </td>
+                    <td class="font-mono text-sm">{node.cpu || 'N/A'}</td>
+                    <td class="font-mono text-sm">{node.memory || 'N/A'}</td>
+                    <td class="font-mono text-sm">{node.version}</td>
+                    <td>{node.age}</td>
+                  </tr>
+                );
+              }}
+            </For>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Grid View Component (Compact Cards)
+  const GridView = () => (
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      <For each={nodes()}>
+        {(node) => {
+          const isReady = node.status === 'Ready';
+          const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
+          return (
+            <button
+              onClick={() => { setSelected(node); setShowDescribe(true); }}
+              class={`bg-k8s-card border rounded-lg p-4 text-left hover:bg-k8s-dark transition-colors ${
+                isReady ? 'border-k8s-border' : 'border-red-500/30'
+              }`}
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <div class={`p-1.5 rounded ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
+                  <svg class={`w-4 h-4 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                  </svg>
+                </div>
+                <span class={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                  isReady ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                }`}>
+                  {node.status}
+                </span>
+              </div>
+              <h4 class="text-white font-medium text-sm truncate mb-1" title={node.name}>
+                {node.name}
+              </h4>
+              <p class="text-gray-500 text-xs truncate">{node.roles || 'worker'}</p>
+              <div class="mt-2 pt-2 border-t border-k8s-border">
+                <div class="flex justify-between text-xs">
+                  <span class="text-gray-500">CPU</span>
+                  <span class="text-gray-300">{node.cpu || 'N/A'}</span>
+                </div>
+                <div class="flex justify-between text-xs mt-1">
+                  <span class="text-gray-500">Mem</span>
+                  <span class="text-gray-300">{node.memory || 'N/A'}</span>
+                </div>
+              </div>
+            </button>
+          );
+        }}
+      </For>
+    </div>
+  );
+
   return (
     <div class="space-y-6">
       {/* Header */}
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 class="text-2xl font-bold text-white">Nodes</h1>
           <p class="text-gray-400 mt-1">Cluster node management</p>
         </div>
-        <button
-          onClick={() => refetchNodes()}
-          class="flex items-center gap-2 px-4 py-2 bg-k8s-blue rounded-lg hover:bg-k8s-blue/80 transition-colors text-white"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+        <div class="flex items-center gap-3">
+          {/* View Mode Selector */}
+          <div class="flex items-center rounded-lg overflow-hidden" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+            <For each={(['card', 'list', 'grid'] as ViewMode[])}>
+              {(mode) => (
+                <button
+                  onClick={() => setViewMode(mode)}
+                  class={`px-3 py-2 flex items-center gap-2 text-sm transition-colors ${
+                    viewMode() === mode
+                      ? 'bg-k8s-blue text-white'
+                      : 'text-gray-400 hover:text-white hover:bg-k8s-dark'
+                  }`}
+                  title={`${mode.charAt(0).toUpperCase() + mode.slice(1)} View`}
+                >
+                  <ViewIcon mode={mode} />
+                  <span class="hidden sm:inline capitalize">{mode}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <button onClick={() => refetchNodes()} class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Refresh Nodes">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Node summary */}
-      <div class="grid grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-k8s-card border border-k8s-border rounded-lg p-4">
           <div class="text-gray-400 text-sm">Total Nodes</div>
           <div class="text-2xl font-bold text-white">{nodeSummary().total}</div>
@@ -63,7 +297,7 @@ const Nodes: Component = () => {
         </div>
       </div>
 
-      {/* Nodes grid */}
+      {/* Nodes View */}
       <Show
         when={!nodesResource.loading}
         fallback={
@@ -76,68 +310,21 @@ const Nodes: Component = () => {
           </div>
         }
       >
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <For each={nodes()}>
-            {(node) => {
-              const isReady = node.status === 'Ready';
-              const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
-              return (
-                <div class={`bg-k8s-card border rounded-xl p-6 card-hover ${
-                  isReady ? 'border-k8s-border' : 'border-red-500/30'
-                }`}>
-                  <div class="flex items-start justify-between mb-4">
-                    <div class="flex items-center gap-3">
-                      <div class={`p-2 rounded-lg ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
-                        <svg class={`w-6 h-6 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 class="text-white font-semibold">{node.name}</h3>
-                        <p class="text-gray-500 text-sm">{node.roles || 'worker'}</p>
-                      </div>
-                    </div>
-                    <span class={`px-2 py-1 rounded text-xs font-medium ${
-                      isReady ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                    }`}>
-                      {node.status}
-                    </span>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-4 mb-4">
-                    {/* CPU */}
-                    <div class="bg-k8s-dark rounded-lg p-3">
-                      <div class="flex items-center justify-between mb-2">
-                        <span class="text-gray-400 text-sm">CPU</span>
-                        <span class="text-white font-medium">{node.cpu || 'N/A'}</span>
-                      </div>
-                      <div class="h-2 bg-k8s-border rounded-full overflow-hidden">
-                        <div class="h-full bg-blue-500 rounded-full" style={{ width: '45%' }}></div>
-                      </div>
-                    </div>
-
-                    {/* Memory */}
-                    <div class="bg-k8s-dark rounded-lg p-3">
-                      <div class="flex items-center justify-between mb-2">
-                        <span class="text-gray-400 text-sm">Memory</span>
-                        <span class="text-white font-medium">{node.memory || 'N/A'}</span>
-                      </div>
-                      <div class="h-2 bg-k8s-border rounded-full overflow-hidden">
-                        <div class="h-full bg-purple-500 rounded-full" style={{ width: '60%' }}></div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center justify-between text-sm text-gray-400 pt-4 border-t border-k8s-border">
-                    <span>Version: {node.version}</span>
-                    <span>Age: {node.age}</span>
-                  </div>
-                </div>
-              );
-            }}
-          </For>
-        </div>
+        <Switch>
+          <Match when={viewMode() === 'card'}>
+            <CardView />
+          </Match>
+          <Match when={viewMode() === 'list'}>
+            <ListView />
+          </Match>
+          <Match when={viewMode() === 'grid'}>
+            <GridView />
+          </Match>
+        </Switch>
       </Show>
+
+      {/* Describe Modal */}
+      <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="node" name={selected()?.name || ''} />
     </div>
   );
 };

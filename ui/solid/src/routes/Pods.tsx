@@ -1,8 +1,10 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
+import { namespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import DescribeModal from '../components/DescribeModal';
+import ActionMenu from '../components/ActionMenu';
 
 interface Pod {
   name: string;
@@ -22,7 +24,6 @@ type SortField = 'name' | 'namespace' | 'status' | 'cpu' | 'memory' | 'restarts'
 type SortDirection = 'asc' | 'desc';
 
 const Pods: Component = () => {
-  const [namespace, setNamespace] = createSignal('_all');
   const [search, setSearch] = createSignal('');
   const [statusFilter, setStatusFilter] = createSignal('all');
   const [sortField, setSortField] = createSignal<SortField>('name');
@@ -50,6 +51,54 @@ const Pods: Component = () => {
   const [logsError, setLogsError] = createSignal<string | null>(null);
   const [logsTail, setLogsTail] = createSignal(100);
   const [logsSearch, setLogsSearch] = createSignal('');
+
+  // Pod metrics state with previous values for change indicators
+  const [podMetrics, setPodMetrics] = createSignal<Record<string, { cpu: string; memory: string }>>({});
+  const [prevMetrics, setPrevMetrics] = createSignal<Record<string, { cpu: string; memory: string }>>({});
+  let metricsTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Parse metric value to number for comparison
+  const parseMetricValue = (val: string | undefined): number => {
+    if (!val || val === '-') return 0;
+    const match = val.match(/^(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  };
+
+  // Get change indicator: 'up', 'down', or null
+  const getChangeIndicator = (key: string, type: 'cpu' | 'memory'): 'up' | 'down' | null => {
+    const current = podMetrics()[key]?.[type];
+    const prev = prevMetrics()[key]?.[type];
+    if (!current || !prev) return null;
+    const currentVal = parseMetricValue(current);
+    const prevVal = parseMetricValue(prev);
+    if (currentVal > prevVal) return 'up';
+    if (currentVal < prevVal) return 'down';
+    return null;
+  };
+
+  // Fetch metrics only (lightweight) - stores previous for change indicators
+  const fetchMetrics = async () => {
+    try {
+      const currentMetrics = podMetrics();
+      const metrics = await api.getPodMetrics(namespace());
+      if (Object.keys(currentMetrics).length > 0) {
+        setPrevMetrics(currentMetrics);
+      }
+      setPodMetrics(metrics);
+    } catch (e) {
+      console.error('Failed to fetch metrics:', e);
+    }
+  };
+
+  onMount(() => {
+    fetchMetrics(); // Initial metrics fetch
+    // Auto-refresh metrics every 10 seconds
+    metricsTimer = setInterval(fetchMetrics, 10000);
+  });
+
+  onCleanup(() => {
+    if (metricsTimer) clearInterval(metricsTimer);
+  });
 
   // Resources
   const [namespaces] = createResource(api.getNamespaces);
@@ -287,37 +336,47 @@ const Pods: Component = () => {
   };
 
   return (
-    <div class="space-y-6">
+    <div class="space-y-4">
       {/* Header */}
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Pods</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Manage and monitor your Kubernetes pods</p>
         </div>
-        <button onClick={() => refetch()} class="btn-primary flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+        <div class="flex items-center gap-3">
+          <button onClick={() => { refetch(); fetchMetrics(); }} class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Refresh Pods">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div class="flex flex-wrap gap-4">
-        <select
-          value={namespace()}
-          onChange={(e) => { setNamespace(e.currentTarget.value); setCurrentPage(1); }}
-          class="px-4 py-2 rounded-lg"
-          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-        >
-          <option value="_all">All Namespaces</option>
-          <For each={namespaces() || []}>{(ns) => <option value={ns}>{ns}</option>}</For>
-        </select>
+      {/* Status summary */}
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }} onClick={() => setStatusFilter('all')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }} onClick={() => setStatusFilter('running')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Running</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().running}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }} onClick={() => setStatusFilter('pending')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Pending</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</span>
+        </div>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--error-color)' }} onClick={() => setStatusFilter('failed')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Failed</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
+        </div>
+
+        <div class="flex-1" />
 
         <select
           value={statusFilter()}
           onChange={(e) => { setStatusFilter(e.currentTarget.value); setCurrentPage(1); }}
-          class="px-4 py-2 rounded-lg"
+          class="px-3 py-2 rounded-lg text-sm"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         >
           <option value="all">All Status</option>
@@ -327,49 +386,27 @@ const Pods: Component = () => {
           <option value="succeeded">Succeeded</option>
         </select>
 
-        <div class="flex-1 min-w-[200px]">
-          <input
-            type="text"
-            placeholder="Search by name, namespace, node, IP..."
-            value={search()}
-            onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
-            class="w-full px-4 py-2 rounded-lg"
-            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-          />
-        </div>
+        <input
+          type="text"
+          placeholder="Search..."
+          value={search()}
+          onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
+          class="px-3 py-2 rounded-lg text-sm w-48"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+        />
 
         <select
           value={pageSize()}
           onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
-          class="px-4 py-2 rounded-lg"
+          class="px-3 py-2 rounded-lg text-sm"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         >
-          <option value="10">10 per page</option>
-          <option value="20">20 per page</option>
-          <option value="50">50 per page</option>
-          <option value="100">100 per page</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
         </select>
       </div>
 
-      {/* Status summary */}
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="card p-4 cursor-pointer hover:opacity-80" style={{ 'border-left': '4px solid var(--accent-primary)' }} onClick={() => setStatusFilter('all')}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</div>
-          <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</div>
-        </div>
-        <div class="card p-4 cursor-pointer hover:opacity-80" style={{ 'border-left': '4px solid var(--success-color)' }} onClick={() => setStatusFilter('running')}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Running</div>
-          <div class="text-2xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().running}</div>
-        </div>
-        <div class="card p-4 cursor-pointer hover:opacity-80" style={{ 'border-left': '4px solid var(--warning-color)' }} onClick={() => setStatusFilter('pending')}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Pending</div>
-          <div class="text-2xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</div>
-        </div>
-        <div class="card p-4 cursor-pointer hover:opacity-80" style={{ 'border-left': '4px solid var(--error-color)' }} onClick={() => setStatusFilter('failed')}>
-          <div style={{ color: 'var(--text-secondary)' }} class="text-sm">Failed</div>
-          <div class="text-2xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</div>
-        </div>
-      </div>
 
       {/* Active Port Forwards */}
       <Show when={(portForwards() || []).length > 0}>
@@ -403,7 +440,7 @@ const Pods: Component = () => {
       </Show>
 
       {/* Pods table */}
-      <div class="card overflow-hidden">
+      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
         <Show
           when={!pods.loading}
           fallback={
@@ -414,33 +451,31 @@ const Pods: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table">
+            <table class="data-table terminal-table" style={{ 'table-layout': 'auto' }}>
               <thead>
                 <tr>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('name')}>
-                    Name <SortIcon field="name" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                    <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('namespace')}>
-                    Namespace <SortIcon field="namespace" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('status')}>
+                    <div class="flex items-center gap-1">Status <SortIcon field="status" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('status')}>
-                    Status <SortIcon field="status" />
+                  <th class="whitespace-nowrap">Ready</th>
+                  <th class="whitespace-nowrap">IP</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('cpu')}>
+                    <div class="flex items-center gap-1">CPU <SortIcon field="cpu" /></div>
                   </th>
-                  <th>Ready</th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('cpu')}>
-                    CPU <SortIcon field="cpu" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('memory')}>
+                    <div class="flex items-center gap-1">Mem <SortIcon field="memory" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('memory')}>
-                    Memory <SortIcon field="memory" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('restarts')}>
+                    <div class="flex items-center gap-1">Restarts <SortIcon field="restarts" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('restarts')}>
-                    Restarts <SortIcon field="restarts" />
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                    <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th class="cursor-pointer select-none" onClick={() => handleSort('age')}>
-                    Age <SortIcon field="age" />
-                  </th>
-                  <th>Node</th>
-                  <th>Actions</th>
+                  <th class="whitespace-nowrap">Node</th>
+                  <th class="whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -450,11 +485,10 @@ const Pods: Component = () => {
                   {(pod: Pod) => (
                     <tr>
                       <td>
-                        <button onClick={() => openModal(pod, 'details')} class="font-medium hover:underline" style={{ color: 'var(--accent-primary)' }}>
-                          {pod.name}
+                        <button onClick={() => openModal(pod, 'details')} class="font-medium hover:underline text-xs" style={{ color: 'var(--accent-primary)' }}>
+                          {pod.name.length > 40 ? pod.name.slice(0, 37) + '...' : pod.name}
                         </button>
                       </td>
-                      <td><span class="text-sm px-2 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>{pod.namespace}</span></td>
                       <td>
                         <span class={`badge ${
                           pod.status === 'Running' ? 'badge-success' :
@@ -465,49 +499,36 @@ const Pods: Component = () => {
                         </span>
                       </td>
                       <td>{pod.ready}</td>
-                      <td><span style={{ color: '#ec4899', 'font-weight': '600' }}>{pod.cpu || '-'}</span></td>
-                      <td><span style={{ color: '#f59e0b', 'font-weight': '600' }}>{pod.memory || '-'}</span></td>
+                      <td class="font-mono" style={{ color: 'var(--text-secondary)' }}>{pod.ip || '-'}</td>
+                      <td>
+                        <span class="flex items-center" style={{ color: '#ec4899', 'font-weight': '600' }}>
+                          {podMetrics()[`${pod.namespace}/${pod.name}`]?.cpu || pod.cpu || '-'}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'up' && <span style={{ color: '#ef4444', 'font-size': '0.6rem' }}>▲</span>}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'down' && <span style={{ color: '#22c55e', 'font-size': '0.6rem' }}>▼</span>}
+                        </span>
+                      </td>
+                      <td>
+                        <span class="flex items-center" style={{ color: '#f59e0b', 'font-weight': '600' }}>
+                          {podMetrics()[`${pod.namespace}/${pod.name}`]?.memory || pod.memory || '-'}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'up' && <span style={{ color: '#ef4444', 'font-size': '0.6rem' }}>▲</span>}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'down' && <span style={{ color: '#22c55e', 'font-size': '0.6rem' }}>▼</span>}
+                        </span>
+                      </td>
                       <td class={pod.restarts > 0 ? 'text-yellow-400 font-semibold' : ''}>{pod.restarts}</td>
                       <td>{pod.age}</td>
-                      <td class="text-sm max-w-[150px] truncate" title={pod.node}>{pod.node}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{pod.node}</td>
                       <td>
-                        <div class="flex items-center gap-1">
-                          <button onClick={() => openShellInNewTab(pod)} class="action-btn" title="Shell">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => openModal(pod, 'portforward')} class="action-btn" title="Port Forward">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => openModal(pod, 'logs')} class="action-btn" title="Logs">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => openModal(pod, 'yaml')} class="action-btn" title="YAML">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                            </svg>
-                          </button>
-                          <button onClick={() => openModal(pod, 'describe')} class="action-btn" title="Describe">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </button>
-                          <button onClick={() => restartPod(pod)} class="action-btn" title="Restart">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                          </button>
-                          <button onClick={() => deletePod(pod)} class="action-btn text-red-400 hover:text-red-300" title="Delete">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
+                        <ActionMenu
+                          actions={[
+                            { label: 'Shell', icon: 'shell', onClick: () => openShellInNewTab(pod) },
+                            { label: 'Port Forward', icon: 'portforward', onClick: () => openModal(pod, 'portforward') },
+                            { label: 'View Logs', icon: 'logs', onClick: () => openModal(pod, 'logs') },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => openModal(pod, 'yaml') },
+                            { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
+                            { label: 'Restart', icon: 'restart', onClick: () => restartPod(pod), divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => deletePod(pod), variant: 'danger' },
+                          ]}
+                        />
                       </td>
                     </tr>
                   )}
@@ -518,8 +539,8 @@ const Pods: Component = () => {
 
           {/* Pagination */}
           <Show when={totalPages() > 1}>
-            <div class="flex items-center justify-between p-4 border-t" style={{ 'border-color': 'var(--border-color)' }}>
-              <div style={{ color: 'var(--text-secondary)' }} class="text-sm">
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#161b22' }}>
+              <div style={{ color: '#8b949e' }}>
                 Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSortedPods().length)} of {filteredAndSortedPods().length} pods
               </div>
               <div class="flex items-center gap-2">
@@ -527,7 +548,7 @@ const Pods: Component = () => {
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   First
                 </button>
@@ -535,18 +556,18 @@ const Pods: Component = () => {
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   ← Prev
                 </button>
-                <span class="px-3 py-1" style={{ color: 'var(--text-primary)' }}>
+                <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
                   Page {currentPage()} of {totalPages()}
                 </span>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages(), p + 1))}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   Next →
                 </button>
@@ -554,7 +575,7 @@ const Pods: Component = () => {
                   onClick={() => setCurrentPage(totalPages())}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                  style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
                   Last
                 </button>
@@ -608,13 +629,13 @@ const Pods: Component = () => {
 
             <button
               onClick={() => selectedPod() && fetchLogs(selectedPod()!)}
-              class="px-3 py-2 rounded-lg text-sm flex items-center gap-1"
+              class="p-2 rounded-lg hover:bg-[var(--bg-secondary)]"
               style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              title="Refresh Logs"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Refresh
             </button>
 
             <button
@@ -753,12 +774,52 @@ const Pods: Component = () => {
                 </div>
 
                 {/* Actions */}
-                <div class="flex flex-wrap gap-2 pt-2">
-                  <button onClick={() => openShellInNewTab(selectedPod()!)} class="btn-primary flex-1">Shell</button>
-                  <button onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'portforward'); }} class="btn-primary flex-1">Port Forward</button>
-                  <button onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'logs'); }} class="btn-secondary flex-1">View Logs</button>
-                  <button onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'yaml'); }} class="btn-secondary flex-1">View YAML</button>
-                  <button onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'describe'); }} class="btn-secondary flex-1">Describe</button>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4">
+                  <button
+                    onClick={() => openShellInNewTab(selectedPod()!)}
+                    class="btn-primary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Shell
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'portforward'); }}
+                    class="btn-primary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Port Forward
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'logs'); }}
+                    class="btn-secondary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Logs
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'yaml'); }}
+                    class="btn-secondary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    YAML
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'describe'); }}
+                    class="btn-secondary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Describe
+                  </button>
                 </div>
               </div>
             );

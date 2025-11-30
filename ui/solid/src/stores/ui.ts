@@ -1,7 +1,6 @@
 import { createSignal } from 'solid-js';
 
 export type View =
-  | 'landing'
   | 'dashboard'
   | 'pods'
   | 'deployments'

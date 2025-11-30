@@ -1,5 +1,6 @@
 import { Component, createSignal, createResource, createEffect, on, Show, For, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
+import { namespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import * as d3 from 'd3';
 
@@ -18,11 +19,9 @@ interface TopologyLink extends d3.SimulationLinkDatum<TopologyNode> {
 }
 
 const ResourceMap: Component = () => {
-  const [namespaces] = createResource(api.getNamespaces);
-  const [selectedNamespace, setSelectedNamespace] = createSignal('argocd');
   const [topology, { refetch }] = createResource(
-    () => selectedNamespace(),
-    (ns) => api.getTopology(ns)
+    () => namespace(),
+    (ns) => api.getTopology(ns === '_all' ? '' : ns)
   );
 
   const [selectedNode, setSelectedNode] = createSignal<TopologyNode | null>(null);
@@ -433,21 +432,6 @@ const ResourceMap: Component = () => {
           <p style={{ color: 'var(--text-secondary)' }}>D3.js force-directed graph • Drag nodes • Scroll to zoom • Hover to highlight</p>
         </div>
         <div class="flex items-center gap-3">
-          <select
-            value={selectedNamespace()}
-            onChange={(e) => setSelectedNamespace(e.currentTarget.value)}
-            class="px-3 py-2 rounded-lg text-sm"
-            style={{
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
-          >
-            <For each={namespaces() || []}>
-              {(ns: string) => <option value={ns}>{ns}</option>}
-            </For>
-          </select>
-
           <button
             onClick={() => refetch()}
             class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]"
@@ -585,7 +569,7 @@ const ResourceMap: Component = () => {
                     {selectedNode()!.type}
                   </span>
                   <span class="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    in {selectedNode()!.namespace || selectedNamespace()}
+                    in {selectedNode()!.namespace || namespace()}
                   </span>
                 </div>
               </div>

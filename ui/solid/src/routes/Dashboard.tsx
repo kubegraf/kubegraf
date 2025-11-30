@@ -419,6 +419,45 @@ const Dashboard: Component = () => {
         />
       </div>
 
+      {/* Resource Overview */}
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Resource Overview</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div
+            class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ background: 'var(--bg-tertiary)' }}
+            onClick={() => setCurrentView('pods')}
+          >
+            <div class="text-3xl font-bold" style={{ color: '#06b6d4' }}>{totalPods()}</div>
+            <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Pods</div>
+          </div>
+          <div
+            class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ background: 'var(--bg-tertiary)' }}
+            onClick={() => setCurrentView('deployments')}
+          >
+            <div class="text-3xl font-bold" style={{ color: '#3b82f6' }}>{(deployments() || []).length}</div>
+            <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Deployments</div>
+          </div>
+          <div
+            class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ background: 'var(--bg-tertiary)' }}
+            onClick={() => setCurrentView('services')}
+          >
+            <div class="text-3xl font-bold" style={{ color: '#8b5cf6' }}>{(services() || []).length}</div>
+            <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Services</div>
+          </div>
+          <div
+            class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ background: 'var(--bg-tertiary)' }}
+            onClick={() => setCurrentView('nodes')}
+          >
+            <div class="text-3xl font-bold" style={{ color: '#22c55e' }}>{totalNodes()}</div>
+            <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Nodes</div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Grid */}
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* AI Insights */}
@@ -573,49 +612,8 @@ const Dashboard: Component = () => {
         </div>
       </div>
 
-      {/* Resource Overview & Events */}
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Resource Counts */}
-        <div class="card p-6">
-          <h2 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Resource Overview</h2>
-          <div class="grid grid-cols-2 gap-4">
-            <div
-              class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
-              style={{ background: 'var(--bg-tertiary)' }}
-              onClick={() => setCurrentView('pods')}
-            >
-              <div class="text-3xl font-bold" style={{ color: '#06b6d4' }}>{totalPods()}</div>
-              <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Pods</div>
-            </div>
-            <div
-              class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
-              style={{ background: 'var(--bg-tertiary)' }}
-              onClick={() => setCurrentView('deployments')}
-            >
-              <div class="text-3xl font-bold" style={{ color: '#3b82f6' }}>{(deployments() || []).length}</div>
-              <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Deployments</div>
-            </div>
-            <div
-              class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
-              style={{ background: 'var(--bg-tertiary)' }}
-              onClick={() => setCurrentView('services')}
-            >
-              <div class="text-3xl font-bold" style={{ color: '#8b5cf6' }}>{(services() || []).length}</div>
-              <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Services</div>
-            </div>
-            <div
-              class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
-              style={{ background: 'var(--bg-tertiary)' }}
-              onClick={() => setCurrentView('nodes')}
-            >
-              <div class="text-3xl font-bold" style={{ color: '#22c55e' }}>{totalNodes()}</div>
-              <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Nodes</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Events */}
-        <div class="card p-6">
+      {/* Recent Events */}
+      <div class="card p-6">
           <h2 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Recent Events</h2>
           <Show when={recentEvents().length > 0} fallback={
             <div class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No recent events</div>
@@ -644,7 +642,6 @@ const Dashboard: Component = () => {
               </For>
             </div>
           </Show>
-        </div>
       </div>
     </div>
   );

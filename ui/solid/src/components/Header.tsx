@@ -1,10 +1,22 @@
-import { Component, For, Show, createSignal } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { namespace, setNamespace, namespaces, clusterStatus, refreshAll, namespacesResource } from '../stores/cluster';
 import { toggleAIPanel, searchQuery, setSearchQuery } from '../stores/ui';
 import ThemeToggle from './ThemeToggle';
 
 const Header: Component = () => {
   const [searchFocused, setSearchFocused] = createSignal(false);
+  const [nsDropdownOpen, setNsDropdownOpen] = createSignal(false);
+  const [nsSearch, setNsSearch] = createSignal('');
+  let nsDropdownRef: HTMLDivElement | undefined;
+  let nsButtonRef: HTMLButtonElement | undefined;
+
+  // Filtered namespaces based on search
+  const filteredNamespaces = createMemo(() => {
+    const search = nsSearch().toLowerCase();
+    if (!search) return namespaces();
+    return namespaces().filter(ns => ns.toLowerCase().includes(search));
+  });
 
   // Keyboard shortcut for search
   if (typeof window !== 'undefined') {
@@ -14,27 +26,160 @@ const Header: Component = () => {
         document.getElementById('global-search')?.focus();
       }
     });
+
+    // Close dropdown when clicking outside
+    const handleClickOutside = (e: MouseEvent) => {
+      if (nsDropdownOpen() && nsDropdownRef && !nsDropdownRef.contains(e.target as Node) &&
+          nsButtonRef && !nsButtonRef.contains(e.target as Node)) {
+        setNsDropdownOpen(false);
+        setNsSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
   }
 
+  const selectNamespace = (ns: string) => {
+    setNamespace(ns);
+    setNsDropdownOpen(false);
+    setNsSearch('');
+  };
+
+  const getDisplayName = () => {
+    return namespace() === '_all' ? 'All Namespaces' : namespace();
+  };
+
   return (
-    <header class="h-16 header-glass flex items-center justify-between px-6">
+    <header class="h-16 header-glass flex items-center justify-between px-6 relative" style={{ 'z-index': 100 }}>
       {/* Left side - Namespace selector & Search */}
       <div class="flex items-center gap-4">
-        {/* Namespace selector */}
-        <div class="flex items-center gap-2">
+        {/* Namespace selector with search */}
+        <div class="flex items-center gap-2 relative">
           <label class="text-sm" style={{ color: 'var(--text-secondary)' }}>Namespace:</label>
-          <select
-            value={namespace()}
-            onChange={(e) => setNamespace(e.target.value)}
-            class="rounded-lg px-3 py-1.5 text-sm min-w-[150px]"
+          <button
+            ref={nsButtonRef}
+            onClick={() => setNsDropdownOpen(!nsDropdownOpen())}
+            class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm min-w-[180px] justify-between"
+            style={{
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+            }}
           >
-            <option value="_all">All Namespaces</option>
-            <Show when={!namespacesResource.loading} fallback={<option disabled>Loading...</option>}>
-              <For each={namespaces()}>
-                {(ns) => <option value={ns}>{ns}</option>}
-              </For>
-            </Show>
-          </select>
+            <span class="truncate">{getDisplayName()}</span>
+            <svg class={`w-4 h-4 transition-transform ${nsDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {/* Dropdown */}
+          <Show when={nsDropdownOpen()}>
+            <div
+              ref={nsDropdownRef}
+              class="absolute top-full left-0 mt-1 w-64 rounded-lg shadow-xl z-[200] overflow-hidden"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              {/* Search input */}
+              <div class="p-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                <div class="relative">
+                  <svg
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4"
+                    style={{ color: 'var(--text-muted)' }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Search namespaces..."
+                    value={nsSearch()}
+                    onInput={(e) => setNsSearch(e.target.value)}
+                    class="w-full rounded-md pl-8 pr-3 py-1.5 text-sm"
+                    style={{
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border-color)',
+                    }}
+                    autofocus
+                  />
+                </div>
+              </div>
+
+              {/* Options list */}
+              <div class="max-h-64 overflow-y-auto">
+                {/* All namespaces option */}
+                <Show when={!nsSearch() || 'all namespaces'.includes(nsSearch().toLowerCase())}>
+                  <button
+                    onClick={() => selectNamespace('_all')}
+                    class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
+                    style={{
+                      background: namespace() === '_all' ? 'var(--bg-tertiary)' : 'transparent',
+                      color: namespace() === '_all' ? 'var(--accent-primary)' : 'var(--text-primary)',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = namespace() === '_all' ? 'var(--bg-tertiary)' : 'transparent'}
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    All Namespaces
+                    <Show when={namespace() === '_all'}>
+                      <svg class="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                      </svg>
+                    </Show>
+                  </button>
+                </Show>
+
+                {/* Namespace list */}
+                <Show when={!namespacesResource.loading} fallback={
+                  <div class="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Loading...</div>
+                }>
+                  <For each={filteredNamespaces()}>
+                    {(ns) => (
+                      <button
+                        onClick={() => selectNamespace(ns)}
+                        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
+                        style={{
+                          background: namespace() === ns ? 'var(--bg-tertiary)' : 'transparent',
+                          color: namespace() === ns ? 'var(--accent-primary)' : 'var(--text-primary)',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = namespace() === ns ? 'var(--bg-tertiary)' : 'transparent'}
+                      >
+                        <svg class="w-4 h-4" style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                        <span class="truncate flex-1">{ns}</span>
+                        <Show when={namespace() === ns}>
+                          <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                          </svg>
+                        </Show>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+
+                {/* No results */}
+                <Show when={nsSearch() && filteredNamespaces().length === 0}>
+                  <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+                    No namespaces found
+                  </div>
+                </Show>
+              </div>
+
+              {/* Footer with count */}
+              <div class="px-3 py-2 text-xs border-t" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
+                {namespaces().length} namespaces available
+              </div>
+            </div>
+          </Show>
         </div>
 
         {/* Global Search */}

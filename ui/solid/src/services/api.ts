@@ -65,6 +65,13 @@ export const api = {
     fetchAPI<any>(`/pod/delete?name=${name}&namespace=${namespace}`, { method: 'DELETE' }),
   restartPod: (name: string, namespace: string) =>
     fetchAPI<any>(`/pod/restart?name=${name}&namespace=${namespace}`, { method: 'POST' }),
+  getPodMetrics: async (namespace?: string) => {
+    const endpoint = namespace && namespace !== '_all'
+      ? `/pods/metrics?namespace=${namespace}`
+      : '/pods/metrics?namespace=';
+    const data = await fetchAPI<Record<string, { cpu: string; memory: string }>>(endpoint);
+    return data || {};
+  },
 
   // Deployments
   getDeployments: async (namespace?: string) => {
