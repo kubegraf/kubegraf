@@ -59,7 +59,28 @@
 
 ## 📦 Installation
 
-### Download Binary (Recommended)
+### Homebrew (macOS - Recommended)
+
+The easiest way to install on macOS:
+
+```bash
+brew tap kubegraf/kubegraf
+brew install kubegraf
+```
+
+After installation, start the web UI:
+```bash
+kubegraf --web
+# Then open: http://localhost:8080
+```
+
+Or use a custom port:
+```bash
+kubegraf --web --port=3000
+# Then open: http://localhost:3000
+```
+
+### Download Binary
 
 Download the latest release for your platform:
 
