@@ -37,8 +37,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	v1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -4480,7 +4480,7 @@ func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Req
 	for _, pod := range pods.Items {
 		// Check if pod belongs to this StatefulSet
 		belongsToStatefulSet := false
-		
+
 		// Method 1: Check owner references
 		for _, ownerRef := range pod.OwnerReferences {
 			if ownerRef.Kind == "StatefulSet" && ownerRef.Name == name {
@@ -4488,12 +4488,12 @@ func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Req
 				break
 			}
 		}
-		
+
 		// Method 2: Check name prefix (StatefulSet pods follow pattern: <statefulset-name>-<ordinal>)
 		if !belongsToStatefulSet && strings.HasPrefix(pod.Name, name+"-") {
 			belongsToStatefulSet = true
 		}
-		
+
 		if belongsToStatefulSet {
 			podsToDelete = append(podsToDelete, pod.Name)
 		}
