@@ -299,13 +299,13 @@ func (ws *WebServer) Start(port int) error {
 	log.Printf("📊 Dashboard: http://localhost%s", addr)
 	log.Printf("🗺️  Topology: http://localhost%s/topology", addr)
 
-	// Pre-warm the cost cache in background
+	// Pre-warm the cost cache in background (waits for cluster connection)
 	go ws.prewarmCostCache()
 
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
 
-	// Start watching Kubernetes events for real-time stream
+	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
 	go ws.watchKubernetesEvents()
 
 	return http.ListenAndServe(addr, nil)
@@ -313,6 +313,19 @@ func (ws *WebServer) Start(port int) error {
 
 // prewarmCostCache calculates cluster cost in background and caches the result
 func (ws *WebServer) prewarmCostCache() {
+	// Wait for cluster connection
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	
+	if ws.app.clientset == nil || !ws.app.connected {
+		log.Printf("⚠️ Skipping cost cache pre-warm: cluster not connected")
+		return
+	}
+	
 	log.Printf("💰 Pre-warming cost cache in background...")
 	estimator := NewCostEstimator(ws.app)
 	ctx := context.Background()
@@ -811,6 +824,18 @@ func (ws *WebServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 // watchKubernetesEvents watches for Kubernetes events and broadcasts them to WebSocket clients
 func (ws *WebServer) watchKubernetesEvents() {
+	// Wait for cluster connection before starting event watcher
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	
+	if ws.app.clientset == nil || !ws.app.connected {
+		log.Printf("⚠️ Skipping Kubernetes event watcher: cluster not connected")
+		return
+	}
 	var lastError string
 	backoff := 5 * time.Second
 	maxBackoff := 5 * time.Minute
@@ -820,6 +845,12 @@ func (ws *WebServer) watchKubernetesEvents() {
 		case <-ws.stopCh:
 			return
 		default:
+			// Check if clientset is available
+			if ws.app.clientset == nil {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			
 			// Watch all namespaces for events
 			watcher, err := ws.app.clientset.CoreV1().Events("").Watch(ws.app.ctx, metav1.ListOptions{})
 			if err != nil {
