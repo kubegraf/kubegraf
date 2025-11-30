@@ -17,6 +17,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/solid/package-lock.json
+
+      - name: Build SolidJS UI
+        run: |
+          cd ui/solid
+          npm ci
+          npm run build
+
+      - name: Copy UI dist to web/dist
+        run: |
+          rm -rf web/dist
+          cp -r ui/solid/dist web/dist
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

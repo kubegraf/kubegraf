@@ -10,12 +10,50 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
+  ui:
+    name: Build UI
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/solid/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd ui/solid
+          npm ci
+
+      - name: Build SolidJS UI
+        run: |
+          cd ui/solid
+          npm run build
+
+      - name: Upload UI dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/solid/dist
+          retention-days: 1
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download UI dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -30,6 +68,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    needs: ui
     strategy:
       matrix:
         os: [linux, darwin, windows]
@@ -37,6 +76,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download UI dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -54,9 +99,16 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: ui
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download UI dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5
