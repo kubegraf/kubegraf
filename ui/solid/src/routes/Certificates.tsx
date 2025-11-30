@@ -7,35 +7,38 @@ import YAMLViewer from '../components/YAMLViewer';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
-interface Ingress {
+interface Certificate {
   name: string;
   namespace: string;
-  class: string;
-  hosts: string[];
-  address: string;
-  ports: string;
+  secretName: string;
+  issuer: string;
+  status: string;
+  notBefore: string;
+  notAfter: string;
+  renewalTime: string;
+  dnsNames: string[];
   age: string;
 }
 
-type SortField = 'name' | 'namespace' | 'class' | 'age';
+type SortField = 'name' | 'namespace' | 'status' | 'age';
 type SortDirection = 'asc' | 'desc';
 
-const Ingresses: Component = () => {
+const Certificates: Component = () => {
   const [search, setSearch] = createSignal('');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
   const [currentPage, setCurrentPage] = createSignal(1);
   const [pageSize, setPageSize] = createSignal(20);
-  const [selected, setSelected] = createSignal<Ingress | null>(null);
+  const [selected, setSelected] = createSignal<Certificate | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
 
-  const [ingresses, { refetch }] = createResource(namespace, api.getIngresses);
+  const [certificates, { refetch }] = createResource(namespace, api.getCertificates);
   const [yamlContent] = createResource(
     () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
       if (!params) return '';
-      const data = await api.getIngressYAML(params.name, params.ns);
+      const data = await api.getCertificateYAML(params.name, params.ns);
       return data.yaml || '';
     }
   );
@@ -54,22 +57,23 @@ const Ingresses: Component = () => {
   };
 
   const filteredAndSorted = createMemo(() => {
-    let all = ingresses() || [];
+    let all = certificates() || [];
     const query = search().toLowerCase();
 
     // Filter by search
     if (query) {
-      all = all.filter((i: Ingress) =>
-        i.name.toLowerCase().includes(query) ||
-        i.namespace.toLowerCase().includes(query) ||
-        i.hosts?.some(h => h.toLowerCase().includes(query))
+      all = all.filter((c: Certificate) =>
+        c.name.toLowerCase().includes(query) ||
+        c.namespace.toLowerCase().includes(query) ||
+        c.issuer?.toLowerCase().includes(query) ||
+        c.dnsNames?.some(d => d.toLowerCase().includes(query))
       );
     }
 
     // Sort
     const field = sortField();
     const direction = sortDirection();
-    all = [...all].sort((a: Ingress, b: Ingress) => {
+    all = [...all].sort((a: Certificate, b: Certificate) => {
       let comparison = 0;
       switch (field) {
         case 'name':
@@ -78,8 +82,8 @@ const Ingresses: Component = () => {
         case 'namespace':
           comparison = a.namespace.localeCompare(b.namespace);
           break;
-        case 'class':
-          comparison = (a.class || '').localeCompare(b.class || '');
+        case 'status':
+          comparison = a.status.localeCompare(b.status);
           break;
         case 'age':
           comparison = parseAge(a.age) - parseAge(b.age);
@@ -93,18 +97,18 @@ const Ingresses: Component = () => {
 
   // Pagination
   const totalPages = createMemo(() => Math.ceil(filteredAndSorted().length / pageSize()));
-  const paginatedIngresses = createMemo(() => {
+  const paginatedCertificates = createMemo(() => {
     const start = (currentPage() - 1) * pageSize();
     return filteredAndSorted().slice(start, start + pageSize());
   });
 
   const statusCounts = createMemo(() => {
-    const all = ingresses() || [];
+    const all = certificates() || [];
     return {
       total: all.length,
-      withAddress: all.filter((i: Ingress) => i.address && i.address !== '-').length,
-      withoutAddress: all.filter((i: Ingress) => !i.address || i.address === '-').length,
-      totalHosts: all.reduce((sum, i: Ingress) => sum + (i.hosts?.length || 0), 0),
+      ready: all.filter((c: Certificate) => c.status === 'Ready' || c.status === 'True').length,
+      pending: all.filter((c: Certificate) => c.status === 'Pending' || c.status === 'Unknown').length,
+      failed: all.filter((c: Certificate) => c.status === 'Failed' || c.status === 'False').length,
     };
   });
 
@@ -120,21 +124,27 @@ const Ingresses: Component = () => {
 
   const SortIcon = (props: { field: SortField }) => (
     <span class="ml-1 inline-flex flex-col text-xs leading-none">
-      <span style={{ color: sortField() === props.field && sortDirection() === 'asc' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>▲</span>
-      <span style={{ color: sortField() === props.field && sortDirection() === 'desc' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>▼</span>
+      <span style={{ color: sortField() === props.field && sortDirection() === 'asc' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>&#9650;</span>
+      <span style={{ color: sortField() === props.field && sortDirection() === 'desc' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>&#9660;</span>
     </span>
   );
 
-  const deleteIngress = async (ing: Ingress) => {
-    if (!confirm(`Are you sure you want to delete ingress "${ing.name}" in namespace "${ing.namespace}"?`)) return;
+  const deleteCertificate = async (cert: Certificate) => {
+    if (!confirm(`Are you sure you want to delete certificate ${cert.name}?`)) return;
     try {
-      await api.deleteIngress(ing.name, ing.namespace);
-      addNotification(`Ingress ${ing.name} deleted successfully`, 'success');
+      await api.deleteCertificate(cert.name, cert.namespace);
+      addNotification(`Certificate ${cert.name} deleted successfully`, 'success');
       refetch();
     } catch (error) {
-      console.error('Failed to delete ingress:', error);
-      addNotification(`Failed to delete ingress: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      console.error('Failed to delete certificate:', error);
+      addNotification(`Failed to delete certificate: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
+  };
+
+  const getStatusBadgeClass = (status: string) => {
+    if (status === 'Ready' || status === 'True') return 'badge-success';
+    if (status === 'Failed' || status === 'False') return 'badge-error';
+    return 'badge-warning';
   };
 
   return (
@@ -142,8 +152,8 @@ const Ingresses: Component = () => {
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Ingresses</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>External access to services</p>
+          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Certificates</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>TLS certificates managed by cert-manager</p>
         </div>
         <div class="flex items-center gap-3">
           <button
@@ -155,7 +165,7 @@ const Ingresses: Component = () => {
             }}
             class="icon-btn"
             style={{ background: 'var(--bg-secondary)' }}
-            title="Refresh Ingresses"
+            title="Refresh Certificates"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -171,16 +181,16 @@ const Ingresses: Component = () => {
           <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
         <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">With Address</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().withAddress}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Ready</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().ready}</span>
         </div>
         <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Without Address</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().withoutAddress}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Pending</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #3b82f6' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total Hosts</span>
-          <span class="text-xl font-bold" style={{ color: '#3b82f6' }}>{statusCounts().totalHosts}</span>
+        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--error-color)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Failed</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
         </div>
 
         <div class="flex-1" />
@@ -206,14 +216,14 @@ const Ingresses: Component = () => {
         </select>
       </div>
 
-      {/* Ingresses table */}
+      {/* Certificates table */}
       <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
         <Show
-          when={!ingresses.loading}
+          when={!certificates.loading}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
-              <span style={{ color: 'var(--text-muted)' }}>Loading ingresses...</span>
+              <span style={{ color: 'var(--text-muted)' }}>Loading certificates...</span>
             </div>
           }
         >
@@ -227,12 +237,12 @@ const Ingresses: Component = () => {
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
                     <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('class')}>
-                    <div class="flex items-center gap-1">Class <SortIcon field="class" /></div>
+                  <th class="whitespace-nowrap">Secret</th>
+                  <th class="whitespace-nowrap">Issuer</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('status')}>
+                    <div class="flex items-center gap-1">Status <SortIcon field="status" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Hosts</th>
-                  <th class="whitespace-nowrap">Address</th>
-                  <th class="whitespace-nowrap">Ports</th>
+                  <th class="whitespace-nowrap">Expires</th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
@@ -240,42 +250,39 @@ const Ingresses: Component = () => {
                 </tr>
               </thead>
               <tbody>
-                <For each={paginatedIngresses()} fallback={
-                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ingresses found</td></tr>
+                <For each={paginatedCertificates()} fallback={
+                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No certificates found. Make sure cert-manager is installed.</td></tr>
                 }>
-                  {(ing: Ingress) => (
+                  {(cert: Certificate) => (
                     <tr>
                       <td>
                         <button
-                          onClick={() => { setSelected(ing); setShowDescribe(true); }}
+                          onClick={() => { setSelected(cert); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
-                          {ing.name.length > 40 ? ing.name.slice(0, 37) + '...' : ing.name}
+                          {cert.name.length > 40 ? cert.name.slice(0, 37) + '...' : cert.name}
                         </button>
                       </td>
-                      <td>{ing.namespace}</td>
-                      <td>{ing.class || '-'}</td>
+                      <td>{cert.namespace}</td>
                       <td>
-                        <div class="flex flex-wrap gap-1">
-                          <For each={ing.hosts || []}>
-                            {(host) => (
-                              <a href={`https://${host}`} target="_blank" class="text-xs px-2 py-1 rounded hover:opacity-80"
-                                 style={{ background: 'var(--bg-tertiary)', color: 'var(--accent-primary)' }}>
-                                {host}
-                              </a>
-                            )}
-                          </For>
-                        </div>
+                        <code class="px-2 py-1 rounded text-xs" style={{ background: 'var(--bg-tertiary)' }}>
+                          {cert.secretName || '-'}
+                        </code>
                       </td>
-                      <td>{ing.address || '-'}</td>
-                      <td>{ing.ports}</td>
-                      <td>{ing.age}</td>
+                      <td>{cert.issuer || '-'}</td>
+                      <td>
+                        <span class={`badge ${getStatusBadgeClass(cert.status)}`}>
+                          {cert.status}
+                        </span>
+                      </td>
+                      <td>{cert.notAfter || '-'}</td>
+                      <td>{cert.age}</td>
                       <td>
                         <ActionMenu
                           actions={[
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(ing); setShowYaml(true); } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteIngress(ing), variant: 'danger', divider: true },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(cert); setShowYaml(true); } },
+                            { label: 'Delete', icon: 'delete', onClick: () => deleteCertificate(cert), variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -290,7 +297,7 @@ const Ingresses: Component = () => {
           <Show when={totalPages() > 1}>
             <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#161b22' }}>
               <div style={{ color: '#8b949e' }}>
-                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} ingresses
+                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} certificates
               </div>
               <div class="flex items-center gap-2">
                 <button
@@ -307,7 +314,7 @@ const Ingresses: Component = () => {
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
                   style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
-                  ← Prev
+                  Prev
                 </button>
                 <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
                   Page {currentPage()} of {totalPages()}
@@ -318,7 +325,7 @@ const Ingresses: Component = () => {
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
                   style={{ background: '#21262d', color: '#c9d1d9' }}
                 >
-                  Next →
+                  Next
                 </button>
                 <button
                   onClick={() => setCurrentPage(totalPages())}
@@ -342,9 +349,9 @@ const Ingresses: Component = () => {
       </Modal>
 
       {/* Describe Modal */}
-      <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="ingress" name={selected()?.name || ''} namespace={selected()?.namespace} />
+      <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="certificate" name={selected()?.name || ''} namespace={selected()?.namespace} />
     </div>
   );
 };
 
-export default Ingresses;
+export default Certificates;

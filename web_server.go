@@ -15,9 +15,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -145,6 +148,10 @@ type WebServer struct {
 	events       []WebEvent
 	eventsMu     sync.RWMutex
 	stopCh       chan struct{}
+	// Cost cache - caches results for 5 minutes to avoid slow API calls
+	costCache     *ClusterCost
+	costCacheTime time.Time
+	costCacheMu   sync.RWMutex
 }
 
 // NewWebServer creates a new web server
@@ -194,6 +201,12 @@ func (ws *WebServer) Start(port int) error {
 	// Real-time events endpoint
 	http.HandleFunc("/api/events", ws.handleEvents)
 
+	// Apps marketplace endpoints
+	http.HandleFunc("/api/apps", ws.handleApps)
+	http.HandleFunc("/api/apps/installed", ws.handleInstalledApps)
+	http.HandleFunc("/api/apps/install", ws.handleInstallApp)
+	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
+
 	// Impact analysis endpoint
 	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)
 
@@ -202,6 +215,8 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/pod/yaml", ws.handlePodYAML)
 	http.HandleFunc("/api/pod/describe", ws.handlePodDescribe)
 	http.HandleFunc("/api/pod/exec", ws.handlePodExec)
+	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
+	http.HandleFunc("/api/pod/logs", ws.handlePodLogs)
 	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
 	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
 	http.HandleFunc("/api/deployment/details", ws.handleDeploymentDetails)
@@ -234,9 +249,15 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/ingress/details", ws.handleIngressDetails)
 	http.HandleFunc("/api/ingress/yaml", ws.handleIngressYAML)
 	http.HandleFunc("/api/ingress/describe", ws.handleIngressDescribe)
+	http.HandleFunc("/api/ingress/delete", ws.handleIngressDelete)
 	http.HandleFunc("/api/configmap/details", ws.handleConfigMapDetails)
 	http.HandleFunc("/api/configmap/yaml", ws.handleConfigMapYAML)
 	http.HandleFunc("/api/configmap/describe", ws.handleConfigMapDescribe)
+	http.HandleFunc("/api/configmap/delete", ws.handleConfigMapDelete)
+	http.HandleFunc("/api/certificates", ws.handleCertificates)
+	http.HandleFunc("/api/certificate/yaml", ws.handleCertificateYAML)
+	http.HandleFunc("/api/certificate/describe", ws.handleCertificateDescribe)
+	http.HandleFunc("/api/certificate/delete", ws.handleCertificateDelete)
 	http.HandleFunc("/api/node/details", ws.handleNodeDetails)
 	http.HandleFunc("/api/node/yaml", ws.handleNodeYAML)
 	http.HandleFunc("/api/node/describe", ws.handleNodeDescribe)
@@ -252,15 +273,23 @@ func (ws *WebServer) Start(port int) error {
 	// Plugin endpoints - Helm
 	http.HandleFunc("/api/plugins/helm/releases", ws.handleHelmReleases)
 	http.HandleFunc("/api/plugins/helm/release", ws.handleHelmReleaseDetails)
+	http.HandleFunc("/api/plugins/helm/history", ws.handleHelmReleaseHistory)
+	http.HandleFunc("/api/plugins/helm/rollback", ws.handleHelmRollback)
 
 	// Plugin endpoints - Kustomize (resources managed by kustomize)
 	http.HandleFunc("/api/plugins/kustomize/resources", ws.handleKustomizeResources)
 
 	// Plugin endpoints - ArgoCD
 	http.HandleFunc("/api/plugins/argocd/apps", ws.handleArgoCDApps)
+	http.HandleFunc("/api/plugins/argocd/app", ws.handleArgoCDAppDetails)
+	http.HandleFunc("/api/plugins/argocd/sync", ws.handleArgoCDSync)
+	http.HandleFunc("/api/plugins/argocd/refresh", ws.handleArgoCDRefresh)
 
 	// Plugin endpoints - Flux
 	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
+
+	// Advanced features - AI, Diagnostics, Cost, Drift
+	ws.RegisterAdvancedHandlers()
 
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
@@ -270,6 +299,9 @@ func (ws *WebServer) Start(port int) error {
 	log.Printf("📊 Dashboard: http://localhost%s", addr)
 	log.Printf("🗺️  Topology: http://localhost%s/topology", addr)
 
+	// Pre-warm the cost cache in background
+	go ws.prewarmCostCache()
+
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
 
@@ -277,6 +309,29 @@ func (ws *WebServer) Start(port int) error {
 	go ws.watchKubernetesEvents()
 
 	return http.ListenAndServe(addr, nil)
+}
+
+// prewarmCostCache calculates cluster cost in background and caches the result
+func (ws *WebServer) prewarmCostCache() {
+	log.Printf("💰 Pre-warming cost cache in background...")
+	estimator := NewCostEstimator(ws.app)
+	ctx := context.Background()
+
+	cost, err := estimator.EstimateClusterCost(ctx)
+	if err != nil {
+		log.Printf("⚠️ Failed to pre-warm cost cache: %v", err)
+		return
+	}
+
+	ws.costCacheMu.Lock()
+	ws.costCache = cost
+	ws.costCacheTime = time.Now()
+	ws.costCacheMu.Unlock()
+
+	log.Printf("✅ Cost cache warmed: $%.2f/month (%s - %s)",
+		cost.MonthlyCost,
+		cost.Cloud.DisplayName,
+		cost.Cloud.Region)
 }
 
 // handleStaticFiles serves static files from the embedded filesystem
@@ -443,16 +498,17 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		}
 
 		podList = append(podList, map[string]interface{}{
-			"name":      pod.Name,
-			"status":    status,
-			"ready":     fmt.Sprintf("%d/%d", ready, total),
-			"restarts":  restarts,
-			"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-			"ip":        pod.Status.PodIP,
-			"node":      pod.Spec.NodeName,
-			"namespace": pod.Namespace,
-			"cpu":       cpu,
-			"memory":    memory,
+			"name":       pod.Name,
+			"status":     status,
+			"ready":      fmt.Sprintf("%d/%d", ready, total),
+			"restarts":   restarts,
+			"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
+			"createdAt":  pod.CreationTimestamp.Time.Format(time.RFC3339),
+			"ip":         pod.Status.PodIP,
+			"node":       pod.Spec.NodeName,
+			"namespace":  pod.Namespace,
+			"cpu":        cpu,
+			"memory":     memory,
 		})
 	}
 
@@ -2076,17 +2132,181 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(details)
 }
 
-// handlePodExec executes a command in a pod container
+// handlePodExec handles pod exec - serves web terminal for GET, executes commands for POST
 func (ws *WebServer) handlePodExec(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	// For GET requests, serve the web terminal HTML page
+	if r.Method == "GET" {
+		name := r.URL.Query().Get("name")
+		namespace := r.URL.Query().Get("namespace")
+		container := r.URL.Query().Get("container")
+		if namespace == "" {
+			namespace = ws.app.namespace
+		}
 
-	if r.Method != "POST" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
+		// Serve web terminal HTML
+		terminalHTML := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal - %s</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #161b22;
+            padding: 12px 16px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1 {
+            color: #58a6ff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .header .pod-info {
+            color: #8b949e;
+            font-size: 12px;
+        }
+        .header .status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .header .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%%;
+            background: #f85149;
+        }
+        .header .status-dot.connected {
+            background: #3fb950;
+        }
+        #terminal {
+            flex: 1;
+            padding: 8px;
+        }
+        .xterm { height: 100%%; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2">
+            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <h1>Terminal</h1>
+        <span class="pod-info">%s/%s</span>
+        <div class="status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </div>
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    <script>
+        const podName = %q;
+        const namespace = %q;
+        const container = %q;
+
+        const term = new Terminal({
+            theme: {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+                cursor: '#58a6ff',
+                cursorAccent: '#0d1117',
+                selection: 'rgba(88, 166, 255, 0.3)',
+                black: '#484f58',
+                red: '#ff7b72',
+                green: '#3fb950',
+                yellow: '#d29922',
+                blue: '#58a6ff',
+                magenta: '#bc8cff',
+                cyan: '#39c5cf',
+                white: '#b1bac4',
+            },
+            fontFamily: '"SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace',
+            fontSize: 13,
+            cursorBlink: true,
+            cursorStyle: 'bar',
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        // Connect via WebSocket
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(wsProtocol + '//' + location.host + '/api/pod/terminal?name=' + podName + '&namespace=' + namespace + '&container=' + container);
+
+        ws.onopen = () => {
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Connected';
+            term.write('\r\n\x1b[32mConnected to ' + podName + '\x1b[0m\r\n\r\n');
+
+            // Send initial resize
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        };
+
+        ws.onmessage = (event) => {
+            term.write(event.data);
+        };
+
+        ws.onclose = () => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Disconnected';
+            term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+        };
+
+        ws.onerror = (error) => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Error';
+            term.write('\r\n\x1b[31mConnection error\x1b[0m\r\n');
+        };
+
+        // Send input to server
+        term.onData((data) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: data }));
+            }
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+        });
+    </script>
+</body>
+</html>`, name, namespace, name, name, namespace, container)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(terminalHTML))
 		return
 	}
+
+	// POST: Execute a single command and return output
+	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
 		Pod       string `json:"pod"`
@@ -2154,6 +2374,248 @@ func (ws *WebServer) handlePodExec(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"output":  output,
 	})
+}
+
+// handlePodTerminalWS handles WebSocket connections for interactive terminal
+func (ws *WebServer) handlePodTerminalWS(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	container := r.URL.Query().Get("container")
+
+	if name == "" {
+		http.Error(w, "Pod name is required", http.StatusBadRequest)
+		return
+	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Upgrade to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Create exec request for interactive shell
+	execReq := ws.app.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(name).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&v1.PodExecOptions{
+			Container: container,
+			Command:   []string{"/bin/sh"},
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       true,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(ws.app.config, "POST", execReq.URL())
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create executor: %v\r\n", err)))
+		return
+	}
+
+	// Create pipes for stdin/stdout
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	// Terminal size handler
+	termSize := &TerminalSize{width: 80, height: 24}
+
+	// Start the exec stream in a goroutine
+	go func() {
+		err := exec.StreamWithContext(ws.app.ctx, remotecommand.StreamOptions{
+			Stdin:             stdinReader,
+			Stdout:            stdoutWriter,
+			Stderr:            stdoutWriter,
+			Tty:               true,
+			TerminalSizeQueue: termSize,
+		})
+		if err != nil {
+			stdoutWriter.CloseWithError(err)
+		} else {
+			stdoutWriter.Close()
+		}
+	}()
+
+	// Read from stdout and send to WebSocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if err != nil {
+				// Shell exited, close the WebSocket connection
+				conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33mShell exited\x1b[0m\r\n"))
+				conn.Close()
+				return
+			}
+			if n > 0 {
+				conn.WriteMessage(websocket.TextMessage, buf[:n])
+			}
+		}
+	}()
+
+	// Read from WebSocket and write to stdin
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		// Parse message
+		var msg struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+			Cols uint16 `json:"cols"`
+			Rows uint16 `json:"rows"`
+		}
+		if err := json.Unmarshal(message, &msg); err != nil {
+			// Treat as raw input
+			stdinWriter.Write(message)
+			continue
+		}
+
+		switch msg.Type {
+		case "input":
+			stdinWriter.Write([]byte(msg.Data))
+		case "resize":
+			termSize.SetSize(msg.Cols, msg.Rows)
+		}
+	}
+
+	stdinWriter.Close()
+}
+
+// TerminalSize implements remotecommand.TerminalSizeQueue
+type TerminalSize struct {
+	width, height uint16
+	resizeChan    chan remotecommand.TerminalSize
+	once          sync.Once
+}
+
+func (t *TerminalSize) Next() *remotecommand.TerminalSize {
+	t.once.Do(func() {
+		t.resizeChan = make(chan remotecommand.TerminalSize, 1)
+		// Send initial size
+		t.resizeChan <- remotecommand.TerminalSize{Width: t.width, Height: t.height}
+	})
+	size, ok := <-t.resizeChan
+	if !ok {
+		return nil
+	}
+	return &size
+}
+
+func (t *TerminalSize) SetSize(width, height uint16) {
+	t.width = width
+	t.height = height
+	if t.resizeChan != nil {
+		select {
+		case t.resizeChan <- remotecommand.TerminalSize{Width: width, Height: height}:
+		default:
+		}
+	}
+}
+
+// handlePodLogs returns logs from a pod container (with optional streaming)
+func (ws *WebServer) handlePodLogs(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	container := r.URL.Query().Get("container")
+	tailStr := r.URL.Query().Get("tail")
+	follow := r.URL.Query().Get("follow") == "true"
+
+	if name == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Pod name is required",
+		})
+		return
+	}
+
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Parse tail lines
+	tailLines := int64(100)
+	if tailStr != "" {
+		if parsed, err := strconv.ParseInt(tailStr, 10, 64); err == nil {
+			tailLines = parsed
+		}
+	}
+
+	// Get pod logs
+	opts := &v1.PodLogOptions{
+		TailLines: &tailLines,
+		Follow:    follow,
+	}
+	if container != "" {
+		opts.Container = container
+	}
+
+	req := ws.app.clientset.CoreV1().Pods(namespace).GetLogs(name, opts)
+	podLogs, err := req.Stream(ws.app.ctx)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Failed to get logs: " + err.Error(),
+		})
+		return
+	}
+	defer podLogs.Close()
+
+	if follow {
+		// Stream logs using Server-Sent Events
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		reader := bufio.NewReader(podLogs)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					// Wait a bit and continue for follow mode
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				break
+			}
+			// Send as SSE event
+			fmt.Fprintf(w, "data: %s\n\n", strings.TrimRight(line, "\n"))
+			flusher.Flush()
+		}
+	} else {
+		// Return all logs at once as JSON
+		w.Header().Set("Content-Type", "application/json")
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, podLogs)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": "Failed to read logs: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs": buf.String(),
+		})
+	}
 }
 
 // handlePodRestart restarts a pod by deleting it
@@ -2387,6 +2849,88 @@ func (ws *WebServer) handleServiceDelete(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Service %s deleted successfully", name),
+	})
+}
+
+// handleIngressDelete deletes an ingress
+func (ws *WebServer) handleIngressDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" && r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Ingress name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Ingress %s deleted successfully", name),
+	})
+}
+
+// handleConfigMapDelete deletes a ConfigMap
+func (ws *WebServer) handleConfigMapDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" && r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ConfigMap name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("ConfigMap %s deleted successfully", name),
 	})
 }
 
@@ -2921,6 +3465,279 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"describe": describe,
+	})
+}
+
+// handleCertificates returns certificate list (cert-manager CRD)
+func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	var certList *unstructured.UnstructuredList
+	if namespace == "" {
+		certList, err = dynamicClient.Resource(certGVR).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
+	} else {
+		certList, err = dynamicClient.Resource(certGVR).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	}
+
+	if err != nil {
+		// cert-manager may not be installed
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+
+	certs := []map[string]interface{}{}
+	for _, cert := range certList.Items {
+		metadata := cert.Object["metadata"].(map[string]interface{})
+		spec := cert.Object["spec"].(map[string]interface{})
+
+		name := metadata["name"].(string)
+		ns := metadata["namespace"].(string)
+
+		// Get creation time for age
+		creationTimeStr, _ := metadata["creationTimestamp"].(string)
+		var age string
+		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
+			age = formatAge(time.Since(creationTime))
+		}
+
+		// Get secret name
+		secretName, _ := spec["secretName"].(string)
+
+		// Get issuer ref
+		var issuer string
+		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
+			issuerName, _ := issuerRef["name"].(string)
+			issuerKind, _ := issuerRef["kind"].(string)
+			if issuerKind == "" {
+				issuerKind = "Issuer"
+			}
+			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
+		}
+
+		// Get DNS names
+		var dnsNames []string
+		if dns, ok := spec["dnsNames"].([]interface{}); ok {
+			for _, d := range dns {
+				if s, ok := d.(string); ok {
+					dnsNames = append(dnsNames, s)
+				}
+			}
+		}
+
+		// Get status
+		status := "Unknown"
+		var notBefore, notAfter, renewalTime string
+		if statusObj, ok := cert.Object["status"].(map[string]interface{}); ok {
+			if conditions, ok := statusObj["conditions"].([]interface{}); ok {
+				for _, cond := range conditions {
+					if c, ok := cond.(map[string]interface{}); ok {
+						if c["type"] == "Ready" {
+							if c["status"] == "True" {
+								status = "Ready"
+							} else if c["status"] == "False" {
+								status = "Failed"
+							} else {
+								status = "Pending"
+							}
+							break
+						}
+					}
+				}
+			}
+			if nb, ok := statusObj["notBefore"].(string); ok {
+				notBefore = nb
+			}
+			if na, ok := statusObj["notAfter"].(string); ok {
+				notAfter = na
+			}
+			if rt, ok := statusObj["renewalTime"].(string); ok {
+				renewalTime = rt
+			}
+		}
+
+		certs = append(certs, map[string]interface{}{
+			"name":        name,
+			"namespace":   ns,
+			"secretName":  secretName,
+			"issuer":      issuer,
+			"status":      status,
+			"notBefore":   notBefore,
+			"notAfter":    notAfter,
+			"renewalTime": renewalTime,
+			"dnsNames":    dnsNames,
+			"age":         age,
+		})
+	}
+
+	json.NewEncoder(w).Encode(certs)
+}
+
+// handleCertificateYAML returns the YAML representation of a certificate
+func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
+
+	yamlData, err := yaml.Marshal(cert.Object)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleCertificateDescribe returns kubectl describe output for a certificate
+func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleCertificateDelete deletes a certificate
+func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
 	})
 }
 
@@ -4052,35 +4869,59 @@ func findAvailablePort(startPort int) (int, error) {
 func (ws *WebServer) handlePortForwardStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	resourceType := r.URL.Query().Get("type") // "pod" or "service"
-	name := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-	remotePortStr := r.URL.Query().Get("remotePort")
-	localPortStr := r.URL.Query().Get("localPort")
+	var resourceType, name, namespace string
+	var remotePort, localPort int
+	var err error
+
+	// Support both POST JSON body and GET query params
+	if r.Method == "POST" {
+		var req struct {
+			Type       string `json:"type"`
+			Name       string `json:"name"`
+			Namespace  string `json:"namespace"`
+			LocalPort  int    `json:"localPort"`
+			RemotePort int    `json:"remotePort"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Invalid request body: " + err.Error(),
+			})
+			return
+		}
+		resourceType = req.Type
+		name = req.Name
+		namespace = req.Namespace
+		localPort = req.LocalPort
+		remotePort = req.RemotePort
+	} else {
+		resourceType = r.URL.Query().Get("type")
+		name = r.URL.Query().Get("name")
+		namespace = r.URL.Query().Get("namespace")
+		remotePortStr := r.URL.Query().Get("remotePort")
+		localPortStr := r.URL.Query().Get("localPort")
+
+		if remotePortStr != "" {
+			remotePort, _ = strconv.Atoi(remotePortStr)
+		}
+		if localPortStr != "" {
+			localPort, _ = strconv.Atoi(localPortStr)
+		}
+	}
 
 	if namespace == "" {
 		namespace = ws.app.namespace
 	}
 
-	if name == "" || remotePortStr == "" {
-		http.Error(w, "name and remotePort are required", http.StatusBadRequest)
+	if name == "" || remotePort == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and remotePort are required",
+		})
 		return
 	}
 
-	remotePort, err := strconv.Atoi(remotePortStr)
-	if err != nil {
-		http.Error(w, "invalid remotePort", http.StatusBadRequest)
-		return
-	}
-
-	var localPort int
-	if localPortStr != "" {
-		localPort, err = strconv.Atoi(localPortStr)
-		if err != nil {
-			http.Error(w, "invalid localPort", http.StatusBadRequest)
-			return
-		}
-	} else {
+	if localPort == 0 {
 		// Find an available port
 		localPort, err = findAvailablePort(remotePort)
 		if err != nil {
@@ -4772,6 +5613,154 @@ func (ws *WebServer) handleHelmReleaseDetails(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// handleHelmReleaseHistory returns the full history for a Helm release
+func (ws *WebServer) handleHelmReleaseHistory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
+		return
+	}
+
+	// Get all secrets for this release
+	listOptions := metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
+	}
+
+	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	var history []map[string]interface{}
+	for _, secret := range secrets.Items {
+		versionStr := secret.Labels["version"]
+		version := 1
+		if versionStr != "" {
+			if v, err := strconv.Atoi(versionStr); err == nil {
+				version = v
+			}
+		}
+
+		// Get chart info from secret data
+		chart := "unknown"
+		appVersion := ""
+		description := ""
+
+		// Try to decode the release data
+		if releaseData, ok := secret.Data["release"]; ok {
+			// Helm stores release data as base64 + gzip + protobuf
+			// For simplicity, we'll just get what we can from labels
+			_ = releaseData
+		}
+
+		history = append(history, map[string]interface{}{
+			"revision":    version,
+			"status":      secret.Labels["status"],
+			"chart":       chart,
+			"appVersion":  appVersion,
+			"description": description,
+			"updated":     secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+			"createdAt":   secret.CreationTimestamp,
+		})
+	}
+
+	// Sort by revision descending
+	sort.Slice(history, func(i, j int) bool {
+		return history[i]["revision"].(int) > history[j]["revision"].(int)
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"name":      name,
+		"namespace": namespace,
+		"history":   history,
+		"total":     len(history),
+	})
+}
+
+// handleHelmRollback rolls back a Helm release to a specific revision
+func (ws *WebServer) handleHelmRollback(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		Revision  int    `json:"revision"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Name == "" || req.Namespace == "" || req.Revision == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name, namespace, and revision are required",
+		})
+		return
+	}
+
+	// Execute helm rollback command
+	cmd := exec.Command("helm", "rollback", req.Name, strconv.Itoa(req.Revision), "-n", req.Namespace)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Rollback failed: %s - %s", err.Error(), string(output)),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"message":  fmt.Sprintf("Successfully rolled back %s to revision %d", req.Name, req.Revision),
+		"output":   string(output),
+		"name":     req.Name,
+		"revision": req.Revision,
+	})
+}
+
 // KustomizeResource represents a resource managed by Kustomize
 type KustomizeResource struct {
 	Kind      string            `json:"kind"`
@@ -5054,6 +6043,327 @@ func (ws *WebServer) handleArgoCDApps(w http.ResponseWriter, r *http.Request) {
 		"apps":      apps,
 		"count":     len(apps),
 		"installed": true,
+	})
+}
+
+// handleArgoCDAppDetails returns details for a specific ArgoCD Application
+func (ws *WebServer) handleArgoCDAppDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.config == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name is required",
+		})
+		return
+	}
+
+	// Default to argocd namespace if not specified
+	if namespace == "" {
+		namespace = "argocd"
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	appGVR := schema.GroupVersionResource{
+		Group:    "argoproj.io",
+		Version:  "v1alpha1",
+		Resource: "applications",
+	}
+
+	app, err := dynamicClient.Resource(appGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Get detailed info
+	spec, _, _ := unstructured.NestedMap(app.Object, "spec")
+	status, _, _ := unstructured.NestedMap(app.Object, "status")
+
+	// Extract sync history
+	var syncHistory []map[string]interface{}
+	if history, found, _ := unstructured.NestedSlice(status, "history"); found {
+		for _, h := range history {
+			if hMap, ok := h.(map[string]interface{}); ok {
+				syncHistory = append(syncHistory, map[string]interface{}{
+					"id":         hMap["id"],
+					"revision":   hMap["revision"],
+					"deployedAt": hMap["deployedAt"],
+					"source":     hMap["source"],
+				})
+			}
+		}
+	}
+
+	// Extract resource status
+	var resources []map[string]interface{}
+	if res, found, _ := unstructured.NestedSlice(status, "resources"); found {
+		for _, r := range res {
+			if rMap, ok := r.(map[string]interface{}); ok {
+				resources = append(resources, map[string]interface{}{
+					"kind":      rMap["kind"],
+					"name":      rMap["name"],
+					"namespace": rMap["namespace"],
+					"status":    rMap["status"],
+					"health":    rMap["health"],
+				})
+			}
+		}
+	}
+
+	// Get conditions
+	var conditions []map[string]interface{}
+	if conds, found, _ := unstructured.NestedSlice(status, "conditions"); found {
+		for _, c := range conds {
+			if cMap, ok := c.(map[string]interface{}); ok {
+				conditions = append(conditions, map[string]interface{}{
+					"type":    cMap["type"],
+					"status":  cMap["status"],
+					"message": cMap["message"],
+				})
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"name":        app.GetName(),
+		"namespace":   app.GetNamespace(),
+		"spec":        spec,
+		"status":      status,
+		"history":     syncHistory,
+		"resources":   resources,
+		"conditions":  conditions,
+		"historyCount": len(syncHistory),
+	})
+}
+
+// handleArgoCDSync triggers a sync for an ArgoCD Application
+func (ws *WebServer) handleArgoCDSync(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	if ws.app.config == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		Prune     bool   `json:"prune"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name is required",
+		})
+		return
+	}
+
+	// Default to argocd namespace if not specified
+	if req.Namespace == "" {
+		req.Namespace = "argocd"
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	appGVR := schema.GroupVersionResource{
+		Group:    "argoproj.io",
+		Version:  "v1alpha1",
+		Resource: "applications",
+	}
+
+	// Get current app
+	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to get application: " + err.Error(),
+		})
+		return
+	}
+
+	// Set operation to trigger sync
+	operation := map[string]interface{}{
+		"sync": map[string]interface{}{
+			"prune": req.Prune,
+		},
+	}
+	unstructured.SetNestedMap(app.Object, operation, "operation")
+
+	// Update the application to trigger sync
+	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to trigger sync: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Sync triggered for %s", req.Name),
+		"name":    req.Name,
+	})
+}
+
+// handleArgoCDRefresh triggers a refresh for an ArgoCD Application
+func (ws *WebServer) handleArgoCDRefresh(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	if ws.app.config == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		Hard      bool   `json:"hard"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name is required",
+		})
+		return
+	}
+
+	// Default to argocd namespace if not specified
+	if req.Namespace == "" {
+		req.Namespace = "argocd"
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	appGVR := schema.GroupVersionResource{
+		Group:    "argoproj.io",
+		Version:  "v1alpha1",
+		Resource: "applications",
+	}
+
+	// Get current app
+	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to get application: " + err.Error(),
+		})
+		return
+	}
+
+	// Update refresh annotation to trigger refresh
+	annotations := app.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
+	if req.Hard {
+		annotations["argocd.argoproj.io/refresh"] = "hard"
+	} else {
+		annotations["argocd.argoproj.io/refresh"] = "normal"
+	}
+	app.SetAnnotations(annotations)
+
+	// Update the application to trigger refresh
+	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to trigger refresh: " + err.Error(),
+		})
+		return
+	}
+
+	refreshType := "normal"
+	if req.Hard {
+		refreshType = "hard"
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"message":     fmt.Sprintf("Refresh (%s) triggered for %s", refreshType, req.Name),
+		"name":        req.Name,
+		"refreshType": refreshType,
 	})
 }
 

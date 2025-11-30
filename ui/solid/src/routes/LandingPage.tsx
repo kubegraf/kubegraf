@@ -308,11 +308,12 @@ const LandingPage: Component = () => {
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
               <svg class="w-6 h-6" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="50" cy="50" r="12" fill="white"/>
-                <circle cx="50" cy="50" r="35" fill="none" stroke="white" stroke-width="4"/>
-                <circle cx="50" cy="15" r="8" fill="white"/>
-                <circle cx="80" cy="67" r="8" fill="white"/>
-                <circle cx="20" cy="67" r="8" fill="white"/>
+                {/* G outline */}
+                <path d="M80 30 L60 12 L35 12 L12 30 L12 70 L35 88 L60 88 L80 70 L80 50 L55 50" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                {/* 3D Pod inside G */}
+                <path d="M42 22 L62 34 L42 46 L22 34 Z" fill="white" opacity="0.9"/>
+                <path d="M42 46 L62 34 L62 54 L42 66 Z" fill="white" opacity="0.6"/>
+                <path d="M42 46 L22 34 L22 54 L42 66 Z" fill="white" opacity="0.75"/>
               </svg>
             </div>
             <span class="text-xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
@@ -533,8 +534,12 @@ const LandingPage: Component = () => {
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
                 <svg class="w-5 h-5" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="50" cy="50" r="12" fill="white"/>
-                  <circle cx="50" cy="50" r="35" fill="none" stroke="white" stroke-width="4"/>
+                  {/* G outline */}
+                  <path d="M80 30 L60 12 L35 12 L12 30 L12 70 L35 88 L60 88 L80 70 L80 50 L55 50" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                  {/* 3D Pod inside G */}
+                  <path d="M42 22 L62 34 L42 46 L22 34 Z" fill="white" opacity="0.9"/>
+                  <path d="M42 46 L62 34 L62 54 L42 66 Z" fill="white" opacity="0.6"/>
+                  <path d="M42 46 L22 34 L22 54 L42 66 Z" fill="white" opacity="0.75"/>
                 </svg>
               </div>
               <span class="text-lg font-bold">KubeGraf</span>

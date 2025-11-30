@@ -1,6 +1,7 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
+import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import DescribeModal from '../components/DescribeModal';
@@ -13,6 +14,7 @@ interface Pod {
   ready: string;
   restarts: number;
   age: string;
+  createdAt?: string;
   node: string;
   containers?: string[];
   ip?: string;
@@ -51,6 +53,8 @@ const Pods: Component = () => {
   const [logsError, setLogsError] = createSignal<string | null>(null);
   const [logsTail, setLogsTail] = createSignal(100);
   const [logsSearch, setLogsSearch] = createSignal('');
+  const [logsFollow, setLogsFollow] = createSignal(false);
+  let logsEventSource: EventSource | null = null;
 
   // Pod metrics state with previous values for change indicators
   const [podMetrics, setPodMetrics] = createSignal<Record<string, { cpu: string; memory: string }>>({});
@@ -90,14 +94,54 @@ const Pods: Component = () => {
     }
   };
 
+  // Age ticker for real-time age updates (like k9s)
+  const [ageTicker, setAgeTicker] = createSignal(0);
+  let ageTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Format age like k9s: seconds for first 120s, then minutes+seconds, then hours+minutes, then days+hours
+  // The _tick parameter is used to force SolidJS to re-evaluate when ageTicker changes
+  const formatAgeFromTimestamp = (createdAt: string | undefined, _tick: number): string => {
+    if (!createdAt) return '-';
+    const created = new Date(createdAt);
+    const now = new Date();
+    const diffMs = now.getTime() - created.getTime();
+    if (diffMs < 0) return '0s';
+
+    const seconds = Math.floor(diffMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    // First 120 seconds: show just seconds
+    if (seconds < 120) {
+      return `${seconds}s`;
+    }
+    // Up to 1 hour: show minutes and seconds
+    if (minutes < 60) {
+      const secs = seconds % 60;
+      return `${minutes}m${secs}s`;
+    }
+    // Up to 24 hours: show hours and minutes
+    if (hours < 24) {
+      const mins = minutes % 60;
+      return `${hours}h${mins}m`;
+    }
+    // Beyond 24 hours: show days and hours
+    const hrs = hours % 24;
+    return `${days}d${hrs}h`;
+  };
+
   onMount(() => {
     fetchMetrics(); // Initial metrics fetch
     // Auto-refresh metrics every 10 seconds
     metricsTimer = setInterval(fetchMetrics, 10000);
+    // Age ticker: update every 5 seconds for real-time age display (balances responsiveness vs performance)
+    ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
   });
 
   onCleanup(() => {
     if (metricsTimer) clearInterval(metricsTimer);
+    if (ageTimer) clearInterval(ageTimer);
   });
 
   // Resources
@@ -245,7 +289,7 @@ const Pods: Component = () => {
     switch (modal) {
       case 'yaml': setShowYaml(true); break;
       case 'describe': setShowDescribe(true); break;
-      case 'logs': fetchLogs(pod); setShowLogs(true); break;
+      case 'logs': fetchLogs(pod, logsFollow()); setShowLogs(true); break;
       case 'details': setShowDetails(true); break;
       case 'shell': setShowShell(true); break;
       case 'portforward': setShowPortForward(true); break;
@@ -279,23 +323,56 @@ const Pods: Component = () => {
     window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
   };
 
-  const fetchLogs = async (pod: Pod) => {
+  const stopLogStream = () => {
+    if (logsEventSource) {
+      logsEventSource.close();
+      logsEventSource = null;
+    }
+  };
+
+  const fetchLogs = async (pod: Pod, follow = false) => {
+    stopLogStream();
     setLogsLoading(true);
     setLogsError(null);
-    try {
-      const container = pod.containers?.[0] || '';
-      const res = await fetch(`/api/pod/logs?name=${pod.name}&namespace=${pod.namespace}&container=${container}&tail=${logsTail()}`);
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setLogsContent(data.logs || 'No logs available');
-    } catch (e: any) {
-      setLogsError(e.message || 'Failed to fetch logs');
+
+    const container = pod.containers?.[0] || '';
+    const url = `/api/pod/logs?name=${pod.name}&namespace=${pod.namespace}&container=${container}&tail=${logsTail()}${follow ? '&follow=true' : ''}`;
+
+    if (follow) {
+      // Use Server-Sent Events for streaming
       setLogsContent('');
-    } finally {
-      setLogsLoading(false);
+      logsEventSource = new EventSource(url);
+
+      logsEventSource.onmessage = (event) => {
+        setLogsContent(prev => prev + event.data + '\n');
+        setLogsLoading(false);
+      };
+
+      logsEventSource.onerror = () => {
+        setLogsError('Stream connection lost');
+        setLogsLoading(false);
+        stopLogStream();
+      };
+
+      logsEventSource.onopen = () => {
+        setLogsLoading(false);
+      };
+    } else {
+      // Regular fetch
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setLogsContent(data.logs || 'No logs available');
+      } catch (e: any) {
+        setLogsError(e.message || 'Failed to fetch logs');
+        setLogsContent('');
+      } finally {
+        setLogsLoading(false);
+      }
     }
   };
 
@@ -317,12 +394,15 @@ const Pods: Component = () => {
   };
 
   const deletePod = async (pod: Pod) => {
-    if (!confirm(`Are you sure you want to delete pod ${pod.name}?`)) return;
+    if (!confirm(`Are you sure you want to delete pod "${pod.name}" in namespace "${pod.namespace}"?`)) return;
     try {
       await api.deletePod(pod.name, pod.namespace);
-      refetch();
+      addNotification(`Pod ${pod.name} deleted successfully`, 'success');
+      // Small delay to let cluster update before refetching
+      setTimeout(() => refetch(), 500);
     } catch (error) {
       console.error('Failed to delete pod:', error);
+      addNotification(`Failed to delete pod: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -344,7 +424,18 @@ const Pods: Component = () => {
           <p style={{ color: 'var(--text-secondary)' }}>Manage and monitor your Kubernetes pods</p>
         </div>
         <div class="flex items-center gap-3">
-          <button onClick={() => { refetch(); fetchMetrics(); }} class="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Refresh Pods">
+          <button
+            onClick={(e) => {
+              const btn = e.currentTarget;
+              btn.classList.add('refreshing');
+              setTimeout(() => btn.classList.remove('refreshing'), 500);
+              refetch();
+              fetchMetrics();
+            }}
+            class="icon-btn"
+            style={{ background: 'var(--bg-secondary)' }}
+            title="Refresh Pods"
+          >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
@@ -515,7 +606,7 @@ const Pods: Component = () => {
                         </span>
                       </td>
                       <td class={pod.restarts > 0 ? 'text-yellow-400 font-semibold' : ''}>{pod.restarts}</td>
-                      <td>{pod.age}</td>
+                      <td>{formatAgeFromTimestamp(pod.createdAt, ageTicker())}</td>
                       <td style={{ color: 'var(--text-muted)' }}>{pod.node}</td>
                       <td>
                         <ActionMenu
@@ -602,21 +693,40 @@ const Pods: Component = () => {
       />
 
       {/* Logs Modal */}
-      <Modal isOpen={showLogs()} onClose={() => setShowLogs(false)} title={`Logs: ${selectedPod()?.name}`} size="xl">
+      <Modal isOpen={showLogs()} onClose={() => { stopLogStream(); setShowLogs(false); }} title={`Logs: ${selectedPod()?.name}`} size="xl">
         <div class="flex flex-col h-[60vh]">
           {/* Controls */}
           <div class="flex flex-wrap items-center gap-3 mb-3">
             <select
               value={logsTail()}
-              onChange={(e) => { setLogsTail(parseInt(e.currentTarget.value)); if (selectedPod()) fetchLogs(selectedPod()!); }}
+              onChange={(e) => { setLogsTail(parseInt(e.currentTarget.value)); if (selectedPod()) fetchLogs(selectedPod()!, logsFollow()); }}
               class="px-3 py-2 rounded-lg text-sm"
               style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              disabled={logsFollow()}
             >
               <option value="50">Last 50 lines</option>
               <option value="100">Last 100 lines</option>
               <option value="500">Last 500 lines</option>
               <option value="1000">Last 1000 lines</option>
             </select>
+
+            <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer" style={{ background: logsFollow() ? 'var(--accent-primary)' : 'var(--bg-tertiary)', color: logsFollow() ? 'white' : 'var(--text-primary)' }}>
+              <input
+                type="checkbox"
+                checked={logsFollow()}
+                onChange={(e) => {
+                  const follow = e.currentTarget.checked;
+                  setLogsFollow(follow);
+                  if (selectedPod()) fetchLogs(selectedPod()!, follow);
+                }}
+                class="hidden"
+              />
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={logsFollow() ? "M21 12a9 9 0 11-18 0 9 9 0 0118 0z M10 9v6m4-6v6" : "M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z"} />
+              </svg>
+              <span class="text-sm font-medium">{logsFollow() ? 'Live' : 'Follow'}</span>
+              {logsFollow() && <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
+            </label>
 
             <input
               type="text"
@@ -628,7 +738,7 @@ const Pods: Component = () => {
             />
 
             <button
-              onClick={() => selectedPod() && fetchLogs(selectedPod()!)}
+              onClick={() => selectedPod() && fetchLogs(selectedPod()!, logsFollow())}
               class="p-2 rounded-lg hover:bg-[var(--bg-secondary)]"
               style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
               title="Refresh Logs"

@@ -19,15 +19,80 @@ Thank you for your interest in contributing to KubeGraf! 🎉
 
 ### Prerequisites
 - Go 1.24 or higher
+- Node.js 18+ and npm (for UI development)
 - kubectl with cluster access
 - Git
 
-### Build and Run
+### Development Environment Setup
+
+#### 1. Build the UI (Solid.js)
+```bash
+cd ui/solid
+npm install
+npm run build
+```
+
+This builds the frontend assets to `ui/solid/dist/`.
+
+#### 2. Copy UI Files to Web Directory
+```bash
+# From repository root
+rm -rf web/dist/*
+cp -r ui/solid/dist/* web/dist/
+```
+
+The Go server serves files from `web/dist/`, so the built UI files need to be copied there.
+
+#### 3. Build the Go Binary
+```bash
+# From repository root
+go build -o kubegraf .
+```
+
+#### 4. Run the Development Server
+```bash
+# Run on default port (8080)
+./kubegraf --web
+
+# Or run on custom port (e.g., 3000)
+./kubegraf --web --port=3000
+```
+
+Then open your browser to:
+- Dashboard: http://localhost:3000 (or http://localhost:8080)
+- Topology: http://localhost:3000/topology
+
+#### 5. Complete Development Workflow
+```bash
+# One-liner to rebuild everything and restart server
+pkill -f kubegraf 2>/dev/null; \
+rm -rf web/dist/* && \
+cp -r ui/solid/dist/* web/dist/ && \
+go build -o kubegraf . && \
+./kubegraf --web --port=3000
+```
+
+#### 6. UI Development with Hot Reload
+For active UI development with hot module replacement:
+```bash
+# Terminal 1: Run UI dev server
+cd ui/solid
+npm run dev
+# UI will be available at http://localhost:5173 (Vite default)
+
+# Terminal 2: Run backend server
+cd ../..
+./kubegraf --web --port=8080
+```
+
+Note: In dev mode, the UI runs separately. For production builds, use the workflow in step 5.
+
+### Build and Run (Terminal UI Only)
 ```bash
 # Build
 go build -o kubegraf
 
-# Run
+# Run terminal UI
 ./kubegraf [namespace]
 
 # Run tests

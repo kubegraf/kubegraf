@@ -179,6 +179,15 @@ func (a *App) switchTab(direction int) {
 	a.refreshCurrentTab()
 }
 
+// setTab switches to a specific tab by index
+func (a *App) setTab(index int) {
+	if index >= 0 && index < len(a.tabs) {
+		a.currentTab = index
+		a.updateTabBar()
+		a.refreshCurrentTab()
+	}
+}
+
 // refreshCurrentTab refreshes the current tab
 func (a *App) refreshCurrentTab() {
 	switch a.tabs[a.currentTab] {

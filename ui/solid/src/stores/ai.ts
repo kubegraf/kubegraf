@@ -30,32 +30,23 @@ const [providers, setProviders] = createSignal<AIProvider[]>([
 
 async function fetchProviders() {
   try {
-    const res = await fetch('/api/ai/providers');
+    const res = await fetch('/api/ai/status');
     if (res.ok) {
       const data = await res.json();
-      setProviders(data);
+      // Update current provider based on backend status
+      if (data.available && data.provider) {
+        const providerName = data.provider.split(' ')[0]; // e.g., "ollama (llama3.2)" -> "ollama"
+        setCurrentProvider(providerName);
+      }
     }
   } catch (error) {
-    console.error('Failed to fetch AI providers:', error);
+    console.error('Failed to fetch AI status:', error);
   }
 }
 
 async function createSession(): Promise<string | null> {
-  try {
-    const res = await fetch('/api/ai/session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: currentProvider() }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setSessionId(data.id);
-      return data.id;
-    }
-  } catch (error) {
-    console.error('Failed to create AI session:', error);
-  }
-  return null;
+  // Sessions are not needed with the simple query API
+  return crypto.randomUUID();
 }
 
 async function sendMessage(content: string) {
@@ -72,18 +63,26 @@ async function sendMessage(content: string) {
   setIsLoading(true);
 
   try {
-    let sid = sessionId();
-    if (!sid) {
-      sid = await createSession();
+    // Check if AI is available first
+    const statusRes = await fetch('/api/ai/status');
+    const statusData = await statusRes.json();
+
+    if (!statusData.available) {
+      const errorMessage: AIMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: 'No AI provider available. Configure Ollama (local), OpenAI (OPENAI_API_KEY), or Claude (ANTHROPIC_API_KEY) to enable AI features.',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      return;
     }
 
-    const res = await fetch('/api/ai/chat', {
+    const res = await fetch('/api/ai/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: sid,
-        message: content,
-        provider: currentProvider(),
+        query: content,
       }),
     });
 
@@ -101,15 +100,20 @@ async function sendMessage(content: string) {
         const assistantMessage: AIMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: data.message,
+          content: data.response,
           timestamp: new Date(),
-          usage: data.usage,
         };
         setMessages(prev => [...prev, assistantMessage]);
-        if (data.session_id) {
-          setSessionId(data.session_id);
-        }
       }
+    } else {
+      const errorText = await res.text();
+      const errorMessage: AIMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Error: ${errorText}`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
     }
   } catch (error) {
     const errorMessage: AIMessage = {

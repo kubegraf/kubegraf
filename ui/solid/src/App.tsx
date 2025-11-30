@@ -12,12 +12,18 @@ import Jobs from './routes/Jobs';
 import Services from './routes/Services';
 import Ingresses from './routes/Ingresses';
 import ConfigMaps from './routes/ConfigMaps';
+import Certificates from './routes/Certificates';
 import Nodes from './routes/Nodes';
 import ResourceMap from './routes/ResourceMap';
 import Security from './routes/Security';
 import Plugins from './routes/Plugins';
+import Cost from './routes/Cost';
+import Drift from './routes/Drift';
+import Events from './routes/Events';
+import Apps from './routes/Apps';
 import AIChat from './components/AIChat';
 import { currentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
+import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
 import { api } from './services/api';
 import { createSignal, createResource } from 'solid-js';
@@ -33,10 +39,15 @@ const views: Record<string, Component> = {
   services: Services,
   ingresses: Ingresses,
   configmaps: ConfigMaps,
+  certificates: Certificates,
   nodes: Nodes,
   resourcemap: ResourceMap,
   security: Security,
   plugins: Plugins,
+  cost: Cost,
+  drift: Drift,
+  events: Events,
+  apps: Apps,
 };
 
 const App: Component = () => {
@@ -93,37 +104,27 @@ const App: Component = () => {
           </div>
         </Show>
 
+        {/* Cluster switching indicator */}
+        <Show when={clusterSwitching()}>
+          <div class="px-4 py-2 flex items-center gap-3" style={{
+            background: 'rgba(6, 182, 212, 0.1)',
+            'border-bottom': '1px solid rgba(6, 182, 212, 0.3)',
+            color: 'var(--accent-primary)',
+          }}>
+            <div class="spinner" style={{ width: '16px', height: '16px' }} />
+            <span class="text-sm font-medium">{clusterSwitchMessage()}</span>
+          </div>
+        </Show>
+
         {/* Main content area */}
         <main class="flex-1 overflow-auto p-6">
           <Dynamic component={views[currentView()]} />
         </main>
 
-        {/* Version Footer */}
-        <footer class="px-6 py-3 border-t flex items-center justify-between text-xs"
+        {/* Status Footer */}
+        <footer class="px-6 py-2 border-t flex items-center justify-end text-xs"
           style={{ background: 'var(--bg-secondary)', 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}
         >
-          <div class="flex items-center gap-4">
-            <span class="flex items-center gap-2">
-              <svg class="w-4 h-4" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <linearGradient id="footer-lg" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style={{ 'stop-color': '#06b6d4' }}/>
-                    <stop offset="100%" style={{ 'stop-color': '#8b5cf6' }}/>
-                  </linearGradient>
-                </defs>
-                <circle cx="50" cy="50" r="12" fill="url(#footer-lg)"/>
-                <circle cx="50" cy="50" r="40" fill="none" stroke="url(#footer-lg)" stroke-width="3"/>
-              </svg>
-              <span style={{ color: 'var(--text-secondary)' }}>KubeGraf</span>
-              <span class="px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--accent-primary)' }}>v1.0.0</span>
-            </span>
-            <span class="hidden sm:inline">|</span>
-            <span class="hidden sm:flex items-center gap-1">
-              Cluster: <span style={{ color: connectionStatus()?.cluster ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                {connectionStatus()?.cluster || 'Not connected'}
-              </span>
-            </span>
-          </div>
           <div class="flex items-center gap-4">
             <span class="flex items-center gap-1">
               <span class={`w-2 h-2 rounded-full ${connectionStatus()?.connected ? 'bg-green-500' : 'bg-red-500'}`} />

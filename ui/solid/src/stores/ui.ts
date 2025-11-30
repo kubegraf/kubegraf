@@ -11,11 +11,22 @@ export type View =
   | 'services'
   | 'ingresses'
   | 'configmaps'
+  | 'secrets'
+  | 'certificates'
   | 'nodes'
   | 'resourcemap'
   | 'security'
   | 'plugins'
-  | 'ai';
+  | 'cost'
+  | 'drift'
+  | 'ai'
+  | 'events'
+  | 'logs'
+  | 'apps'
+  | 'networkpolicies'
+  | 'storage'
+  | 'rbac'
+  | 'settings';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
@@ -32,7 +43,7 @@ interface Notification {
   timestamp: Date;
 }
 
-function addNotification(type: Notification['type'], message: string) {
+function addNotification(message: string, type: Notification['type'] = 'info') {
   const notification: Notification = {
     id: crypto.randomUUID(),
     type,

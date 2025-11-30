@@ -65,6 +65,8 @@ const [namespace, setNamespace] = createSignal<string>('_all');
 const [namespaces, setNamespaces] = createSignal<string[]>(['default']);
 const [contexts, setContexts] = createSignal<ClusterContext[]>([]);
 const [currentContext, setCurrentContext] = createSignal<string>('');
+const [clusterSwitching, setClusterSwitching] = createSignal<boolean>(false);
+const [clusterSwitchMessage, setClusterSwitchMessage] = createSignal<string>('');
 const [clusterStatus, setClusterStatus] = createSignal<ClusterStatus>({
   connected: false,
   context: '',
@@ -142,28 +144,48 @@ async function fetchContexts(): Promise<ClusterContext[]> {
 
 // Switch context and refresh all data
 async function switchContext(contextName: string): Promise<void> {
-  const res = await fetch('/api/contexts/switch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context: contextName }),
-  });
-  if (!res.ok) throw new Error('Failed to switch context');
+  setClusterSwitching(true);
+  setClusterSwitchMessage(`Switching to ${contextName}...`);
 
-  // Update current context
-  setCurrentContext(contextName);
+  try {
+    const res = await fetch('/api/contexts/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: contextName }),
+    });
+    if (!res.ok) throw new Error('Failed to switch context');
 
-  // Refresh all data for the new context
-  refreshAll();
+    // Update current context
+    setCurrentContext(contextName);
+    setClusterSwitchMessage(`Loading resources from ${contextName}...`);
 
-  // Refetch contexts to update isCurrent flags
-  const ctxData = await fetchContexts();
-  setContexts(ctxData);
+    // Refresh all data for the new context
+    refreshAll();
 
-  // Refetch namespaces for new cluster
-  const nsRes = await fetch('/api/namespaces');
-  if (nsRes.ok) {
-    const nsData = await nsRes.json();
-    setNamespaces(nsData.namespaces || []);
+    // Refetch contexts to update isCurrent flags
+    const ctxData = await fetchContexts();
+    setContexts(ctxData);
+
+    // Refetch namespaces for new cluster
+    const nsRes = await fetch('/api/namespaces');
+    if (nsRes.ok) {
+      const nsData = await nsRes.json();
+      setNamespaces(nsData.namespaces || []);
+    }
+
+    setClusterSwitchMessage(`Connected to ${contextName}`);
+    // Brief delay to show success message
+    setTimeout(() => {
+      setClusterSwitching(false);
+      setClusterSwitchMessage('');
+    }, 1000);
+  } catch (error) {
+    setClusterSwitchMessage(`Failed to switch to ${contextName}`);
+    setTimeout(() => {
+      setClusterSwitching(false);
+      setClusterSwitchMessage('');
+    }, 2000);
+    throw error;
   }
 }
 
@@ -223,6 +245,8 @@ export {
   clusterStatus,
   contexts,
   currentContext,
+  clusterSwitching,
+  clusterSwitchMessage,
   switchContext,
   contextsResource,
   podsResource,
