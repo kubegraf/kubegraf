@@ -32,14 +32,22 @@
 
 ### Core Capabilities
 
-- **Real-time Monitoring** - Live CPU and memory usage for pods
-- **Resource Explorer** - Pods, Deployments, Services, StatefulSets, DaemonSets, Ingresses, ConfigMaps, CronJobs, Jobs, Nodes
-- **Pod Operations** - Shell access, logs, restart, delete
-- **Service Operations** - Port forwarding, endpoint discovery
-- **Deployment Operations** - Scale replicas, restart rolling updates
-- **YAML Viewer** - View complete resource configurations
+- **Real-time Monitoring** - Live CPU and memory usage for pods with WebSocket updates
+- **Resource Explorer** - Full support for Pods, Deployments, Services, StatefulSets, DaemonSets, Ingresses, ConfigMaps, Secrets, Certificates, CronJobs, Jobs, Nodes
+- **Pod Operations** - Shell access, logs streaming, restart, delete, port forwarding
+- **Service Operations** - Port forwarding with session management, endpoint discovery
+- **Deployment Operations** - Scale replicas, restart rolling updates, rollback, history
+- **YAML Viewer** - Syntax-highlighted complete resource configurations
 - **Multi-Namespace** - Switch namespaces or view all at once
-- **Security Best Practices** - Automated security analysis with recommendations
+- **Multi-Cluster** - Switch between Kubernetes contexts
+- **Security Analysis** - Automated security posture assessment with 0-100 score
+- **Cost Management** - Cloud cost estimation for GCP, AWS, Azure, and more
+- **Drift Detection** - Configuration drift monitoring and GitOps sync status
+- **AI Integration** - AI-powered insights with Ollama, OpenAI, and Claude support
+- **Apps Marketplace** - Browse and install Helm charts
+- **Plugin System** - Extensible architecture with Helm, ArgoCD, Flux support
+- **Events** - Real-time cluster events and notifications
+- **Diagnostics** - Automated cluster health and performance analysis
 
 ### Advanced Visualization
 
@@ -204,12 +212,15 @@ kubegraf --web --port=8080
 
 | Feature | Description |
 |---------|-------------|
-| **Dashboard** | AI-powered insights, security score, cluster metrics |
+| **Dashboard** | AI-powered insights, security score, cluster metrics, cost overview |
 | **Workloads** | Pods, Deployments, StatefulSets, DaemonSets, CronJobs, Jobs |
-| **Network** | Services with port forwarding, Ingresses |
-| **Config** | ConfigMaps with syntax-highlighted YAML |
-| **Cluster** | Nodes, Resource Map topology visualization |
-| **Security** | Security posture analysis with best practices |
+| **Network** | Services with port forwarding, Ingresses, traffic analysis |
+| **Config** | ConfigMaps, Secrets, Certificates with syntax-highlighted YAML |
+| **Cluster** | Nodes, Resource Map topology visualization, events |
+| **Security** | Security posture analysis with best practices and remediation |
+| **Cost** | Cloud cost estimation and optimization recommendations |
+| **Drift** | Configuration drift detection and GitOps sync status |
+| **Apps** | Apps marketplace for browsing and installing Helm charts |
 | **Plugins** | Helm, ArgoCD, Flux integrations |
 
 ### Themes
@@ -304,9 +315,26 @@ The web dashboard (`kubegraf --web`) includes an interactive topology page at `/
 - [client-go](https://github.com/kubernetes/client-go) - Kubernetes API client
 - [D3.js](https://d3js.org/) - Data visualization (Web UI)
 - [gographviz](https://github.com/awalterschulze/gographviz) - Graph generation
-- [Solid.js](https://www.solidjs.com/) - Reactive UI framework (New UI)
+- [Solid.js](https://www.solidjs.com/) - Reactive UI framework (Modern UI)
 - [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
 - [Vite](https://vitejs.dev/) - Fast build tool
+
+## 🎯 Key Features Summary
+
+KubeGraf provides a comprehensive Kubernetes management solution with:
+
+- **3 Interfaces** - Terminal UI, Web Dashboard, and Modern Solid.js SPA
+- **20+ Resource Types** - Complete Kubernetes resource coverage
+- **Security Analysis** - Automated security posture assessment with scoring
+- **Cost Management** - Multi-cloud cost estimation (GCP, AWS, Azure, etc.)
+- **Drift Detection** - Configuration drift monitoring and GitOps integration
+- **AI Integration** - AI-powered insights (Ollama, OpenAI, Claude)
+- **Visualization** - Multiple topology views (D3.js, Graphviz, Terminal Canvas)
+- **Real-time Monitoring** - Live metrics, events, and WebSocket updates
+- **Plugin System** - Extensible architecture with Helm, ArgoCD, Flux support
+- **Multi-cluster** - Support for multiple Kubernetes contexts
+
+For a complete list of features and capabilities, see [FEATURES.md](FEATURES.md).
 
 ## 📂 Project Structure
 
@@ -341,6 +369,12 @@ kubegraf/
 │       └── package.json
 └── docs/                    # Documentation website
 ```
+
+## 📚 Documentation
+
+- **[FEATURES.md](FEATURES.md)** - Complete feature and capability documentation
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup and contribution guidelines
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Project dependencies and licenses
 
 ## 🤝 Contributing
 
