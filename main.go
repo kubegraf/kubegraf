@@ -85,7 +85,7 @@ func main() {
 
 		// Start web server immediately
 		webServer := NewWebServer(app)
-		
+
 		// Initialize cluster connection in background
 		go func() {
 			initErr := app.Initialize()
