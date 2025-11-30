@@ -809,6 +809,14 @@ func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // broadcastUpdates sends periodic updates to all connected clients
 func (ws *WebServer) broadcastUpdates() {
+	// Wait for cluster connection before starting updates
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -1641,6 +1649,11 @@ func (ws *WebServer) getClusterMetrics() map[string]interface{} {
 		"nodes":       5,
 		"clusterName": ws.app.cluster,
 		"namespace":   ws.app.namespace,
+	}
+
+	// Wait for clientset to be initialized
+	if ws.app.clientset == nil {
+		return metrics
 	}
 
 	// Get actual node count
