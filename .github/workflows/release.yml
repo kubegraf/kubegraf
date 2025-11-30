@@ -32,6 +32,7 @@ jobs:
 
       - name: Copy UI dist to web/dist
         run: |
+          mkdir -p web
           rm -rf web/dist
           cp -r ui/solid/dist web/dist
 
