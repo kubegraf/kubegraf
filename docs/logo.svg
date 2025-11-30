@@ -1,9 +1,14 @@
-<svg viewBox="0 0 100 100" width="350" height="350" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 400 100" width="400" height="100" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#22d3ee"/>
       <stop offset="50%" stop-color="#3b82f6"/>
       <stop offset="100%" stop-color="#d946ef"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
@@ -14,17 +19,20 @@
     </filter>
   </defs>
 
-  <g filter="url(#glow)">
-    <line x1="80" y1="30" x2="60" y2="12" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="60" y1="12" x2="35" y2="12" stroke="#06b6d4" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="35" y1="12" x2="12" y2="30" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="12" y1="30" x2="12" y2="70" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="12" y1="70" x2="35" y2="88" stroke="#6366f1" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="35" y1="88" x2="60" y2="88" stroke="#8b5cf6" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="60" y1="88" x2="80" y2="70" stroke="#a855f7" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="80" y1="70" x2="80" y2="50" stroke="#c026d3" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="80" y1="50" x2="55" y2="50" stroke="#d946ef" stroke-width="3.5" stroke-linecap="round"/>
-    
+  <!-- Icon (scaled and positioned) -->
+  <g transform="translate(10, 10) scale(0.8)">
+    <g filter="url(#glow)">
+      <line x1="80" y1="30" x2="60" y2="12" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="60" y1="12" x2="35" y2="12" stroke="#06b6d4" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="35" y1="12" x2="12" y2="30" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="12" y1="30" x2="12" y2="70" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="12" y1="70" x2="35" y2="88" stroke="#6366f1" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="35" y1="88" x2="60" y2="88" stroke="#8b5cf6" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="60" y1="88" x2="80" y2="70" stroke="#a855f7" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="80" y1="70" x2="80" y2="50" stroke="#c026d3" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="80" y1="50" x2="55" y2="50" stroke="#d946ef" stroke-width="3.5" stroke-linecap="round"/>
+    </g>
+
     <circle cx="80" cy="30" r="5" fill="#22d3ee"/>
     <circle cx="60" cy="12" r="5" fill="#06b6d4"/>
     <circle cx="35" cy="12" r="5" fill="#3b82f6"/>
@@ -35,5 +43,14 @@
     <circle cx="80" cy="70" r="5" fill="#c026d3"/>
     <circle cx="80" cy="50" r="5" fill="#d946ef"/>
     <circle cx="55" cy="50" r="5" fill="#d946ef"/>
+
+    <g filter="url(#glow)">
+      <path d="M42 22 L62 34 L42 46 L22 34 Z" fill="#22d3ee" stroke="#fff" stroke-width="1.5"/>
+      <path d="M42 46 L62 34 L62 54 L42 66 Z" fill="#8b5cf6" stroke="#fff" stroke-width="1.5"/>
+      <path d="M42 46 L22 34 L22 54 L42 66 Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+    </g>
   </g>
+
+  <!-- KubeGraf Text -->
+  <text x="100" y="60" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="36" font-weight="bold" fill="url(#textGrad)">KubeGraf</text>
 </svg>
