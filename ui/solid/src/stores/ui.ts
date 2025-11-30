@@ -23,6 +23,7 @@ export type View =
   | 'events'
   | 'logs'
   | 'apps'
+  | 'customapps'
   | 'networkpolicies'
   | 'storage'
   | 'rbac'
@@ -43,6 +44,46 @@ interface Notification {
   timestamp: Date;
 }
 
+// Play sound effect for notification
+function playNotificationSound(type: Notification['type']) {
+  try {
+    const soundEnabled = localStorage.getItem('kubegraf-sound');
+    if (soundEnabled !== 'true') {
+      return; // Sound effects disabled
+    }
+
+    // Create audio context for generating sounds
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // Generate different tones based on notification type
+    const frequencies: Record<Notification['type'], number> = {
+      success: 800,  // Higher pitch for success
+      error: 300,   // Lower pitch for error
+      warning: 500, // Medium pitch for warning
+      info: 600,    // Medium-high pitch for info
+    };
+
+    const frequency = frequencies[type] || 600;
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
+
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.3);
+  } catch (error) {
+    // Silently fail if audio context is not available
+    console.debug('Could not play notification sound:', error);
+  }
+}
+
 function addNotification(message: string, type: Notification['type'] = 'info') {
   const notification: Notification = {
     id: crypto.randomUUID(),
@@ -51,6 +92,9 @@ function addNotification(message: string, type: Notification['type'] = 'info') {
     timestamp: new Date(),
   };
   setNotifications(prev => [notification, ...prev].slice(0, 10));
+
+  // Play sound effect if enabled
+  playNotificationSound(type);
 
   // Auto-dismiss after 5 seconds
   setTimeout(() => {

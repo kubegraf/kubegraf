@@ -78,6 +78,18 @@ export const api = {
     fetchAPI<any>(`/pod/details?name=${name}&namespace=${namespace}`),
   getPodYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/pod/yaml?name=${name}&namespace=${namespace}`),
+  updatePod: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/pod/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
   getPodDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/pod/describe?name=${name}&namespace=${namespace}`),
   deletePod: (name: string, namespace: string) =>
@@ -104,14 +116,26 @@ export const api = {
     fetchAPI<any>(`/deployment/details?name=${name}&namespace=${namespace}`),
   getDeploymentYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/deployment/yaml?name=${name}&namespace=${namespace}`),
+  updateDeployment: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/deployment/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
   getDeploymentDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/deployment/describe?name=${name}&namespace=${namespace}`),
   deleteDeployment: (name: string, namespace: string) =>
     deleteAPI(`/deployment/delete?name=${name}&namespace=${namespace}`),
   restartDeployment: (name: string, namespace: string) =>
-    fetchAPI<any>(`/deployment/restart?name=${name}&namespace=${namespace}`, { method: 'POST' }),
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/deployment/restart?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
   scaleDeployment: (name: string, namespace: string, replicas: number) =>
-    fetchAPI<any>(`/deployment/scale?name=${name}&namespace=${namespace}&replicas=${replicas}`, { method: 'POST' }),
+    fetchAPI<any>(`/deployment/scale?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}&replicas=${replicas}`, { method: 'POST' }),
 
   // StatefulSets
   getStatefulSets: async (namespace?: string) => {
@@ -128,7 +152,9 @@ export const api = {
   deleteStatefulSet: (name: string, namespace: string) =>
     deleteAPI(`/statefulset/delete?name=${name}&namespace=${namespace}`),
   restartStatefulSet: (name: string, namespace: string) =>
-    fetchAPI<any>(`/statefulset/restart?name=${name}&namespace=${namespace}`, { method: 'POST' }),
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/statefulset/restart?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
+  scaleStatefulSet: (name: string, namespace: string, replicas: number) =>
+    fetchAPI<any>(`/statefulset/scale?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}&replicas=${replicas}`, { method: 'POST' }),
 
   // DaemonSets
   getDaemonSets: async (namespace?: string) => {
@@ -140,6 +166,12 @@ export const api = {
   },
   getDaemonSetYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/daemonset/yaml?name=${name}&namespace=${namespace}`),
+  updateDaemonSet: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/daemonset/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
   getDaemonSetDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/daemonset/describe?name=${name}&namespace=${namespace}`),
   deleteDaemonSet: (name: string, namespace: string) =>
@@ -155,6 +187,12 @@ export const api = {
   },
   getCronJobYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/cronjob/yaml?name=${name}&namespace=${namespace}`),
+  updateCronJob: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/cronjob/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
   deleteCronJob: (name: string, namespace: string) =>
     deleteAPI(`/cronjob/delete?name=${name}&namespace=${namespace}`),
 
@@ -168,6 +206,12 @@ export const api = {
   },
   getJobYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/job/yaml?name=${name}&namespace=${namespace}`),
+  updateJob: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/job/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
   deleteJob: (name: string, namespace: string) =>
     deleteAPI(`/job/delete?name=${name}&namespace=${namespace}`),
 
@@ -182,6 +226,12 @@ export const api = {
   },
   getServiceYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/service/yaml?name=${name}&namespace=${namespace}`),
+  updateService: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/service/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
   getServiceDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/service/describe?name=${name}&namespace=${namespace}`),
   deleteService: (name: string, namespace: string) =>
@@ -197,6 +247,12 @@ export const api = {
   },
   getIngressYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/ingress/yaml?name=${name}&namespace=${namespace}`),
+  updateIngress: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/ingress/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
   getIngressDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/ingress/describe?name=${name}&namespace=${namespace}`),
   deleteIngress: (name: string, namespace: string) =>
@@ -218,7 +274,7 @@ export const api = {
   deleteConfigMap: (name: string, namespace: string) =>
     deleteAPI(`/configmap/delete?name=${name}&namespace=${namespace}`),
 
-  // Secrets (metadata only, not values)
+  // Secrets
   getSecrets: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all'
       ? `/secrets?namespace=${namespace}`
@@ -226,6 +282,24 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getSecretYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/secret/yaml?name=${name}&namespace=${namespace}`),
+  updateSecret: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/secret/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  getSecretDescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string }>(`/secret/describe?name=${name}&namespace=${namespace}`),
+  deleteSecret: (name: string, namespace: string) =>
+    deleteAPI(`/secret/delete?name=${name}&namespace=${namespace}`),
 
   // Certificates (cert-manager)
   getCertificates: async (namespace?: string) => {
@@ -237,6 +311,12 @@ export const api = {
   },
   getCertificateYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/certificate/yaml?name=${name}&namespace=${namespace}`),
+  updateCertificate: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/certificate/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
   getCertificateDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/certificate/describe?name=${name}&namespace=${namespace}`),
   deleteCertificate: (name: string, namespace: string) =>

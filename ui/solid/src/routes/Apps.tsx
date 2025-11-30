@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createMemo, createResource, onCleanup } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, createResource, onCleanup, Match, Switch } from 'solid-js';
 import { api } from '../services/api';
 import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
@@ -19,6 +19,7 @@ interface App {
 }
 
 type TabType = 'marketplace' | 'custom';
+type ViewMode = 'card' | 'list' | 'grid';
 
 // Load custom apps from localStorage
 const loadCustomApps = (): App[] => {
@@ -201,18 +202,23 @@ const categoryColors: Record<string, string> = {
   'Data': '#3b82f6',
 };
 
-const Apps: Component = () => {
+interface AppsProps {
+  defaultTab?: 'marketplace' | 'custom';
+}
+
+const Apps: Component<AppsProps> = (props) => {
   const [search, setSearch] = createSignal('');
   const [selectedCategory, setSelectedCategory] = createSignal<string>('all');
   const [selectedApp, setSelectedApp] = createSignal<App | null>(null);
   const [showInstallModal, setShowInstallModal] = createSignal(false);
   const [installNamespace, setInstallNamespace] = createSignal('default');
   const [installing, setInstalling] = createSignal(false);
+  const [viewMode, setViewMode] = createSignal<ViewMode>('card');
   // Track apps currently being deployed with their target namespace
   const [deployingApps, setDeployingApps] = createSignal<Record<string, { namespace: string; startTime: number }>>({});
 
   // Custom apps state
-  const [activeTab, setActiveTab] = createSignal<TabType>('marketplace');
+  const [activeTab, setActiveTab] = createSignal<TabType>(props.defaultTab || 'marketplace');
   const [customApps, setCustomApps] = createSignal<App[]>(loadCustomApps());
   const [showAddCustomModal, setShowAddCustomModal] = createSignal(false);
   const [newCustomApp, setNewCustomApp] = createSignal({
@@ -488,6 +494,332 @@ const Apps: Component = () => {
     return Object.entries(groups).map(([name, apps]) => ({ name, apps }));
   });
 
+  // View Icon Component
+  const ViewIcon = (props: { mode: ViewMode }) => (
+    <Switch>
+      <Match when={props.mode === 'card'}>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+        </svg>
+      </Match>
+      <Match when={props.mode === 'list'}>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+        </svg>
+      </Match>
+      <Match when={props.mode === 'grid'}>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+        </svg>
+      </Match>
+    </Switch>
+  );
+
+  // Card View Component (current default view)
+  const CardView = () => (
+    <For each={displayedGroupedApps()}>
+      {(group) => (
+        <div class="space-y-4">
+          <h2 class="text-lg font-semibold flex items-center gap-2" style={{ color: categoryColors[group.name] || 'var(--text-primary)' }}>
+            <span class="w-3 h-3 rounded-full" style={{ background: categoryColors[group.name] || 'var(--accent-primary)' }} />
+            {group.name}
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <For each={group.apps}>
+              {(app) => {
+                const isDeploying = () => !!deployingApps()[app.name];
+                const deployInfo = () => deployingApps()[app.name];
+                return (
+                  <div
+                    class={`card p-4 relative overflow-hidden group transition-all ${
+                      app.installed ? 'cursor-pointer hover:border-green-500/50' : 'hover:border-cyan-500/30'
+                    } ${isDeploying() ? 'animate-pulse' : ''}`}
+                    style={{ 'border-left': `4px solid ${categoryColors[app.category] || 'var(--accent-primary)'}` }}
+                    onClick={() => app.installed && navigateToPods(app)}
+                  >
+                    {/* Status badge */}
+                    <Show when={isDeploying()}>
+                      <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                           style={{ background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-primary)' }}>
+                        <div class="spinner" style={{ width: '12px', height: '12px' }} />
+                        Deploying...
+                      </div>
+                    </Show>
+                    <Show when={app.installed && !isDeploying()}>
+                      <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                           style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}>
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        </svg>
+                        Installed
+                      </div>
+                    </Show>
+
+                    <div class="flex items-start gap-3">
+                      <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                        <Show when={isDeploying()} fallback={
+                          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                               style={{ color: categoryColors[app.category] || 'var(--accent-primary)' }}>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={app.icon} />
+                          </svg>
+                        }>
+                          <div class="spinner" style={{ width: '24px', height: '24px' }} />
+                        </Show>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <h3 class="font-semibold" style={{ color: 'var(--text-primary)' }}>{app.displayName}</h3>
+                        <p class="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>v{app.version}</p>
+                      </div>
+                    </div>
+
+                    <p class="mt-3 text-sm line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
+                      {app.description}
+                    </p>
+
+                    <div class="mt-4 flex items-center justify-between">
+                      <span class="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                        {app.chartName}
+                      </span>
+
+                      <Show when={isDeploying()}>
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs" style={{ color: 'var(--accent-primary)' }}>
+                            to {deployInfo()?.namespace}
+                          </span>
+                        </div>
+                      </Show>
+
+                      <Show when={!isDeploying()}>
+                        <Show
+                          when={app.installed}
+                          fallback={
+                            <div class="flex items-center gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
+                                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+                                style={{ background: 'var(--accent-primary)', color: '#000' }}
+                              >
+                                Install
+                              </button>
+                              <Show when={app.isCustom}>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteCustomApp(app); }}
+                                  class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80"
+                                  style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                                  title="Remove custom app"
+                                >
+                                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </Show>
+                            </div>
+                          }
+                        >
+                          <div class="flex items-center gap-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); navigateToPods(app); }}
+                              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80 flex items-center gap-1"
+                              style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
+                            >
+                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              View Pods
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleUninstall(app); }}
+                              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+                              style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                            >
+                              Uninstall
+                            </button>
+                          </div>
+                        </Show>
+                      </Show>
+                    </div>
+
+                    {/* Namespace indicator for installed apps */}
+                    <Show when={app.installed && !isDeploying()}>
+                      <div class="mt-2 pt-2 border-t flex items-center gap-1 text-xs" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        Namespace: <span style={{ color: 'var(--text-secondary)' }}>{app.installedNamespace || 'default'}</span>
+                      </div>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+        </div>
+      )}
+    </For>
+  );
+
+  // List View Component (Table)
+  const ListView = () => (
+    <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-x-auto">
+        <table class="data-table terminal-table">
+          <thead>
+            <tr>
+              <th class="whitespace-nowrap">App</th>
+              <th class="whitespace-nowrap">Category</th>
+              <th class="whitespace-nowrap">Version</th>
+              <th class="whitespace-nowrap">Chart</th>
+              <th class="whitespace-nowrap">Status</th>
+              <th class="whitespace-nowrap">Namespace</th>
+              <th class="whitespace-nowrap">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={displayedApps()} fallback={
+              <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No apps found</td></tr>
+            }>
+              {(app) => {
+                const isDeploying = () => !!deployingApps()[app.name];
+                const deployInfo = () => deployingApps()[app.name];
+                return (
+                  <tr>
+                    <td>
+                      <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                               style={{ color: categoryColors[app.category] || 'var(--accent-primary)' }}>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={app.icon} />
+                          </svg>
+                        </div>
+                        <div>
+                          <div class="font-medium" style={{ color: 'var(--text-primary)' }}>{app.displayName}</div>
+                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>{app.description}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="text-xs px-2 py-1 rounded" style={{ 
+                        background: `${categoryColors[app.category] || 'var(--accent-primary)'}20`, 
+                        color: categoryColors[app.category] || 'var(--accent-primary)' 
+                      }}>
+                        {app.category}
+                      </span>
+                    </td>
+                    <td class="font-mono text-sm">{app.version}</td>
+                    <td class="font-mono text-sm">{app.chartName}</td>
+                    <td>
+                      <Show when={isDeploying()} fallback={
+                        <Show when={app.installed} fallback={
+                          <span class="badge badge-default">Available</span>
+                        }>
+                          <span class="badge badge-success">Installed</span>
+                        </Show>
+                      }>
+                        <span class="badge badge-info flex items-center gap-1">
+                          <div class="spinner" style={{ width: '12px', height: '12px' }} />
+                          Deploying
+                        </span>
+                      </Show>
+                    </td>
+                    <td class="text-sm">{app.installedNamespace || '-'}</td>
+                    <td>
+                      <div class="flex items-center gap-2">
+                        <Show when={!isDeploying()}>
+                          <Show when={app.installed} fallback={
+                            <button
+                              onClick={() => { setSelectedApp(app); setShowInstallModal(true); }}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'var(--accent-primary)', color: '#000' }}
+                            >
+                              Install
+                            </button>
+                          }>
+                            <button
+                              onClick={() => navigateToPods(app)}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
+                            >
+                              View
+                            </button>
+                            <button
+                              onClick={() => handleUninstall(app)}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                            >
+                              Uninstall
+                            </button>
+                          </Show>
+                        </Show>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }}
+            </For>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Grid View Component (Compact Cards)
+  const GridView = () => (
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      <For each={displayedApps()}>
+        {(app) => {
+          const isDeploying = () => !!deployingApps()[app.name];
+          const isInstalled = () => app.installed && !isDeploying();
+          return (
+            <button
+              onClick={() => isInstalled() && navigateToPods(app)}
+              class={`card p-3 text-left hover:border-cyan-500/30 transition-colors relative ${
+                isInstalled() ? 'cursor-pointer' : ''
+              } ${isDeploying() ? 'animate-pulse' : ''}`}
+              style={{ 'border-left': `3px solid ${categoryColors[app.category] || 'var(--accent-primary)'}` }}
+            >
+              <Show when={isDeploying() || isInstalled()}>
+                <div class="absolute top-1 right-1">
+                  <Show when={isDeploying()} fallback={
+                    <div class="w-2 h-2 rounded-full bg-green-500" title="Installed" />
+                  }>
+                    <div class="spinner" style={{ width: '12px', height: '12px' }} />
+                  </Show>
+                </div>
+              </Show>
+              <div class="flex items-center gap-2 mb-2">
+                <div class="p-1.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                       style={{ color: categoryColors[app.category] || 'var(--accent-primary)' }}>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={app.icon} />
+                  </svg>
+                </div>
+              </div>
+              <h4 class="font-medium text-sm truncate mb-1" style={{ color: 'var(--text-primary)' }} title={app.displayName}>
+                {app.displayName}
+              </h4>
+              <p class="text-xs truncate mb-2" style={{ color: 'var(--text-muted)' }} title={app.description}>
+                {app.description}
+              </p>
+              <div class="flex items-center justify-between text-xs">
+                <span style={{ color: 'var(--text-muted)' }}>v{app.version}</span>
+                <Show when={!isDeploying() && !isInstalled()}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
+                    class="px-2 py-0.5 rounded text-xs transition-all hover:opacity-80"
+                    style={{ background: 'var(--accent-primary)', color: '#000' }}
+                  >
+                    Install
+                  </button>
+                </Show>
+              </div>
+            </button>
+          );
+        }}
+      </For>
+    </div>
+  );
+
   return (
     <div class="space-y-6">
       {/* Header */}
@@ -497,6 +829,29 @@ const Apps: Component = () => {
           <p style={{ color: 'var(--text-secondary)' }}>Deploy platform tools and applications with one click</p>
         </div>
         <div class="flex items-center gap-3">
+          {/* View Mode Selector */}
+          <div class="flex items-center rounded-lg overflow-hidden" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+            <For each={(['card', 'list', 'grid'] as ViewMode[])}>
+              {(mode) => (
+                <button
+                  onClick={() => setViewMode(mode)}
+                  class={`px-3 py-2 flex items-center gap-2 text-sm transition-colors ${
+                    viewMode() === mode
+                      ? 'text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                  style={viewMode() === mode 
+                    ? { background: 'var(--accent-primary)' }
+                    : { background: 'transparent' }
+                  }
+                  title={`${mode.charAt(0).toUpperCase() + mode.slice(1)} View`}
+                >
+                  <ViewIcon mode={mode} />
+                  <span class="hidden sm:inline capitalize">{mode}</span>
+                </button>
+              )}
+            </For>
+          </div>
           <Show when={activeTab() === 'custom'}>
             <button
               onClick={() => setShowAddCustomModal(true)}
@@ -522,45 +877,47 @@ const Apps: Component = () => {
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div class="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-        <button
-          onClick={() => setActiveTab('marketplace')}
-          class={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-            activeTab() === 'marketplace' ? 'shadow-sm' : 'hover:opacity-80'
-          }`}
-          style={{
-            background: activeTab() === 'marketplace' ? 'var(--bg-tertiary)' : 'transparent',
-            color: activeTab() === 'marketplace' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-          }}
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          Marketplace
-          <span class="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
-            {defaultApps.length}
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('custom')}
-          class={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-            activeTab() === 'custom' ? 'shadow-sm' : 'hover:opacity-80'
-          }`}
-          style={{
-            background: activeTab() === 'custom' ? 'var(--bg-tertiary)' : 'transparent',
-            color: activeTab() === 'custom' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-          }}
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-          </svg>
-          Custom Apps
-          <span class="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
-            {customApps().length}
-          </span>
-        </button>
-      </div>
+      {/* Tab Navigation - Only show if not forced to a specific tab */}
+      <Show when={!props.defaultTab}>
+        <div class="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+          <button
+            onClick={() => setActiveTab('marketplace')}
+            class={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+              activeTab() === 'marketplace' ? 'shadow-sm' : 'hover:opacity-80'
+            }`}
+            style={{
+              background: activeTab() === 'marketplace' ? 'var(--bg-tertiary)' : 'transparent',
+              color: activeTab() === 'marketplace' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            }}
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            Marketplace
+            <span class="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
+              {defaultApps.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('custom')}
+            class={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+              activeTab() === 'custom' ? 'shadow-sm' : 'hover:opacity-80'
+            }`}
+            style={{
+              background: activeTab() === 'custom' ? 'var(--bg-tertiary)' : 'transparent',
+              color: activeTab() === 'custom' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            }}
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            Custom Apps
+            <span class="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
+              {customApps().length}
+            </span>
+          </button>
+        </div>
+      </Show>
 
       {/* Stats */}
       <div class="flex flex-wrap items-center gap-3">
@@ -634,148 +991,18 @@ const Apps: Component = () => {
         </div>
       </Show>
 
-      {/* Apps grid */}
-      <For each={displayedGroupedApps()}>
-        {(group) => (
-          <div class="space-y-4">
-            <h2 class="text-lg font-semibold flex items-center gap-2" style={{ color: categoryColors[group.name] || 'var(--text-primary)' }}>
-              <span class="w-3 h-3 rounded-full" style={{ background: categoryColors[group.name] || 'var(--accent-primary)' }} />
-              {group.name}
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <For each={group.apps}>
-                {(app) => {
-                  const isDeploying = () => !!deployingApps()[app.name];
-                  const deployInfo = () => deployingApps()[app.name];
-
-                  return (
-                    <div
-                      class={`card p-4 relative overflow-hidden group transition-all ${
-                        app.installed ? 'cursor-pointer hover:border-green-500/50' : 'hover:border-cyan-500/30'
-                      } ${isDeploying() ? 'animate-pulse' : ''}`}
-                      style={{ 'border-left': `4px solid ${categoryColors[app.category] || 'var(--accent-primary)'}` }}
-                      onClick={() => app.installed && navigateToPods(app)}
-                    >
-                      {/* Status badge */}
-                      <Show when={isDeploying()}>
-                        <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
-                             style={{ background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-primary)' }}>
-                          <div class="spinner" style={{ width: '12px', height: '12px' }} />
-                          Deploying...
-                        </div>
-                      </Show>
-                      <Show when={app.installed && !isDeploying()}>
-                        <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
-                             style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}>
-                          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                          </svg>
-                          Installed
-                        </div>
-                      </Show>
-
-                      <div class="flex items-start gap-3">
-                        <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                          <Show when={isDeploying()} fallback={
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                 style={{ color: categoryColors[app.category] || 'var(--accent-primary)' }}>
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={app.icon} />
-                            </svg>
-                          }>
-                            <div class="spinner" style={{ width: '24px', height: '24px' }} />
-                          </Show>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <h3 class="font-semibold" style={{ color: 'var(--text-primary)' }}>{app.displayName}</h3>
-                          <p class="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>v{app.version}</p>
-                        </div>
-                      </div>
-
-                      <p class="mt-3 text-sm line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
-                        {app.description}
-                      </p>
-
-                      <div class="mt-4 flex items-center justify-between">
-                        <span class="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-                          {app.chartName}
-                        </span>
-
-                        <Show when={isDeploying()}>
-                          <div class="flex items-center gap-2">
-                            <span class="text-xs" style={{ color: 'var(--accent-primary)' }}>
-                              to {deployInfo()?.namespace}
-                            </span>
-                          </div>
-                        </Show>
-
-                        <Show when={!isDeploying()}>
-                          <Show
-                            when={app.installed}
-                            fallback={
-                              <div class="flex items-center gap-2">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
-                                  class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-                                  style={{ background: 'var(--accent-primary)', color: '#000' }}
-                                >
-                                  Install
-                                </button>
-                                <Show when={app.isCustom}>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteCustomApp(app); }}
-                                    class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80"
-                                    style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
-                                    title="Remove custom app"
-                                  >
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                  </button>
-                                </Show>
-                              </div>
-                            }
-                          >
-                            <div class="flex items-center gap-2">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); navigateToPods(app); }}
-                                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80 flex items-center gap-1"
-                                style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
-                              >
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                </svg>
-                                View Pods
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleUninstall(app); }}
-                                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-                                style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
-                              >
-                                Uninstall
-                              </button>
-                            </div>
-                          </Show>
-                        </Show>
-                      </div>
-
-                      {/* Namespace indicator for installed apps */}
-                      <Show when={app.installed && !isDeploying()}>
-                        <div class="mt-2 pt-2 border-t flex items-center gap-1 text-xs" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
-                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                          </svg>
-                          Namespace: <span style={{ color: 'var(--text-secondary)' }}>{app.installedNamespace || 'default'}</span>
-                        </div>
-                      </Show>
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
-          </div>
-        )}
-      </For>
+      {/* Apps View */}
+      <Switch>
+        <Match when={viewMode() === 'card'}>
+          <CardView />
+        </Match>
+        <Match when={viewMode() === 'list'}>
+          <ListView />
+        </Match>
+        <Match when={viewMode() === 'grid'}>
+          <GridView />
+        </Match>
+      </Switch>
 
       {/* Install Modal */}
       <Modal isOpen={showInstallModal()} onClose={() => setShowInstallModal(false)} title={`Install ${selectedApp()?.displayName}`}>

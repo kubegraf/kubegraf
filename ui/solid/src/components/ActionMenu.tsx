@@ -7,6 +7,8 @@ interface ActionItem {
   onClick: () => void;
   variant?: 'default' | 'danger';
   divider?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
 }
 
 interface ActionMenuProps {
@@ -23,6 +25,7 @@ const icons: Record<string, string> = {
   delete: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
   scale: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4',
   details: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
+  edit: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
 };
 
 const ActionMenu: Component<ActionMenuProps> = (props) => {
@@ -97,30 +100,41 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
                     <div class="my-1 border-t" style={{ 'border-color': 'var(--border-color)' }} />
                   </Show>
                   <button
-                    onClick={() => handleActionClick(action)}
-                    class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-opacity-50"
+                    onClick={() => !action.disabled && !action.loading && handleActionClick(action)}
+                    disabled={action.disabled || action.loading}
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                    classList={{
+                      'opacity-50 cursor-not-allowed': action.disabled || action.loading,
+                      'hover:bg-opacity-50': !action.disabled && !action.loading,
+                    }}
                     style={{
                       color: action.variant === 'danger' ? 'var(--error-color)' : 'var(--text-primary)',
                       background: 'transparent',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = action.variant === 'danger'
-                        ? 'rgba(239, 68, 68, 0.1)'
-                        : 'var(--bg-tertiary)';
+                      if (!action.disabled && !action.loading) {
+                        e.currentTarget.style.background = action.variant === 'danger'
+                          ? 'rgba(239, 68, 68, 0.1)'
+                          : 'var(--bg-tertiary)';
+                      }
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';
                     }}
                   >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d={icons[action.icon] || icons.details}
-                      />
-                    </svg>
-                    {action.label}
+                    <Show when={action.loading} fallback={
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d={icons[action.icon] || icons.details}
+                        />
+                      </svg>
+                    }>
+                      <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                    </Show>
+                    {action.loading ? `${action.label}...` : action.label}
                   </button>
                 </>
               )}

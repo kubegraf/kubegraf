@@ -38,7 +38,7 @@ func main() {
 
 	// Check for flags first (before splash)
 	webMode := false
-	port := 8080
+	port := 3000 // Default to 3000 for web UI
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v":
@@ -100,6 +100,7 @@ func main() {
 			}
 		}()
 
+		// Start web server (will auto-detect if port is in use and find available port)
 		if err := webServer.Start(port); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ Web server error: %v\n", err)
 			os.Exit(1)
@@ -150,19 +151,20 @@ func printHelp() {
 
 USAGE:
   kubegraf [namespace] [flags]
-  kubegraf --web [--port=8080]    Start web UI instead of terminal UI
+  kubegraf web [--port=PORT]     Start web UI instead of terminal UI
 
 FLAGS:
-  --web             Launch web UI dashboard (browser-based)
-  --port=PORT       Specify web server port (default: 8080)
-  --version, -v     Show version information
-  --help, -h        Show this help message
+  web, --web        Launch web UI dashboard (browser-based)
+  --port=PORT        Specify web server port (default: 3000, auto-finds next available if in use)
+  --version, -v      Show version information
+  --help, -h         Show this help message
 
 EXAMPLES:
   kubegraf                    # Launch terminal UI in default namespace
   kubegraf production         # Launch terminal UI in production namespace
-  kubegraf --web              # Launch web UI at http://localhost:8080
-  kubegraf --web --port=3000  # Launch web UI at http://localhost:3000
+  kubegraf web                # Launch web UI at http://localhost:3000
+  kubegraf --web              # Same as above (alternative syntax)
+  kubegraf web --port=8080    # Launch web UI at custom port
 
 KEYBOARD SHORTCUTS (Terminal UI):
   q, Ctrl+C    Quit application
