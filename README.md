@@ -64,7 +64,7 @@
 The easiest way to install on macOS:
 
 ```bash
-brew tap kubegraf/kubegraf
+brew tap kubegraf/tap
 brew install kubegraf
 ```
 
