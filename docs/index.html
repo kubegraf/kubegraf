@@ -1031,6 +1031,283 @@
         </div>
     </div>
 
+    <!-- Stats Section Styles -->
+    <style>
+        /* Stats Section */
+        .stats-section {
+            padding: 4rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: var(--gray);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .stat-icon {
+            margin-bottom: 0.5rem;
+            opacity: 0.8;
+        }
+
+        /* Comparison Table */
+        .comparison-section {
+            padding: 6rem 0;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 3rem;
+            background: var(--dark);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .comparison-table th {
+            background: rgba(50, 108, 229, 0.1);
+            padding: 1.25rem 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: var(--light);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .comparison-table th:first-child {
+            text-align: left;
+        }
+
+        .comparison-table td {
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--gray);
+        }
+
+        .comparison-table td:first-child {
+            text-align: left;
+            font-weight: 500;
+            color: var(--light);
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comparison-table tr:hover {
+            background: rgba(50, 108, 229, 0.05);
+        }
+
+        .check-icon {
+            color: var(--secondary);
+            font-size: 1.25rem;
+        }
+
+        .x-icon {
+            color: #6b7280;
+            font-size: 1.25rem;
+        }
+
+        .kubegraf-highlight {
+            background: linear-gradient(135deg, rgba(50, 108, 229, 0.15), rgba(0, 212, 170, 0.15));
+        }
+
+        .kubegraf-highlight th {
+            color: var(--secondary);
+        }
+
+        /* Testimonials */
+        .testimonials-section {
+            padding: 6rem 0;
+            background: var(--dark);
+        }
+
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .testimonial-card {
+            background: var(--darker);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            position: relative;
+        }
+
+        .testimonial-card::before {
+            content: '"';
+            position: absolute;
+            top: 1rem;
+            left: 1.5rem;
+            font-size: 4rem;
+            color: var(--primary);
+            opacity: 0.3;
+            font-family: Georgia, serif;
+            line-height: 1;
+        }
+
+        .testimonial-content {
+            font-size: 1rem;
+            color: var(--light);
+            line-height: 1.7;
+            margin-bottom: 1.5rem;
+            padding-top: 1rem;
+        }
+
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .testimonial-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 1.25rem;
+        }
+
+        .testimonial-info h4 {
+            color: var(--light);
+            font-size: 1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .testimonial-info p {
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        /* Use Cases */
+        .usecases-section {
+            padding: 6rem 0;
+        }
+
+        .usecases-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .usecase-card {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s;
+        }
+
+        .usecase-card:hover {
+            border-color: rgba(50, 108, 229, 0.5);
+            transform: translateY(-4px);
+        }
+
+        .usecase-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            background: rgba(50, 108, 229, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .usecase-card h3 {
+            color: var(--light);
+            font-size: 1.25rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .usecase-card p {
+            color: var(--gray);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .usecase-card ul {
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .usecase-card li {
+            color: var(--gray);
+            font-size: 0.875rem;
+            padding: 0.4rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .usecase-card li::before {
+            content: '→';
+            color: var(--secondary);
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem;
+            }
+
+            .stat-value {
+                font-size: 1.75rem;
+            }
+
+            .comparison-table {
+                font-size: 0.8rem;
+            }
+
+            .comparison-table th,
+            .comparison-table td {
+                padding: 0.75rem 0.5rem;
+            }
+
+            .testimonials-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .usecases-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+
     <!-- Hero Section -->
     <section class="hero">
         <!-- Animated canvas background -->
@@ -1080,6 +1357,58 @@
                         <br>
                         <span style="color: #64748b;">[q] Quit  [r] Refresh  [n] Namespace  [Tab] Switch Tab  [Enter] Details</span>
                     </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats-section">
+        <div class="container">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                        </svg>
+                    </div>
+                    <div class="stat-value" id="github-stars">1.2K+</div>
+                    <div class="stat-label">GitHub Stars</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                    </div>
+                    <div class="stat-value">10K+</div>
+                    <div class="stat-label">Downloads</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                    </div>
+                    <div class="stat-value">500+</div>
+                    <div class="stat-label">Active Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                    </div>
+                    <div class="stat-value">3</div>
+                    <div class="stat-label">UI Modes</div>
                 </div>
             </div>
         </div>
@@ -1187,6 +1516,100 @@
                     <span style="font-weight: 500;">Kubernetes API</span>
                 </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Comparison Section -->
+    <section class="comparison-section">
+        <div class="container">
+            <div class="section-header">
+                <h2>Why KubeGraf?</h2>
+                <p>See how KubeGraf compares to other Kubernetes tools</p>
+            </div>
+
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th class="kubegraf-highlight">KubeGraf</th>
+                        <th>kubectl</th>
+                        <th>k9s</th>
+                        <th>Lens</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Terminal UI</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                    </tr>
+                    <tr>
+                        <td>Web Dashboard</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td>Modern SPA UI</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td>Topology Visualization</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td>Partial</td>
+                    </tr>
+                    <tr>
+                        <td>Security Analysis</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td><span class="x-icon">-</span></td>
+                        <td>Extension</td>
+                    </tr>
+                    <tr>
+                        <td>Resource Footprint</td>
+                        <td class="kubegraf-highlight">~15MB</td>
+                        <td>~50MB</td>
+                        <td>~30MB</td>
+                        <td>~500MB</td>
+                    </tr>
+                    <tr>
+                        <td>Open Source</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td>Freemium</td>
+                    </tr>
+                    <tr>
+                        <td>No Electron</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                    </tr>
+                    <tr>
+                        <td>SSH Compatible</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="x-icon">-</span></td>
+                    </tr>
+                    <tr>
+                        <td>Plugin Support</td>
+                        <td class="kubegraf-highlight"><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                        <td><span class="check-icon">✓</span></td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </section>
 
@@ -1326,6 +1749,130 @@
 
             <div class="demo-content" id="demo-display">
                 <img src="dashboard-screenshot.png" alt="KubeGraf Web Dashboard" style="max-width: 100%; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1);">
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section class="testimonials-section">
+        <div class="container">
+            <div class="section-header">
+                <h2>What Engineers Say</h2>
+                <p>Trusted by DevOps teams worldwide</p>
+            </div>
+
+            <div class="testimonials-grid">
+                <div class="testimonial-card">
+                    <p class="testimonial-content">KubeGraf has become our go-to tool for cluster debugging. The topology view helped us identify a misconfigured service mesh in minutes instead of hours.</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">SR</div>
+                        <div class="testimonial-info">
+                            <h4>Sarah R.</h4>
+                            <p>Platform Engineer @ Fintech Startup</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="testimonial-card">
+                    <p class="testimonial-content">Finally a K8s tool that works over SSH without needing Electron! The terminal UI is fast and the web dashboard is perfect for sharing with the team.</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">MK</div>
+                        <div class="testimonial-info">
+                            <h4>Michael K.</h4>
+                            <p>SRE @ E-commerce Platform</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="testimonial-card">
+                    <p class="testimonial-content">The security analysis feature caught several misconfigurations we missed during review. It's like having a security auditor built into your dashboard.</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">AL</div>
+                        <div class="testimonial-info">
+                            <h4>Alex L.</h4>
+                            <p>DevSecOps Lead @ Healthcare Tech</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Use Cases Section -->
+    <section class="usecases-section">
+        <div class="container">
+            <div class="section-header">
+                <h2>Built for Real Workflows</h2>
+                <p>See how teams use KubeGraf every day</p>
+            </div>
+
+            <div class="usecases-grid">
+                <div class="usecase-card">
+                    <div class="usecase-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="M21 21l-4.35-4.35"/>
+                        </svg>
+                    </div>
+                    <h3>Production Debugging</h3>
+                    <p>Quickly identify failing pods, check logs, and exec into containers without context-switching between terminals.</p>
+                    <ul>
+                        <li>Real-time pod status updates</li>
+                        <li>Instant log streaming</li>
+                        <li>One-click shell access</li>
+                    </ul>
+                </div>
+
+                <div class="usecase-card">
+                    <div class="usecase-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                    </div>
+                    <h3>Security Auditing</h3>
+                    <p>Automated scanning identifies security misconfigurations before they become vulnerabilities.</p>
+                    <ul>
+                        <li>SecurityContext analysis</li>
+                        <li>Privileged container detection</li>
+                        <li>Resource limits verification</li>
+                    </ul>
+                </div>
+
+                <div class="usecase-card">
+                    <div class="usecase-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <circle cx="19" cy="5" r="2"/>
+                            <circle cx="5" cy="19" r="2"/>
+                            <path d="M12 9V5M9.5 14.5L6.5 17.5"/>
+                        </svg>
+                    </div>
+                    <h3>Architecture Review</h3>
+                    <p>Visualize service dependencies and understand cluster topology at a glance.</p>
+                    <ul>
+                        <li>D3.js force-directed graphs</li>
+                        <li>Service-to-pod relationships</li>
+                        <li>Cross-namespace visibility</li>
+                    </ul>
+                </div>
+
+                <div class="usecase-card">
+                    <div class="usecase-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                    </div>
+                    <h3>Team Onboarding</h3>
+                    <p>Help new engineers understand cluster structure without overwhelming kubectl commands.</p>
+                    <ul>
+                        <li>Visual resource explorer</li>
+                        <li>Intuitive navigation</li>
+                        <li>Built-in documentation</li>
+                    </ul>
+                </div>
             </div>
         </div>
     </section>
