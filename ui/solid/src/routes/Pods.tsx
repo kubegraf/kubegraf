@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -64,6 +64,13 @@ const Pods: Component = () => {
   const [podMetrics, setPodMetrics] = createSignal<Record<string, { cpu: string; memory: string }>>({});
   const [prevMetrics, setPrevMetrics] = createSignal<Record<string, { cpu: string; memory: string }>>({});
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
+  
+  // Terminal view mode
+  const [terminalView, setTerminalView] = createSignal(false);
+  
+  // Keyboard navigation
+  const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
+  let tableRef: HTMLTableElement | undefined;
 
   // Parse metric value to number for comparison
   const parseMetricValue = (val: string | undefined): number => {
@@ -135,22 +142,94 @@ const Pods: Component = () => {
     return `${days}d${hrs}h`;
   };
 
+  let podsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
+
   onMount(() => {
     fetchMetrics(); // Initial metrics fetch
     // Auto-refresh metrics every 10 seconds
     metricsTimer = setInterval(fetchMetrics, 10000);
     // Age ticker: update every 5 seconds for real-time age display (balances responsiveness vs performance)
     ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
+    
+    // Auto-refresh pods every 2 seconds (silent background refresh)
+    podsRefreshTimer = setInterval(() => {
+      // Use refetch with silent option to avoid UI flicker
+      refetch().catch(err => console.error('Background refresh error:', err));
+      fetchMetrics();
+    }, 2000);
+    
+    // Keyboard navigation
+    keyboardHandler = (e: KeyboardEvent) => {
+      // Only handle if not typing in input/textarea
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      const pods = paginatedPods();
+      if (pods.length === 0) return;
+      
+      const currentIndex = selectedIndex();
+      
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedIndex(prev => {
+            if (prev === null) return 0;
+            return Math.min(prev + 1, pods.length - 1);
+          });
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedIndex(prev => {
+            if (prev === null || prev === 0) return null;
+            return prev - 1;
+          });
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (currentIndex !== null && pods[currentIndex]) {
+            openModal(pods[currentIndex], 'details');
+          }
+          break;
+        case 'Escape':
+          setSelectedIndex(null);
+          break;
+      }
+    };
+    
+    document.addEventListener('keydown', keyboardHandler);
   });
 
   onCleanup(() => {
     if (metricsTimer) clearInterval(metricsTimer);
     if (ageTimer) clearInterval(ageTimer);
+    if (podsRefreshTimer) clearInterval(podsRefreshTimer);
+    if (keyboardHandler) document.removeEventListener('keydown', keyboardHandler);
+  });
+
+  // Scroll selected row into view
+  createEffect(() => {
+    const index = selectedIndex();
+    if (index !== null && tableRef) {
+      const rows = tableRef.querySelectorAll('tbody tr');
+      if (rows[index]) {
+        rows[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
   });
 
   // Resources
   const [namespaces] = createResource(api.getNamespaces);
   const [pods, { refetch }] = createResource(namespace, api.getPods);
+  
+  // Track initial load separately to avoid showing loading on refetch
+  const [initialLoad, setInitialLoad] = createSignal(true);
+  createEffect(() => {
+    if (pods() !== undefined && initialLoad()) {
+      setInitialLoad(false);
+    }
+  });
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selectedPod() ? { name: selectedPod()!.name, ns: selectedPod()!.namespace } : null,
     async (params) => {
@@ -447,6 +526,16 @@ const Pods: Component = () => {
         </div>
         <div class="flex items-center gap-3">
           <button
+            onClick={() => setTerminalView(!terminalView())}
+            class="icon-btn"
+            style={{ background: terminalView() ? 'var(--accent-primary)' : 'var(--bg-secondary)' }}
+            title={terminalView() ? 'Switch to Normal View' : 'Switch to Terminal View'}
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <button
             onClick={(e) => {
               const btn = e.currentTarget;
               btn.classList.add('refreshing');
@@ -456,7 +545,7 @@ const Pods: Component = () => {
             }}
             class="icon-btn"
             style={{ background: 'var(--bg-secondary)' }}
-            title="Refresh Pods"
+            title="Refresh Pods (Auto-refresh: 2s)"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -553,9 +642,9 @@ const Pods: Component = () => {
       </Show>
 
       {/* Pods table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: terminalView() ? '#0d1117' : 'var(--bg-primary)' }}>
         <Show
-          when={!pods.loading}
+          when={!initialLoad() || pods() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -564,7 +653,15 @@ const Pods: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table" style={{ 'table-layout': 'auto' }}>
+            <table 
+              ref={tableRef}
+              class={`data-table ${terminalView() ? 'terminal-table' : ''}`} 
+              style={{ 
+                'table-layout': 'auto',
+                'font-family': terminalView() ? 'monospace' : 'inherit',
+                background: terminalView() ? '#0d1117' : 'transparent'
+              }}
+            >
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
@@ -595,21 +692,59 @@ const Pods: Component = () => {
                 <For each={paginatedPods()} fallback={
                   <tr><td colspan="10" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No pods found</td></tr>
                 }>
-                  {(pod: Pod) => (
-                    <tr>
+                  {(pod: Pod, index) => {
+                    const isSelected = () => selectedIndex() === index();
+                    return (
+                    <tr
+                      class={isSelected() ? 'selected-row' : ''}
+                      style={{
+                        background: isSelected() ? (terminalView() ? '#1f2937' : 'var(--bg-tertiary)') : 'transparent',
+                        cursor: 'pointer',
+                        outline: isSelected() ? `2px solid ${terminalView() ? '#06b6d4' : 'var(--accent-primary)'}` : 'none',
+                        outlineOffset: '-2px'
+                      }}
+                      onClick={() => {
+                        setSelectedIndex(index());
+                        openModal(pod, 'details');
+                      }}
+                      onMouseEnter={() => {
+                        if (selectedIndex() !== index()) {
+                          setSelectedIndex(index());
+                        }
+                      }}
+                    >
                       <td>
-                        <button onClick={() => openModal(pod, 'details')} class="font-medium hover:underline text-xs" style={{ color: 'var(--accent-primary)' }}>
+                        <span 
+                          class="font-medium text-xs" 
+                          style={{ 
+                            color: terminalView() 
+                              ? (pod.status === 'Running' ? '#22c55e' : pod.status === 'Pending' ? '#f59e0b' : '#ef4444')
+                              : 'var(--accent-primary)'
+                          }}
+                        >
+                          {terminalView() ? '▶ ' : ''}
                           {pod.name.length > 40 ? pod.name.slice(0, 37) + '...' : pod.name}
-                        </button>
+                        </span>
                       </td>
                       <td>
-                        <span class={`badge ${
-                          pod.status === 'Running' ? 'badge-success' :
-                          pod.status === 'Pending' ? 'badge-warning' :
-                          pod.status === 'Succeeded' ? 'badge-info' : 'badge-error'
-                        }`}>
-                          {pod.status}
-                        </span>
+                        {terminalView() ? (
+                          <span style={{ 
+                            color: pod.status === 'Running' ? '#22c55e' : 
+                                   pod.status === 'Pending' ? '#f59e0b' : 
+                                   pod.status === 'Succeeded' ? '#06b6d4' : '#ef4444',
+                            'font-weight': 'bold'
+                          }}>
+                            {pod.status === 'Running' ? '●' : pod.status === 'Pending' ? '○' : '✗'} {pod.status}
+                          </span>
+                        ) : (
+                          <span class={`badge ${
+                            pod.status === 'Running' ? 'badge-success' :
+                            pod.status === 'Pending' ? 'badge-warning' :
+                            pod.status === 'Succeeded' ? 'badge-info' : 'badge-error'
+                          }`}>
+                            {pod.status}
+                          </span>
+                        )}
                       </td>
                       <td>{pod.ready}</td>
                       <td class="font-mono" style={{ color: 'var(--text-secondary)' }}>{pod.ip || '-'}</td>
@@ -644,7 +779,8 @@ const Pods: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

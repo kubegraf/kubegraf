@@ -43,6 +43,12 @@ const ThemeToggle: Component = () => {
         <path d="M2 18c2-2 4-4 6-4s4 2 6 4 4 4 6 4 4-2 6-4" />
       </svg>
     ),
+    terminal: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+        <polyline points="4 17 10 11 4 5" />
+        <line x1="12" y1="19" x2="20" y2="19" />
+      </svg>
+    ),
   };
 
   const handleToggle = () => {
@@ -94,7 +100,7 @@ const ThemeToggle: Component = () => {
                 }}
                 class={`w-full flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--bg-tertiary)] ${
                   currentTheme() === themeName ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]'
-                } ${themeName === 'dark' ? 'rounded-t-lg' : ''} ${themeName === 'ocean' ? 'rounded-b-lg' : ''}`}
+                } ${themeName === 'dark' ? 'rounded-t-lg' : ''} ${themeName === 'terminal' ? 'rounded-b-lg' : ''}`}
               >
                 {themeIcons[themeName]}
                 <span class="font-medium">{themes[themeName].label}</span>
