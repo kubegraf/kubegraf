@@ -118,7 +118,11 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
               const [pos, setPos] = createSignal({ top: 0, left: 0 });
               return (
                 <button
-                  onClick={() => setCurrentView(item.id)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setCurrentView(item.id);
+                  }}
                   onMouseEnter={(e) => {
                     if (sidebarCollapsed()) {
                       const rect = e.currentTarget.getBoundingClientRect();

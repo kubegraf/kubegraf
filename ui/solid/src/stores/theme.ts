@@ -1,6 +1,6 @@
 import { createSignal, createEffect } from 'solid-js';
 
-export type ThemeName = 'dark' | 'light' | 'midnight' | 'cyberpunk' | 'ocean';
+export type ThemeName = 'dark' | 'light' | 'midnight' | 'cyberpunk' | 'ocean' | 'terminal';
 
 export interface Theme {
   name: ThemeName;
@@ -148,6 +148,30 @@ export const themes: Record<ThemeName, Theme> = {
       errorColor: '#ef5350',
     },
   },
+  terminal: {
+    name: 'terminal',
+    label: 'Terminal',
+    icon: 'terminal',
+    colors: {
+      bgPrimary: '#000000',
+      bgSecondary: '#1a1a1a',
+      bgTertiary: '#2d2d2d',
+      bgCard: 'rgba(26, 26, 26, 0.95)',
+      bgNavbar: 'rgba(0, 0, 0, 0.98)',
+      bgInput: 'rgba(26, 26, 26, 0.9)',
+      textPrimary: '#ffffff',
+      textSecondary: '#e5e5e5',
+      textMuted: '#999999',
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderLight: 'rgba(255, 255, 255, 0.15)',
+      accentPrimary: '#007aff',
+      accentSecondary: '#5ac8fa',
+      accentGradient: 'linear-gradient(135deg, #007aff 0%, #5ac8fa 100%)',
+      successColor: '#34c759',
+      warningColor: '#ff9500',
+      errorColor: '#ff3b30',
+    },
+  },
 };
 
 // Get initial theme from localStorage or default to 'dark'
@@ -174,6 +198,9 @@ function applyTheme(themeName: ThemeName) {
     root.style.setProperty(`--${cssVar}`, value);
   });
 
+  // Set data-theme attribute for CSS selectors
+  document.body.setAttribute('data-theme', themeName);
+
   // Save to localStorage
   localStorage.setItem('kubegraf-theme', themeName);
 }
@@ -186,7 +213,7 @@ export function setTheme(themeName: ThemeName) {
 
 // Cycle through themes
 export function cycleTheme() {
-  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'cyberpunk', 'ocean'];
+  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'cyberpunk', 'ocean', 'terminal'];
   const currentIndex = themeOrder.indexOf(currentTheme());
   const nextIndex = (currentIndex + 1) % themeOrder.length;
   setTheme(themeOrder[nextIndex]);

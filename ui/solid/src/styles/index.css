@@ -42,6 +42,39 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* Terminal theme - macOS Terminal style */
+body[data-theme="terminal"] {
+  font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+body[data-theme="terminal"] * {
+  font-family: inherit;
+}
+
+body[data-theme="terminal"] .card,
+body[data-theme="terminal"] .sidebar-glass,
+body[data-theme="terminal"] .header-glass {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+body[data-theme="terminal"] button,
+body[data-theme="terminal"] input,
+body[data-theme="terminal"] select,
+body[data-theme="terminal"] textarea {
+  font-family: inherit;
+}
+
+body[data-theme="terminal"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+body[data-theme="terminal"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 code, pre, .font-mono {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }

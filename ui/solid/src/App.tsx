@@ -138,7 +138,7 @@ const App: Component = () => {
         <main class="flex-1 overflow-auto p-6 relative">
           <Show when={!isConnected() && currentView() !== 'settings'}>
             {/* Overlay when not connected - simplified */}
-            <div class="absolute inset-0 z-10 flex items-center justify-center p-8" style={{ background: 'var(--bg-primary)' }}>
+            <div class="absolute inset-0 z-10 flex items-center justify-center p-8" style={{ background: 'var(--bg-primary)', 'pointer-events': 'auto' }}>
               <div class="max-w-2xl w-full text-center">
                 <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(239, 68, 68, 0.15)' }}>
                   <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error-color)' }}>
@@ -199,7 +199,9 @@ const App: Component = () => {
               </div>
             </div>
           </Show>
-          <Dynamic component={views[currentView()]} />
+          <Show when={isConnected() || currentView() === 'settings'}>
+            <Dynamic component={views[currentView()]} />
+          </Show>
         </main>
 
         {/* Status Footer */}
