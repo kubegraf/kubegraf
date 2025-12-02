@@ -190,6 +190,33 @@ npx cap open ios
 
 Both mobile apps will be automatically built and published to their respective stores when you create a release tag (e.g., `v1.0.1`).
 
+### 💻 Desktop Apps
+
+KubeGraf is available as native desktop applications for macOS, Linux, and Windows! The desktop apps wrap the web UI using Electron, providing a native desktop experience.
+
+**Quick Setup:**
+```bash
+# Run the setup script
+./scripts/setup-desktop.sh
+
+# Test locally
+cd ui/solid
+npm run electron:dev
+
+# Build for current platform
+npm run electron:build
+```
+
+**For detailed setup and distribution instructions, see:**
+- [Desktop App Setup Guide](docs/DESKTOP_APP_SETUP.md)
+
+**Available Installers:**
+- **macOS**: `.dmg` and `.zip` files
+- **Windows**: `.exe` installer and portable `.exe`
+- **Linux**: `.AppImage`, `.deb`, `.rpm`, `.tar.gz`
+
+Desktop apps will be automatically built and uploaded to GitHub Releases when you create a release tag (e.g., `v1.0.1`).
+
 ## 🎯 Usage
 
 ### Terminal UI (Default)
