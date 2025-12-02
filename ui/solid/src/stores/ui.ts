@@ -22,6 +22,7 @@ export type View =
   | 'drift'
   | 'ai'
   | 'events'
+  | 'monitoredevents'
   | 'logs'
   | 'apps'
   | 'customapps'
@@ -33,7 +34,8 @@ export type View =
   | 'deployapp'
   | 'releases'
   | 'rollouts'
-  | 'terminal';
+  | 'terminal'
+  | 'connectors';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);

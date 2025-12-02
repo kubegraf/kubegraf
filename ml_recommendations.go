@@ -149,56 +149,60 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 
 	// Early return if no metrics history - ML needs historical data
 	mlr.mu.RLock()
-	hasHistory := len(mlr.metricsHistory) > 0
+	historyLen := len(mlr.metricsHistory)
 	mlr.mu.RUnlock()
-	if !hasHistory {
+	
+	if historyLen == 0 {
 		// Return empty recommendations immediately if no data
 		return []MLRecommendation{}, nil
 	}
 
-	// Add timeout to prevent hanging
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second) // Reduced from 30s to 10s
+	// Check if we have minimum data (at least 20 samples for meaningful analysis)
+	if historyLen < 20 {
+		return []MLRecommendation{}, nil
+	}
+
+	// Add timeout to prevent hanging - reduced to 8 seconds for faster response
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
 	var recommendations []MLRecommendation
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 
-	// 1. Resource optimization recommendations
-	resourceRecs, err := mlr.analyzeResourceOptimization(ctxWithTimeout)
-	if err == nil {
-		recommendations = append(recommendations, resourceRecs...)
-	} else if err != context.DeadlineExceeded {
-		// Log non-timeout errors but continue
-		fmt.Printf("Warning: Resource optimization analysis failed: %v\n", err)
+	// Run analyses in parallel with individual timeouts
+	runAnalysis := func(analysisFunc func(context.Context) ([]MLRecommendation, error), name string) {
+		defer wg.Done()
+		recs, err := analysisFunc(ctxWithTimeout)
+		if err != nil {
+			if err != context.DeadlineExceeded && err != context.Canceled {
+				fmt.Printf("Warning: %s analysis failed: %v\n", name, err)
+			}
+			return
+		}
+		mu.Lock()
+		recommendations = append(recommendations, recs...)
+		mu.Unlock()
 	}
 
-	// Check if context was canceled
+	wg.Add(3)
+	go runAnalysis(mlr.analyzeResourceOptimization, "Resource optimization")
+	go runAnalysis(mlr.analyzePredictiveScaling, "Predictive scaling")
+	go runAnalysis(mlr.analyzeCostOptimization, "Cost optimization")
+
+	// Wait for all analyses or timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
 	select {
+	case <-done:
+		// All analyses completed
 	case <-ctxWithTimeout.Done():
-		return recommendations, nil // Return what we have so far
-	default:
-	}
-
-	// 2. Predictive scaling recommendations
-	scalingRecs, err := mlr.analyzePredictiveScaling(ctxWithTimeout)
-	if err == nil {
-		recommendations = append(recommendations, scalingRecs...)
-	} else if err != context.DeadlineExceeded {
-		fmt.Printf("Warning: Predictive scaling analysis failed: %v\n", err)
-	}
-
-	// Check if context was canceled
-	select {
-	case <-ctxWithTimeout.Done():
-		return recommendations, nil
-	default:
-	}
-
-	// 3. Cost optimization recommendations
-	costRecs, err := mlr.analyzeCostOptimization(ctxWithTimeout)
-	if err == nil {
-		recommendations = append(recommendations, costRecs...)
-	} else if err != context.DeadlineExceeded {
-		fmt.Printf("Warning: Cost optimization analysis failed: %v\n", err)
+		// Timeout - return what we have so far
+		fmt.Printf("ML recommendations timeout - returning %d recommendations\n", len(recommendations))
 	}
 
 	return recommendations, nil
@@ -213,8 +217,15 @@ func (mlr *MLRecommender) analyzeResourceOptimization(ctx context.Context) ([]ML
 		return recommendations, nil
 	}
 
-	deployments, err := mlr.app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 50}) // Reduced limit for faster processing
+	// Add timeout to Kubernetes API call
+	apiCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	deployments, err := mlr.app.clientset.AppsV1().Deployments("").List(apiCtx, metav1.ListOptions{Limit: 50}) // Reduced limit for faster processing
 	if err != nil {
+		if err == context.DeadlineExceeded {
+			return recommendations, nil // Return empty on timeout
+		}
 		return nil, err
 	}
 
@@ -340,9 +351,16 @@ func (mlr *MLRecommender) analyzePredictiveScaling(ctx context.Context) ([]MLRec
 		return recommendations, nil
 	}
 
+	// Add timeout to Kubernetes API call
+	apiCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
 	// Get all HPAs
-	hpas, err := mlr.app.clientset.AutoscalingV2().HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{Limit: 50}) // Reduced limit
+	hpas, err := mlr.app.clientset.AutoscalingV2().HorizontalPodAutoscalers("").List(apiCtx, metav1.ListOptions{Limit: 50}) // Reduced limit
 	if err != nil {
+		if err == context.DeadlineExceeded {
+			return recommendations, nil // Return empty on timeout
+		}
 		return nil, err
 	}
 

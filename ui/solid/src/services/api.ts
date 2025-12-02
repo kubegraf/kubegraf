@@ -491,6 +491,52 @@ export const api = {
     return fetchAPI<{ metrics: MetricSample[]; count: number }>(url);
   },
 
+  // ============ Event Monitoring ============
+  getMonitoredEvents: (filters?: {
+    type?: string;
+    category?: string;
+    severity?: string;
+    namespace?: string;
+    since?: string;
+    limit?: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.type) params.append('type', filters.type);
+    if (filters?.category) params.append('category', filters.category);
+    if (filters?.severity) params.append('severity', filters.severity);
+    if (filters?.namespace) params.append('namespace', filters.namespace);
+    if (filters?.since) params.append('since', filters.since);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchAPI<{ events: any[]; total: number }>(`/events/monitored${query}`);
+  },
+  getLogErrors: (filters?: {
+    namespace?: string;
+    since?: string;
+    limit?: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.namespace) params.append('namespace', filters.namespace);
+    if (filters?.since) params.append('since', filters.since);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchAPI<{ errors: any[]; total: number }>(`/events/log-errors${query}`);
+  },
+  getEventStats: () =>
+    fetchAPI<{
+      by_severity: Record<string, number>;
+      by_type: Record<string, number>;
+      by_category: Record<string, number>;
+      total_events: number;
+      total_errors: number;
+    }>('/events/stats'),
+  getGroupedEvents: (period?: string) => {
+    const params = new URLSearchParams();
+    if (period) params.append('period', period);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchAPI<{ groups: Array<{ time: string; events: any[]; count: number }>; period: string }>(`/events/grouped${query}`);
+  },
+
   // ============ Cost Estimation ============
   getClusterCost: () => fetchAPI<any>('/cost/cluster'),
   getNamespaceCost: (namespace: string) =>
@@ -753,6 +799,47 @@ export const api = {
   },
   deleteClusterRoleBinding: (name: string) =>
     deleteAPI(`/rbac/clusterrolebinding/delete?name=${name}`),
+  
+  // Apply ML recommendation
+  applyRecommendation: async (recommendationId: string) => {
+    return fetchAPI<{ success: boolean; message?: string; error?: string }>(`/ml/recommendations/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ id: recommendationId }),
+    });
+  },
+
+  // ============ Connectors ============
+  getConnectors: () => fetchAPI<Connector[]>('/connectors'),
+  createConnector: (connector: { type: string; name: string; config: Record<string, any> }) =>
+    fetchAPI<{ success: boolean; connector: Connector; error?: string }>('/connectors', {
+      method: 'POST',
+      body: JSON.stringify(connector),
+    }),
+  updateConnector: (id: string, updates: { name?: string; enabled?: boolean; config?: Record<string, any> }) =>
+    fetchAPI<{ success: boolean; connector: Connector; error?: string }>(`/connectors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    }),
+  deleteConnector: (id: string) =>
+    fetchAPI<{ success: boolean; error?: string }>(`/connectors/${id}`, {
+      method: 'DELETE',
+    }),
+  testConnector: (id: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/connectors/${id}/test`, {
+      method: 'POST',
+    }),
 };
+
+interface Connector {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
+  config: Record<string, any>;
+  status: 'connected' | 'disconnected' | 'error';
+  lastTest?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default api;

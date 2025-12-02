@@ -21,6 +21,8 @@ import Plugins from './routes/Plugins';
 import Cost from './routes/Cost';
 import Drift from './routes/Drift';
 import Events from './routes/Events';
+import MonitoredEvents from './routes/MonitoredEvents';
+import Connectors from './routes/Connectors';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Apps from './routes/Apps';
@@ -129,8 +131,10 @@ const views: Record<string, Component> = {
   cost: Cost,
   drift: Drift,
   events: Events,
+  monitoredevents: MonitoredEvents,
   logs: Logs,
   anomalies: Anomalies,
+  connectors: Connectors,
   apps: Marketplace,
   customapps: CustomApps,
   settings: Settings,

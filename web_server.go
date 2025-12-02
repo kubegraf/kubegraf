@@ -158,6 +158,8 @@ type WebServer struct {
 	costCache     *ClusterCost
 	costCacheTime time.Time
 	costCacheMu   sync.RWMutex
+	// Event monitor integration
+	eventMonitorStarted bool
 }
 
 // NewWebServer creates a new web server
@@ -318,6 +320,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
+
+	// Event monitoring
+	ws.RegisterEventHandlers()
 
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
@@ -1048,6 +1053,24 @@ func (ws *WebServer) broadcastEvent(event WebEvent) {
 
 	msg := map[string]interface{}{
 		"type": "event",
+		"data": event,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// broadcastMonitoredEvent sends a monitored event to all connected WebSocket clients
+func (ws *WebServer) broadcastMonitoredEvent(event MonitoredEvent) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "monitored_event",
 		"data": event,
 	}
 
