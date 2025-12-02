@@ -6,11 +6,20 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/yaml"
 )
 
 // AI Assistant handlers
@@ -187,20 +196,21 @@ func (ws *WebServer) handleAIExplainError(w http.ResponseWriter, r *http.Request
 
 // Diagnostics handlers
 
-// handleDiagnosticsRun runs all diagnostics
+// handleDiagnosticsRun runs all diagnostics with optimizations
 func (ws *WebServer) handleDiagnosticsRun(w http.ResponseWriter, r *http.Request) {
 	namespace := r.URL.Query().Get("namespace")
 	category := r.URL.Query().Get("category")
 
 	engine := NewDiagnosticsEngine(ws.app)
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute) // 2 minute timeout
+	defer cancel()
 
 	var findings []Finding
 	var err error
 
 	if category != "" {
 		findings, err = engine.RunByCategory(ctx, category)
-	} else if namespace != "" && namespace != "All Namespaces" {
+	} else if namespace != "" && namespace != "All Namespaces" && namespace != "_all" {
 		// Run diagnostics for specific namespace
 		findings, err = engine.RunAll(ctx)
 		// Filter by namespace
@@ -657,4 +667,1278 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 	http.HandleFunc("/api/plugins/list", ws.handlePluginsList)
 	http.HandleFunc("/api/plugins/install", ws.handlePluginsInstall)
 	http.HandleFunc("/api/plugins/uninstall", ws.handlePluginsUninstall)
+
+	// Vulnerability scanning
+	http.HandleFunc("/api/vulnerabilities/scan", ws.handleVulnerabilityScan)
+	http.HandleFunc("/api/vulnerabilities/refresh", ws.handleVulnerabilityRefresh)
+	http.HandleFunc("/api/vulnerabilities/stats", ws.handleVulnerabilityStats)
+
+	// Anomaly detection
+	http.HandleFunc("/api/anomalies/detect", ws.handleAnomalyDetection)
+	http.HandleFunc("/api/anomalies/stats", ws.handleAnomalyStats)
+	http.HandleFunc("/api/anomalies/remediate", ws.handleAnomalyRemediate)
+	http.HandleFunc("/api/anomalies/metrics", ws.handleAnomalyMetrics)
+
+	// ML Recommendations
+	http.HandleFunc("/api/ml/recommendations", ws.handleMLRecommendations)
+	http.HandleFunc("/api/ml/predict", ws.handleMLPredict)
+
+	// Storage
+	http.HandleFunc("/api/storage/persistentvolumes", ws.handlePersistentVolumes)
+	http.HandleFunc("/api/storage/persistentvolumeclaims", ws.handlePersistentVolumeClaims)
+	http.HandleFunc("/api/storage/storageclasses", ws.handleStorageClasses)
+
+	// RBAC
+	http.HandleFunc("/api/rbac/roles", ws.handleRoles)
+	http.HandleFunc("/api/rbac/rolebindings", ws.handleRoleBindings)
+	http.HandleFunc("/api/rbac/clusterroles", ws.handleClusterRoles)
+	http.HandleFunc("/api/rbac/clusterrolebindings", ws.handleClusterRoleBindings)
+
+	// Storage YAML/Update/Delete
+	http.HandleFunc("/api/storage/pv/yaml", ws.handlePVYAML)
+	http.HandleFunc("/api/storage/pv/update", ws.handlePVUpdate)
+	http.HandleFunc("/api/storage/pv/delete", ws.handlePVDelete)
+	http.HandleFunc("/api/storage/pvc/yaml", ws.handlePVCYAML)
+	http.HandleFunc("/api/storage/pvc/update", ws.handlePVCUpdate)
+	http.HandleFunc("/api/storage/pvc/delete", ws.handlePVCDelete)
+	http.HandleFunc("/api/storage/storageclass/yaml", ws.handleStorageClassYAML)
+	http.HandleFunc("/api/storage/storageclass/update", ws.handleStorageClassUpdate)
+	http.HandleFunc("/api/storage/storageclass/delete", ws.handleStorageClassDelete)
+
+	// RBAC YAML/Update/Delete
+	http.HandleFunc("/api/rbac/role/yaml", ws.handleRoleYAML)
+	http.HandleFunc("/api/rbac/role/update", ws.handleRoleUpdate)
+	http.HandleFunc("/api/rbac/role/delete", ws.handleRoleDelete)
+	http.HandleFunc("/api/rbac/rolebinding/yaml", ws.handleRoleBindingYAML)
+	http.HandleFunc("/api/rbac/rolebinding/update", ws.handleRoleBindingUpdate)
+	http.HandleFunc("/api/rbac/rolebinding/delete", ws.handleRoleBindingDelete)
+	http.HandleFunc("/api/rbac/clusterrole/yaml", ws.handleClusterRoleYAML)
+	http.HandleFunc("/api/rbac/clusterrole/update", ws.handleClusterRoleUpdate)
+	http.HandleFunc("/api/rbac/clusterrole/delete", ws.handleClusterRoleDelete)
+	http.HandleFunc("/api/rbac/clusterrolebinding/yaml", ws.handleClusterRoleBindingYAML)
+	http.HandleFunc("/api/rbac/clusterrolebinding/update", ws.handleClusterRoleBindingUpdate)
+	http.HandleFunc("/api/rbac/clusterrolebinding/delete", ws.handleClusterRoleBindingDelete)
+}
+
+// Anomaly Detection handlers
+
+// handleAnomalyDetection runs anomaly detection on the cluster
+func (ws *WebServer) handleAnomalyDetection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	severity := r.URL.Query().Get("severity") // Optional filter: critical, warning, info
+
+	// Add timeout to prevent hanging (2 minutes should be enough)
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	log.Printf("Starting anomaly detection (severity filter: %s)", severity)
+	startTime := time.Now()
+	anomalies, err := ws.app.anomalyDetector.DetectAnomalies(ctx)
+	duration := time.Since(startTime)
+
+	if err != nil {
+		log.Printf("Anomaly detection failed after %v: %v", duration, err)
+		http.Error(w, fmt.Sprintf("Failed to detect anomalies: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Anomaly detection completed in %v: found %d anomalies", duration, len(anomalies))
+
+	// Filter by severity if specified
+	if severity != "" {
+		var filtered []Anomaly
+		for _, anomaly := range anomalies {
+			if strings.ToLower(anomaly.Severity) == strings.ToLower(severity) {
+				filtered = append(filtered, anomaly)
+			}
+		}
+		anomalies = filtered
+	}
+
+	// Calculate stats
+	stats := ws.app.anomalyDetector.GetAnomalyStats(anomalies)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"anomalies": anomalies,
+		"stats":     stats,
+		"duration":  duration.String(),
+	})
+}
+
+// handleAnomalyStats returns anomaly detection statistics
+func (ws *WebServer) handleAnomalyStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	anomalies, err := ws.app.anomalyDetector.DetectAnomalies(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to detect anomalies: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	stats := ws.app.anomalyDetector.GetAnomalyStats(anomalies)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleAnomalyRemediate attempts to auto-remediate an anomaly
+func (ws *WebServer) handleAnomalyRemediate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		AnomalyID string `json:"anomalyId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Find the anomaly
+	anomalies, err := ws.app.anomalyDetector.DetectAnomalies(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to detect anomalies: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var targetAnomaly *Anomaly
+	for _, anomaly := range anomalies {
+		if anomaly.ID == request.AnomalyID {
+			targetAnomaly = &anomaly
+			break
+		}
+	}
+
+	if targetAnomaly == nil {
+		http.Error(w, "Anomaly not found", http.StatusNotFound)
+		return
+	}
+
+	// Attempt remediation
+	err = ws.app.anomalyDetector.AutoRemediate(r.Context(), *targetAnomaly)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to remediate: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Successfully remediated anomaly: %s", targetAnomaly.Message),
+		"anomaly": targetAnomaly,
+	})
+}
+
+// handleAnomalyMetrics returns collected metrics for analysis
+func (ws *WebServer) handleAnomalyMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 1000 // Default limit
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	metrics, err := ws.app.anomalyDetector.CollectMetrics(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to collect metrics: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Limit results
+	if len(metrics) > limit {
+		metrics = metrics[len(metrics)-limit:]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"metrics": metrics,
+		"count":   len(metrics),
+	})
+}
+
+// handleMLRecommendations returns ML-powered recommendations
+func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if cluster is connected
+	if ws.app.clientset == nil || !ws.app.connected {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"recommendations": []MLRecommendation{},
+			"total":           0,
+			"message":         "Cluster not connected. Connect to a cluster to get ML recommendations.",
+		})
+		return
+	}
+
+	// Add timeout to prevent hanging
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	recommendations, err := ws.app.mlRecommender.GenerateRecommendations(ctx)
+	if err != nil {
+		// Don't return error, just return empty recommendations
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"recommendations": []MLRecommendation{},
+			"total":           0,
+			"error":           err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"recommendations": recommendations,
+		"total":           len(recommendations),
+	})
+}
+
+// handleMLPredict predicts future resource needs
+func (ws *WebServer) handleMLPredict(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	deployment := r.URL.Query().Get("deployment")
+	hoursAhead := 1
+	if h := r.URL.Query().Get("hours"); h != "" {
+		fmt.Sscanf(h, "%d", &hoursAhead)
+	}
+
+	if namespace == "" || deployment == "" {
+		http.Error(w, "namespace and deployment are required", http.StatusBadRequest)
+		return
+	}
+
+	cpuPred, memPred, err := ws.app.mlRecommender.PredictResourceNeeds(r.Context(), namespace, deployment, hoursAhead)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to predict: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"cpuPrediction":    cpuPred,
+		"memoryPrediction": memPred,
+		"hoursAhead":      hoursAhead,
+	})
+}
+
+// Storage handlers
+
+// handlePersistentVolumes returns a list of PersistentVolumes
+func (ws *WebServer) handlePersistentVolumes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	pvs, err := ws.app.clientset.CoreV1().PersistentVolumes().List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list PersistentVolumes: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	pvList := []map[string]interface{}{}
+	for _, pv := range pvs.Items {
+		accessModes := []string{}
+		for _, mode := range pv.Spec.AccessModes {
+			accessModes = append(accessModes, string(mode))
+		}
+
+		claim := ""
+		if pv.Spec.ClaimRef != nil {
+			claim = fmt.Sprintf("%s/%s", pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name)
+		}
+
+		capacity := ""
+		if pv.Spec.Capacity != nil {
+			if storage, ok := pv.Spec.Capacity[corev1.ResourceStorage]; ok {
+				capacity = storage.String()
+			}
+		}
+
+		pvList = append(pvList, map[string]interface{}{
+			"name":          pv.Name,
+			"capacity":     capacity,
+			"accessModes":   accessModes,
+			"reclaimPolicy": string(pv.Spec.PersistentVolumeReclaimPolicy),
+			"status":        string(pv.Status.Phase),
+			"storageClass":  pv.Spec.StorageClassName,
+			"claim":         claim,
+			"age":           formatAge(time.Since(pv.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pvList)
+}
+
+// handlePersistentVolumeClaims returns a list of PersistentVolumeClaims
+func (ws *WebServer) handlePersistentVolumeClaims(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Empty namespace means "all namespaces" in Kubernetes
+	// When namespace param is not provided, use empty string to list all namespaces
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = "" // List all namespaces
+	}
+
+	pvcs, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	pvcList := []map[string]interface{}{}
+	for _, pvc := range pvcs.Items {
+		accessModes := []string{}
+		for _, mode := range pvc.Spec.AccessModes {
+			accessModes = append(accessModes, string(mode))
+		}
+
+		capacity := ""
+		if pvc.Status.Capacity != nil {
+			if storage, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
+				capacity = storage.String()
+			}
+		}
+
+		volume := ""
+		if pvc.Spec.VolumeName != "" {
+			volume = pvc.Spec.VolumeName
+		}
+
+		storageClass := ""
+		if pvc.Spec.StorageClassName != nil {
+			storageClass = *pvc.Spec.StorageClassName
+		}
+
+		pvcList = append(pvcList, map[string]interface{}{
+			"name":         pvc.Name,
+			"namespace":    pvc.Namespace,
+			"status":       string(pvc.Status.Phase),
+			"volume":       volume,
+			"capacity":     capacity,
+			"accessModes":  accessModes,
+			"storageClass": storageClass,
+			"age":          formatAge(time.Since(pvc.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pvcList)
+}
+
+// handleStorageClasses returns a list of StorageClasses
+func (ws *WebServer) handleStorageClasses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// StorageClasses are in storage.k8s.io/v1 API group
+	storageClasses, err := ws.app.clientset.StorageV1().StorageClasses().List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		// If StorageV1 API is not available, return empty list
+		log.Printf("Warning: Failed to list StorageClasses: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+
+	resultList := []map[string]interface{}{}
+	for _, sc := range storageClasses.Items {
+		reclaimPolicy := "Delete"
+		if sc.ReclaimPolicy != nil {
+			reclaimPolicy = string(*sc.ReclaimPolicy)
+		}
+
+		bindingMode := "Immediate"
+		if sc.VolumeBindingMode != nil {
+			bindingMode = string(*sc.VolumeBindingMode)
+		}
+
+		allowExpansion := false
+		if sc.AllowVolumeExpansion != nil {
+			allowExpansion = *sc.AllowVolumeExpansion
+		}
+
+		resultList = append(resultList, map[string]interface{}{
+			"name":                sc.Name,
+			"provisioner":         sc.Provisioner,
+			"reclaimPolicy":       reclaimPolicy,
+			"volumeBindingMode":   bindingMode,
+			"allowVolumeExpansion": allowExpansion,
+			"age":                 formatAge(time.Since(sc.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resultList)
+}
+
+// RBAC handlers
+
+// handleRoles returns a list of Roles
+func (ws *WebServer) handleRoles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	roles, err := ws.app.clientset.RbacV1().Roles(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list Roles: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	roleList := []map[string]interface{}{}
+	for _, role := range roles.Items {
+		roleList = append(roleList, map[string]interface{}{
+			"name":      role.Name,
+			"namespace": role.Namespace,
+			"rules":     len(role.Rules),
+			"age":       formatAge(time.Since(role.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(roleList)
+}
+
+// handleRoleBindings returns a list of RoleBindings
+func (ws *WebServer) handleRoleBindings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	rbs, err := ws.app.clientset.RbacV1().RoleBindings(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list RoleBindings: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rbList := []map[string]interface{}{}
+	for _, rb := range rbs.Items {
+		roleRef := ""
+		if rb.RoleRef.Kind != "" {
+			roleRef = fmt.Sprintf("%s/%s", rb.RoleRef.Kind, rb.RoleRef.Name)
+		}
+
+		rbList = append(rbList, map[string]interface{}{
+			"name":      rb.Name,
+			"namespace": rb.Namespace,
+			"roleRef":   roleRef,
+			"subjects":  len(rb.Subjects),
+			"age":       formatAge(time.Since(rb.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rbList)
+}
+
+// handleClusterRoles returns a list of ClusterRoles
+func (ws *WebServer) handleClusterRoles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	clusterRoles, err := ws.app.clientset.RbacV1().ClusterRoles().List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list ClusterRoles: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	crList := []map[string]interface{}{}
+	for _, cr := range clusterRoles.Items {
+		crList = append(crList, map[string]interface{}{
+			"name":  cr.Name,
+			"rules": len(cr.Rules),
+			"age":   formatAge(time.Since(cr.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(crList)
+}
+
+// handleClusterRoleBindings returns a list of ClusterRoleBindings
+func (ws *WebServer) handleClusterRoleBindings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	crbs, err := ws.app.clientset.RbacV1().ClusterRoleBindings().List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list ClusterRoleBindings: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	crbList := []map[string]interface{}{}
+	for _, crb := range crbs.Items {
+		roleRef := ""
+		if crb.RoleRef.Kind != "" {
+			roleRef = fmt.Sprintf("%s/%s", crb.RoleRef.Kind, crb.RoleRef.Name)
+		}
+
+		crbList = append(crbList, map[string]interface{}{
+			"name":     crb.Name,
+			"roleRef":  roleRef,
+			"subjects": len(crb.Subjects),
+			"age":      formatAge(time.Since(crb.CreationTimestamp.Time)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(crbList)
+}
+
+// Storage YAML/Update/Delete handlers
+
+func (ws *WebServer) handlePVYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "PV name is required", http.StatusBadRequest)
+		return
+	}
+
+	pv, err := ws.app.clientset.CoreV1().PersistentVolumes().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get PV: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	pv.ManagedFields = nil
+	yamlData, err := toKubectlYAML(pv, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "PersistentVolume"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handlePVUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "PV name is required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var pv corev1.PersistentVolume
+	if err := yaml.Unmarshal(body, &pv); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.CoreV1().PersistentVolumes().Update(ws.app.ctx, &pv, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update PV: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handlePVDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "PV name is required"})
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().PersistentVolumes().Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handlePVCYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		http.Error(w, "PVC name and namespace are required", http.StatusBadRequest)
+		return
+	}
+
+	pvc, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get PVC: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	pvc.ManagedFields = nil
+	yamlData, err := toKubectlYAML(pvc, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handlePVCUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		http.Error(w, "PVC name and namespace are required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var pvc corev1.PersistentVolumeClaim
+	if err := yaml.Unmarshal(body, &pvc); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).Update(ws.app.ctx, &pvc, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update PVC: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handlePVCDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "PVC name and namespace are required"})
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleStorageClassYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "StorageClass name is required", http.StatusBadRequest)
+		return
+	}
+
+	sc, err := ws.app.clientset.StorageV1().StorageClasses().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get StorageClass: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	sc.ManagedFields = nil
+	yamlData, err := toKubectlYAML(sc, schema.GroupVersionKind{Group: "storage.k8s.io", Version: "v1", Kind: "StorageClass"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handleStorageClassUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "StorageClass name is required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var sc storagev1.StorageClass
+	if err := yaml.Unmarshal(body, &sc); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.StorageV1().StorageClasses().Update(ws.app.ctx, &sc, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update StorageClass: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleStorageClassDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "StorageClass name is required"})
+		return
+	}
+
+	err := ws.app.clientset.StorageV1().StorageClasses().Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// RBAC YAML/Update/Delete handlers
+
+func (ws *WebServer) handleRoleYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		http.Error(w, "Role name and namespace are required", http.StatusBadRequest)
+		return
+	}
+
+	role, err := ws.app.clientset.RbacV1().Roles(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get Role: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	role.ManagedFields = nil
+	yamlData, err := toKubectlYAML(role, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handleRoleUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		http.Error(w, "Role name and namespace are required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var role rbacv1.Role
+	if err := yaml.Unmarshal(body, &role); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.RbacV1().Roles(namespace).Update(ws.app.ctx, &role, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update Role: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleRoleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Role name and namespace are required"})
+		return
+	}
+
+	err := ws.app.clientset.RbacV1().Roles(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleRoleBindingYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		http.Error(w, "RoleBinding name and namespace are required", http.StatusBadRequest)
+		return
+	}
+
+	rb, err := ws.app.clientset.RbacV1().RoleBindings(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get RoleBinding: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rb.ManagedFields = nil
+	yamlData, err := toKubectlYAML(rb, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handleRoleBindingUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		http.Error(w, "RoleBinding name and namespace are required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var rb rbacv1.RoleBinding
+	if err := yaml.Unmarshal(body, &rb); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.RbacV1().RoleBindings(namespace).Update(ws.app.ctx, &rb, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update RoleBinding: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleRoleBindingDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "RoleBinding name and namespace are required"})
+		return
+	}
+
+	err := ws.app.clientset.RbacV1().RoleBindings(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleClusterRoleYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "ClusterRole name is required", http.StatusBadRequest)
+		return
+	}
+
+	cr, err := ws.app.clientset.RbacV1().ClusterRoles().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get ClusterRole: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	cr.ManagedFields = nil
+	yamlData, err := toKubectlYAML(cr, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handleClusterRoleUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "ClusterRole name is required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var cr rbacv1.ClusterRole
+	if err := yaml.Unmarshal(body, &cr); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.RbacV1().ClusterRoles().Update(ws.app.ctx, &cr, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update ClusterRole: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleClusterRoleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "ClusterRole name is required"})
+		return
+	}
+
+	err := ws.app.clientset.RbacV1().ClusterRoles().Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleClusterRoleBindingYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "ClusterRoleBinding name is required", http.StatusBadRequest)
+		return
+	}
+
+	crb, err := ws.app.clientset.RbacV1().ClusterRoleBindings().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get ClusterRoleBinding: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	crb.ManagedFields = nil
+	yamlData, err := toKubectlYAML(crb, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRoleBinding"})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+func (ws *WebServer) handleClusterRoleBindingUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "ClusterRoleBinding name is required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var crb rbacv1.ClusterRoleBinding
+	if err := yaml.Unmarshal(body, &crb); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.RbacV1().ClusterRoleBindings().Update(ws.app.ctx, &crb, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update ClusterRoleBinding: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handleClusterRoleBindingDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "ClusterRoleBinding name is required"})
+		return
+	}
+
+	err := ws.app.clientset.RbacV1().ClusterRoleBindings().Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleVulnerabilityScan scans the cluster for vulnerabilities
+func (ws *WebServer) handleVulnerabilityScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	severity := r.URL.Query().Get("severity") // Optional filter: CRITICAL, HIGH, MEDIUM, LOW
+
+	// Add timeout to prevent hanging (5 minutes should be enough for large clusters)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	log.Printf("Starting vulnerability scan (severity filter: %s)", severity)
+	startTime := time.Now()
+	vulnerabilities, err := ws.app.vulnerabilityScanner.ScanCluster(ctx)
+	duration := time.Since(startTime)
+	
+	if err != nil {
+		log.Printf("Vulnerability scan failed after %v: %v", duration, err)
+		http.Error(w, fmt.Sprintf("Failed to scan cluster: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	log.Printf("Vulnerability scan completed in %v: found %d vulnerabilities", duration, len(vulnerabilities))
+
+	// Filter by severity if specified
+	if severity != "" {
+		var filtered []Vulnerability
+		for _, vuln := range vulnerabilities {
+			if strings.ToUpper(vuln.Severity) == strings.ToUpper(severity) {
+				filtered = append(filtered, vuln)
+			}
+		}
+		vulnerabilities = filtered
+	}
+
+	// Calculate stats
+	stats := map[string]int{
+		"total":     len(vulnerabilities),
+		"critical":  0,
+		"high":      0,
+		"medium":    0,
+		"low":       0,
+	}
+	for _, vuln := range vulnerabilities {
+		switch strings.ToUpper(vuln.Severity) {
+		case "CRITICAL":
+			stats["critical"]++
+		case "HIGH":
+			stats["high"]++
+		case "MEDIUM":
+			stats["medium"]++
+		case "LOW":
+			stats["low"]++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"vulnerabilities": vulnerabilities,
+		"stats":           stats,
+		"lastRefresh":     ws.app.vulnerabilityScanner.lastRefresh.Format(time.RFC3339),
+	})
+}
+
+// handleVulnerabilityRefresh manually refreshes NVD data
+func (ws *WebServer) handleVulnerabilityRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	err := ws.app.vulnerabilityScanner.RefreshNVDData(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to refresh NVD data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"message":     "NVD data refreshed successfully",
+		"lastRefresh": ws.app.vulnerabilityScanner.lastRefresh.Format(time.RFC3339),
+		"cveCount":    len(ws.app.vulnerabilityScanner.nvdCache),
+	})
+}
+
+// handleVulnerabilityStats returns vulnerability statistics
+func (ws *WebServer) handleVulnerabilityStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vulnerabilities, err := ws.app.vulnerabilityScanner.ScanCluster(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to scan cluster: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	stats := map[string]interface{}{
+		"total":        len(vulnerabilities),
+		"critical":     0,
+		"high":         0,
+		"medium":       0,
+		"low":          0,
+		"cveCount":     len(ws.app.vulnerabilityScanner.nvdCache),
+		"lastRefresh":  ws.app.vulnerabilityScanner.lastRefresh.Format(time.RFC3339),
+		"byNamespace":  make(map[string]int),
+		"byImage":      make(map[string]int),
+	}
+
+	byNamespace := stats["byNamespace"].(map[string]int)
+	byImage := stats["byImage"].(map[string]int)
+
+	for _, vuln := range vulnerabilities {
+		switch strings.ToUpper(vuln.Severity) {
+		case "CRITICAL":
+			stats["critical"] = stats["critical"].(int) + 1
+		case "HIGH":
+			stats["high"] = stats["high"].(int) + 1
+		case "MEDIUM":
+			stats["medium"] = stats["medium"].(int) + 1
+		case "LOW":
+			stats["low"] = stats["low"].(int) + 1
+		}
+		byNamespace[vuln.Namespace]++
+		byImage[vuln.AffectedImage]++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }

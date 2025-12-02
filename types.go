@@ -93,6 +93,12 @@ type App struct {
 	connectionError string
 	// Multi-cluster support
 	contextManager *ContextManager
+	// Vulnerability scanning
+	vulnerabilityScanner *VulnerabilityScanner
+	// Anomaly detection
+	anomalyDetector *AnomalyDetector
+	// ML Recommendations
+	mlRecommender *MLRecommender
 }
 
 // TableData holds the current table information

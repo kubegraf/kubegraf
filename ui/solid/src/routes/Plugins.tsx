@@ -53,16 +53,17 @@ const Plugins: Component = () => {
   const [actionMessage, setActionMessage] = createSignal<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Resources now depend on currentContext to auto-refetch when cluster changes
+  // Fetch data when on Overview tab OR when on the specific tab
   const [helmReleases, { refetch: refetchHelm, mutate: mutateHelm }] = createResource(
-    () => activeTab() === 'helm' ? currentContext() : false,
+    () => (activeTab() === 'helm' || activeTab() === 'overview') ? currentContext() : false,
     async () => api.getHelmReleases()
   );
   const [argoCDApps, { refetch: refetchArgo, mutate: mutateArgo }] = createResource(
-    () => activeTab() === 'argocd' ? currentContext() : false,
+    () => (activeTab() === 'argocd' || activeTab() === 'overview') ? currentContext() : false,
     async () => api.getArgoCDApps()
   );
   const [fluxResources, { refetch: refetchFlux, mutate: mutateFlux }] = createResource(
-    () => activeTab() === 'flux' ? currentContext() : false,
+    () => (activeTab() === 'flux' || activeTab() === 'overview') ? currentContext() : false,
     async () => api.getFluxResources()
   );
 
@@ -316,15 +317,39 @@ const Plugins: Component = () => {
           <h3 class="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Quick Stats</h3>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
-              <div class="text-2xl font-bold" style={{ color: 'var(--accent-primary)' }}>--</div>
+              <Show when={helmReleases.loading} fallback={
+                <div class="text-2xl font-bold" style={{ color: 'var(--accent-primary)' }}>
+                  {Array.isArray(helmReleases()) ? helmReleases().length : 0}
+                </div>
+              }>
+                <div class="text-2xl font-bold flex items-center justify-center" style={{ color: 'var(--accent-primary)' }}>
+                  <div class="spinner" style={{ width: '24px', height: '24px' }} />
+                </div>
+              </Show>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Helm Releases</div>
             </div>
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
-              <div class="text-2xl font-bold" style={{ color: 'var(--accent-secondary)' }}>--</div>
+              <Show when={argoCDApps.loading} fallback={
+                <div class="text-2xl font-bold" style={{ color: 'var(--accent-secondary)' }}>
+                  {Array.isArray(argoCDApps()) ? argoCDApps().length : 0}
+                </div>
+              }>
+                <div class="text-2xl font-bold flex items-center justify-center" style={{ color: 'var(--accent-secondary)' }}>
+                  <div class="spinner" style={{ width: '24px', height: '24px' }} />
+                </div>
+              </Show>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>ArgoCD Apps</div>
             </div>
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
-              <div class="text-2xl font-bold" style={{ color: '#8b5cf6' }}>--</div>
+              <Show when={fluxResources.loading} fallback={
+                <div class="text-2xl font-bold" style={{ color: '#8b5cf6' }}>
+                  {Array.isArray(fluxResources()) ? fluxResources().length : 0}
+                </div>
+              }>
+                <div class="text-2xl font-bold flex items-center justify-center" style={{ color: '#8b5cf6' }}>
+                  <div class="spinner" style={{ width: '24px', height: '24px' }} />
+                </div>
+              </Show>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Flux Resources</div>
             </div>
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>

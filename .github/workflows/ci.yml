@@ -117,3 +117,5 @@ jobs:
 
       - name: Test
         run: go test -v -race ./...
+        # Note: ML components (anomaly detection, recommendations) are compiled into the binary
+        # and tested as part of the standard Go test suite. No separate ML model build step needed.

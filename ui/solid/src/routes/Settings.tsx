@@ -33,6 +33,47 @@ const Settings: Component = () => {
   const [enableNotifications, setEnableNotifications] = createSignal(true);
   const [enableSound, setEnableSound] = createSignal(false);
   const [defaultNamespace, setDefaultNamespace] = createSignal(namespace());
+  const [enableDiagnostics, setEnableDiagnostics] = createSignal(true);
+  const [enableCVEVulnerabilities, setEnableCVEVulnerabilities] = createSignal(true);
+  const [enableSecurityChecks, setEnableSecurityChecks] = createSignal(true);
+  
+  // Update checking
+  const [version, setVersion] = createSignal('1.0.0');
+  const [updateInfo, setUpdateInfo] = createSignal<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    releaseNotes?: string;
+    downloadUrl?: string;
+    publishedAt?: string;
+    error?: string;
+  } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
+  const [installingUpdate, setInstallingUpdate] = createSignal(false);
+
+  // Load current version from status
+  createEffect(async () => {
+    try {
+      const status = await api.getStatus();
+      if (status && (status as any).version) {
+        setVersion((status as any).version);
+      }
+    } catch (err) {
+      console.error('Failed to get version:', err);
+    }
+  });
+
+  // Load current version from status
+  createEffect(async () => {
+    try {
+      const status = await api.getStatus();
+      if (status && (status as any).version) {
+        setVersion((status as any).version);
+      }
+    } catch (err) {
+      console.error('Failed to get version:', err);
+    }
+  });
 
   // Load settings from localStorage
   createEffect(() => {
@@ -69,6 +110,21 @@ const Settings: Component = () => {
     const savedDefaultNs = localStorage.getItem('kubegraf-default-namespace');
     if (savedDefaultNs) {
       setDefaultNamespace(savedDefaultNs);
+    }
+
+    const savedDiagnostics = localStorage.getItem('kubegraf-enable-diagnostics');
+    if (savedDiagnostics !== null) {
+      setEnableDiagnostics(savedDiagnostics === 'true');
+    }
+
+    const savedCVE = localStorage.getItem('kubegraf-enable-cve-vulnerabilities');
+    if (savedCVE !== null) {
+      setEnableCVEVulnerabilities(savedCVE === 'true');
+    }
+
+    const savedSecurity = localStorage.getItem('kubegraf-enable-security-checks');
+    if (savedSecurity !== null) {
+      setEnableSecurityChecks(savedSecurity === 'true');
     }
   });
 
@@ -119,6 +175,21 @@ const Settings: Component = () => {
     handleSettingChange('sound', enabled);
   };
 
+  const handleDiagnosticsChange = (enabled: boolean) => {
+    setEnableDiagnostics(enabled);
+    handleSettingChange('enable-diagnostics', enabled);
+  };
+
+  const handleCVEVulnerabilitiesChange = (enabled: boolean) => {
+    setEnableCVEVulnerabilities(enabled);
+    handleSettingChange('enable-cve-vulnerabilities', enabled);
+  };
+
+  const handleSecurityChecksChange = (enabled: boolean) => {
+    setEnableSecurityChecks(enabled);
+    handleSettingChange('enable-security-checks', enabled);
+  };
+
   const resetSettings = () => {
     if (confirm('Are you sure you want to reset all settings to defaults?')) {
       localStorage.removeItem('kubegraf-auto-refresh');
@@ -128,6 +199,9 @@ const Settings: Component = () => {
       localStorage.removeItem('kubegraf-notifications');
       localStorage.removeItem('kubegraf-sound');
       localStorage.removeItem('kubegraf-default-namespace');
+      localStorage.removeItem('kubegraf-enable-diagnostics');
+      localStorage.removeItem('kubegraf-enable-cve-vulnerabilities');
+      localStorage.removeItem('kubegraf-enable-security-checks');
       location.reload();
     }
   };
@@ -232,6 +306,36 @@ const Settings: Component = () => {
           type: 'toggle',
           value: () => enableSound(),
           onChange: handleSoundChange,
+        },
+      ],
+    },
+    {
+      title: 'Security Features',
+      description: 'Enable or disable security-related features',
+      items: [
+        {
+          id: 'enable-diagnostics',
+          label: 'Enable Diagnostics',
+          description: 'Run cluster diagnostics and health checks',
+          type: 'toggle',
+          value: () => enableDiagnostics(),
+          onChange: handleDiagnosticsChange,
+        },
+        {
+          id: 'enable-cve-vulnerabilities',
+          label: 'Enable CVE Vulnerabilities (NIST NVD)',
+          description: 'Scan cluster for CVE vulnerabilities using NIST NVD database',
+          type: 'toggle',
+          value: () => enableCVEVulnerabilities(),
+          onChange: handleCVEVulnerabilitiesChange,
+        },
+        {
+          id: 'enable-security-checks',
+          label: 'Enable Security Checks',
+          description: 'Run security-related diagnostic checks',
+          type: 'toggle',
+          value: () => enableSecurityChecks(),
+          onChange: handleSecurityChecksChange,
         },
       ],
     },
@@ -359,6 +463,7 @@ const Settings: Component = () => {
         )}
       </For>
 
+
       {/* Advanced Settings */}
       <div class="mb-8">
         <button
@@ -402,9 +507,157 @@ const Settings: Component = () => {
               <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
                 Application Version
               </label>
-              <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                KubeGraf v1.0.0
-              </p>
+              <div class="flex items-center gap-2">
+                <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  KubeGraf {version()}
+                </p>
+                <Show when={updateInfo() && updateInfo()!.updateAvailable}>
+                  <span class="px-2 py-0.5 rounded text-xs font-medium" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
+                    Update Available
+                  </span>
+                </Show>
+              </div>
+            </div>
+            
+            {/* Update Section */}
+            <div class="p-4 rounded-lg mb-4" style={{ background: 'var(--bg-tertiary)' }}>
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                    Check for Updates
+                  </div>
+                  <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Keep KubeGraf up to date with the latest features and fixes
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setCheckingUpdate(true);
+                    try {
+                      const info = await api.checkForUpdates();
+                      setUpdateInfo(info);
+                      if (info.updateAvailable) {
+                        addNotification(`Update available: ${info.latestVersion}`, 'info');
+                      } else {
+                        addNotification('You are running the latest version', 'success');
+                      }
+                    } catch (err) {
+                      addNotification(`Failed to check for updates: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+                    } finally {
+                      setCheckingUpdate(false);
+                    }
+                  }}
+                  disabled={checkingUpdate()}
+                  class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                  style={{ background: 'var(--accent-primary)', color: '#000' }}
+                >
+                  <Show when={checkingUpdate()}>
+                    <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                  </Show>
+                  {checkingUpdate() ? 'Checking...' : 'Check for Updates'}
+                </button>
+              </div>
+              
+              <Show when={updateInfo()}>
+                {(info) => (
+                  <div class="space-y-3">
+                    <Show when={info().updateAvailable}>
+                      <div class="p-3 rounded-lg border-l-4" style={{ 
+                        background: 'rgba(34, 197, 94, 0.1)', 
+                        'border-left-color': '#22c55e' 
+                      }}>
+                        <div class="flex items-start justify-between gap-4">
+                          <div class="flex-1">
+                            <div class="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                              Update Available: {info().latestVersion}
+                            </div>
+                            <div class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                              Current: {info().currentVersion} → Latest: {info().latestVersion}
+                            </div>
+                            <Show when={info().publishedAt}>
+                              <div class="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                                Published: {new Date(info().publishedAt!).toLocaleDateString()}
+                              </div>
+                            </Show>
+                            <Show when={info().releaseNotes}>
+                              <details class="text-xs mt-2">
+                                <summary class="cursor-pointer font-medium mb-1" style={{ color: 'var(--accent-primary)' }}>
+                                  Release Notes
+                                </summary>
+                                <div class="mt-2 p-2 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                                  <pre class="whitespace-pre-wrap text-xs">{info().releaseNotes}</pre>
+                                </div>
+                              </details>
+                            </Show>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Update KubeGraf from ${info().currentVersion} to ${info().latestVersion}?\n\nThe application will restart automatically after the update.`)) {
+                                return;
+                              }
+                              
+                              if (!info().downloadUrl) {
+                                addNotification('Download URL not available', 'error');
+                                return;
+                              }
+                              
+                              setInstallingUpdate(true);
+                              try {
+                                const result = await api.installUpdate(info().downloadUrl!);
+                                if (result.success) {
+                                  addNotification(result.message || 'Update started. Application will restart shortly...', 'success');
+                                  // Show countdown
+                                  let countdown = 5;
+                                  const countdownInterval = setInterval(() => {
+                                    countdown--;
+                                    if (countdown <= 0) {
+                                      clearInterval(countdownInterval);
+                                      addNotification('Application restarting...', 'info');
+                                    } else {
+                                      addNotification(`Update complete. Restarting in ${countdown} seconds...`, 'info');
+                                    }
+                                  }, 1000);
+                                } else {
+                                  addNotification(result.error || 'Update failed', 'error');
+                                  setInstallingUpdate(false);
+                                }
+                              } catch (err) {
+                                addNotification(`Update failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+                                setInstallingUpdate(false);
+                              }
+                            }}
+                            disabled={installingUpdate() || !info().downloadUrl}
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                            style={{ background: '#22c55e', color: '#000' }}
+                          >
+                            <Show when={installingUpdate()}>
+                              <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                            </Show>
+                            {installingUpdate() ? 'Installing...' : 'Install Update'}
+                          </button>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={!info().updateAvailable && !info().error}>
+                      <div class="p-3 rounded-lg" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                        <div class="text-sm" style={{ color: '#22c55e' }}>
+                          ✓ You are running the latest version ({info().latestVersion})
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={info().error}>
+                      <div class="p-3 rounded-lg border-l-4" style={{ 
+                        background: 'rgba(239, 68, 68, 0.1)', 
+                        'border-left-color': '#ef4444' 
+                      }}>
+                        <div class="text-sm" style={{ color: '#ef4444' }}>
+                          Error checking for updates: {info().error}
+                        </div>
+                      </div>
+                    </Show>
+                  </div>
+                )}
+              </Show>
             </div>
 
             <div>

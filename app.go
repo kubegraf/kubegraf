@@ -206,6 +206,16 @@ func (a *App) Initialize() error {
 		}
 	}
 
+	// Initialize vulnerability scanner
+	a.vulnerabilityScanner = NewVulnerabilityScanner(a)
+	a.vulnerabilityScanner.StartBackgroundRefresh(a.ctx)
+
+	// Initialize anomaly detector
+	a.anomalyDetector = NewAnomalyDetector(a)
+
+	// Initialize ML recommender
+	a.mlRecommender = NewMLRecommender(a)
+
 	// Setup UI
 	a.setupUI()
 

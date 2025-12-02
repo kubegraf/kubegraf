@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createMemo, createResource, onCleanup, Match, Switch } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, createResource, onCleanup, onMount, Match, Switch, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
@@ -192,6 +192,37 @@ const defaultApps: App[] = [
     chartRepo: 'https://prometheus-community.github.io/helm-charts',
     chartName: 'kube-prometheus-stack',
   },
+  // Local Cluster Installers
+  {
+    name: 'k3d',
+    displayName: 'k3d - Local Kubernetes',
+    description: 'Lightweight wrapper to run k3s in Docker. Perfect for local development and testing.',
+    category: 'Local Cluster',
+    icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
+    version: 'Latest',
+    chartRepo: 'local-cluster',
+    chartName: 'k3d',
+  },
+  {
+    name: 'kind',
+    displayName: 'kind - Kubernetes in Docker',
+    description: 'Run local Kubernetes clusters using Docker container nodes. Great for CI/CD and development.',
+    category: 'Local Cluster',
+    icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
+    version: 'Latest',
+    chartRepo: 'local-cluster',
+    chartName: 'kind',
+  },
+  {
+    name: 'minikube',
+    displayName: 'Minikube - Local Kubernetes',
+    description: 'Run Kubernetes locally. Minikube runs a single-node Kubernetes cluster inside a VM on your laptop.',
+    category: 'Local Cluster',
+    icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
+    version: 'Latest',
+    chartRepo: 'local-cluster',
+    chartName: 'minikube',
+  },
 ];
 
 const categoryColors: Record<string, string> = {
@@ -200,6 +231,7 @@ const categoryColors: Record<string, string> = {
   'Observability': '#f97316',
   'Security': '#22c55e',
   'Data': '#3b82f6',
+  'Local Cluster': '#10b981',
 };
 
 interface AppsProps {
@@ -212,13 +244,49 @@ const Apps: Component<AppsProps> = (props) => {
   const [selectedApp, setSelectedApp] = createSignal<App | null>(null);
   const [showInstallModal, setShowInstallModal] = createSignal(false);
   const [installNamespace, setInstallNamespace] = createSignal('default');
+  const [clusterName, setClusterName] = createSignal('kubegraf-cluster'); // For local clusters
   const [installing, setInstalling] = createSignal(false);
+  const [localClusters, setLocalClusters] = createSignal<any[]>([]);
+  const [showLocalClusters, setShowLocalClusters] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
   // Track apps currently being deployed with their target namespace
   const [deployingApps, setDeployingApps] = createSignal<Record<string, { namespace: string; startTime: number }>>({});
 
+  // Auto-filter to Local Cluster if coming from no-cluster overlay
+  onMount(() => {
+    const autoFilter = sessionStorage.getItem('kubegraf-auto-filter');
+    if (autoFilter) {
+      setSelectedCategory(autoFilter);
+      sessionStorage.removeItem('kubegraf-auto-filter');
+    }
+    
+    // Set default tab if specified
+    const defaultTab = sessionStorage.getItem('kubegraf-default-tab');
+    if (defaultTab && (defaultTab === 'marketplace' || defaultTab === 'custom')) {
+      setActiveTab(defaultTab as TabType);
+      sessionStorage.removeItem('kubegraf-default-tab');
+    }
+    
+    // Scroll to Local Cluster section after a brief delay
+    if (autoFilter === 'Local Cluster') {
+      setTimeout(() => {
+        const localClusterSection = document.querySelector('[data-category="Local Cluster"]');
+        if (localClusterSection) {
+          localClusterSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+    }
+  });
+
   // Custom apps state
   const [activeTab, setActiveTab] = createSignal<TabType>(props.defaultTab || 'marketplace');
+  
+  // If defaultTab is provided, set it once on mount
+  createEffect(() => {
+    if (props.defaultTab) {
+      setActiveTab(props.defaultTab);
+    }
+  });
   const [customApps, setCustomApps] = createSignal<App[]>(loadCustomApps());
   const [showAddCustomModal, setShowAddCustomModal] = createSignal(false);
   const [newCustomApp, setNewCustomApp] = createSignal({
@@ -519,7 +587,7 @@ const Apps: Component<AppsProps> = (props) => {
   const CardView = () => (
     <For each={displayedGroupedApps()}>
       {(group) => (
-        <div class="space-y-4">
+        <div class="space-y-4" data-category={group.name}>
           <h2 class="text-lg font-semibold flex items-center gap-2" style={{ color: categoryColors[group.name] || 'var(--text-primary)' }}>
             <span class="w-3 h-3 rounded-full" style={{ background: categoryColors[group.name] || 'var(--accent-primary)' }} />
             {group.name}
@@ -825,8 +893,22 @@ const Apps: Component<AppsProps> = (props) => {
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Apps Marketplace</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Deploy platform tools and applications with one click</p>
+          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+            <Show when={activeTab() === 'marketplace'}>
+              Apps Marketplace
+            </Show>
+            <Show when={activeTab() === 'custom'}>
+              Custom Apps
+            </Show>
+          </h1>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            <Show when={activeTab() === 'marketplace'}>
+              Deploy platform tools and applications with one click
+            </Show>
+            <Show when={activeTab() === 'custom'}>
+              Manage your custom application deployments
+            </Show>
+          </p>
         </div>
         <div class="flex items-center gap-3">
           {/* View Mode Selector */}
@@ -877,8 +959,8 @@ const Apps: Component<AppsProps> = (props) => {
         </div>
       </div>
 
-      {/* Tab Navigation - Only show if not forced to a specific tab */}
-      <Show when={!props.defaultTab}>
+      {/* Tab Navigation - Always show tabs */}
+      <Show when={true}>
         <div class="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
           <button
             onClick={() => setActiveTab('marketplace')}
@@ -1010,6 +1092,35 @@ const Apps: Component<AppsProps> = (props) => {
           <p style={{ color: 'var(--text-secondary)' }}>
             {selectedApp()?.description}
           </p>
+          
+          {/* Prerequisites warning for local clusters */}
+          <Show when={selectedApp()?.name === 'k3d' || selectedApp()?.name === 'kind' || selectedApp()?.name === 'minikube'}>
+            <div class="p-4 rounded-lg border-l-4" style={{ 
+              background: 'rgba(245, 158, 11, 0.1)', 
+              'border-left-color': '#f59e0b',
+              color: 'var(--text-primary)'
+            }}>
+              <div class="flex items-start gap-2">
+                <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div class="flex-1">
+                  <h4 class="font-semibold mb-1">Prerequisites Required</h4>
+                  <p class="text-sm mb-2">
+                    This local cluster installer requires <strong>Docker</strong> to be installed and running.
+                  </p>
+                  <ul class="text-sm list-disc list-inside space-y-1 mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    <li>Docker Desktop must be installed</li>
+                    <li>Docker Desktop must be running</li>
+                    <li>Docker daemon must be accessible</li>
+                  </ul>
+                  <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    If Docker is not installed, the installation will fail. Check server logs for detailed error messages.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Show>
 
           <div class="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
             <div class="flex items-center justify-between text-sm">

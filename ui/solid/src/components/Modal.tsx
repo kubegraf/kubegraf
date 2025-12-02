@@ -10,10 +10,16 @@ interface ModalProps {
 }
 
 const Modal: Component<ModalProps> = (props) => {
-  // Close on escape key
+  // Close on escape key - but only if not in an input/terminal
   createEffect(() => {
     if (props.isOpen) {
       const handleEscape = (e: KeyboardEvent) => {
+        // Don't close if user is typing in an input or terminal
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || 
+            target.closest('.xterm') || target.closest('[data-terminal]')) {
+          return;
+        }
         if (e.key === 'Escape') {
           props.onClose();
         }
@@ -58,7 +64,7 @@ const Modal: Component<ModalProps> = (props) => {
               </button>
             </div>
             {/* Body */}
-            <div class="p-4 max-h-[70vh] overflow-auto">
+            <div class={`p-4 overflow-auto ${props.size === 'full' ? 'max-h-[85vh]' : 'max-h-[70vh]'}`}>
               {props.children}
             </div>
           </div>

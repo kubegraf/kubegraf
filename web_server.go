@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
 	"sort"
@@ -33,6 +34,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/creack/pty/v2"
 	"github.com/gorilla/websocket"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -180,6 +182,8 @@ func (ws *WebServer) Start(port int) error {
 	// Serve static files with SPA routing (must be registered last)
 	staticHandler := ws.handleStaticFiles(webFS)
 	http.HandleFunc("/api/status", ws.handleConnectionStatus)
+	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
+	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
 	http.HandleFunc("/api/metrics", ws.handleMetrics)
 	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
 	http.HandleFunc("/api/pods", ws.handlePods)
@@ -211,6 +215,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/apps/installed", ws.handleInstalledApps)
 	http.HandleFunc("/api/apps/install", ws.handleInstallApp)
 	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
+	http.HandleFunc("/api/apps/local-clusters", ws.handleLocalClusters)
 
 	// Impact analysis endpoint
 	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)
@@ -223,6 +228,8 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/pod/exec", ws.handlePodExec)
 	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
 	http.HandleFunc("/api/pod/logs", ws.handlePodLogs)
+	http.HandleFunc("/api/local/terminal", ws.handleLocalTerminalWS)
+	http.HandleFunc("/terminal", ws.handleLocalTerminalPage)
 	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
 	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
 	http.HandleFunc("/api/deployment/details", ws.handleDeploymentDetails)
@@ -446,6 +453,82 @@ func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Reque
 		"connected": connected,
 		"error":     errorMsg,
 		"cluster":   ws.app.cluster,
+		"version":   GetVersion(),
+	})
+}
+
+// handleCheckUpdates checks for available updates
+func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	updateInfo, err := CheckForUpdates()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"currentVersion":  GetVersion(),
+			"updateAvailable": false,
+			"error":           err.Error(),
+		})
+		return
+	}
+	
+	json.NewEncoder(w).Encode(updateInfo)
+}
+
+// handleInstallUpdate downloads and installs the latest version
+func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		DownloadURL string `json:"downloadUrl"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+		return
+	}
+	
+	if req.DownloadURL == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Download URL is required",
+		})
+		return
+	}
+	
+	// Perform update in background
+	go func() {
+		if err := PerformUpdate(req.DownloadURL); err != nil {
+			fmt.Printf("❌ Update failed: %v\n", err)
+			return
+		}
+		
+		fmt.Printf("✓ Update installed successfully. Restarting...\n")
+		
+		// Give the HTTP response time to be sent
+		time.Sleep(1 * time.Second)
+		
+		// Restart the application
+		if err := RestartApplication(); err != nil {
+			fmt.Printf("❌ Failed to restart: %v\n", err)
+		}
+	}()
+	
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Update started. The application will restart automatically when complete.",
 	})
 }
 
@@ -2599,6 +2682,340 @@ func (ws *WebServer) handlePodTerminalWS(w http.ResponseWriter, r *http.Request)
 	}
 
 	stdinWriter.Close()
+}
+
+// handleLocalTerminalPage serves the local terminal HTML page (similar to pod terminal)
+func (ws *WebServer) handleLocalTerminalPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	terminalHTML := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #161b22;
+            padding: 12px 16px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1 {
+            color: #58a6ff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .header .status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .header .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%%;
+            background: #f85149;
+        }
+        .header .status-dot.connected {
+            background: #3fb950;
+        }
+        #terminal {
+            flex: 1;
+            padding: 8px;
+        }
+        .xterm { height: 100%%; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2">
+            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <h1>Local Terminal</h1>
+        <div class="status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </div>
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    <script>
+        const term = new Terminal({
+            theme: {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+                cursor: '#58a6ff',
+                cursorAccent: '#0d1117',
+                selection: 'rgba(88, 166, 255, 0.3)',
+                black: '#484f58',
+                red: '#ff7b72',
+                green: '#3fb950',
+                yellow: '#d29922',
+                blue: '#58a6ff',
+                magenta: '#bc8cff',
+                cyan: '#39c5cf',
+                white: '#b1bac4',
+            },
+            fontFamily: '"SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace',
+            fontSize: 13,
+            cursorBlink: true,
+            cursorStyle: 'bar',
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        // Connect via WebSocket
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(wsProtocol + '//' + location.host + '/api/local/terminal');
+
+        ws.onopen = () => {
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Connected';
+            term.write('\r\n\x1b[32mConnected to local terminal\x1b[0m\r\n\r\n');
+
+            // Send initial resize
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        };
+
+        ws.onmessage = (event) => {
+            term.write(event.data);
+        };
+
+        ws.onclose = () => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Disconnected';
+            term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+        };
+
+        ws.onerror = (error) => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Error';
+            term.write('\r\n\x1b[31mConnection error\x1b[0m\r\n');
+        };
+
+        // Send input to server
+        term.onData((data) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: data }));
+            }
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+        });
+    </script>
+</body>
+</html>`)
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(terminalHTML))
+}
+
+// handleLocalTerminalWS handles WebSocket connections for local system terminal
+func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Request) {
+	// Upgrade to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Determine shell to use - prefer zsh on macOS, then bash, then sh
+	shell := "/bin/zsh"
+	shellArgs := []string{"-i"} // Interactive mode
+	
+	// Check if zsh exists, if not try bash
+	if _, err := exec.LookPath("zsh"); err != nil {
+		if _, err := exec.LookPath("bash"); err == nil {
+			shell = "/bin/bash"
+			shellArgs = []string{"-i"}
+		} else {
+			shell = "/bin/sh"
+			shellArgs = []string{} // sh doesn't support -i the same way
+		}
+	}
+
+	// Create local shell command
+	cmd := exec.Command(shell, shellArgs...)
+	cmd.Env = append(os.Environ(), 
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+	)
+	cmd.Dir = os.Getenv("HOME") // Start in home directory
+
+	// Create PTY (pseudo-terminal) - this is crucial for interactive shells
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to start PTY: %v\r\n", err)))
+		return
+	}
+	defer func() {
+		ptmx.Close()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		cmd.Wait()
+	}()
+
+	// Set initial terminal size
+	pty.Setsize(ptmx, &pty.Winsize{
+		Rows: 24,
+		Cols: 80,
+	})
+
+	// Use a channel to signal when the connection should close
+	done := make(chan bool, 1)
+
+	// Read from PTY and send to WebSocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			// Check if we should stop
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			n, err := ptmx.Read(buf)
+			if err != nil {
+				if err == io.EOF {
+					// EOF doesn't necessarily mean the shell exited
+					// Check if the process is still running
+					if cmd.Process != nil {
+						// Process might still be alive, wait a bit and check
+						time.Sleep(100 * time.Millisecond)
+						// Try to read again - if process is dead, cmd.Wait() will handle it
+						continue
+					}
+					// Process is nil, shell definitely exited
+					return
+				}
+				// Non-EOF error - log it but don't necessarily close
+				select {
+				case <-done:
+					return
+				default:
+					// Try to write error, but don't block if connection is closed
+					conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31m[PTY read error: %v]\x1b[0m\r\n", err)))
+					// For non-EOF errors, we should probably close
+					return
+				}
+			}
+			if n > 0 {
+				if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+					// Connection closed by client
+					done <- true
+					return
+				}
+			}
+		}
+	}()
+
+	// Wait for command to finish in a goroutine
+	go func() {
+		err := cmd.Wait()
+		select {
+		case <-done:
+			return
+		default:
+			if err != nil {
+				conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[33m[Shell exited: %v]\x1b[0m\r\n", err)))
+			} else {
+				conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m[Shell exited]\x1b[0m\r\n"))
+			}
+			done <- true
+			conn.Close()
+		}
+	}()
+
+	// Read from WebSocket and write to PTY
+	for {
+		select {
+		case <-done:
+			// Connection is closing
+			return
+		default:
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("WebSocket read error: %v", err)
+				done <- true
+				break
+			}
+
+			// Parse message
+			var msg struct {
+				Type string `json:"type"`
+				Data string `json:"data"`
+				Cols uint16 `json:"cols"`
+				Rows uint16 `json:"rows"`
+			}
+			if err := json.Unmarshal(message, &msg); err != nil {
+				// Treat as raw input - write directly to PTY
+				if _, err := ptmx.Write(message); err != nil {
+					log.Printf("Error writing to PTY: %v (process may have exited)", err)
+					// Don't close immediately - let cmd.Wait() handle it
+					// Just break the read loop
+					break
+				}
+				continue
+			}
+
+			switch msg.Type {
+			case "input":
+				// Write input data to PTY
+				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
+					log.Printf("Error writing to PTY: %v (process may have exited)", err)
+					// Don't close immediately - let cmd.Wait() handle it
+					// Just break the read loop
+					break
+				}
+			case "resize":
+				// Resize PTY terminal
+				if err := pty.Setsize(ptmx, &pty.Winsize{
+					Rows: uint16(msg.Rows),
+					Cols: uint16(msg.Cols),
+				}); err != nil {
+					log.Printf("Error resizing PTY: %v", err)
+				}
+			}
+		}
+	}
 }
 
 // TerminalSize implements remotecommand.TerminalSizeQueue
