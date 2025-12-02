@@ -315,9 +315,12 @@ const Sidebar: Component = () => {
       <nav class="p-1.5 overflow-y-auto" style={{ height: sidebarCollapsed() ? 'calc(100% - 3.5rem - 4rem)' : 'calc(100% - 3.5rem - 4rem - 3rem)' }}>
         <For each={filteredSections()}>
           {(section, index) => {
+            // Debug: Log ALL sections being rendered
+            console.log(`[Sidebar] Rendering section: ${section.title} with ${section.items.length} items:`, section.items.map(i => i.label));
             // Debug: Log sections being rendered
             if (section.title === 'Integrations') {
-              console.log('[Sidebar] Rendering Integrations section with items:', section.items.map(i => i.label));
+              console.log('[Sidebar] ✅ INTEGRATIONS SECTION FOUND with items:', section.items.map(i => i.label));
+              console.log('[Sidebar] Full section object:', JSON.stringify(section, null, 2));
             }
             return (
               <CollapsibleSection
