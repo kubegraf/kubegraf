@@ -164,7 +164,7 @@ func (ws *WebServer) handleEventStats(w http.ResponseWriter, r *http.Request) {
 
 	// Get all events (no filter)
 	events := ws.app.eventMonitor.GetEvents(FilterOptions{})
-	logErrors := ws.app.eventMonitor.GetLogErrors(FilterOptions{})
+	logErrors := ws.app.eventMonitor.GetLogErrorsSimple()
 
 	// Calculate statistics
 	bySeverity := make(map[string]int)

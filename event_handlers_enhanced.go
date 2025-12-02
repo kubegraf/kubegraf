@@ -49,7 +49,7 @@ func (ws *WebServer) handleClusteredEvents(w http.ResponseWriter, r *http.Reques
 
 	// Get all events and log errors
 	events := ws.app.eventMonitor.GetEvents(FilterOptions{})
-	logErrors := ws.app.eventMonitor.GetLogErrors(FilterOptions{})
+	logErrors := ws.app.eventMonitor.GetLogErrorsSimple()
 
 	// Cluster events with correlations
 	clusters := ws.app.eventMonitor.correlator.ClusterEvents(events, logErrors, windowSize)
@@ -78,7 +78,7 @@ func (ws *WebServer) handleHTTPErrorsGrouped(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get all log errors
-	logErrors := ws.app.eventMonitor.GetLogErrors(FilterOptions{})
+	logErrors := ws.app.eventMonitor.GetLogErrorsSimple()
 
 	// Group by status code
 	byStatusCode := make(map[int][]LogError)
