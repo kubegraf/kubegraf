@@ -1425,3 +1425,83 @@ func (mcp *MCPServer) handlePredictCapacity(ctx context.Context, args json.RawMe
 	}, nil
 }
 
+			totalMemory += memPred
+		}
+	}
+
+	if len(deployments.Items) > 0 {
+		avgCPU := totalCPU / float64(len(deployments.Items))
+		avgMemory := totalMemory / float64(len(deployments.Items))
+
+		result += fmt.Sprintf("\n📊 Cluster Average:\n")
+		result += fmt.Sprintf("   Average CPU: %.1f%%\n", avgCPU)
+		result += fmt.Sprintf("   Average Memory: %.1f%%\n", avgMemory)
+
+		if avgCPU > 80 || avgMemory > 80 {
+			result += "\n⚠️  High predicted cluster usage - consider adding nodes\n"
+		} else {
+			result += "\n✅ Predicted usage is within safe limits\n"
+		}
+	}
+
+	return &MCPToolResult{
+		Content: []MCPContent{{Type: "text", Text: result}},
+	}, nil
+}
+
+// Helper functions
+
+func (mcp *MCPServer) sendResponse(w http.ResponseWriter, msg *MCPMessage, result interface{}) {
+	response := MCPMessage{
+		JSONRPC: "2.0",
+		ID:      msg.ID,
+		Result:  result,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (mcp *MCPServer) sendError(w http.ResponseWriter, msg *MCPMessage, code int, message string, data interface{}) {
+	response := MCPMessage{
+		JSONRPC: "2.0",
+		ID:      msg.ID,
+		Error: &MCPError{
+			Code:    code,
+			Message: message,
+			Data:    data,
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// getPodLogs retrieves pod logs using the Kubernetes clientset
+func (mcp *MCPServer) getPodLogs(ctx context.Context, namespace, pod, container string, tail int) (string, error) {
+	if mcp.app.clientset == nil {
+		return "", fmt.Errorf("not connected to cluster")
+	}
+
+	tailLines := int64(tail)
+	opts := &v1.PodLogOptions{
+		TailLines: &tailLines,
+	}
+	if container != "" {
+		opts.Container = container
+	}
+
+	req := mcp.app.clientset.CoreV1().Pods(namespace).GetLogs(pod, opts)
+	podLogs, err := req.Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get logs: %v", err)
+	}
+	defer podLogs.Close()
+
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, podLogs)
+	if err != nil {
+		return "", fmt.Errorf("failed to read logs: %v", err)
+	}
+
+	return buf.String(), nil
+}
+
