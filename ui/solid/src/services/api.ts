@@ -4,20 +4,36 @@ const API_BASE = '/api';
 
 // Generic fetch wrapper with error handling
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    ...options,
-  });
+  // Add timeout for long-running requests (like ML recommendations)
+  const timeout = 15000; // 15 seconds
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || `API error: ${response.status}`);
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+      signal: controller.signal,
+      ...options,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(error || `API error: ${response.status}`);
+    }
+
+    return response.json();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. The server may be processing a large amount of data.');
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 // Delete operation wrapper that checks success field in response
@@ -464,7 +480,7 @@ export const api = {
     }),
   // ============ ML Recommendations ============
   getMLRecommendations: () =>
-    fetchAPI<{ recommendations: any[]; total: number }>('/ml/recommendations'),
+    fetchAPI<{ recommendations: any[]; total: number; error?: string; message?: string }>('/ml/recommendations'),
   predictResourceNeeds: (namespace: string, deployment: string, hoursAhead?: number) => {
     const params = new URLSearchParams({ namespace, deployment });
     if (hoursAhead) params.append('hours', hoursAhead.toString());

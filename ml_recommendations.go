@@ -63,10 +63,10 @@ func NewMLRecommender(app *App) *MLRecommender {
 func (mlr *MLRecommender) UpdateMetricsHistory(samples []MetricSample) {
 	mlr.mu.Lock()
 	defer mlr.mu.Unlock()
-	
+
 	// Append new samples
 	mlr.metricsHistory = append(mlr.metricsHistory, samples...)
-	
+
 	// Keep only last 10000 samples (same as anomaly detector)
 	maxHistory := 10000
 	if len(mlr.metricsHistory) > maxHistory {

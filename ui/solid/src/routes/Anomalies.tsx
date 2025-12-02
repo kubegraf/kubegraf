@@ -104,12 +104,17 @@ const Anomalies: Component = () => {
   const [recommendations] = createResource(
     () => activeTab() === 'recommendations',
     async (shouldFetch) => {
-      if (!shouldFetch) return { recommendations: [], total: 0 };
+      if (!shouldFetch) return { recommendations: [], total: 0, error: undefined };
       try {
-        return await api.getMLRecommendations();
-      } catch (err) {
+        const data = await api.getMLRecommendations();
+        return { ...data, error: undefined };
+      } catch (err: any) {
         console.error('[Anomalies] Failed to fetch recommendations:', err);
-        return { recommendations: [], total: 0 };
+        return { 
+          recommendations: [], 
+          total: 0, 
+          error: err?.message || 'Failed to load ML recommendations. This may take a few moments if there is no historical data.' 
+        };
       }
     }
   );
@@ -357,7 +362,18 @@ const Anomalies: Component = () => {
           </div>
         </Show>
 
-        <Show when={!recommendations.loading && (!recommendations() || recommendations()!.recommendations.length === 0)}>
+        <Show when={!recommendations.loading && recommendations.error}>
+          <div class="card p-4 bg-red-500/10 border-l-4 border-red-500">
+            <p style={{ color: 'var(--error-color)' }}>
+              Error: {recommendations.error}
+            </p>
+            <p class="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
+              Tip: Run anomaly detection first to collect metrics, then try again.
+            </p>
+          </div>
+        </Show>
+
+        <Show when={!recommendations.loading && !recommendations.error && (!recommendations() || recommendations()!.recommendations.length === 0)}>
           <div class="card p-8 text-center" style={{ color: 'var(--text-muted)' }}>
             <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />

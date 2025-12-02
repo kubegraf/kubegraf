@@ -891,8 +891,8 @@ func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Add timeout to prevent hanging
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// Add timeout to prevent hanging (reduced to 10s to match GenerateRecommendations)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	recommendations, err := ws.app.mlRecommender.GenerateRecommendations(ctx)
