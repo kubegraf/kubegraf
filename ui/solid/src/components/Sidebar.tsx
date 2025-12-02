@@ -314,12 +314,18 @@ const Sidebar: Component = () => {
       {/* Navigation */}
       <nav class="p-1.5 overflow-y-auto" style={{ height: sidebarCollapsed() ? 'calc(100% - 3.5rem - 4rem)' : 'calc(100% - 3.5rem - 4rem - 3rem)' }}>
         <For each={filteredSections()}>
-          {(section, index) => (
-            <CollapsibleSection
-              section={section}
-              defaultExpanded={index() < 3 || section.title === 'Integrations'}
-            />
-          )}
+          {(section, index) => {
+            // Debug: Log sections being rendered
+            if (section.title === 'Integrations') {
+              console.log('[Sidebar] Rendering Integrations section with items:', section.items.map(i => i.label));
+            }
+            return (
+              <CollapsibleSection
+                section={section}
+                defaultExpanded={index() < 3 || section.title === 'Integrations'}
+              />
+            );
+          }}
         </For>
         <Show when={searchQuery() && filteredSections().length === 0}>
           <div class="px-2.5 py-8 text-center">
