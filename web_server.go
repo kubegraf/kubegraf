@@ -155,8 +155,9 @@ type WebServer struct {
 	eventsMu     sync.RWMutex
 	stopCh       chan struct{}
 	// Cost cache - caches results for 5 minutes to avoid slow API calls
-	costCache     *ClusterCost
-	costCacheTime time.Time
+	// Keyed by cluster context to prevent cross-cluster cache hits
+	costCache     map[string]*ClusterCost // key: context name, value: cached cost
+	costCacheTime map[string]time.Time    // key: context name, value: cache time
 	costCacheMu   sync.RWMutex
 	// Event monitor integration
 	eventMonitorStarted bool
@@ -170,6 +171,8 @@ func NewWebServer(app *App) *WebServer {
 		portForwards: make(map[string]*PortForwardSession),
 		events:       make([]WebEvent, 0, 500),
 		stopCh:       make(chan struct{}),
+		costCache:    make(map[string]*ClusterCost),
+		costCacheTime: make(map[string]time.Time),
 	}
 }
 
