@@ -58,3 +58,16 @@ Pods/
 *.p12
 *.cer
 *.certSigningRequest
+
+# Electron/Desktop
+ui/solid/release/
+ui/solid/electron/main.js
+ui/solid/electron/preload.js
+ui/solid/electron/entitlements.mac.plist
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+*.snap
