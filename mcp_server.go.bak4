@@ -1427,6 +1427,102 @@ func (mcp *MCPServer) handlePredictCapacity(ctx context.Context, args json.RawMe
 
 // Production-grade intelligent tool handlers
 
+func (mcp *MCPServer) handleAnalyzeClusterHealth(ctx context.Context, args json.RawMessage) (*MCPToolResult, error) {
+	var params struct {
+		Namespace string `json:"namespace,omitempty"`
+	}
+
+	json.Unmarshal(args, &params)
+
+	if mcp.app.clientset == nil || !mcp.app.connected {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	namespace := params.Namespace
+	if namespace == "" {
+		namespace = "_all"
+	}
+
+	// Run comprehensive health analysis
+	result := "🔍 Cluster Health Analysis\n\n"
+
+	// 1. Check nodes
+	nodes, err := mcp.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err == nil {
+		readyNodes := 0
+		for _, node := range nodes.Items {
+			for _, condition := range node.Status.Conditions {
+				if condition.Type == "Ready" && condition.Status == "True" {
+					readyNodes++
+					break
+				}
+			}
+		}
+		result += fmt.Sprintf("📊 Nodes: %d/%d ready\n", readyNodes, len(nodes.Items))
+		if readyNodes < len(nodes.Items) {
+			result += "⚠️  Some nodes are not ready\n"
+		}
+	}
+
+	// 2. Check pods
+	pods, err := mcp.app.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		runningPods := 0
+		failedPods := 0
+		for _, pod := range pods.Items {
+			if pod.Status.Phase == "Running" {
+				runningPods++
+			} else if pod.Status.Phase == "Failed" {
+				failedPods++
+			}
+		}
+		result += fmt.Sprintf("📦 Pods: %d running, %d failed (total: %d)\n", runningPods, failedPods, len(pods.Items))
+		if failedPods > 0 {
+			result += fmt.Sprintf("⚠️  %d pods are in Failed state\n", failedPods)
+		}
+	}
+
+	// 3. Run anomaly detection
+	if mcp.app.anomalyDetector != nil {
+		anomalies, err := mcp.app.anomalyDetector.DetectAnomalies(ctx)
+		if err == nil && len(anomalies) > 0 {
+			result += fmt.Sprintf("\n🚨 Anomalies Detected: %d\n", len(anomalies))
+			critical := 0
+			for _, a := range anomalies {
+				if a.Severity == "critical" {
+					critical++
+				}
+			}
+			if critical > 0 {
+				result += fmt.Sprintf("   ⚠️  %d critical anomalies found\n", critical)
+			}
+		}
+	}
+
+	// 4. Get ML recommendations
+	if mcp.app.mlRecommender != nil {
+		recommendations, err := mcp.app.mlRecommender.GenerateRecommendations(ctx)
+		if err == nil && len(recommendations) > 0 {
+			result += fmt.Sprintf("\n💡 ML Recommendations: %d available\n", len(recommendations))
+			highImpact := 0
+			for _, r := range recommendations {
+				if r.Impact == "high" {
+					highImpact++
+				}
+			}
+			if highImpact > 0 {
+				result += fmt.Sprintf("   ⭐ %d high-impact recommendations\n", highImpact)
+			}
+		}
+	}
+
+	result += "\n✅ Analysis complete. Review anomalies and recommendations for actionable insights."
+
+	return &MCPToolResult{
+		Content: []MCPContent{{Type: "text", Text: result}},
+	}, nil
+}
+
 func (mcp *MCPServer) handleSmartScale(ctx context.Context, args json.RawMessage) (*MCPToolResult, error) {
 	var params struct {
 		Deployment    string `json:"deployment"`
