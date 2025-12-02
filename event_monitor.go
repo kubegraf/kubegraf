@@ -665,6 +665,28 @@ func (em *EventMonitor) GetLogErrors(filter FilterOptions) []LogError {
 	return errors
 }
 
+// GetMonitoredEvents returns all monitored events without filtering (for MCP compatibility)
+func (em *EventMonitor) GetMonitoredEvents() []MonitoredEvent {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	events := make([]MonitoredEvent, len(em.monitoredEvents))
+	copy(events, em.monitoredEvents)
+	return events
+}
+
+// GetLogErrorsSimple returns all log errors without filtering (for MCP compatibility)
+func (em *EventMonitor) GetLogErrorsSimple() []LogError {
+	em.logErrorsMu.RLock()
+	defer em.logErrorsMu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	errors := make([]LogError, len(em.logErrors))
+	copy(errors, em.logErrors)
+	return errors
+}
+
 // FilterOptions for filtering events
 type FilterOptions struct {
 	Type        string    `json:"type"`        // "infrastructure", "application", "security"
