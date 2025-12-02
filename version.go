@@ -15,7 +15,7 @@
 package main
 
 // Version is the current version of KubeGraf
-const Version = "1.0.0"
+const Version = "1.0.1"
 
 // GetVersion returns the current version
 func GetVersion() string {
