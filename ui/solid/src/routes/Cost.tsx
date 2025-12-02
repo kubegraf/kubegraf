@@ -1,5 +1,6 @@
 import { Component, For, Show, createResource, createSignal } from 'solid-js';
 import { api } from '../services/api';
+import { currentContext, refreshTrigger } from '../stores/cluster';
 
 interface NamespaceCost {
   namespace: string;
@@ -35,19 +36,54 @@ const Cost: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'overview' | 'namespaces' | 'idle'>('overview');
   const [selectedNamespace, setSelectedNamespace] = createSignal<string | null>(null);
 
-  const [clusterCost, { refetch }] = createResource(async () => {
-    try {
-      const result = await api.getClusterCost();
-      console.log('Cost API response:', result);
-      return result;
-    } catch (e) {
-      console.error('Cost API error:', e);
-      return null;
+  // Refresh cost data when cluster changes
+  const [clusterCost, { refetch: refetchCost }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => {
+      try {
+        const result = await api.getClusterCost();
+        console.log('Cost API response:', result);
+        return result;
+      } catch (e) {
+        console.error('Cost API error:', e);
+        return null;
+      }
     }
-  });
-  const [clusterStatus] = createResource(api.getStatus);
-  const [idleResources] = createResource(() => api.getIdleResources());
-  const [namespaces] = createResource(api.getNamespaces);
+  );
+  
+  // Refresh status when cluster changes
+  const [clusterStatus, { refetch: refetchStatus }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getStatus()
+  );
+  
+  // Refresh idle resources when cluster changes
+  const [idleResources, { refetch: refetchIdle }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getIdleResources()
+  );
+  
+  // Refresh namespaces when cluster changes
+  const [namespaces, { refetch: refetchNamespaces }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getNamespaces()
+  );
 
   const formatCurrency = (value: number | undefined) => {
     if (value === undefined || value === null) return '--';

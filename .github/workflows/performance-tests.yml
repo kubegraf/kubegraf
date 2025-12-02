@@ -151,13 +151,20 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
-      - name: Cleanup
+      - name: Cleanup server
         if: always()
         run: |
           if [ -f server.pid ]; then
             kill $(cat server.pid) 2>/dev/null || true
           fi
           pkill -f kubegraf || true
+
+      - name: Delete kind cluster
+        if: always() && steps.kind-setup.outcome == 'success'
+        run: |
+          echo "🧹 Cleaning up kind cluster..."
+          kind delete cluster --name kubegraf-perf-test || true
+          echo "✅ Cluster cleanup complete"
 
   memory-profile:
     name: Memory Profiling
