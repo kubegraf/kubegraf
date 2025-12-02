@@ -1163,9 +1163,8 @@ func (mcp *MCPServer) handleCorrelateEvents(ctx context.Context, args json.RawMe
 
 	// Use event monitor if available
 	if mcp.app.eventMonitor != nil {
-		filter := FilterOptions{}
-		events := mcp.app.eventMonitor.GetEvents(filter)
-		logErrors := mcp.app.eventMonitor.GetLogErrors(filter)
+		events := mcp.app.eventMonitor.GetMonitoredEvents()
+		logErrors := mcp.app.eventMonitor.GetLogErrorsSimple()
 
 		// Filter by namespace if specified
 		if params.Namespace != "" {
