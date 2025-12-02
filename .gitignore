@@ -33,3 +33,12 @@ Thumbs.db
 # Node.js
 node_modules/
 dist/
+
+# Android
+ui/solid/android/
+*.keystore
+*.jks
+key.properties
+local.properties
+*.apk
+*.aab
