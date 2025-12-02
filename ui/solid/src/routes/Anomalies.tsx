@@ -364,7 +364,8 @@ const Anomalies: Component = () => {
             </svg>
             <p class="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>No ML Recommendations Yet</p>
             <p class="text-sm">Recommendations will appear as the system learns from your cluster metrics.</p>
-            <p class="text-sm mt-2">The ML model needs historical data to generate optimization suggestions.</p>
+            <p class="text-sm mt-2">The ML model needs historical data (at least 20-50 metric samples) to generate optimization suggestions.</p>
+            <p class="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Metrics are collected automatically when you use the anomaly detection feature.</p>
           </div>
         </Show>
 
