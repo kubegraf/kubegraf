@@ -129,7 +129,15 @@ func (ws *WebServer) handleLogErrors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get log errors
-	errors := ws.app.eventMonitor.GetLogErrors(filter)
+	errors := ws.app.eventMonitor.GetLogErrorsSimple()
+	// Apply filter manually
+	filteredErrors := []LogError{}
+	for _, err := range errors {
+		if filter.MatchesLogError(err) {
+			filteredErrors = append(filteredErrors, err)
+		}
+	}
+	errors = filteredErrors
 
 	// Apply limit if specified
 	if filter.Limit > 0 && len(errors) > filter.Limit {
