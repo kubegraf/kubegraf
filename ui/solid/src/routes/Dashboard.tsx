@@ -158,7 +158,16 @@ const Dashboard: Component = () => {
       const refresh = refreshTrigger();
       return { context: ctx, refresh };
     },
-    async () => api.getNodes()
+    async () => {
+      try {
+        const nodeData = await api.getNodes();
+        console.log('[Dashboard] Fetched nodes:', nodeData?.length || 0, nodeData);
+        return nodeData;
+      } catch (err) {
+        console.error('[Dashboard] Failed to fetch nodes:', err);
+        return [];
+      }
+    }
   );
   
   const [events, { refetch: refetchEvents }] = createResource(
@@ -199,12 +208,19 @@ const Dashboard: Component = () => {
   };
   const healthyNodes = () => {
     const nodeList = nodes();
-    if (!nodeList || !Array.isArray(nodeList)) return 0;
+    if (!nodeList || !Array.isArray(nodeList)) {
+      console.log('[Dashboard] healthyNodes: nodeList is not an array:', nodeList, 'loading:', nodes.loading, 'error:', nodes.error);
+      return 0;
+    }
     return nodeList.filter((n: any) => n.status === 'Ready').length;
   };
   const totalNodes = () => {
     const nodeList = nodes();
-    return Array.isArray(nodeList) ? nodeList.length : 0;
+    if (!Array.isArray(nodeList)) {
+      console.log('[Dashboard] totalNodes: nodeList is not an array:', nodeList, 'loading:', nodes.loading, 'error:', nodes.error);
+      return 0;
+    }
+    return nodeList.length;
   };
   const recentEvents = () => {
     const eventList = events();
@@ -494,9 +510,17 @@ const Dashboard: Component = () => {
         />
         <MetricCard
           label="Nodes"
-          value={`${healthyNodes()}/${totalNodes()}`}
-          subtext={healthyNodes() === totalNodes() ? 'All healthy' : 'Some unhealthy'}
-          color={healthyNodes() === totalNodes() ? '#22c55e' : '#f59e0b'}
+          value={nodes.loading ? '...' : `${healthyNodes()}/${totalNodes()}`}
+          subtext={
+            nodes.loading 
+              ? 'Loading...' 
+              : (healthyNodes() === totalNodes() && totalNodes() > 0 ? 'All healthy' : totalNodes() === 0 ? 'No nodes' : 'Some unhealthy')
+          }
+          color={
+            nodes.loading 
+              ? '#6b7280' 
+              : (healthyNodes() === totalNodes() && totalNodes() > 0 ? '#22c55e' : '#f59e0b')
+          }
           icon={NodeIcon}
           onClick={() => setCurrentView('nodes')}
         />
@@ -535,7 +559,9 @@ const Dashboard: Component = () => {
             style={{ background: 'var(--bg-tertiary)' }}
             onClick={() => setCurrentView('nodes')}
           >
-            <div class="text-3xl font-bold" style={{ color: '#22c55e' }}>{totalNodes()}</div>
+            <div class="text-3xl font-bold" style={{ color: '#22c55e' }}>
+              {nodes.loading ? '...' : totalNodes()}
+            </div>
             <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Nodes</div>
           </div>
           <div
