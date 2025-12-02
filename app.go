@@ -216,6 +216,11 @@ func (a *App) Initialize() error {
 	// Initialize ML recommender
 	a.mlRecommender = NewMLRecommender(a)
 
+	// Initialize event monitor
+	a.eventMonitor = NewEventMonitor(a)
+	// Start monitoring (will wait for cluster connection)
+	a.eventMonitor.Start(a.ctx)
+
 	// Setup UI
 	a.setupUI()
 

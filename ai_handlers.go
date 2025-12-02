@@ -681,6 +681,7 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 
 	// ML Recommendations
 	http.HandleFunc("/api/ml/recommendations", ws.handleMLRecommendations)
+	http.HandleFunc("/api/ml/recommendations/apply", ws.handleApplyRecommendation)
 	http.HandleFunc("/api/ml/predict", ws.handleMLPredict)
 
 	// Storage
@@ -891,14 +892,16 @@ func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Add timeout to prevent hanging (reduced to 10s to match GenerateRecommendations)
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	// Add timeout to prevent hanging (reduced to 8s to match GenerateRecommendations)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+
+	// Set response headers early to ensure response is sent
+	w.Header().Set("Content-Type", "application/json")
 
 	recommendations, err := ws.app.mlRecommender.GenerateRecommendations(ctx)
 	if err != nil {
 		// Don't return error, just return empty recommendations
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"recommendations": []MLRecommendation{},
 			"total":           0,
@@ -907,7 +910,6 @@ func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"recommendations": recommendations,
 		"total":           len(recommendations),

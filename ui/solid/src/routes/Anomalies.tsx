@@ -1,5 +1,6 @@
 import { Component, For, Show, createSignal, createResource, createMemo, onMount } from 'solid-js';
 import { api, Anomaly, AnomalyStats } from '../services/api';
+import { setCurrentView, setSelectedResource } from '../stores/ui';
 
 const Anomalies: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'anomalies' | 'recommendations'>('anomalies');
@@ -65,6 +66,53 @@ const Anomalies: Component = () => {
       alert(`Failed to remediate: ${err.message}`);
     } finally {
       setRemediating(null);
+    }
+  };
+
+  const handleRemediateRecommendation = async (rec: any) => {
+    if (!rec.autoApply) {
+      alert('Auto-remediation is not available for this recommendation.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to apply this recommendation?\n\n${rec.title}\n\n${rec.description}\n\nRecommended: ${rec.recommendedValue}`)) {
+      return;
+    }
+
+    try {
+      const result = await api.applyRecommendation(rec.id);
+      if (result?.success) {
+        alert('Recommendation applied successfully!');
+        recommendations.refetch();
+      } else {
+        alert(result?.error || 'Failed to apply recommendation.');
+      }
+    } catch (err: any) {
+      alert(`Failed to apply: ${err.message}`);
+    }
+  };
+
+  const navigateToResource = (rec: any) => {
+    // Parse resource type and name from "Deployment/name" or "Pod/name"
+    const [resourceType, resourceName] = rec.resource.split('/');
+    const namespace = rec.namespace;
+    
+    // Set the selected resource
+    setSelectedResource({
+      kind: resourceType,
+      name: resourceName,
+      namespace: namespace
+    });
+    
+    // Navigate to appropriate view
+    if (resourceType === 'Deployment') {
+      setCurrentView('deployments');
+    } else if (resourceType === 'Pod') {
+      setCurrentView('pods');
+    } else if (resourceType === 'StatefulSet') {
+      setCurrentView('statefulsets');
+    } else if (resourceType === 'DaemonSet') {
+      setCurrentView('daemonsets');
     }
   };
 
@@ -358,7 +406,10 @@ const Anomalies: Component = () => {
         <Show when={recommendations.loading}>
           <div class="card p-8 text-center">
             <div class="spinner mx-auto mb-2" />
-            <span style={{ color: 'var(--text-muted)' }}>Loading ML recommendations...</span>
+            <div class="flex flex-col items-center gap-2">
+              <span style={{ color: 'var(--text-muted)' }}>Loading ML recommendations...</span>
+              <p class="text-sm" style={{ color: 'var(--text-muted)' }}>This may take a few seconds</p>
+            </div>
           </div>
         </Show>
 
@@ -458,6 +509,24 @@ const Anomalies: Component = () => {
                       <div class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
                         Generated: {new Date(rec.timestamp).toLocaleString()}
                       </div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <button
+                        onClick={() => navigateToResource(rec)}
+                        class="px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                        style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                      >
+                        View Resource
+                      </button>
+                      <Show when={rec.autoApply}>
+                        <button
+                          onClick={() => handleRemediateRecommendation(rec)}
+                          class="px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                          style={{ background: 'var(--accent-primary)', color: 'white' }}
+                        >
+                          Auto-Remediate
+                        </button>
+                      </Show>
                     </div>
                   </div>
                 </div>

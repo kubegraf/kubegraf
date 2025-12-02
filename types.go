@@ -99,6 +99,8 @@ type App struct {
 	anomalyDetector *AnomalyDetector
 	// ML Recommendations
 	mlRecommender *MLRecommender
+	// Event monitoring
+	eventMonitor *EventMonitor
 }
 
 // TableData holds the current table information
