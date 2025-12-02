@@ -188,11 +188,28 @@ const Dashboard: Component = () => {
   );
 
   // Calculate stats
-  const runningPods = () => (pods() || []).filter((p: any) => p.status === 'Running').length;
-  const totalPods = () => (pods() || []).length;
-  const healthyNodes = () => (nodes() || []).filter((n: any) => n.status === 'Ready').length;
-  const totalNodes = () => (nodes() || []).length;
-  const recentEvents = () => (events() || []).slice(0, 10);
+  const runningPods = () => {
+    const podList = pods();
+    if (!podList || !Array.isArray(podList)) return 0;
+    return podList.filter((p: any) => p.status === 'Running').length;
+  };
+  const totalPods = () => {
+    const podList = pods();
+    return Array.isArray(podList) ? podList.length : 0;
+  };
+  const healthyNodes = () => {
+    const nodeList = nodes();
+    if (!nodeList || !Array.isArray(nodeList)) return 0;
+    return nodeList.filter((n: any) => n.status === 'Ready').length;
+  };
+  const totalNodes = () => {
+    const nodeList = nodes();
+    return Array.isArray(nodeList) ? nodeList.length : 0;
+  };
+  const recentEvents = () => {
+    const eventList = events();
+    return Array.isArray(eventList) ? eventList.slice(0, 10) : [];
+  };
 
   // Real security analysis based on pod data
   const securityChecks = createMemo((): SecurityCheck[] => {
