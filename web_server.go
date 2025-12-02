@@ -324,6 +324,9 @@ func (ws *WebServer) Start(port int) error {
 	// Event monitoring
 	ws.RegisterEventHandlers()
 
+	// Connectors
+	ws.RegisterConnectorHandlers()
+
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 

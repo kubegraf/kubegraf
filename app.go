@@ -218,6 +218,9 @@ func (a *App) Initialize() error {
 
 	// Initialize event monitor
 	a.eventMonitor = NewEventMonitor(a)
+
+	// Initialize connector manager
+	a.connectorManager = NewConnectorManager(a)
 	// Start monitoring (will wait for cluster connection)
 	a.eventMonitor.Start(a.ctx)
 
