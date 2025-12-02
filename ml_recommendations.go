@@ -27,21 +27,21 @@ import (
 
 // MLRecommendation represents an ML-powered recommendation
 type MLRecommendation struct {
-	ID            string    `json:"id"`
-	Timestamp     time.Time `json:"timestamp"`
-	Type          string    `json:"type"` // "scaling", "resource_optimization", "cost_saving", "performance"
-	Severity      string    `json:"severity"` // "high", "medium", "low"
-	Namespace     string    `json:"namespace"`
-	Resource      string    `json:"resource"` // "Deployment/name" or "Pod/name"
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	CurrentValue  string    `json:"currentValue"`
-	RecommendedValue string `json:"recommendedValue"`
-	Confidence    float64   `json:"confidence"` // 0-1, ML model confidence
-	Impact        string    `json:"impact"` // "high", "medium", "low"
-	Effort        string    `json:"effort"` // "low", "medium", "high"
-	EstimatedSavings string `json:"estimatedSavings,omitempty"` // For cost-saving recommendations
-	AutoApply     bool      `json:"autoApply"` // Whether recommendation can be auto-applied
+	ID               string    `json:"id"`
+	Timestamp        time.Time `json:"timestamp"`
+	Type             string    `json:"type"`     // "scaling", "resource_optimization", "cost_saving", "performance"
+	Severity         string    `json:"severity"` // "high", "medium", "low"
+	Namespace        string    `json:"namespace"`
+	Resource         string    `json:"resource"` // "Deployment/name" or "Pod/name"
+	Title            string    `json:"title"`
+	Description      string    `json:"description"`
+	CurrentValue     string    `json:"currentValue"`
+	RecommendedValue string    `json:"recommendedValue"`
+	Confidence       float64   `json:"confidence"`                 // 0-1, ML model confidence
+	Impact           string    `json:"impact"`                     // "high", "medium", "low"
+	Effort           string    `json:"effort"`                     // "low", "medium", "high"
+	EstimatedSavings string    `json:"estimatedSavings,omitempty"` // For cost-saving recommendations
+	AutoApply        bool      `json:"autoApply"`                  // Whether recommendation can be auto-applied
 }
 
 // MLRecommender provides ML-powered recommendations
@@ -94,7 +94,7 @@ func (mlr *MLRecommender) PredictResourceNeeds(ctx context.Context, namespace, d
 	// Predict future values
 	lastCPU := cpuValues[len(cpuValues)-1]
 	lastMem := memValues[len(memValues)-1]
-	
+
 	// Extrapolate based on trend
 	cpuPrediction = lastCPU + (cpuTrend * float64(hoursAhead))
 	memPred := lastMem + (memTrend * float64(hoursAhead))
@@ -146,7 +146,7 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 		fmt.Printf("Warning: Resource optimization analysis failed: %v\n", err)
 	}
 
-	// Check if context was cancelled
+	// Check if context was canceled
 	select {
 	case <-ctxWithTimeout.Done():
 		return recommendations, nil // Return what we have so far
@@ -161,7 +161,7 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 		fmt.Printf("Warning: Predictive scaling analysis failed: %v\n", err)
 	}
 
-	// Check if context was cancelled
+	// Check if context was canceled
 	select {
 	case <-ctxWithTimeout.Done():
 		return recommendations, nil
@@ -235,38 +235,38 @@ func (mlr *MLRecommender) analyzeResourceOptimization(ctx context.Context) ([]ML
 				if cpuRequest > recommendedCPU*1.5 {
 					// Over-provisioned by >50%
 					recommendations = append(recommendations, MLRecommendation{
-						ID:              fmt.Sprintf("cpu-opt-%s-%s", deployment.Namespace, deployment.Name),
-						Timestamp:       time.Now(),
-						Type:            "resource_optimization",
-						Severity:        "medium",
-						Namespace:       deployment.Namespace,
-						Resource:        fmt.Sprintf("Deployment/%s", deployment.Name),
-						Title:           "CPU Request Optimization",
-						Description:     fmt.Sprintf("Container %s has CPU request set to %dm but typically uses only %dm (P95).", container.Name, int(cpuRequest), int(p95CPU)),
-						CurrentValue:    fmt.Sprintf("%dm CPU", int(cpuRequest)),
+						ID:               fmt.Sprintf("cpu-opt-%s-%s", deployment.Namespace, deployment.Name),
+						Timestamp:        time.Now(),
+						Type:             "resource_optimization",
+						Severity:         "medium",
+						Namespace:        deployment.Namespace,
+						Resource:         fmt.Sprintf("Deployment/%s", deployment.Name),
+						Title:            "CPU Request Optimization",
+						Description:      fmt.Sprintf("Container %s has CPU request set to %dm but typically uses only %dm (P95).", container.Name, int(cpuRequest), int(p95CPU)),
+						CurrentValue:     fmt.Sprintf("%dm CPU", int(cpuRequest)),
 						RecommendedValue: fmt.Sprintf("%dm CPU", int(recommendedCPU)),
-						Confidence:      0.85,
-						Impact:          "medium",
-						Effort:          "low",
-						AutoApply:       false,
+						Confidence:       0.85,
+						Impact:           "medium",
+						Effort:           "low",
+						AutoApply:        false,
 					})
 				} else if cpuRequest < p95CPU*0.8 {
 					// Under-provisioned
 					recommendations = append(recommendations, MLRecommendation{
-						ID:              fmt.Sprintf("cpu-risk-%s-%s", deployment.Namespace, deployment.Name),
-						Timestamp:       time.Now(),
-						Type:            "resource_optimization",
-						Severity:        "high",
-						Namespace:       deployment.Namespace,
-						Resource:        fmt.Sprintf("Deployment/%s", deployment.Name),
-						Title:           "CPU Request Too Low",
-						Description:     fmt.Sprintf("Container %s may experience throttling. Current request: %dm, P95 usage: %dm.", container.Name, int(cpuRequest), int(p95CPU)),
-						CurrentValue:    fmt.Sprintf("%dm CPU", int(cpuRequest)),
+						ID:               fmt.Sprintf("cpu-risk-%s-%s", deployment.Namespace, deployment.Name),
+						Timestamp:        time.Now(),
+						Type:             "resource_optimization",
+						Severity:         "high",
+						Namespace:        deployment.Namespace,
+						Resource:         fmt.Sprintf("Deployment/%s", deployment.Name),
+						Title:            "CPU Request Too Low",
+						Description:      fmt.Sprintf("Container %s may experience throttling. Current request: %dm, P95 usage: %dm.", container.Name, int(cpuRequest), int(p95CPU)),
+						CurrentValue:     fmt.Sprintf("%dm CPU", int(cpuRequest)),
 						RecommendedValue: fmt.Sprintf("%dm CPU", int(p95CPU*1.2)),
-						Confidence:      0.90,
-						Impact:          "high",
-						Effort:          "low",
-						AutoApply:       false,
+						Confidence:       0.90,
+						Impact:           "high",
+						Effort:           "low",
+						AutoApply:        false,
 					})
 				}
 			}
@@ -276,20 +276,20 @@ func (mlr *MLRecommender) analyzeResourceOptimization(ctx context.Context) ([]ML
 				recommendedMem := math.Max(p95Mem*1.2, p99Mem*1.1)
 				if memRequest > recommendedMem*1.5 {
 					recommendations = append(recommendations, MLRecommendation{
-						ID:              fmt.Sprintf("mem-opt-%s-%s", deployment.Namespace, deployment.Name),
-						Timestamp:       time.Now(),
-						Type:            "resource_optimization",
-						Severity:        "medium",
-						Namespace:       deployment.Namespace,
-						Resource:        fmt.Sprintf("Deployment/%s", deployment.Name),
-						Title:           "Memory Request Optimization",
-						Description:     fmt.Sprintf("Container %s has memory request set to %s but typically uses only %s (P95).", container.Name, formatBytes(memRequest), formatBytes(p95Mem)),
-						CurrentValue:    formatBytes(memRequest),
+						ID:               fmt.Sprintf("mem-opt-%s-%s", deployment.Namespace, deployment.Name),
+						Timestamp:        time.Now(),
+						Type:             "resource_optimization",
+						Severity:         "medium",
+						Namespace:        deployment.Namespace,
+						Resource:         fmt.Sprintf("Deployment/%s", deployment.Name),
+						Title:            "Memory Request Optimization",
+						Description:      fmt.Sprintf("Container %s has memory request set to %s but typically uses only %s (P95).", container.Name, formatBytes(memRequest), formatBytes(p95Mem)),
+						CurrentValue:     formatBytes(memRequest),
 						RecommendedValue: formatBytes(recommendedMem),
-						Confidence:      0.85,
-						Impact:          "medium",
-						Effort:          "low",
-						AutoApply:       false,
+						Confidence:       0.85,
+						Impact:           "medium",
+						Effort:           "low",
+						AutoApply:        false,
 					})
 				}
 			}
@@ -340,20 +340,20 @@ func (mlr *MLRecommender) analyzePredictiveScaling(ctx context.Context) ([]MLRec
 		if currentCPU > 0 && cpuPred > currentCPU*1.3 {
 			// Predicted 30% increase in next hour
 			recommendations = append(recommendations, MLRecommendation{
-				ID:              fmt.Sprintf("scale-predict-%s-%s", hpa.Namespace, hpa.Name),
-				Timestamp:       time.Now(),
-				Type:            "scaling",
-				Severity:        "medium",
-				Namespace:       hpa.Namespace,
-				Resource:        fmt.Sprintf("HPA/%s", hpa.Name),
-				Title:           "Predictive Scaling Recommended",
-				Description:     fmt.Sprintf("ML model predicts 30%% increase in CPU usage in the next hour. Consider pre-scaling to avoid latency spikes."),
-				CurrentValue:    fmt.Sprintf("%d replicas", hpa.Status.CurrentReplicas),
+				ID:               fmt.Sprintf("scale-predict-%s-%s", hpa.Namespace, hpa.Name),
+				Timestamp:        time.Now(),
+				Type:             "scaling",
+				Severity:         "medium",
+				Namespace:        hpa.Namespace,
+				Resource:         fmt.Sprintf("HPA/%s", hpa.Name),
+				Title:            "Predictive Scaling Recommended",
+				Description:      fmt.Sprintf("ML model predicts 30%% increase in CPU usage in the next hour. Consider pre-scaling to avoid latency spikes."),
+				CurrentValue:     fmt.Sprintf("%d replicas", hpa.Status.CurrentReplicas),
 				RecommendedValue: fmt.Sprintf("%d replicas", hpa.Status.CurrentReplicas+1),
-				Confidence:      0.75,
-				Impact:          "medium",
-				Effort:          "low",
-				AutoApply:       true,
+				Confidence:       0.75,
+				Impact:           "medium",
+				Effort:           "low",
+				AutoApply:        true,
 			})
 		}
 	}
@@ -400,21 +400,21 @@ func (mlr *MLRecommender) analyzeCostOptimization(ctx context.Context) ([]MLReco
 		// If consistently low utilization, recommend downscaling
 		if avgCPU < 20 && avgMem < 20 {
 			recommendations = append(recommendations, MLRecommendation{
-				ID:              fmt.Sprintf("cost-%s", key),
-				Timestamp:       time.Now(),
-				Type:            "cost_saving",
-				Severity:        "low",
-				Namespace:       samples[0].Namespace,
-				Resource:        fmt.Sprintf("Deployment/%s", samples[0].Deployment),
-				Title:           "Low Resource Utilization",
-				Description:     fmt.Sprintf("Deployment shows consistently low utilization (CPU: %.1f%%, Memory: %.1f%%). Consider reducing replicas or resource requests to save costs.", avgCPU, avgMem),
-				CurrentValue:    fmt.Sprintf("CPU: %.1f%%, Memory: %.1f%%", avgCPU, avgMem),
+				ID:               fmt.Sprintf("cost-%s", key),
+				Timestamp:        time.Now(),
+				Type:             "cost_saving",
+				Severity:         "low",
+				Namespace:        samples[0].Namespace,
+				Resource:         fmt.Sprintf("Deployment/%s", samples[0].Deployment),
+				Title:            "Low Resource Utilization",
+				Description:      fmt.Sprintf("Deployment shows consistently low utilization (CPU: %.1f%%, Memory: %.1f%%). Consider reducing replicas or resource requests to save costs.", avgCPU, avgMem),
+				CurrentValue:     fmt.Sprintf("CPU: %.1f%%, Memory: %.1f%%", avgCPU, avgMem),
 				RecommendedValue: "Reduce replicas or resource requests",
-				Confidence:      0.80,
-				Impact:          "low",
-				Effort:          "medium",
+				Confidence:       0.80,
+				Impact:           "low",
+				Effort:           "medium",
 				EstimatedSavings: "~20-30% cost reduction",
-				AutoApply:       false,
+				AutoApply:        false,
 			})
 		}
 	}
@@ -431,7 +431,7 @@ func (mlr *MLRecommender) percentile(values []float64, p float64) float64 {
 	// Simple percentile calculation (for production, use proper sorting)
 	sorted := make([]float64, len(values))
 	copy(sorted, values)
-	
+
 	// Bubble sort (simple, for production use sort.Float64s)
 	for i := 0; i < len(sorted)-1; i++ {
 		for j := 0; j < len(sorted)-i-1; j++ {
@@ -462,4 +462,3 @@ func formatBytes(bytes float64) string {
 	}
 	return fmt.Sprintf("%.1f %cB", bytes/float64(div), "KMGTPE"[exp])
 }
-

@@ -460,12 +460,12 @@ func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Reque
 // handleCheckUpdates checks for available updates
 func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	updateInfo, err := CheckForUpdates()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -475,23 +475,23 @@ func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
-	
+
 	json.NewEncoder(w).Encode(updateInfo)
 }
 
 // handleInstallUpdate downloads and installs the latest version
 func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	var req struct {
 		DownloadURL string `json:"downloadUrl"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -499,7 +499,7 @@ func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	
+
 	if req.DownloadURL == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -507,25 +507,25 @@ func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	
+
 	// Perform update in background
 	go func() {
 		if err := PerformUpdate(req.DownloadURL); err != nil {
 			fmt.Printf("❌ Update failed: %v\n", err)
 			return
 		}
-		
+
 		fmt.Printf("✓ Update installed successfully. Restarting...\n")
-		
+
 		// Give the HTTP response time to be sent
 		time.Sleep(1 * time.Second)
-		
+
 		// Restart the application
 		if err := RestartApplication(); err != nil {
 			fmt.Printf("❌ Failed to restart: %v\n", err)
 		}
 	}()
-	
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Update started. The application will restart automatically when complete.",
@@ -2858,7 +2858,7 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 	// Determine shell to use - prefer zsh on macOS, then bash, then sh
 	shell := "/bin/zsh"
 	shellArgs := []string{"-i"} // Interactive mode
-	
+
 	// Check if zsh exists, if not try bash
 	if _, err := exec.LookPath("zsh"); err != nil {
 		if _, err := exec.LookPath("bash"); err == nil {
@@ -2872,7 +2872,7 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 
 	// Create local shell command
 	cmd := exec.Command(shell, shellArgs...)
-	cmd.Env = append(os.Environ(), 
+	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 	)
@@ -3008,8 +3008,8 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 			case "resize":
 				// Resize PTY terminal
 				if err := pty.Setsize(ptmx, &pty.Winsize{
-					Rows: uint16(msg.Rows),
-					Cols: uint16(msg.Cols),
+					Rows: msg.Rows,
+					Cols: msg.Cols,
 				}); err != nil {
 					log.Printf("Error resizing PTY: %v", err)
 				}

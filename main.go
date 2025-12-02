@@ -197,5 +197,5 @@ FEATURES:
   • Interactive D3.js topology visualization
   • WebSocket live updates
   • Responsive design
-  • Full-featured resource management`)
+  • Full-featured resource management`, GetVersion())
 }

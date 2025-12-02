@@ -752,7 +752,7 @@ func (ws *WebServer) handleAnomalyDetection(w http.ResponseWriter, r *http.Reque
 	if severity != "" {
 		var filtered []Anomaly
 		for _, anomaly := range anomalies {
-			if strings.ToLower(anomaly.Severity) == strings.ToLower(severity) {
+			if strings.EqualFold(anomaly.Severity, severity) {
 				filtered = append(filtered, anomaly)
 			}
 		}
@@ -943,7 +943,7 @@ func (ws *WebServer) handleMLPredict(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"cpuPrediction":    cpuPred,
 		"memoryPrediction": memPred,
-		"hoursAhead":      hoursAhead,
+		"hoursAhead":       hoursAhead,
 	})
 }
 
@@ -983,7 +983,7 @@ func (ws *WebServer) handlePersistentVolumes(w http.ResponseWriter, r *http.Requ
 
 		pvList = append(pvList, map[string]interface{}{
 			"name":          pv.Name,
-			"capacity":     capacity,
+			"capacity":      capacity,
 			"accessModes":   accessModes,
 			"reclaimPolicy": string(pv.Spec.PersistentVolumeReclaimPolicy),
 			"status":        string(pv.Status.Phase),
@@ -1092,12 +1092,12 @@ func (ws *WebServer) handleStorageClasses(w http.ResponseWriter, r *http.Request
 		}
 
 		resultList = append(resultList, map[string]interface{}{
-			"name":                sc.Name,
-			"provisioner":         sc.Provisioner,
-			"reclaimPolicy":       reclaimPolicy,
-			"volumeBindingMode":   bindingMode,
+			"name":                 sc.Name,
+			"provisioner":          sc.Provisioner,
+			"reclaimPolicy":        reclaimPolicy,
+			"volumeBindingMode":    bindingMode,
 			"allowVolumeExpansion": allowExpansion,
-			"age":                 formatAge(time.Since(sc.CreationTimestamp.Time)),
+			"age":                  formatAge(time.Since(sc.CreationTimestamp.Time)),
 		})
 	}
 
@@ -1825,20 +1825,20 @@ func (ws *WebServer) handleVulnerabilityScan(w http.ResponseWriter, r *http.Requ
 	startTime := time.Now()
 	vulnerabilities, err := ws.app.vulnerabilityScanner.ScanCluster(ctx)
 	duration := time.Since(startTime)
-	
+
 	if err != nil {
 		log.Printf("Vulnerability scan failed after %v: %v", duration, err)
 		http.Error(w, fmt.Sprintf("Failed to scan cluster: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	log.Printf("Vulnerability scan completed in %v: found %d vulnerabilities", duration, len(vulnerabilities))
 
 	// Filter by severity if specified
 	if severity != "" {
 		var filtered []Vulnerability
 		for _, vuln := range vulnerabilities {
-			if strings.ToUpper(vuln.Severity) == strings.ToUpper(severity) {
+			if strings.EqualFold(vuln.Severity, severity) {
 				filtered = append(filtered, vuln)
 			}
 		}
@@ -1847,11 +1847,11 @@ func (ws *WebServer) handleVulnerabilityScan(w http.ResponseWriter, r *http.Requ
 
 	// Calculate stats
 	stats := map[string]int{
-		"total":     len(vulnerabilities),
-		"critical":  0,
-		"high":      0,
-		"medium":    0,
-		"low":       0,
+		"total":    len(vulnerabilities),
+		"critical": 0,
+		"high":     0,
+		"medium":   0,
+		"low":      0,
 	}
 	for _, vuln := range vulnerabilities {
 		switch strings.ToUpper(vuln.Severity) {
@@ -1910,15 +1910,15 @@ func (ws *WebServer) handleVulnerabilityStats(w http.ResponseWriter, r *http.Req
 	}
 
 	stats := map[string]interface{}{
-		"total":        len(vulnerabilities),
-		"critical":     0,
-		"high":         0,
-		"medium":       0,
-		"low":          0,
-		"cveCount":     len(ws.app.vulnerabilityScanner.nvdCache),
-		"lastRefresh":  ws.app.vulnerabilityScanner.lastRefresh.Format(time.RFC3339),
-		"byNamespace":  make(map[string]int),
-		"byImage":      make(map[string]int),
+		"total":       len(vulnerabilities),
+		"critical":    0,
+		"high":        0,
+		"medium":      0,
+		"low":         0,
+		"cveCount":    len(ws.app.vulnerabilityScanner.nvdCache),
+		"lastRefresh": ws.app.vulnerabilityScanner.lastRefresh.Format(time.RFC3339),
+		"byNamespace": make(map[string]int),
+		"byImage":     make(map[string]int),
 	}
 
 	byNamespace := stats["byNamespace"].(map[string]int)
