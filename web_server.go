@@ -5930,6 +5930,13 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Clear cost cache when switching contexts (cost is cluster-specific)
+	ws.costCacheMu.Lock()
+	// Clear all cached costs to ensure fresh data for new cluster
+	ws.costCache = make(map[string]*ClusterCost)
+	ws.costCacheTime = make(map[string]time.Time)
+	ws.costCacheMu.Unlock()
+
 	// Broadcast context change to all WebSocket clients
 	contextMsg := map[string]interface{}{
 		"type":    "contextSwitch",
