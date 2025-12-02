@@ -1,6 +1,7 @@
 import { Component, createSignal, createResource, For, Show, createMemo } from 'solid-js';
 import { api } from '../services/api';
 import { setCurrentView } from '../stores/ui';
+import { currentContext, refreshTrigger } from '../stores/cluster';
 
 // Modern SVG Icons
 const CpuIcon = () => (
@@ -114,13 +115,77 @@ interface SecurityCheck {
 }
 
 const Dashboard: Component = () => {
-  const [metrics] = createResource(api.getMetrics);
-  const [pods] = createResource(() => api.getPods('_all'));
-  const [deployments] = createResource(() => api.getDeployments('_all'));
-  const [services] = createResource(() => api.getServices('_all'));
-  const [nodes] = createResource(api.getNodes);
-  const [events] = createResource(api.getEvents);
-  const [clusterCost] = createResource(api.getClusterCost);
+  // Refresh all resources when cluster changes
+  const [metrics, { refetch: refetchMetrics }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getMetrics()
+  );
+  
+  const [pods, { refetch: refetchPods }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getPods('_all')
+  );
+  
+  const [deployments, { refetch: refetchDeployments }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getDeployments('_all')
+  );
+  
+  const [services, { refetch: refetchServices }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getServices('_all')
+  );
+  
+  const [nodes, { refetch: refetchNodes }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getNodes()
+  );
+  
+  const [events, { refetch: refetchEvents }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => api.getEvents()
+  );
+  
+  // Refresh cost when cluster changes
+  const [clusterCost, { refetch: refetchCost }] = createResource(
+    () => {
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { context: ctx, refresh };
+    },
+    async () => {
+      try {
+        return await api.getClusterCost();
+      } catch (e) {
+        console.error('Dashboard cost API error:', e);
+        return null;
+      }
+    }
+  );
 
   // Calculate stats
   const runningPods = () => (pods() || []).filter((p: any) => p.status === 'Running').length;
