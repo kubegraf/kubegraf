@@ -408,42 +408,57 @@ func (mcp *MCPServer) handleKubectlGet(ctx context.Context, args json.RawMessage
 		return nil, fmt.Errorf("not connected to cluster")
 	}
 
+	// Normalize kind to handle case variations (Pod, pod, POD)
+	kind := strings.Title(strings.ToLower(params.Kind))
+	if kind == "" {
+		return nil, fmt.Errorf("kind parameter is required")
+	}
+
+	// Set default namespace if not provided
+	namespace := params.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
 	// Map kind to API group/version
 	var result string
-	switch params.Kind {
+	switch kind {
 	case "Pod":
 		if params.Name != "" {
-			pod, err := mcp.app.clientset.CoreV1().Pods(params.Namespace).Get(ctx, params.Name, metav1.GetOptions{})
+			pod, err := mcp.app.clientset.CoreV1().Pods(namespace).Get(ctx, params.Name, metav1.GetOptions{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to get pod %s/%s: %v", namespace, params.Name, err)
 			}
 			result = fmt.Sprintf("Pod: %s/%s\nStatus: %s\nPhase: %s", pod.Namespace, pod.Name, pod.Status.Phase, pod.Status.Phase)
 		} else {
-			pods, err := mcp.app.clientset.CoreV1().Pods(params.Namespace).List(ctx, metav1.ListOptions{})
+			pods, err := mcp.app.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to list pods in namespace %s: %v", namespace, err)
 			}
-			result = fmt.Sprintf("Found %d pods", len(pods.Items))
+			result = fmt.Sprintf("Found %d pods in namespace '%s':", len(pods.Items), namespace)
 			for _, pod := range pods.Items {
 				result += fmt.Sprintf("\n- %s/%s (%s)", pod.Namespace, pod.Name, pod.Status.Phase)
 			}
 		}
 	case "Deployment":
 		if params.Name != "" {
-			deploy, err := mcp.app.clientset.AppsV1().Deployments(params.Namespace).Get(ctx, params.Name, metav1.GetOptions{})
+			deploy, err := mcp.app.clientset.AppsV1().Deployments(namespace).Get(ctx, params.Name, metav1.GetOptions{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to get deployment %s/%s: %v", namespace, params.Name, err)
 			}
 			result = fmt.Sprintf("Deployment: %s/%s\nReplicas: %d/%d", deploy.Namespace, deploy.Name, deploy.Status.ReadyReplicas, *deploy.Spec.Replicas)
 		} else {
-			deploys, err := mcp.app.clientset.AppsV1().Deployments(params.Namespace).List(ctx, metav1.ListOptions{})
+			deploys, err := mcp.app.clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to list deployments in namespace %s: %v", namespace, err)
 			}
-			result = fmt.Sprintf("Found %d deployments", len(deploys.Items))
+			result = fmt.Sprintf("Found %d deployments in namespace '%s':", len(deploys.Items), namespace)
+			for _, deploy := range deploys.Items {
+				result += fmt.Sprintf("\n- %s/%s (%d/%d replicas)", deploy.Namespace, deploy.Name, deploy.Status.ReadyReplicas, *deploy.Spec.Replicas)
+			}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported resource kind: %s", params.Kind)
+		return nil, fmt.Errorf("unsupported resource kind: %s (supported: Pod, Deployment)", params.Kind)
 	}
 
 	return &MCPToolResult{
