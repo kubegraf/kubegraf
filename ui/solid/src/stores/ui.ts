@@ -35,7 +35,8 @@ export type View =
   | 'releases'
   | 'rollouts'
   | 'terminal'
-  | 'connectors';
+  | 'connectors'
+  | 'mcpagents';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);

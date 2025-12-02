@@ -136,6 +136,7 @@ const views: Record<string, Component> = {
   logs: Logs,
   anomalies: Anomalies,
   connectors: Connectors,
+  mcpagents: MCPAgents,
   apps: Marketplace,
   customapps: CustomApps,
   settings: Settings,
