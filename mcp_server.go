@@ -928,9 +928,7 @@ func (mcp *MCPServer) handleSecurityScan(ctx context.Context, args json.RawMessa
 	}, nil
 }
 
-// Production-grade intelligent tool handlers
-
-func (mcp *MCPServer) handleAnalyzeClusterHealth(ctx context.Context, args json.RawMessage) (*MCPToolResult, error) {
+// Helper functions
 	var params struct {
 		Namespace string `json:"namespace,omitempty"`
 	}
