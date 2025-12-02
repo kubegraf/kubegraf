@@ -1,7 +1,7 @@
 import { Component, createSignal, createResource, For, Show, createMemo } from 'solid-js';
 import { api } from '../services/api';
 import { setCurrentView } from '../stores/ui';
-import { currentContext, refreshTrigger } from '../stores/cluster';
+import { currentContext, refreshTrigger, nodesResource } from '../stores/cluster';
 
 // Modern SVG Icons
 const CpuIcon = () => (
@@ -152,23 +152,8 @@ const Dashboard: Component = () => {
     async () => api.getServices('_all')
   );
   
-  const [nodes, { refetch: refetchNodes }] = createResource(
-    () => {
-      const ctx = currentContext();
-      const refresh = refreshTrigger();
-      return { context: ctx, refresh };
-    },
-    async () => {
-      try {
-        const nodeData = await api.getNodes();
-        console.log('[Dashboard] Fetched nodes:', nodeData?.length || 0, nodeData);
-        return nodeData;
-      } catch (err) {
-        console.error('[Dashboard] Failed to fetch nodes:', err);
-        return [];
-      }
-    }
-  );
+  // Use the shared nodesResource from cluster store (already refreshes on cluster switch)
+  const nodes = nodesResource;
   
   const [events, { refetch: refetchEvents }] = createResource(
     () => {
@@ -208,19 +193,12 @@ const Dashboard: Component = () => {
   };
   const healthyNodes = () => {
     const nodeList = nodes();
-    if (!nodeList || !Array.isArray(nodeList)) {
-      console.log('[Dashboard] healthyNodes: nodeList is not an array:', nodeList, 'loading:', nodes.loading, 'error:', nodes.error);
-      return 0;
-    }
+    if (!nodeList || !Array.isArray(nodeList)) return 0;
     return nodeList.filter((n: any) => n.status === 'Ready').length;
   };
   const totalNodes = () => {
     const nodeList = nodes();
-    if (!Array.isArray(nodeList)) {
-      console.log('[Dashboard] totalNodes: nodeList is not an array:', nodeList, 'loading:', nodes.loading, 'error:', nodes.error);
-      return 0;
-    }
-    return nodeList.length;
+    return Array.isArray(nodeList) ? nodeList.length : 0;
   };
   const recentEvents = () => {
     const eventList = events();
