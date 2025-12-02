@@ -11,8 +11,18 @@ permissions:
 jobs:
   build-desktop:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: macos-latest
+            platform: mac
+            artifacts: "*.dmg,*.zip"
+          - os: windows-latest
+            platform: win
+            artifacts: "*.exe,*.msi"
+          - os: ubuntu-latest
+            platform: linux
+            artifacts: "*.AppImage,*.deb,*.rpm,*.tar.gz"
     runs-on: ${{ matrix.os }}
     
     steps:
@@ -40,17 +50,19 @@ jobs:
 
       - name: Extract version from tag
         id: version
+        shell: bash
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Update package.json version
+        shell: bash
         run: |
           cd ui/solid
           npm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Setup macOS code signing
-        if: matrix.os == 'macos-latest'
+        if: matrix.platform == 'mac'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -74,56 +86,55 @@ jobs:
           fi
 
       - name: Setup Windows code signing
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'win'
         env:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
         run: |
-          if [ -n "$WINDOWS_CERTIFICATE_BASE64" ]; then
-            CERTIFICATE_PATH=$env:TEMP\build_certificate.pfx
-            [System.Convert]::FromBase64String("$env:WINDOWS_CERTIFICATE_BASE64") | Set-Content -Path $CERTIFICATE_PATH -Encoding Byte
+          if ($env:WINDOWS_CERTIFICATE_BASE64) {
+            $CERTIFICATE_PATH = "$env:TEMP\build_certificate.pfx"
+            [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64) | Set-Content -Path $CERTIFICATE_PATH -Encoding Byte
 
-            echo "CSC_LINK=$CERTIFICATE_PATH" >> $env:GITHUB_ENV
-            echo "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
-          fi
+            Write-Output "CSC_LINK=$CERTIFICATE_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Output "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
 
       - name: Build desktop app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           cd ui/solid
-          npm run electron:build
+          if [ "${{ matrix.platform }}" == "mac" ]; then
+            npm run electron:build:mac
+          elif [ "${{ matrix.platform }}" == "win" ]; then
+            npm run electron:build:win
+          else
+            npm run electron:build:linux
+          fi
 
-      - name: Upload macOS artifacts
-        if: matrix.os == 'macos-latest'
+      - name: List build artifacts
+        shell: bash
+        run: |
+          cd ui/solid/release
+          ls -lah || echo "No release directory found"
+          find . -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.msi" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.tar.gz" \) || echo "No artifacts found"
+
+      - name: Upload desktop artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-macos
+          name: desktop-${{ matrix.platform }}
           path: |
             ui/solid/release/*.dmg
             ui/solid/release/*.zip
-          retention-days: 30
-
-      - name: Upload Windows artifacts
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-windows
-          path: |
             ui/solid/release/*.exe
             ui/solid/release/*.msi
-          retention-days: 30
-
-      - name: Upload Linux artifacts
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-linux
-          path: |
             ui/solid/release/*.AppImage
             ui/solid/release/*.deb
             ui/solid/release/*.rpm
             ui/solid/release/*.tar.gz
+          if-no-files-found: warn
           retention-days: 30
 
   release:
@@ -137,6 +148,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: desktop-*
 
       - name: Extract version from tag
         id: version
@@ -144,17 +156,43 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create Release
+      - name: List downloaded artifacts
+        run: |
+          find artifacts -type f || echo "No artifacts found"
+          ls -R artifacts/ || true
+
+      - name: Create or Update Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }} - Desktop Apps
+          body: |
+            ## Desktop Applications
+            
+            Download native desktop apps for macOS, Linux, and Windows.
+            
+            ### macOS
+            - **Intel Mac**: Download `.dmg` or `.zip`
+            - **Apple Silicon**: Download `-arm64.dmg` or `-arm64.zip`
+            
+            ### Windows
+            - **Installer**: Download `.exe` installer
+            - **Portable**: Download portable `.exe` (no installation)
+            
+            ### Linux
+            - **AppImage**: Universal Linux app (`.AppImage`)
+            - **Debian/Ubuntu**: Download `.deb` package
+            - **Red Hat/Fedora**: Download `.rpm` package
+            - **Portable**: Download `.tar.gz` archive
+            
+            All desktop apps include auto-update support via GitHub Releases.
           files: |
-            artifacts/desktop-macos/*
-            artifacts/desktop-windows/*
-            artifacts/desktop-linux/*
+            artifacts/desktop-mac/**/*
+            artifacts/desktop-win/**/*
+            artifacts/desktop-linux/**/*
           draft: false
           prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
