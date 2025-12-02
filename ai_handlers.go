@@ -294,12 +294,21 @@ func (ws *WebServer) handleCloudDetection(w http.ResponseWriter, r *http.Request
 }
 
 // handleCostCluster returns cost estimate for the entire cluster
-// Results are cached for 5 minutes to avoid slow API calls
+// Results are cached for 5 minutes per cluster context to avoid slow API calls
 func (ws *WebServer) handleCostCluster(w http.ResponseWriter, r *http.Request) {
-	// Check cache first (5 minute TTL)
+	// Get current cluster context for cache key
+	currentContext := ws.app.GetCurrentContext()
+	if currentContext == "" {
+		http.Error(w, "No cluster context selected", http.StatusBadRequest)
+		return
+	}
+
+	// Check cache first (5 minute TTL, per context)
 	ws.costCacheMu.RLock()
-	if ws.costCache != nil && time.Since(ws.costCacheTime) < 5*time.Minute {
-		cache := ws.costCache
+	cachedCost, hasCache := ws.costCache[currentContext]
+	cacheTime, hasTime := ws.costCacheTime[currentContext]
+	if hasCache && hasTime && time.Since(cacheTime) < 5*time.Minute {
+		cache := cachedCost
 		ws.costCacheMu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -319,10 +328,10 @@ func (ws *WebServer) handleCostCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update cache
+	// Update cache for this context
 	ws.costCacheMu.Lock()
-	ws.costCache = cost
-	ws.costCacheTime = time.Now()
+	ws.costCache[currentContext] = cost
+	ws.costCacheTime[currentContext] = time.Now()
 	ws.costCacheMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
