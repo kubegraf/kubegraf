@@ -2,6 +2,7 @@
   "name": "kubegraf-ui",
   "version": "0.1.0",
   "description": "High-performance Kubernetes dashboard built with Solid.js",
+  "author": "KubeGraf Contributors",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -76,8 +77,7 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "public/logo.png",
-      "publisherName": "KubeGraf"
+      "icon": "public/logo.png"
     },
     "linux": {
       "target": [
@@ -101,9 +101,11 @@
       "category": "Development",
       "icon": "public/logo.png",
       "desktop": {
-        "Name": "KubeGraf",
-        "Comment": "Advanced Kubernetes Visualization Tool",
-        "Categories": "Development;"
+        "entry": {
+          "Name": "KubeGraf",
+          "Comment": "Advanced Kubernetes Visualization Tool",
+          "Categories": "Development;"
+        }
       }
     },
     "nsis": {
