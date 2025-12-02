@@ -42,7 +42,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v":
-			fmt.Println("KubeGraf v1.0.0 - Advanced Kubernetes Visualization")
+			fmt.Printf("KubeGraf %s - Advanced Kubernetes Visualization\n", GetVersion())
 			return
 		case "--help", "-h":
 			printHelp()
@@ -135,7 +135,7 @@ func showSplash() {
 	blue.Println(logo)
 	fmt.Println()
 	white.Println("                    Advanced Kubernetes Visualization Tool")
-	blue.Println("                              Version 1.0.0")
+	blue.Printf("                              Version %s\n", GetVersion())
 	fmt.Println()
 	white.Println("                          Initializing...")
 
@@ -147,7 +147,7 @@ func showSplash() {
 }
 
 func printHelp() {
-	fmt.Println(`KubeGraf v1.0.0 - Advanced Kubernetes Visualization Tool
+	fmt.Printf(`KubeGraf %s - Advanced Kubernetes Visualization Tool
 
 USAGE:
   kubegraf [namespace] [flags]

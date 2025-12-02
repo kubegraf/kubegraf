@@ -681,10 +681,10 @@ const Pods: Component = () => {
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('restarts')}>
                     <div class="flex items-center gap-1">Restarts <SortIcon field="restarts" /></div>
                   </th>
+                  <th class="whitespace-nowrap">Node</th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Node</th>
                   <th class="whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
@@ -694,32 +694,65 @@ const Pods: Component = () => {
                 }>
                   {(pod: Pod, index) => {
                     const isSelected = () => selectedIndex() === index();
+                    const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
+                    const isPending = pod.status === 'Pending';
+                    const [isHovered, setIsHovered] = createSignal(false);
+                    
+                    // Text color based on status
+                    const getTextColor = () => {
+                      if (isFailed) return '#ef4444'; // Red text
+                      if (isPending) return '#f59e0b'; // Orange/yellow text
+                      return undefined; // Default text color
+                    };
+                    
+                    // Background color only on hover - matches text color
+                    const getRowBackground = () => {
+                      if (!isHovered()) return 'transparent';
+                      if (isSelected()) {
+                        return terminalView() ? '#1f2937' : 'var(--bg-tertiary)';
+                      }
+                      if (isFailed) {
+                        return 'rgba(239, 68, 68, 0.2)'; // Red background on hover (matches red text)
+                      }
+                      if (isPending) {
+                        return 'rgba(251, 191, 36, 0.2)'; // Orange/yellow background on hover (matches yellow text)
+                      }
+                      return 'rgba(255, 255, 255, 0.05)'; // Default hover background
+                    };
+                    
+                    const textColor = getTextColor();
+                    
                     return (
                     <tr
                       class={isSelected() ? 'selected-row' : ''}
                       style={{
-                        background: isSelected() ? (terminalView() ? '#1f2937' : 'var(--bg-tertiary)') : 'transparent',
+                        background: getRowBackground(),
                         cursor: 'pointer',
                         outline: isSelected() ? `2px solid ${terminalView() ? '#06b6d4' : 'var(--accent-primary)'}` : 'none',
-                        outlineOffset: '-2px'
+                        outlineOffset: '-2px',
+                        borderLeft: isFailed ? '3px solid #ef4444' : isPending ? '3px solid #f59e0b' : 'none',
+                        color: textColor,
+                        transition: 'background-color 0.2s ease'
                       }}
                       onClick={() => {
                         setSelectedIndex(index());
                         openModal(pod, 'details');
                       }}
                       onMouseEnter={() => {
+                        setIsHovered(true);
                         if (selectedIndex() !== index()) {
                           setSelectedIndex(index());
                         }
                       }}
+                      onMouseLeave={() => setIsHovered(false)}
                     >
                       <td>
                         <span 
                           class="font-medium text-xs" 
                           style={{ 
-                            color: terminalView() 
-                              ? (pod.status === 'Running' ? '#22c55e' : pod.status === 'Pending' ? '#f59e0b' : '#ef4444')
-                              : 'var(--accent-primary)'
+                            color: textColor || (terminalView() 
+                              ? (pod.status === 'Running' ? '#22c55e' : 'var(--text-primary)')
+                              : '#60a5fa') // Light blue instead of dark blue (var(--accent-primary))
                           }}
                         >
                           {terminalView() ? '▶ ' : ''}
@@ -727,44 +760,68 @@ const Pods: Component = () => {
                         </span>
                       </td>
                       <td>
-                        {terminalView() ? (
-                          <span style={{ 
-                            color: pod.status === 'Running' ? '#22c55e' : 
-                                   pod.status === 'Pending' ? '#f59e0b' : 
-                                   pod.status === 'Succeeded' ? '#06b6d4' : '#ef4444',
-                            'font-weight': 'bold'
-                          }}>
-                            {pod.status === 'Running' ? '●' : pod.status === 'Pending' ? '○' : '✗'} {pod.status}
-                          </span>
-                        ) : (
-                          <span class={`badge ${
-                            pod.status === 'Running' ? 'badge-success' :
-                            pod.status === 'Pending' ? 'badge-warning' :
-                            pod.status === 'Succeeded' ? 'badge-info' : 'badge-error'
-                          }`}>
-                            {pod.status}
-                          </span>
-                        )}
+                        {(() => {
+                          const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
+                          const isPending = pod.status === 'Pending';
+                          const isRunning = pod.status === 'Running';
+                          const isSucceeded = pod.status === 'Succeeded';
+                          
+                          if (terminalView()) {
+                            return (
+                              <span style={{ 
+                                color: isRunning ? '#22c55e' : 
+                                       isPending ? '#f59e0b' : 
+                                       isSucceeded ? '#06b6d4' : 
+                                       isFailed ? '#ef4444' : '#ef4444',
+                                'font-weight': 'bold'
+                              }}>
+                                {isRunning ? '●' : isPending ? '○' : isFailed ? '✗' : '○'} {pod.status}
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span class={`badge ${
+                                isRunning ? 'badge-success' :
+                                isPending ? 'badge-warning' :
+                                isSucceeded ? 'badge-info' : 
+                                isFailed ? 'badge-error' : 'badge-error'
+                              }`} style={{
+                                ...(isPending && { 
+                                  background: 'rgba(251, 191, 36, 0.2)', 
+                                  color: '#fbbf24',
+                                  border: '1px solid rgba(251, 191, 36, 0.3)'
+                                }),
+                                ...(isFailed && { 
+                                  background: 'rgba(239, 68, 68, 0.2)', 
+                                  color: '#ef4444',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                                })
+                              }}>
+                                {pod.status}
+                              </span>
+                            );
+                          }
+                        })()}
                       </td>
-                      <td>{pod.ready}</td>
-                      <td class="font-mono" style={{ color: 'var(--text-secondary)' }}>{pod.ip || '-'}</td>
+                      <td style={{ color: textColor || 'inherit' }}>{pod.ready}</td>
+                      <td class="font-mono" style={{ color: textColor || 'var(--text-secondary)' }}>{pod.ip || '-'}</td>
                       <td>
-                        <span class="flex items-center" style={{ color: '#ec4899', 'font-weight': '600' }}>
+                        <span class="flex items-center" style={{ color: textColor || '#ec4899', 'font-weight': '600' }}>
                           {podMetrics()[`${pod.namespace}/${pod.name}`]?.cpu || pod.cpu || '-'}
                           {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'up' && <span style={{ color: '#ef4444', 'font-size': '0.6rem' }}>▲</span>}
                           {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'down' && <span style={{ color: '#22c55e', 'font-size': '0.6rem' }}>▼</span>}
                         </span>
                       </td>
                       <td>
-                        <span class="flex items-center" style={{ color: '#f59e0b', 'font-weight': '600' }}>
+                        <span class="flex items-center" style={{ color: textColor || '#f59e0b', 'font-weight': '600' }}>
                           {podMetrics()[`${pod.namespace}/${pod.name}`]?.memory || pod.memory || '-'}
                           {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'up' && <span style={{ color: '#ef4444', 'font-size': '0.6rem' }}>▲</span>}
                           {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'down' && <span style={{ color: '#22c55e', 'font-size': '0.6rem' }}>▼</span>}
                         </span>
                       </td>
-                      <td class={pod.restarts > 0 ? 'text-yellow-400 font-semibold' : ''}>{pod.restarts}</td>
-                      <td>{formatAgeFromTimestamp(pod.createdAt, ageTicker())}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{pod.node}</td>
+                      <td style={{ color: textColor || (pod.restarts > 0 ? '#fbbf24' : 'inherit') }} class={pod.restarts > 0 ? 'font-semibold' : ''}>{pod.restarts}</td>
+                      <td style={{ color: textColor || 'var(--text-muted)' }}>{pod.node}</td>
+                      <td style={{ color: textColor || 'inherit' }}>{formatAgeFromTimestamp(pod.createdAt, ageTicker())}</td>
                       <td>
                         <ActionMenu
                           actions={[

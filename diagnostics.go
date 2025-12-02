@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,8 +46,10 @@ type DiagnosticRule struct {
 
 // DiagnosticsEngine runs diagnostic checks against the cluster
 type DiagnosticsEngine struct {
-	app   *App
-	rules []DiagnosticRule
+	app      *App
+	rules    []DiagnosticRule
+	podCache *corev1.PodList // Cache pods to avoid repeated API calls
+	cacheMu  sync.RWMutex
 }
 
 // NewDiagnosticsEngine creates a new diagnostics engine
@@ -55,36 +59,106 @@ func NewDiagnosticsEngine(app *App) *DiagnosticsEngine {
 	return engine
 }
 
-// RunAll executes all diagnostic rules
-func (e *DiagnosticsEngine) RunAll(ctx context.Context) ([]Finding, error) {
-	var allFindings []Finding
+// getPodsCache returns cached pods or fetches them if not cached
+func (e *DiagnosticsEngine) getPodsCache(ctx context.Context) (*corev1.PodList, error) {
+	e.cacheMu.RLock()
+	if e.podCache != nil {
+		cache := e.podCache
+		e.cacheMu.RUnlock()
+		return cache, nil
+	}
+	e.cacheMu.RUnlock()
 
-	for _, rule := range e.rules {
-		findings, err := rule.Check(ctx, e.app)
-		if err != nil {
-			continue // Skip rules that fail
-		}
-		allFindings = append(allFindings, findings...)
+	// Fetch pods once and cache
+	e.cacheMu.Lock()
+	defer e.cacheMu.Unlock()
+	
+	// Double-check after acquiring write lock
+	if e.podCache != nil {
+		return e.podCache, nil
 	}
 
+	pods, err := e.app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	e.podCache = pods
+	return pods, nil
+}
+
+// RunAll executes all diagnostic rules in parallel for better performance
+func (e *DiagnosticsEngine) RunAll(ctx context.Context) ([]Finding, error) {
+	var allFindings []Finding
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Pre-fetch pods cache to share across all checks
+	_, _ = e.getPodsCache(ctx)
+
+	// Create a context with timeout (30 seconds max per rule) and pass engine reference
+	ruleCtx := context.WithValue(ctx, "diagnostics_engine", e)
+	ruleCtx, cancel := context.WithTimeout(ruleCtx, 30*time.Second)
+	defer cancel()
+
+	// Run all rules in parallel (limit to 20 concurrent goroutines to avoid overwhelming API)
+	semaphore := make(chan struct{}, 20)
+	for _, rule := range e.rules {
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire semaphore
+		go func(r DiagnosticRule) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // Release semaphore
+			findings, err := r.Check(ruleCtx, e.app)
+			if err != nil {
+				// Log error but don't fail entire scan
+				return
+			}
+			mu.Lock()
+			allFindings = append(allFindings, findings...)
+			mu.Unlock()
+		}(rule)
+	}
+
+	wg.Wait()
 	return allFindings, nil
 }
 
-// RunByCategory executes rules for a specific category
+// RunByCategory executes rules for a specific category in parallel
 func (e *DiagnosticsEngine) RunByCategory(ctx context.Context, category string) ([]Finding, error) {
 	var allFindings []Finding
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
+	// Pre-fetch pods cache to share across all checks
+	_, _ = e.getPodsCache(ctx)
+
+	// Create a context with timeout (30 seconds max per rule) and pass engine reference
+	ruleCtx := context.WithValue(ctx, "diagnostics_engine", e)
+	ruleCtx, cancel := context.WithTimeout(ruleCtx, 30*time.Second)
+	defer cancel()
+
+	// Run rules for this category in parallel (limit to 20 concurrent goroutines)
+	semaphore := make(chan struct{}, 20)
 	for _, rule := range e.rules {
 		if rule.Category != category {
 			continue
 		}
-		findings, err := rule.Check(ctx, e.app)
-		if err != nil {
-			continue
-		}
-		allFindings = append(allFindings, findings...)
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire semaphore
+		go func(r DiagnosticRule) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // Release semaphore
+			findings, err := r.Check(ruleCtx, e.app)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			allFindings = append(allFindings, findings...)
+			mu.Unlock()
+		}(rule)
 	}
 
+	wg.Wait()
 	return allFindings, nil
 }
 
@@ -207,6 +281,30 @@ func (e *DiagnosticsEngine) registerRules() {
 			Severity:    SeverityInfo,
 			Description: "Pods using default service account",
 			Check:       checkDefaultServiceAccount,
+		},
+		{
+			ID:          "SEC011",
+			Name:        "Container Image Scanning",
+			Category:    "security",
+			Severity:    SeverityWarning,
+			Description: "Container images using :latest tag or missing digest",
+			Check:       checkContainerImageIssues,
+		},
+		{
+			ID:          "SEC012",
+			Name:        "Old Base Images",
+			Category:    "security",
+			Severity:    SeverityWarning,
+			Description: "Containers using potentially outdated base images",
+			Check:       checkOldBaseImages,
+		},
+		{
+			ID:          "SEC013",
+			Name:        "Image Pull Secrets",
+			Category:    "security",
+			Severity:    SeverityInfo,
+			Description: "Pods without image pull secrets for private registries",
+			Check:       checkImagePullSecrets,
 		},
 
 		// === RELIABILITY RULES ===
@@ -541,7 +639,15 @@ func (e *DiagnosticsEngine) registerRules() {
 
 func checkPrivilegedContainers(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	// Use engine's pod cache if available (optimization)
+	engine, ok := ctx.Value("diagnostics_engine").(*DiagnosticsEngine)
+	var pods *corev1.PodList
+	var err error
+	if ok && engine != nil {
+		pods, err = engine.getPodsCache(ctx)
+	} else {
+		pods, err = app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +672,15 @@ func checkPrivilegedContainers(ctx context.Context, app *App) ([]Finding, error)
 
 func checkRunAsRoot(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	// Use engine's pod cache if available
+	engine, ok := ctx.Value("diagnostics_engine").(*DiagnosticsEngine)
+	var pods *corev1.PodList
+	var err error
+	if ok && engine != nil {
+		pods, err = engine.getPodsCache(ctx)
+	} else {
+		pods, err = app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +715,14 @@ func checkRunAsRoot(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkHostNetwork(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	engine, ok := ctx.Value("diagnostics_engine").(*DiagnosticsEngine)
+	var pods *corev1.PodList
+	var err error
+	if ok && engine != nil {
+		pods, err = engine.getPodsCache(ctx)
+	} else {
+		pods, err = app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -624,7 +745,7 @@ func checkHostNetwork(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkHostPID(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -647,7 +768,7 @@ func checkHostPID(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkHostIPC(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -670,7 +791,7 @@ func checkHostIPC(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkAddedCapabilities(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +825,7 @@ func checkAddedCapabilities(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkNoSecurityContext(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -736,7 +857,7 @@ func checkNoSecurityContext(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkAllowPrivilegeEscalation(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -761,7 +882,7 @@ func checkAllowPrivilegeEscalation(ctx context.Context, app *App) ([]Finding, er
 
 func checkWritableRootFS(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -786,7 +907,7 @@ func checkWritableRootFS(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkDefaultServiceAccount(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -807,11 +928,138 @@ func checkDefaultServiceAccount(ctx context.Context, app *App) ([]Finding, error
 	return findings, nil
 }
 
+// checkContainerImageIssues checks for images using :latest tag or missing digest
+func checkContainerImageIssues(ctx context.Context, app *App) ([]Finding, error) {
+	var findings []Finding
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, pod := range pods.Items {
+		for _, container := range pod.Spec.Containers {
+			image := container.Image
+			// Check for :latest tag
+			if strings.HasSuffix(image, ":latest") || !strings.Contains(image, ":") || !strings.Contains(image, "@") {
+				severity := SeverityWarning
+				if strings.HasSuffix(image, ":latest") {
+					severity = SeverityWarning
+				} else if !strings.Contains(image, "@") {
+					severity = SeverityInfo // Missing digest is less critical
+				}
+				findings = append(findings, Finding{
+					Rule:        "SEC011",
+					Severity:    severity,
+					Resource:    fmt.Sprintf("Pod/%s (container: %s)", pod.Name, container.Name),
+					Namespace:   pod.Namespace,
+					Message:     fmt.Sprintf("Container image '%s' uses :latest tag or missing digest", image),
+					Remediation: "Use specific image tags with digest (e.g., image:tag@sha256:digest) for reproducible deployments",
+					Category:    "security",
+				})
+			}
+		}
+		// Check init containers too
+		for _, container := range pod.Spec.InitContainers {
+			image := container.Image
+			if strings.HasSuffix(image, ":latest") || !strings.Contains(image, ":") || !strings.Contains(image, "@") {
+				findings = append(findings, Finding{
+					Rule:        "SEC011",
+					Severity:    SeverityWarning,
+					Resource:    fmt.Sprintf("Pod/%s (initContainer: %s)", pod.Name, container.Name),
+					Namespace:   pod.Namespace,
+					Message:     fmt.Sprintf("Init container image '%s' uses :latest tag or missing digest", image),
+					Remediation: "Use specific image tags with digest for init containers",
+					Category:    "security",
+				})
+			}
+		}
+	}
+	return findings, nil
+}
+
+// checkOldBaseImages checks for potentially outdated base images
+func checkOldBaseImages(ctx context.Context, app *App) ([]Finding, error) {
+	var findings []Finding
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Common old base images that should be updated
+	oldImages := map[string]bool{
+		"alpine:3.10": true, "alpine:3.11": true, "alpine:3.12": true,
+		"ubuntu:18.04": true, "ubuntu:19.04": true, "ubuntu:19.10": true,
+		"debian:9": true, "debian:10": true,
+		"centos:7": true, "centos:8": true,
+	}
+
+	for _, pod := range pods.Items {
+		for _, container := range pod.Spec.Containers {
+			image := container.Image
+			// Check if image matches known old patterns
+			for oldImg := range oldImages {
+				if strings.Contains(image, oldImg) {
+					findings = append(findings, Finding{
+						Rule:        "SEC012",
+						Severity:    SeverityWarning,
+						Resource:    fmt.Sprintf("Pod/%s (container: %s)", pod.Name, container.Name),
+						Namespace:   pod.Namespace,
+						Message:     fmt.Sprintf("Container using potentially outdated base image: %s", image),
+						Remediation: "Update to newer base image versions with security patches",
+						Category:    "security",
+					})
+					break
+				}
+			}
+		}
+	}
+	return findings, nil
+}
+
+// checkImagePullSecrets checks for pods that might need image pull secrets
+func checkImagePullSecrets(ctx context.Context, app *App) ([]Finding, error) {
+	var findings []Finding
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for private registry patterns
+	privateRegistries := []string{"gcr.io", "docker.io", "quay.io", "registry.k8s.io", "ghcr.io"}
+	
+	for _, pod := range pods.Items {
+		for _, container := range pod.Spec.Containers {
+			image := container.Image
+			// If using a private registry and no pull secrets, it's just info
+			needsSecret := false
+			for _, reg := range privateRegistries {
+				if strings.Contains(image, reg) && len(pod.Spec.ImagePullSecrets) == 0 {
+					needsSecret = true
+					break
+				}
+			}
+			if needsSecret {
+				findings = append(findings, Finding{
+					Rule:        "SEC013",
+					Severity:    SeverityInfo,
+					Resource:    fmt.Sprintf("Pod/%s (container: %s)", pod.Name, container.Name),
+					Namespace:   pod.Namespace,
+					Message:     fmt.Sprintf("Pod may need imagePullSecrets for private registry image: %s", image),
+					Remediation: "Add imagePullSecrets if accessing private container registries",
+					Category:    "security",
+				})
+				break // Only report once per pod
+			}
+		}
+	}
+	return findings, nil
+}
+
 // === RELIABILITY CHECK IMPLEMENTATIONS ===
 
 func checkMissingLimits(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -836,7 +1084,7 @@ func checkMissingLimits(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkMissingRequests(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -861,7 +1109,7 @@ func checkMissingRequests(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkMissingLivenessProbe(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -886,7 +1134,7 @@ func checkMissingLivenessProbe(ctx context.Context, app *App) ([]Finding, error)
 
 func checkMissingReadinessProbe(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -911,7 +1159,9 @@ func checkMissingReadinessProbe(ctx context.Context, app *App) ([]Finding, error
 
 func checkSingleReplica(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	deployments, err := app.clientset.AppsV1().Deployments(app.namespace).List(ctx, metav1.ListOptions{})
+	
+	// Check Deployments
+	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -924,41 +1174,89 @@ func checkSingleReplica(ctx context.Context, app *App) ([]Finding, error) {
 				Resource:    fmt.Sprintf("Deployment/%s", deploy.Name),
 				Namespace:   deploy.Namespace,
 				Message:     "Deployment has only 1 replica (no high availability)",
-				Remediation: "Increase replicas to at least 2 for production workloads",
+				Remediation: "Increase replicas to at least 2 for production workloads and add podAntiAffinity with PodDisruptionBudget",
 				Category:    "reliability",
 			})
 		}
 	}
+
+	// Check StatefulSets
+	statefulsets, err := app.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sts := range statefulsets.Items {
+		if sts.Spec.Replicas != nil && *sts.Spec.Replicas == 1 {
+			findings = append(findings, Finding{
+				Rule:        "REL005",
+				Severity:    SeverityWarning,
+				Resource:    fmt.Sprintf("StatefulSet/%s", sts.Name),
+				Namespace:   sts.Namespace,
+				Message:     "StatefulSet has only 1 replica (no high availability)",
+				Remediation: "Increase replicas to at least 2 for production workloads and add podAntiAffinity with PodDisruptionBudget",
+				Category:    "reliability",
+			})
+		}
+	}
+
+	// Note: DaemonSets run one pod per node by design, so we don't check them for single replica
 	return findings, nil
 }
 
 func checkMissingPDB(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	// Check for deployments with multiple replicas but no PDB
-	deployments, err := app.clientset.AppsV1().Deployments(app.namespace).List(ctx, metav1.ListOptions{})
+	
+	// Build a map of PDB selectors by namespace
+	pdbMap := make(map[string]map[string]bool) // namespace -> selector map
+	
+	// Try PolicyV1 first
+	pdbs, err := app.clientset.PolicyV1().PodDisruptionBudgets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, err
-	}
-
-	pdbs, err := app.clientset.PolicyV1().PodDisruptionBudgets(app.namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	pdbSelectors := make(map[string]bool)
-	for _, pdb := range pdbs.Items {
-		for k, v := range pdb.Spec.Selector.MatchLabels {
-			pdbSelectors[k+"="+v] = true
+		// PolicyV1 might not be available, try PolicyV1beta1
+		pdbsBeta, errBeta := app.clientset.PolicyV1beta1().PodDisruptionBudgets("").List(ctx, metav1.ListOptions{})
+		if errBeta != nil {
+			// If both fail, we'll just skip PDB checks but continue with other checks
+			// Return empty findings rather than error to not break the whole diagnostic run
+			return findings, nil
 		}
+		// Process beta PDBs
+		for _, pdb := range pdbsBeta.Items {
+			if pdbMap[pdb.Namespace] == nil {
+				pdbMap[pdb.Namespace] = make(map[string]bool)
+			}
+			for k, v := range pdb.Spec.Selector.MatchLabels {
+				pdbMap[pdb.Namespace][k+"="+v] = true
+			}
+		}
+	} else {
+		// Process v1 PDBs
+		for _, pdb := range pdbs.Items {
+			if pdbMap[pdb.Namespace] == nil {
+				pdbMap[pdb.Namespace] = make(map[string]bool)
+			}
+			for k, v := range pdb.Spec.Selector.MatchLabels {
+				pdbMap[pdb.Namespace][k+"="+v] = true
+			}
+		}
+	}
+
+	// Check Deployments
+	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
 	}
 
 	for _, deploy := range deployments.Items {
 		if deploy.Spec.Replicas != nil && *deploy.Spec.Replicas > 1 {
 			hasPDB := false
-			for k, v := range deploy.Spec.Selector.MatchLabels {
-				if pdbSelectors[k+"="+v] {
-					hasPDB = true
-					break
+			nsPDBs := pdbMap[deploy.Namespace]
+			if nsPDBs != nil {
+				for k, v := range deploy.Spec.Selector.MatchLabels {
+					if nsPDBs[k+"="+v] {
+						hasPDB = true
+						break
+					}
 				}
 			}
 			if !hasPDB {
@@ -968,44 +1266,116 @@ func checkMissingPDB(ctx context.Context, app *App) ([]Finding, error) {
 					Resource:    fmt.Sprintf("Deployment/%s", deploy.Name),
 					Namespace:   deploy.Namespace,
 					Message:     "Deployment has no PodDisruptionBudget",
-					Remediation: "Create a PodDisruptionBudget to ensure availability during disruptions",
+					Remediation: "Create a PodDisruptionBudget to ensure availability during voluntary disruptions",
 					Category:    "reliability",
 				})
 			}
 		}
 	}
+
+	// Check StatefulSets
+	statefulsets, err := app.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sts := range statefulsets.Items {
+		if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 1 {
+			hasPDB := false
+			nsPDBs := pdbMap[sts.Namespace]
+			if nsPDBs != nil {
+				for k, v := range sts.Spec.Selector.MatchLabels {
+					if nsPDBs[k+"="+v] {
+						hasPDB = true
+						break
+					}
+				}
+			}
+			if !hasPDB {
+				findings = append(findings, Finding{
+					Rule:        "REL006",
+					Severity:    SeverityInfo,
+					Resource:    fmt.Sprintf("StatefulSet/%s", sts.Name),
+					Namespace:   sts.Namespace,
+					Message:     "StatefulSet has no PodDisruptionBudget",
+					Remediation: "Create a PodDisruptionBudget to ensure availability during voluntary disruptions",
+					Category:    "reliability",
+				})
+			}
+		}
+	}
+
 	return findings, nil
 }
 
 func checkNoAntiAffinity(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	deployments, err := app.clientset.AppsV1().Deployments(app.namespace).List(ctx, metav1.ListOptions{})
+	
+	// Check Deployments
+	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
 	for _, deploy := range deployments.Items {
 		if deploy.Spec.Replicas != nil && *deploy.Spec.Replicas > 1 {
-			if deploy.Spec.Template.Spec.Affinity == nil ||
-				deploy.Spec.Template.Spec.Affinity.PodAntiAffinity == nil {
+			hasAntiAffinity := false
+			if deploy.Spec.Template.Spec.Affinity != nil && deploy.Spec.Template.Spec.Affinity.PodAntiAffinity != nil {
+				// Check if there's a preferred or required anti-affinity rule
+				if len(deploy.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 ||
+					len(deploy.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+					hasAntiAffinity = true
+				}
+			}
+			if !hasAntiAffinity {
 				findings = append(findings, Finding{
 					Rule:        "REL007",
 					Severity:    SeverityInfo,
 					Resource:    fmt.Sprintf("Deployment/%s", deploy.Name),
 					Namespace:   deploy.Namespace,
 					Message:     "Multi-replica deployment has no pod anti-affinity",
-					Remediation: "Add podAntiAffinity to spread pods across nodes",
+					Remediation: "Add podAntiAffinity to spread pods across nodes for better availability",
 					Category:    "reliability",
 				})
 			}
 		}
 	}
+
+	// Check StatefulSets
+	statefulsets, err := app.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sts := range statefulsets.Items {
+		if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 1 {
+			hasAntiAffinity := false
+			if sts.Spec.Template.Spec.Affinity != nil && sts.Spec.Template.Spec.Affinity.PodAntiAffinity != nil {
+				if len(sts.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 ||
+					len(sts.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+					hasAntiAffinity = true
+				}
+			}
+			if !hasAntiAffinity {
+				findings = append(findings, Finding{
+					Rule:        "REL007",
+					Severity:    SeverityInfo,
+					Resource:    fmt.Sprintf("StatefulSet/%s", sts.Name),
+					Namespace:   sts.Namespace,
+					Message:     "Multi-replica StatefulSet has no pod anti-affinity",
+					Remediation: "Add podAntiAffinity to spread pods across nodes for better availability",
+					Category:    "reliability",
+				})
+			}
+		}
+	}
+
 	return findings, nil
 }
 
 func checkRestartLoop(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1030,7 +1400,7 @@ func checkRestartLoop(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkImagePullPolicy(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1055,7 +1425,7 @@ func checkImagePullPolicy(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkNoImageTag(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1102,7 +1472,7 @@ func checkMemoryUnderProvisioned(ctx context.Context, app *App) ([]Finding, erro
 
 func checkMissingHPA(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	deployments, err := app.clientset.AppsV1().Deployments(app.namespace).List(ctx, metav1.ListOptions{})
+	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1137,7 +1507,7 @@ func checkMissingHPA(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkServiceNoEndpoints(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	services, err := app.clientset.CoreV1().Services(app.namespace).List(ctx, metav1.ListOptions{})
+	services, err := app.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1174,7 +1544,7 @@ func checkServiceNoEndpoints(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkNodePortServices(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	services, err := app.clientset.CoreV1().Services(app.namespace).List(ctx, metav1.ListOptions{})
+	services, err := app.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1243,7 +1613,7 @@ func checkIngressNoTLS(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkPVCPending(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pvcs, err := app.clientset.CoreV1().PersistentVolumeClaims(app.namespace).List(ctx, metav1.ListOptions{})
+	pvcs, err := app.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1271,7 +1641,7 @@ func checkPVCHighUsage(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkEmptyDirNoLimit(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1308,7 +1678,7 @@ func checkUnusedSecrets(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkEnvFromSecret(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1337,7 +1707,7 @@ func checkEnvFromSecret(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkPodPending(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1360,7 +1730,7 @@ func checkPodPending(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkPodFailed(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1383,7 +1753,7 @@ func checkPodFailed(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkPodUnknown(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1406,7 +1776,7 @@ func checkPodUnknown(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkContainerNotReady(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	pods, err := app.clientset.CoreV1().Pods(app.namespace).List(ctx, metav1.ListOptions{})
+	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1433,7 +1803,7 @@ func checkContainerNotReady(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkDeploymentUnavailable(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	deployments, err := app.clientset.AppsV1().Deployments(app.namespace).List(ctx, metav1.ListOptions{})
+	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1456,7 +1826,7 @@ func checkDeploymentUnavailable(ctx context.Context, app *App) ([]Finding, error
 
 func checkDaemonSetNotReady(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	daemonsets, err := app.clientset.AppsV1().DaemonSets(app.namespace).List(ctx, metav1.ListOptions{})
+	daemonsets, err := app.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1479,7 +1849,7 @@ func checkDaemonSetNotReady(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkStatefulSetNotReady(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	statefulsets, err := app.clientset.AppsV1().StatefulSets(app.namespace).List(ctx, metav1.ListOptions{})
+	statefulsets, err := app.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1502,7 +1872,7 @@ func checkStatefulSetNotReady(ctx context.Context, app *App) ([]Finding, error) 
 
 func checkJobFailed(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	jobs, err := app.clientset.BatchV1().Jobs(app.namespace).List(ctx, metav1.ListOptions{})
+	jobs, err := app.clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1525,7 +1895,7 @@ func checkJobFailed(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkCronJobSuspended(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	cronjobs, err := app.clientset.BatchV1().CronJobs(app.namespace).List(ctx, metav1.ListOptions{})
+	cronjobs, err := app.clientset.BatchV1().CronJobs("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

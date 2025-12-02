@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createMemo, onMount, onCleanup, createResource } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, onMount, onCleanup, createResource, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { wsService } from '../services/websocket';
 import { namespace } from '../stores/cluster';
@@ -32,20 +32,43 @@ const Events: Component = () => {
     () => ({ ns: namespace(), trigger: fetchTrigger() }),
     async ({ ns }) => {
       try {
-        const response = await api.getEvents(ns, 200);
-        return response.events || [];
+        console.log('[Events] Fetching events for namespace:', ns);
+        // Pass undefined for "All Namespaces" or empty string
+        const nsParam = (ns === '_all' || ns === 'All Namespaces' || !ns) ? undefined : ns;
+        const response = await api.getEvents(nsParam, 200);
+        console.log('[Events] Received events:', response?.events?.length || 0, 'total:', response?.total || 0);
+        return response?.events || [];
       } catch (err) {
-        console.error('Failed to fetch events:', err);
+        console.error('[Events] Failed to fetch events:', err);
         return [];
       }
     }
   );
 
   // Initialize events when initial data loads
-  createMemo(() => {
+  createEffect(() => {
     const initial = initialEvents();
-    if (initial) {
-      setEvents(initial);
+    const loading = initialEvents.loading;
+    const error = initialEvents.error;
+    
+    console.log('[Events] createEffect triggered:', {
+      hasInitial: !!initial,
+      initialLength: initial?.length || 0,
+      loading,
+      error: error ? String(error) : null
+    });
+    
+    if (initial && Array.isArray(initial)) {
+      if (initial.length > 0) {
+        console.log('[Events] Setting events:', initial.length);
+        setEvents(initial);
+      } else {
+        console.log('[Events] Initial events array is empty');
+      }
+    } else if (!loading && error) {
+      console.error('[Events] Error loading events:', error);
+    } else if (!loading && !initial) {
+      console.log('[Events] No initial events data');
     }
   });
 
@@ -65,8 +88,14 @@ const Events: Component = () => {
         if (ns && ns !== 'All Namespaces' && newEvent.namespace !== ns) {
           return;
         }
-        setLiveEvents(prev => [newEvent, ...prev].slice(0, 50));
-        setEvents(prev => [newEvent, ...prev].slice(0, 500));
+        setLiveEvents(prev => {
+          const current = Array.isArray(prev) ? prev : [];
+          return [newEvent, ...current].slice(0, 50);
+        });
+        setEvents(prev => {
+          const current = Array.isArray(prev) ? prev : [];
+          return [newEvent, ...current].slice(0, 500);
+        });
       }
     });
 
@@ -75,8 +104,20 @@ const Events: Component = () => {
 
   const filteredEvents = createMemo(() => {
     let all = events();
+    // Ensure all is always an array
+    if (!Array.isArray(all)) {
+      console.warn('[Events] events() is not an array:', typeof all, all);
+      all = [];
+    }
     const filterType = filter();
     const query = search().toLowerCase();
+
+    console.log('[Events] filteredEvents memo:', {
+      totalEvents: all.length,
+      filterType,
+      query,
+      hasQuery: !!query
+    });
 
     if (filterType !== 'all') {
       all = all.filter(e => e.type === filterType);
@@ -91,6 +132,7 @@ const Events: Component = () => {
       );
     }
 
+    console.log('[Events] Filtered result:', all.length);
     return all;
   });
 

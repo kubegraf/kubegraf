@@ -16,6 +16,7 @@ export type View =
   | 'nodes'
   | 'resourcemap'
   | 'security'
+  | 'anomalies'
   | 'plugins'
   | 'cost'
   | 'drift'
@@ -27,7 +28,12 @@ export type View =
   | 'networkpolicies'
   | 'storage'
   | 'rbac'
-  | 'settings';
+  | 'settings'
+  | 'aiinsights'
+  | 'deployapp'
+  | 'releases'
+  | 'rollouts'
+  | 'terminal';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
