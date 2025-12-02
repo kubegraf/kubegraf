@@ -53,9 +53,64 @@ export interface Metrics {
   nodes: { ready: number; total: number };
 }
 
+// ============ Anomaly Detection Types ============
+export interface MetricSample {
+  timestamp: string;
+  namespace: string;
+  podName: string;
+  deployment?: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  cpuRequest: number;
+  memoryRequest: number;
+  restartCount: number;
+  phase: string;
+  ready: boolean;
+}
+
+export interface Anomaly {
+  id: string;
+  timestamp: string;
+  severity: 'critical' | 'warning' | 'info';
+  type: string;
+  namespace: string;
+  podName: string;
+  deployment?: string;
+  message: string;
+  score: number;
+  recommendation: string;
+  autoRemediate: boolean;
+  metrics: MetricSample;
+}
+
+export interface AnomalyStats {
+  total: number;
+  critical: number;
+  warning: number;
+  info: number;
+  byType?: Record<string, number>;
+  byNamespace?: Record<string, number>;
+}
+
 export const api = {
   // Status
   getStatus: () => fetchAPI<ClusterStatus>('/status'),
+  
+  // Updates
+  checkForUpdates: () => fetchAPI<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    releaseNotes?: string;
+    downloadUrl?: string;
+    publishedAt?: string;
+    error?: string;
+  }>('/updates/check'),
+  installUpdate: (downloadUrl: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>('/updates/install', {
+      method: 'POST',
+      body: JSON.stringify({ downloadUrl }),
+    }),
   getMetrics: () => fetchAPI<Metrics>('/metrics'),
 
   // Namespaces
@@ -382,6 +437,44 @@ export const api = {
   },
   getDiagnosticsCategories: () => fetchAPI<any[]>('/diagnostics/categories'),
 
+  // ============ Vulnerabilities ============
+  scanVulnerabilities: (severity?: string) => {
+    const params = new URLSearchParams();
+    if (severity) params.append('severity', severity);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchAPI<{ vulnerabilities: any[]; stats: any; lastRefresh: string }>(`/vulnerabilities/scan${query}`);
+  },
+  refreshVulnerabilities: () =>
+    fetchAPI<{ success: boolean; message: string; lastRefresh: string; cveCount: number }>('/vulnerabilities/refresh', {
+      method: 'POST',
+    }),
+  getVulnerabilityStats: () => fetchAPI<any>('/vulnerabilities/stats'),
+
+  // ============ Anomaly Detection ============
+  detectAnomalies: (severity?: string) => {
+    const url = severity ? `/anomalies/detect?severity=${severity}` : '/anomalies/detect';
+    return fetchAPI<{ anomalies: Anomaly[]; stats: AnomalyStats; duration: string }>(url);
+  },
+  getAnomalyStats: () =>
+    fetchAPI<AnomalyStats>('/anomalies/stats'),
+  remediateAnomaly: (anomalyId: string) =>
+    fetchAPI<{ success: boolean; message?: string; anomaly?: Anomaly }>('/anomalies/remediate', {
+      method: 'POST',
+      body: JSON.stringify({ anomalyId }),
+    }),
+  // ============ ML Recommendations ============
+  getMLRecommendations: () =>
+    fetchAPI<{ recommendations: any[]; total: number }>('/ml/recommendations'),
+  predictResourceNeeds: (namespace: string, deployment: string, hoursAhead?: number) => {
+    const params = new URLSearchParams({ namespace, deployment });
+    if (hoursAhead) params.append('hours', hoursAhead.toString());
+    return fetchAPI<{ cpuPrediction: number; memoryPrediction: number; hoursAhead: number }>(`/ml/predict?${params.toString()}`);
+  },
+  getAnomalyMetrics: (limit?: number) => {
+    const url = limit ? `/anomalies/metrics?limit=${limit}` : '/anomalies/metrics';
+    return fetchAPI<{ metrics: MetricSample[]; count: number }>(url);
+  },
+
   // ============ Cost Estimation ============
   getClusterCost: () => fetchAPI<any>('/cost/cluster'),
   getNamespaceCost: (namespace: string) =>
@@ -521,12 +614,129 @@ export const api = {
       body: JSON.stringify({ name, namespace }),
     }),
   getInstalledApps: () => fetchAPI<any[]>('/apps/installed'),
+  getLocalClusters: () => fetchAPI<{ success: boolean; clusters: any[]; total: number }>('/apps/local-clusters'),
 
   // ============ AI Log Analysis ============
   analyzePodsLogs: (namespace?: string) =>
     fetchAPI<any>(`/ai/analyze/logs${namespace ? `?namespace=${namespace}` : ''}`),
   analyzePodLogs: (name: string, namespace: string) =>
     fetchAPI<any>(`/ai/analyze/pod-logs?name=${name}&namespace=${namespace}`),
+
+  // Storage
+  getPVYAML: (name: string) =>
+    fetchAPI<{ yaml: string }>(`/storage/pv/yaml?name=${encodeURIComponent(name)}`),
+  updatePV: async (name: string, yaml: string) => {
+    const response = await fetch(`/api/storage/pv/update?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deletePV: (name: string) =>
+    deleteAPI(`/storage/pv/delete?name=${name}`),
+  getPVCYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/storage/pvc/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
+  updatePVC: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/storage/pvc/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deletePVC: (name: string, namespace: string) =>
+    deleteAPI(`/storage/pvc/delete?name=${name}&namespace=${namespace}`),
+  getStorageClassYAML: (name: string) =>
+    fetchAPI<{ yaml: string }>(`/storage/storageclass/yaml?name=${encodeURIComponent(name)}`),
+  updateStorageClass: async (name: string, yaml: string) => {
+    const response = await fetch(`/api/storage/storageclass/update?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deleteStorageClass: (name: string) =>
+    deleteAPI(`/storage/storageclass/delete?name=${name}`),
+
+  // RBAC
+  getRoleYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/rbac/role/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
+  updateRole: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/rbac/role/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deleteRole: (name: string, namespace: string) =>
+    deleteAPI(`/rbac/role/delete?name=${name}&namespace=${namespace}`),
+  getRoleBindingYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/rbac/rolebinding/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
+  updateRoleBinding: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/rbac/rolebinding/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deleteRoleBinding: (name: string, namespace: string) =>
+    deleteAPI(`/rbac/rolebinding/delete?name=${name}&namespace=${namespace}`),
+  getClusterRoleYAML: (name: string) =>
+    fetchAPI<{ yaml: string }>(`/rbac/clusterrole/yaml?name=${encodeURIComponent(name)}`),
+  updateClusterRole: async (name: string, yaml: string) => {
+    const response = await fetch(`/api/rbac/clusterrole/update?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deleteClusterRole: (name: string) =>
+    deleteAPI(`/rbac/clusterrole/delete?name=${name}`),
+  getClusterRoleBindingYAML: (name: string) =>
+    fetchAPI<{ yaml: string }>(`/rbac/clusterrolebinding/yaml?name=${encodeURIComponent(name)}`),
+  updateClusterRoleBinding: async (name: string, yaml: string) => {
+    const response = await fetch(`/api/rbac/clusterrolebinding/update?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
+  deleteClusterRoleBinding: (name: string) =>
+    deleteAPI(`/rbac/clusterrolebinding/delete?name=${name}`),
 };
 
 export default api;
