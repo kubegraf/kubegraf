@@ -229,6 +229,9 @@ createEffect(() => {
   if (nodesResource.error) console.error('Nodes error:', nodesResource.error);
 });
 
+// Global refresh event system for cluster switching
+const [refreshTrigger, setRefreshTrigger] = createSignal(0);
+
 // Refresh all resources
 function refreshAll() {
   refetchPods();
@@ -236,6 +239,8 @@ function refreshAll() {
   refetchServices();
   refetchNodes();
   refetchStatus();
+  // Trigger global refresh event
+  setRefreshTrigger(prev => prev + 1);
 }
 
 export {
@@ -262,6 +267,7 @@ export {
   refetchNodes,
   refetchStatus,
   refetchContexts,
+  refreshTrigger, // Export refresh trigger for components to listen to
 };
 
 export type { ClusterContext };

@@ -1,6 +1,7 @@
 import { Component, For, Show, createSignal, createMemo, onMount, onCleanup, createResource } from 'solid-js';
 import { api } from '../services/api';
 import { wsService } from '../services/websocket';
+import { currentContext, refreshTrigger } from '../stores/cluster';
 
 interface MonitoredEvent {
   id: string;
@@ -85,9 +86,15 @@ const MonitoredEvents: Component = () => {
     setSelectedNamespaces([]);
   };
 
-  // Fetch monitored events
+  // Fetch monitored events - refresh when cluster changes
   const [eventsData, { refetch: refetchEvents }] = createResource(
-    () => ({ namespaces: selectedNamespaces(), severity: severityFilter(), type: typeFilter() }),
+    () => ({ 
+      namespaces: selectedNamespaces(), 
+      severity: severityFilter(), 
+      type: typeFilter(),
+      context: currentContext(),
+      refresh: refreshTrigger()
+    }),
     async ({ namespaces, severity, type }) => {
       try {
         const filters: any = {
@@ -124,9 +131,13 @@ const MonitoredEvents: Component = () => {
     }
   );
 
-  // Fetch log errors
+  // Fetch log errors - refresh when cluster changes
   const [errorsData, { refetch: refetchErrors }] = createResource(
-    () => ({ namespaces: selectedNamespaces() }),
+    () => ({ 
+      namespaces: selectedNamespaces(),
+      context: currentContext(),
+      refresh: refreshTrigger()
+    }),
     async ({ namespaces }) => {
       try {
         const filters: any = { limit: 200 };

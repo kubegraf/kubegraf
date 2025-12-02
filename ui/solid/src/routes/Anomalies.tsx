@@ -1,6 +1,7 @@
-import { Component, For, Show, createSignal, createResource, createMemo, onMount } from 'solid-js';
+import { Component, For, Show, createSignal, createResource, createMemo, onMount, createEffect } from 'solid-js';
 import { api, Anomaly, AnomalyStats } from '../services/api';
 import { setCurrentView, setSelectedResource } from '../stores/ui';
+import { refreshTrigger, currentContext } from '../stores/cluster';
 
 const Anomalies: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'anomalies' | 'recommendations'>('anomalies');
@@ -8,12 +9,14 @@ const Anomalies: Component = () => {
   const [scanKey, setScanKey] = createSignal(0);
   const [remediating, setRemediating] = createSignal<string | null>(null);
 
-  // Fetch anomalies
-  const [anomaliesData] = createResource(
+  // Fetch anomalies - refresh when cluster changes
+  const [anomaliesData, { refetch: refetchAnomalies }] = createResource(
     () => {
       const sev = selectedSeverity();
       const key = scanKey();
-      return { severity: sev, key };
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { severity: sev, key, context: ctx, refresh };
     },
     async ({ severity }) => {
       try {
@@ -83,7 +86,7 @@ const Anomalies: Component = () => {
       const result = await api.applyRecommendation(rec.id);
       if (result?.success) {
         alert('Recommendation applied successfully!');
-        recommendations.refetch();
+        refetchRecommendations();
       } else {
         alert(result?.error || 'Failed to apply recommendation.');
       }
@@ -148,10 +151,15 @@ const Anomalies: Component = () => {
     }
   };
 
-  // Fetch ML Recommendations
-  const [recommendations] = createResource(
-    () => activeTab() === 'recommendations',
-    async (shouldFetch) => {
+  // Fetch ML Recommendations - refresh when cluster changes
+  const [recommendations, { refetch: refetchRecommendations }] = createResource(
+    () => {
+      const shouldFetch = activeTab() === 'recommendations';
+      const ctx = currentContext();
+      const refresh = refreshTrigger();
+      return { shouldFetch, context: ctx, refresh };
+    },
+    async ({ shouldFetch }) => {
       if (!shouldFetch) return { recommendations: [], total: 0, error: undefined };
       try {
         const data = await api.getMLRecommendations();
