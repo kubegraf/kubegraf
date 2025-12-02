@@ -1523,6 +1523,91 @@ func (mcp *MCPServer) handleAnalyzeClusterHealth(ctx context.Context, args json.
 	}, nil
 }
 
+func (mcp *MCPServer) handleAutoRemediate(ctx context.Context, args json.RawMessage) (*MCPToolResult, error) {
+	var params struct {
+		Namespace string `json:"namespace,omitempty"`
+		DryRun    bool   `json:"dry_run,omitempty"`
+	}
+
+	json.Unmarshal(args, &params)
+
+	if mcp.app.clientset == nil || !mcp.app.connected {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	if mcp.app.anomalyDetector == nil {
+		return nil, fmt.Errorf("anomaly detector not available")
+	}
+
+	namespace := params.Namespace
+	if namespace == "" {
+		namespace = "_all"
+	}
+
+	result := "🔧 Auto-Remediation Analysis\n\n"
+
+	// Detect anomalies
+	anomalies, err := mcp.app.anomalyDetector.DetectAnomalies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect anomalies: %v", err)
+	}
+
+	if len(anomalies) == 0 {
+		result += "✅ No issues detected. Cluster is healthy!"
+		return &MCPToolResult{
+			Content: []MCPContent{{Type: "text", Text: result}},
+		}, nil
+	}
+
+	result += fmt.Sprintf("Found %d issues to remediate:\n\n", len(anomalies))
+
+	remediated := 0
+	failed := 0
+
+	for _, anomaly := range anomalies {
+		result += fmt.Sprintf("🔍 Issue: %s\n", anomaly.Message)
+		result += fmt.Sprintf("   Type: %s, Severity: %s\n", anomaly.Type, anomaly.Severity)
+
+		// Check if anomaly can be auto-remediated (based on type)
+		canRemediate := anomaly.Type == "cpu_spike" || anomaly.Type == "memory_spike" || 
+			anomaly.Type == "crash_loop" || anomaly.Type == "pod_not_ready" || 
+			anomaly.Type == "hpa_maxed"
+
+		if params.DryRun {
+			result += "   [DRY RUN] Would remediate: "
+			if canRemediate {
+				result += "Yes\n"
+			} else {
+				result += "No (manual intervention required)\n"
+			}
+		} else {
+			if canRemediate {
+				err := mcp.app.anomalyDetector.AutoRemediate(ctx, anomaly)
+				if err != nil {
+					result += fmt.Sprintf("   ❌ Remediation failed: %v\n", err)
+					failed++
+				} else {
+					result += "   ✅ Remediated successfully\n"
+					remediated++
+				}
+			} else {
+				result += "   ⚠️  Requires manual intervention\n"
+			}
+		}
+		result += "\n"
+	}
+
+	if !params.DryRun {
+		result += fmt.Sprintf("\n📊 Summary: %d remediated, %d failed\n", remediated, failed)
+	} else {
+		result += "\n💡 This was a dry run. Set dry_run=false to apply fixes."
+	}
+
+	return &MCPToolResult{
+		Content: []MCPContent{{Type: "text", Text: result}},
+	}, nil
+}
+
 func (mcp *MCPServer) handleSmartScale(ctx context.Context, args json.RawMessage) (*MCPToolResult, error) {
 	var params struct {
 		Deployment    string `json:"deployment"`
