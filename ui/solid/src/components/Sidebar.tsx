@@ -317,7 +317,7 @@ const Sidebar: Component = () => {
           {(section, index) => (
             <CollapsibleSection
               section={section}
-              defaultExpanded={index() < 3}
+              defaultExpanded={index() < 3 || section.title === 'Integrations'}
             />
           )}
         </For>
