@@ -382,6 +382,12 @@ func (ws *WebServer) prewarmCostCache() {
 		return
 	}
 
+	currentContext := ws.app.GetCurrentContext()
+	if currentContext == "" {
+		log.Printf("⚠️ Skipping cost cache pre-warm: no context selected")
+		return
+	}
+
 	log.Printf("💰 Pre-warming cost cache in background...")
 	estimator := NewCostEstimator(ws.app)
 	ctx := context.Background()
@@ -393,8 +399,8 @@ func (ws *WebServer) prewarmCostCache() {
 	}
 
 	ws.costCacheMu.Lock()
-	ws.costCache = cost
-	ws.costCacheTime = time.Now()
+	ws.costCache[currentContext] = cost
+	ws.costCacheTime[currentContext] = time.Now()
 	ws.costCacheMu.Unlock()
 
 	log.Printf("✅ Cost cache warmed: $%.2f/month (%s - %s)",
