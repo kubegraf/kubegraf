@@ -556,8 +556,8 @@ func (em *EventMonitor) GetMonitoredEvents() []MonitoredEvent {
 	return events
 }
 
-// GetLogErrors returns all log errors (thread-safe)
-func (em *EventMonitor) GetLogErrors() []LogError {
+// GetLogErrorsSimple returns all log errors without filtering (for MCP compatibility)
+func (em *EventMonitor) GetLogErrorsSimple() []LogError {
 	em.logErrorsMu.RLock()
 	defer em.logErrorsMu.RUnlock()
 	
