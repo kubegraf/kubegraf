@@ -1425,9 +1425,7 @@ func (mcp *MCPServer) handlePredictCapacity(ctx context.Context, args json.RawMe
 	}, nil
 }
 
-// Production-grade intelligent tool handlers
-
-			totalMemory += memPred
+// Helper functions
 		}
 	}
 
