@@ -21,14 +21,89 @@ import Plugins from './routes/Plugins';
 import Cost from './routes/Cost';
 import Drift from './routes/Drift';
 import Events from './routes/Events';
+import Logs from './routes/Logs';
+import Anomalies from './routes/Anomalies';
 import Apps from './routes/Apps';
+import Placeholder from './routes/Placeholder';
+import Storage from './routes/Storage';
+import RBAC from './routes/RBAC';
 
 // Wrapper components for Apps with different default tabs
-const Marketplace: Component = () => <Apps defaultTab="marketplace" />;
-const CustomApps: Component = () => <Apps defaultTab="custom" />;
+// Note: We removed defaultTab so tabs are always visible
+const Marketplace: Component = () => <Apps />;
+const CustomApps: Component = () => <Apps />;
+
+// Placeholder components for new features
+const DeployApp: Component = () => (
+  <Placeholder
+    title="Deploy App"
+    description="Deploy applications to your Kubernetes cluster with ease. Choose from templates, Helm charts, or custom YAML configurations."
+    icon="M12 6v6m0 0v6m0-6h6m-6 0H6"
+    comingSoon={true}
+    features={[
+      'Deploy from Helm charts',
+      'Deploy from YAML manifests',
+      'Application templates library',
+      'One-click deployment',
+      'Deployment validation',
+      'Rollback capabilities'
+    ]}
+  />
+);
+
+const Releases: Component = () => (
+  <Placeholder
+    title="Releases"
+    description="Manage application releases and track deployment history across your cluster."
+    icon="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+    comingSoon={true}
+    features={[
+      'Release history tracking',
+      'Release comparison',
+      'Rollback to previous releases',
+      'Release notes and changelog',
+      'Release approval workflow'
+    ]}
+  />
+);
+
+const Rollouts: Component = () => (
+  <Placeholder
+    title="Rollouts (Canary / Blue-Green)"
+    description="Advanced deployment strategies including canary and blue-green rollouts for zero-downtime deployments."
+    icon="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+    comingSoon={true}
+    features={[
+      'Canary deployments',
+      'Blue-Green deployments',
+      'Traffic splitting',
+      'Automatic rollback on errors',
+      'Progressive delivery',
+      'Integration with Argo Rollouts'
+    ]}
+  />
+);
+
+const GitOps: Component = () => (
+  <Placeholder
+    title="GitOps Sync (Argo / Flux)"
+    description="Monitor and manage GitOps deployments using ArgoCD and Flux. View sync status, health, and drift detection."
+    icon="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+    comingSoon={true}
+    features={[
+      'ArgoCD application monitoring',
+      'Flux GitRepository and Kustomization tracking',
+      'Sync status and health checks',
+      'Manual sync triggers',
+      'Drift detection',
+      'Git commit history'
+    ]}
+  />
+);
+
 import Settings from './routes/Settings';
 import AIChat from './components/AIChat';
-import { currentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
+import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
 import { api } from './services/api';
@@ -54,9 +129,18 @@ const views: Record<string, Component> = {
   cost: Cost,
   drift: Drift,
   events: Events,
+  logs: Logs,
+  anomalies: Anomalies,
   apps: Marketplace,
   customapps: CustomApps,
   settings: Settings,
+  // Placeholder views for new menu items
+  deployapp: DeployApp,
+  releases: Releases,
+  rollouts: Rollouts,
+  storage: Storage,
+  rbac: RBAC,
+  terminal: Dashboard, // Terminal opens modal, not a view
 };
 
 const App: Component = () => {
@@ -137,20 +221,127 @@ const App: Component = () => {
         {/* Main content area */}
         <main class="flex-1 overflow-auto p-6 relative">
           <Show when={!isConnected() && currentView() !== 'settings'}>
-            {/* Overlay when not connected - simplified */}
+            {/* Overlay when not connected - enhanced with options */}
             <div class="absolute inset-0 z-10 flex items-center justify-center p-8" style={{ background: 'var(--bg-primary)', 'pointer-events': 'auto' }}>
-              <div class="max-w-2xl w-full text-center">
-                <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(239, 68, 68, 0.15)' }}>
-                  <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error-color)' }}>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
+              <div class="max-w-3xl w-full">
+                <div class="text-center mb-8">
+                  <div class="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.15)' }}>
+                    <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                  </div>
+                  <h2 class="text-3xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
+                    No Cluster Connected
+                  </h2>
+                  <p class="text-base mb-8" style={{ color: 'var(--text-secondary)' }}>
+                    Connect to an existing Kubernetes cluster or create a local one to get started
+                  </p>
                 </div>
-                <h2 class="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-                  Connect to Kubernetes Cluster
-                </h2>
-                <p class="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
-                  KubeGraf needs an active cluster connection to function
-                </p>
+
+                {/* Two options: Connect or Create */}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  {/* Option 1: Connect via kubeconfig */}
+                  <div class="card p-6 hover:border-cyan-500/50 transition-all cursor-pointer" style={{ border: '2px solid var(--border-color)' }}
+                    onClick={() => {
+                      // Show instructions for connecting via kubeconfig
+                      alert('To connect to an existing cluster:\n\n1. Ensure your kubeconfig is set up (~/.kube/config)\n2. Verify access: kubectl cluster-info\n3. Click "Retry Connection" or refresh the page\n\nKubeGraf will automatically detect and connect to your cluster.');
+                    }}
+                  >
+                    <div class="flex items-center gap-3 mb-4">
+                      <div class="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.1)' }}>
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                      </div>
+                      <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Connect via kubeconfig
+                      </h3>
+                    </div>
+                    <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                      Connect to an existing Kubernetes cluster using your kubeconfig file
+                    </p>
+                    <ul class="text-xs space-y-2 mb-4" style={{ color: 'var(--text-muted)' }}>
+                      <li class="flex items-start gap-2">
+                        <span class="mt-1">•</span>
+                        <span>Ensure kubeconfig is at <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>~/.kube/config</code></span>
+                      </li>
+                      <li class="flex items-start gap-2">
+                        <span class="mt-1">•</span>
+                        <span>Verify with: <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>kubectl cluster-info</code></span>
+                      </li>
+                      <li class="flex items-start gap-2">
+                        <span class="mt-1">•</span>
+                        <span>Click "Retry Connection" below</span>
+                      </li>
+                    </ul>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        location.reload();
+                      }}
+                      class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 flex items-center justify-center gap-2"
+                      style={{ background: 'var(--accent-primary)', color: '#000' }}
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Retry Connection
+                    </button>
+                  </div>
+
+                  {/* Option 2: Create local cluster */}
+                  <div class="card p-6 hover:border-cyan-500/50 transition-all cursor-pointer" style={{ border: '2px solid var(--border-color)' }}
+                    onClick={() => {
+                      setCurrentView('apps');
+                      // Store flag to auto-filter to Local Cluster
+                      sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
+                    }}
+                  >
+                    <div class="flex items-center gap-3 mb-4">
+                      <div class="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: '#22c55e' }}>
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                      </div>
+                      <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Create Local Cluster
+                      </h3>
+                    </div>
+                    <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                      Set up a local Kubernetes cluster using k3d, kind, or minikube
+                    </p>
+                    <ul class="text-xs space-y-2 mb-4" style={{ color: 'var(--text-muted)' }}>
+                      <li class="flex items-start gap-2">
+                        <span class="mt-1">•</span>
+                        <span>Requires Docker Desktop installed and running</span>
+                      </li>
+                      <li class="flex items-start gap-2">
+                        <span class="mt-1">•</span>
+                        <span>Choose from k3d, kind, or minikube</span>
+                      </li>
+                      <li class="flex items-start gap-2">
+                        <span class="mt-1">•</span>
+                        <span>Automatically connects after creation</span>
+                      </li>
+                    </ul>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Set filter and tab preference
+                        sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
+                        sessionStorage.setItem('kubegraf-default-tab', 'marketplace');
+                        setCurrentView('apps');
+                      }}
+                      class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 flex items-center justify-center gap-2"
+                      style={{ background: '#22c55e', color: '#000' }}
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      Go to Marketplace
+                    </button>
+                  </div>
+                </div>
                 
                 <Show when={connectionStatus()?.error}>
                   <div class="card p-4 mb-6 text-left max-w-lg mx-auto">
@@ -199,8 +390,21 @@ const App: Component = () => {
               </div>
             </div>
           </Show>
-          <Show when={isConnected() || currentView() === 'settings'}>
-            <Dynamic component={views[currentView()]} />
+          <Show when={isConnected() || currentView() === 'settings' || currentView() === 'logs'}>
+            {(() => {
+              const view = currentView();
+              const Component = views[view];
+              if (!Component) {
+                console.error('[App] Component not found for view:', view, 'Available views:', Object.keys(views));
+                return <div class="p-6" style="background: red; color: white; font-size: 20px; z-index: 9999; position: relative;">Error: Component not found for view "{view}"</div>;
+              }
+              try {
+                return <Dynamic component={Component} />;
+              } catch (error) {
+                console.error('[App] Error rendering component:', error);
+                return <div class="p-6" style="background: red; color: white; font-size: 20px;">Error rendering {view}: {String(error)}</div>;
+              }
+            })()}
           </Show>
         </main>
 
