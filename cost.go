@@ -43,6 +43,7 @@ type CloudInfo struct {
 	Region      string        `json:"region"`
 	DisplayName string        `json:"displayName"`
 	IsSpot      bool          `json:"isSpot"`
+	ConsoleUrl  string        `json:"consoleUrl,omitempty"` // Direct link to cloud console
 }
 
 // CostEstimator provides cost estimation for Kubernetes resources
@@ -277,7 +278,62 @@ type PricingInfo struct {
 }
 
 // DetectCloudProvider detects the cloud platform from node information
+// generateConsoleUrl generates a direct console URL for the cloud provider
+func (c *CostEstimator) generateConsoleUrl(cloudInfo *CloudInfo, contextName string) {
+	if cloudInfo == nil {
+		return
+	}
+
+	switch cloudInfo.Provider {
+	case CloudGCP:
+		// GKE Console: https://console.cloud.google.com/kubernetes/clusters/details/{region}/{cluster}?project={project}
+		// Or login: https://accounts.google.com/signin/v2/identifier?continue=https://console.cloud.google.com/kubernetes/clusters
+		// Parse context: gke_project_region_cluster
+		parts := strings.Split(contextName, "_")
+		if len(parts) >= 4 {
+			project := parts[1]
+			region := cloudInfo.Region
+			clusterName := parts[3]
+			if region != "" && clusterName != "" {
+				cloudInfo.ConsoleUrl = fmt.Sprintf("https://console.cloud.google.com/kubernetes/clusters/details/%s/%s?project=%s", region, clusterName, project)
+			} else if project != "" {
+				// Fallback to clusters list
+				cloudInfo.ConsoleUrl = fmt.Sprintf("https://console.cloud.google.com/kubernetes/clusters?project=%s", project)
+			} else {
+				// Fallback to login page
+				cloudInfo.ConsoleUrl = "https://accounts.google.com/signin/v2/identifier?continue=https://console.cloud.google.com/kubernetes/clusters"
+			}
+		} else if len(parts) >= 2 {
+			project := parts[1]
+			cloudInfo.ConsoleUrl = fmt.Sprintf("https://console.cloud.google.com/kubernetes/clusters?project=%s", project)
+		} else {
+			cloudInfo.ConsoleUrl = "https://accounts.google.com/signin/v2/identifier?continue=https://console.cloud.google.com/kubernetes/clusters"
+		}
+	case CloudAWS:
+		// EKS Console: https://console.aws.amazon.com/eks/home?region={region}#/clusters/{cluster}
+		// Or login: https://signin.aws.amazon.com/console
+		parts := strings.Split(contextName, "/")
+		clusterName := parts[len(parts)-1]
+		region := cloudInfo.Region
+		if region != "" && clusterName != "" && clusterName != contextName {
+			cloudInfo.ConsoleUrl = fmt.Sprintf("https://console.aws.amazon.com/eks/home?region=%s#/clusters/%s", region, clusterName)
+		} else if region != "" {
+			cloudInfo.ConsoleUrl = fmt.Sprintf("https://console.aws.amazon.com/eks/home?region=%s", region)
+		} else {
+			cloudInfo.ConsoleUrl = "https://signin.aws.amazon.com/console"
+		}
+	case CloudAzure:
+		// AKS Console: https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.ContainerService%2FmanagedClusters
+		// Or login: https://portal.azure.com
+		cloudInfo.ConsoleUrl = "https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.ContainerService%2FmanagedClusters"
+	default:
+		// No console URL for other providers
+		cloudInfo.ConsoleUrl = ""
+	}
+}
+
 func (c *CostEstimator) DetectCloudProvider(ctx context.Context) (*CloudInfo, error) {
+	contextName := c.app.cluster
 	// First try to detect from context name and server URL (most reliable)
 	if cloudInfo := c.detectFromContextAndServer(); cloudInfo != nil {
 		// Still need to check nodes for spot instance detection and additional info
@@ -293,6 +349,8 @@ func (c *CostEstimator) DetectCloudProvider(ctx context.Context) (*CloudInfo, er
 				cloudInfo.IsSpot = true
 			}
 		}
+		// Generate console URL
+		c.generateConsoleUrl(cloudInfo, contextName)
 		return cloudInfo, nil
 	}
 
@@ -420,6 +478,9 @@ func (c *CostEstimator) DetectCloudProvider(ctx context.Context) (*CloudInfo, er
 	} else if node.Labels["kubernetes.azure.com/scalesetpriority"] == "spot" {
 		cloudInfo.IsSpot = true
 	}
+
+	// Generate console URL
+	c.generateConsoleUrl(cloudInfo, contextName)
 
 	return cloudInfo, nil
 }

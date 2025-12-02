@@ -36,6 +36,10 @@ const Settings: Component = () => {
   const [enableDiagnostics, setEnableDiagnostics] = createSignal(true);
   const [enableCVEVulnerabilities, setEnableCVEVulnerabilities] = createSignal(true);
   const [enableSecurityChecks, setEnableSecurityChecks] = createSignal(true);
+  const [enableMCP, setEnableMCP] = createSignal(true);
+  const [enableConnectors, setEnableConnectors] = createSignal(true);
+  const [enableEventMonitoring, setEnableEventMonitoring] = createSignal(true);
+  const [enableMLRecommendations, setEnableMLRecommendations] = createSignal(true);
   
   // Update checking
   const [version, setVersion] = createSignal('1.0.0');
@@ -126,6 +130,26 @@ const Settings: Component = () => {
     if (savedSecurity !== null) {
       setEnableSecurityChecks(savedSecurity === 'true');
     }
+
+    const savedMCP = localStorage.getItem('kubegraf-enable-mcp');
+    if (savedMCP !== null) {
+      setEnableMCP(savedMCP === 'true');
+    }
+
+    const savedConnectors = localStorage.getItem('kubegraf-enable-connectors');
+    if (savedConnectors !== null) {
+      setEnableConnectors(savedConnectors === 'true');
+    }
+
+    const savedEventMonitoring = localStorage.getItem('kubegraf-enable-event-monitoring');
+    if (savedEventMonitoring !== null) {
+      setEnableEventMonitoring(savedEventMonitoring === 'true');
+    }
+
+    const savedMLRecommendations = localStorage.getItem('kubegraf-enable-ml-recommendations');
+    if (savedMLRecommendations !== null) {
+      setEnableMLRecommendations(savedMLRecommendations === 'true');
+    }
   });
 
   const handleSettingChange = (id: string, value: any) => {
@@ -190,6 +214,30 @@ const Settings: Component = () => {
     handleSettingChange('enable-security-checks', enabled);
   };
 
+  const handleMCPChange = (enabled: boolean) => {
+    setEnableMCP(enabled);
+    handleSettingChange('enable-mcp', enabled);
+    addNotification(enabled ? 'MCP Agents enabled' : 'MCP Agents disabled', 'info');
+  };
+
+  const handleConnectorsChange = (enabled: boolean) => {
+    setEnableConnectors(enabled);
+    handleSettingChange('enable-connectors', enabled);
+    addNotification(enabled ? 'Connectors enabled' : 'Connectors disabled', 'info');
+  };
+
+  const handleEventMonitoringChange = (enabled: boolean) => {
+    setEnableEventMonitoring(enabled);
+    handleSettingChange('enable-event-monitoring', enabled);
+    addNotification(enabled ? 'Event Monitoring enabled' : 'Event Monitoring disabled', 'info');
+  };
+
+  const handleMLRecommendationsChange = (enabled: boolean) => {
+    setEnableMLRecommendations(enabled);
+    handleSettingChange('enable-ml-recommendations', enabled);
+    addNotification(enabled ? 'ML Recommendations enabled' : 'ML Recommendations disabled', 'info');
+  };
+
   const resetSettings = () => {
     if (confirm('Are you sure you want to reset all settings to defaults?')) {
       localStorage.removeItem('kubegraf-auto-refresh');
@@ -202,6 +250,10 @@ const Settings: Component = () => {
       localStorage.removeItem('kubegraf-enable-diagnostics');
       localStorage.removeItem('kubegraf-enable-cve-vulnerabilities');
       localStorage.removeItem('kubegraf-enable-security-checks');
+      localStorage.removeItem('kubegraf-enable-mcp');
+      localStorage.removeItem('kubegraf-enable-connectors');
+      localStorage.removeItem('kubegraf-enable-event-monitoring');
+      localStorage.removeItem('kubegraf-enable-ml-recommendations');
       location.reload();
     }
   };
@@ -336,6 +388,44 @@ const Settings: Component = () => {
           type: 'toggle',
           value: () => enableSecurityChecks(),
           onChange: handleSecurityChecksChange,
+        },
+      ],
+    },
+    {
+      title: 'Components & Integrations',
+      description: 'Enable or disable KubeGraf components and integrations',
+      items: [
+        {
+          id: 'enable-mcp',
+          label: 'MCP Agents',
+          description: 'Enable Model Context Protocol (MCP) server for AI agent integration (Claude Desktop, Cursor, etc.)',
+          type: 'toggle',
+          value: () => enableMCP(),
+          onChange: handleMCPChange,
+        },
+        {
+          id: 'enable-connectors',
+          label: 'Connectors',
+          description: 'Enable external service connectors (GitHub, Slack, PagerDuty, Webhooks)',
+          type: 'toggle',
+          value: () => enableConnectors(),
+          onChange: handleConnectorsChange,
+        },
+        {
+          id: 'enable-event-monitoring',
+          label: 'Event Monitoring',
+          description: 'Enable real-time event monitoring and alerting system',
+          type: 'toggle',
+          value: () => enableEventMonitoring(),
+          onChange: handleEventMonitoringChange,
+        },
+        {
+          id: 'enable-ml-recommendations',
+          label: 'ML Recommendations',
+          description: 'Enable AI/ML-powered optimization recommendations',
+          type: 'toggle',
+          value: () => enableMLRecommendations(),
+          onChange: handleMLRecommendationsChange,
         },
       ],
     },
