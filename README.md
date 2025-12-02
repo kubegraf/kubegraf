@@ -152,9 +152,11 @@ go build -o kubegraf
 ./kubegraf
 ```
 
-### 📱 Mobile App (Android)
+### 📱 Mobile Apps
 
-KubeGraf is available as a mobile app for Android! The mobile app wraps the web UI using Capacitor, providing a native Android experience.
+KubeGraf is available as mobile apps for both Android and iOS! The mobile apps wrap the web UI using Capacitor, providing native mobile experiences.
+
+#### Android
 
 **Quick Setup:**
 ```bash
@@ -169,7 +171,24 @@ npx cap open android
 **For detailed setup and Play Store publishing instructions, see:**
 - [Mobile App Setup Guide](docs/MOBILE_APP_SETUP.md)
 
-The Android app will be automatically built and published to Google Play Store when you create a release tag (e.g., `v1.0.1`).
+#### iOS
+
+**Quick Setup:**
+```bash
+# Run the setup script (macOS only)
+./scripts/setup-ios.sh
+
+# Open in Xcode
+cd ui/solid
+npx cap open ios
+```
+
+**For detailed setup and App Store publishing instructions, see:**
+- [iOS App Setup Guide](docs/IOS_APP_SETUP.md)
+
+**Note:** iOS development requires macOS and Xcode.
+
+Both mobile apps will be automatically built and published to their respective stores when you create a release tag (e.g., `v1.0.1`).
 
 ## 🎯 Usage
 
