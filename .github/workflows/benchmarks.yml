@@ -1,0 +1,97 @@
+name: Performance Benchmarks
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC (adjust timezone as needed)
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual triggering
+  pull_request:
+    paths:
+      - '**.go'
+      - 'benchmarks/**'
+      - '.github/workflows/benchmarks.yml'
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: go.sum
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Verify cluster connection (if available)
+        id: cluster-check
+        run: |
+          if [ -n "$KUBECONFIG" ] || [ -f ~/.kube/config ]; then
+            echo "cluster_available=true" >> $GITHUB_OUTPUT
+            echo "✅ Kubernetes cluster configuration found"
+          else
+            echo "cluster_available=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No Kubernetes cluster available - benchmarks will be limited"
+          fi
+        continue-on-error: true
+
+      - name: Run unit benchmarks
+        run: |
+          echo "📊 Running Go benchmark tests..."
+          go test -bench=. -benchmem -benchtime=5s ./... 2>&1 | tee benchmark-results.txt || true
+          
+          # Extract key metrics
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat benchmark-results.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run performance tests (if cluster available)
+        if: steps.cluster-check.outputs.cluster_available == 'true'
+        run: |
+          echo "🚀 Running performance tests with 20X load simulation..."
+          go test -v -run TestPerformanceBenchmark ./benchmarks/... -timeout 30m 2>&1 | tee performance-results.txt || true
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Performance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat performance-results.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark-results.txt
+            performance-results.txt
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "📈 Comparing with baseline benchmarks..."
+          # This would compare against main branch baseline
+          # For now, just report current results
+          if [ -f benchmark-results.txt ]; then
+            echo "Current benchmark results saved for comparison"
+          fi
+
+      - name: Performance regression check
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "🔍 Checking for performance regressions..."
+          # Extract key metrics and compare
+          # Fail if significant regression detected
+          echo "✅ Performance check complete (regression detection to be implemented)"
+

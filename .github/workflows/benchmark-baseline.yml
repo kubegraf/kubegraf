@@ -1,0 +1,79 @@
+name: Update Benchmark Baseline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.go'
+      - 'benchmarks/**'
+  workflow_dispatch:
+
+jobs:
+  update-baseline:
+    name: Update Benchmark Baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: go.sum
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks
+        run: |
+          echo "📊 Running benchmarks to establish baseline..."
+          go test -bench=. -benchmem -benchtime=5s -count=3 ./... > benchmark-baseline.txt 2>&1 || true
+
+      - name: Process benchmark results
+        run: |
+          if [ -f benchmark-baseline.txt ]; then
+            # Extract key metrics
+            echo "## Benchmark Baseline" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Generated on: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat benchmark-baseline.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: benchmark-baseline.txt
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let comment = '## 📊 Benchmark Baseline Updated\n\n';
+            try {
+              const baseline = fs.readFileSync('benchmark-baseline.txt', 'utf8');
+              comment += '```\n' + baseline + '\n```\n';
+            } catch (e) {
+              comment += '⚠️ Could not read benchmark results\n';
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+

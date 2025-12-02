@@ -1,0 +1,268 @@
+name: Performance Tests
+
+on:
+  schedule:
+    # Run weekly on Monday at 3 AM UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: 'Number of concurrent requests'
+        required: false
+        default: '20'
+      duration:
+        description: 'Test duration in seconds'
+        required: false
+        default: '30'
+  pull_request:
+    paths:
+      - '**.go'
+      - 'web_server.go'
+      - 'handlers.go'
+      - '.github/workflows/performance-tests.yml'
+
+jobs:
+  load-test:
+    name: Load Test (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - name: "Normal Load"
+            concurrency: 5
+            duration: 30
+          - name: "High Load"
+            concurrency: 20
+            duration: 60
+          - name: "Stress Test"
+            concurrency: 50
+            duration: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: go.sum
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build application
+        run: go build -o kubegraf .
+
+      - name: Start test cluster (kind)
+        id: kind-setup
+        uses: helm/kind-action@v1.11.0
+        with:
+          cluster_name: kubegraf-perf-test
+          wait: 60s
+          install_helm: false
+        continue-on-error: true
+
+      - name: Start KubeGraf server
+        if: steps.kind-setup.outcome == 'success'
+        run: |
+          echo "🚀 Starting KubeGraf server..."
+          ./kubegraf web --port=3000 > server.log 2>&1 &
+          echo $! > server.pid
+          sleep 5
+          
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -f http://localhost:3000/api/status > /dev/null 2>&1; then
+              echo "✅ Server is ready"
+              break
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+
+      - name: Install load testing tools
+        run: |
+          # Install hey (HTTP load testing tool)
+          go install github.com/rakyll/hey@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Run API endpoint load tests
+        if: steps.kind-setup.outcome == 'success'
+        run: |
+          echo "📊 Running load tests for ${{ matrix.scenario.name }}..."
+          echo "Concurrency: ${{ matrix.scenario.concurrency }}, Duration: ${{ matrix.scenario.duration }}s"
+          
+          # Test key endpoints
+          endpoints=(
+            "/api/status"
+            "/api/pods"
+            "/api/deployments"
+            "/api/nodes"
+            "/api/namespaces"
+            "/api/contexts"
+            "/api/cloud"
+          )
+          
+          mkdir -p load-test-results
+          
+          for endpoint in "${endpoints[@]}"; do
+            echo "" >> load-test-results/${{ matrix.scenario.name }}.txt
+            echo "=== Testing $endpoint ===" >> load-test-results/${{ matrix.scenario.name }}.txt
+            hey -n 1000 -c ${{ matrix.scenario.concurrency }} -z ${{ matrix.scenario.duration }}s \
+              http://localhost:3000$endpoint \
+              >> load-test-results/${{ matrix.scenario.name }}.txt 2>&1 || true
+          done
+
+      - name: Generate performance report
+        if: steps.kind-setup.outcome == 'success'
+        run: |
+          echo "📈 Generating performance report..."
+          
+          cat > performance-report.md << EOF
+          # Performance Test Report
+          
+          **Scenario:** ${{ matrix.scenario.name }}
+          **Concurrency:** ${{ matrix.scenario.concurrency }}
+          **Duration:** ${{ matrix.scenario.duration }}s
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ## Results
+          
+          EOF
+          
+          if [ -f load-test-results/${{ matrix.scenario.name }}.txt ]; then
+            cat load-test-results/${{ matrix.scenario.name }}.txt >> performance-report.md
+          fi
+          
+          cat performance-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-${{ matrix.scenario.name }}
+          path: |
+            load-test-results/
+            performance-report.md
+            server.log
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) 2>/dev/null || true
+          fi
+          pkill -f kubegraf || true
+
+  memory-profile:
+    name: Memory Profiling
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: go.sum
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run memory profiling
+        run: |
+          echo "🔍 Running memory profiling..."
+          go test -memprofile=mem.prof -cpuprofile=cpu.prof -bench=. ./... 2>&1 | tee profile-results.txt || true
+          
+          # Generate memory report
+          if [ -f mem.prof ]; then
+            go tool pprof -top -alloc_space mem.prof > memory-top.txt 2>&1 || true
+            go tool pprof -top -inuse_space mem.prof > memory-inuse.txt 2>&1 || true
+          fi
+
+      - name: Upload profiling results
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-results
+          path: |
+            mem.prof
+            cpu.prof
+            memory-top.txt
+            memory-inuse.txt
+            profile-results.txt
+          retention-days: 30
+          if-no-files-found: warn
+
+  benchmark-comparison:
+    name: Benchmark Comparison
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: go.sum
+
+      - name: Run benchmarks on base
+        working-directory: base
+        run: |
+          go mod download
+          go test -bench=. -benchmem -benchtime=3s ./... > ../base-bench.txt 2>&1 || true
+
+      - name: Run benchmarks on PR
+        run: |
+          go mod download
+          go test -bench=. -benchmem -benchtime=3s ./... > pr-bench.txt 2>&1 || true
+
+      - name: Compare benchmarks
+        run: |
+          echo "📊 Comparing benchmarks..."
+          echo "## Benchmark Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f base-bench.txt ] && [ -f pr-bench.txt ]; then
+            echo "### Base Branch" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            head -20 base-bench.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### PR Branch" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            head -20 pr-bench.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # TODO: Add actual comparison logic using benchstat or similar
+          echo "⚠️ Detailed comparison requires benchstat tool (to be implemented)"
+
+      - name: Upload comparison results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison
+          path: |
+            base-bench.txt
+            pr-bench.txt
+          retention-days: 7
+
