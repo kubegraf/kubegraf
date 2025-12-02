@@ -58,6 +58,22 @@ func NewMLRecommender(app *App) *MLRecommender {
 	}
 }
 
+// UpdateMetricsHistory updates the metrics history from anomaly detector
+// This should be called periodically or when anomaly detection runs
+func (mlr *MLRecommender) UpdateMetricsHistory(samples []MetricSample) {
+	mlr.mu.Lock()
+	defer mlr.mu.Unlock()
+	
+	// Append new samples
+	mlr.metricsHistory = append(mlr.metricsHistory, samples...)
+	
+	// Keep only last 10000 samples (same as anomaly detector)
+	maxHistory := 10000
+	if len(mlr.metricsHistory) > maxHistory {
+		mlr.metricsHistory = mlr.metricsHistory[len(mlr.metricsHistory)-maxHistory:]
+	}
+}
+
 // PredictResourceNeeds predicts future resource needs using time series forecasting
 func (mlr *MLRecommender) PredictResourceNeeds(ctx context.Context, namespace, deployment string, hoursAhead int) (cpuPrediction, memoryPrediction float64, err error) {
 	// Collect historical metrics for this deployment
@@ -131,8 +147,17 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 		return []MLRecommendation{}, nil // Return empty list, not an error
 	}
 
+	// Early return if no metrics history - ML needs historical data
+	mlr.mu.RLock()
+	hasHistory := len(mlr.metricsHistory) > 0
+	mlr.mu.RUnlock()
+	if !hasHistory {
+		// Return empty recommendations immediately if no data
+		return []MLRecommendation{}, nil
+	}
+
 	// Add timeout to prevent hanging
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second) // Reduced from 30s to 10s
 	defer cancel()
 
 	var recommendations []MLRecommendation
@@ -188,7 +213,7 @@ func (mlr *MLRecommender) analyzeResourceOptimization(ctx context.Context) ([]ML
 		return recommendations, nil
 	}
 
-	deployments, err := mlr.app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 100}) // Limit to prevent hanging on large clusters
+	deployments, err := mlr.app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 50}) // Reduced limit for faster processing
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +224,13 @@ func (mlr *MLRecommender) analyzeResourceOptimization(ctx context.Context) ([]ML
 	mlr.mu.RUnlock()
 
 	for _, deployment := range deployments.Items {
+		// Check context before processing each deployment
+		select {
+		case <-ctx.Done():
+			return recommendations, ctx.Err()
+		default:
+		}
+
 		for _, container := range deployment.Spec.Template.Spec.Containers {
 			// Get historical usage for this container
 			var containerSamples []MetricSample
@@ -309,12 +341,19 @@ func (mlr *MLRecommender) analyzePredictiveScaling(ctx context.Context) ([]MLRec
 	}
 
 	// Get all HPAs
-	hpas, err := mlr.app.clientset.AutoscalingV2().HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{Limit: 100})
+	hpas, err := mlr.app.clientset.AutoscalingV2().HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{Limit: 50}) // Reduced limit
 	if err != nil {
 		return nil, err
 	}
 
 	for _, hpa := range hpas.Items {
+		// Check context before processing each HPA
+		select {
+		case <-ctx.Done():
+			return recommendations, ctx.Err()
+		default:
+		}
+
 		if hpa.Status.CurrentReplicas == 0 {
 			continue
 		}
@@ -379,6 +418,13 @@ func (mlr *MLRecommender) analyzeCostOptimization(ctx context.Context) ([]MLReco
 	}
 
 	for key, samples := range deploymentUsage {
+		// Check context before processing each deployment
+		select {
+		case <-ctx.Done():
+			return recommendations, ctx.Err()
+		default:
+		}
+
 		if len(samples) < 50 {
 			continue
 		}

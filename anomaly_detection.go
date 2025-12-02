@@ -366,6 +366,11 @@ func (ad *AnomalyDetector) DetectAnomalies(ctx context.Context) ([]Anomaly, erro
 	copy(historical, ad.metricsHistory)
 	ad.mu.Unlock()
 
+	// Sync metrics to ML recommender (if available)
+	if ad.app.mlRecommender != nil {
+		ad.app.mlRecommender.UpdateMetricsHistory(currentMetrics)
+	}
+
 	// Convert historical metrics to features
 	historicalFeatures := make([]FeatureVector, 0, len(historical))
 	for _, m := range historical {
