@@ -152,6 +152,25 @@ go build -o kubegraf
 ./kubegraf
 ```
 
+### 📱 Mobile App (Android)
+
+KubeGraf is available as a mobile app for Android! The mobile app wraps the web UI using Capacitor, providing a native Android experience.
+
+**Quick Setup:**
+```bash
+# Run the setup script
+./scripts/setup-android.sh
+
+# Open in Android Studio
+cd ui/solid
+npx cap open android
+```
+
+**For detailed setup and Play Store publishing instructions, see:**
+- [Mobile App Setup Guide](docs/MOBILE_APP_SETUP.md)
+
+The Android app will be automatically built and published to Google Play Store when you create a release tag (e.g., `v1.0.1`).
+
 ## 🎯 Usage
 
 ### Terminal UI (Default)

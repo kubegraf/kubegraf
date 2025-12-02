@@ -1,0 +1,135 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/solid/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: |
+          cd ui/solid
+          npm ci
+
+      - name: Build SolidJS UI
+        run: |
+          cd ui/solid
+          npm run build
+
+      - name: Install Capacitor CLI
+        run: |
+          cd ui/solid
+          npm install -g @capacitor/cli
+
+      - name: Add Android platform (if not exists)
+        run: |
+          cd ui/solid
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      - name: Sync Capacitor
+        run: |
+          cd ui/solid
+          npx cap sync android
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Convert version to version code (e.g., 1.0.1 -> 1001)
+          VERSION_CODE=$(echo $VERSION | awk -F. '{printf "%d%02d%02d", $1, $2, $3}')
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+
+      - name: Update version in build.gradle
+        run: |
+          cd ui/solid/android/app
+          sed -i "s/versionName \".*\"/versionName \"${{ steps.version.outputs.version }}\"/" build.gradle
+          sed -i "s/versionCode [0-9]*/versionCode ${{ steps.version.outputs.version_code }}/" build.gradle
+
+      - name: Decode keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > ui/solid/android/kubegraf-release.keystore
+
+      - name: Create key.properties
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cat > ui/solid/android/key.properties << EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=kubegraf
+          storeFile=../kubegraf-release.keystore
+          EOF
+
+      - name: Build AAB
+        run: |
+          cd ui/solid/android
+          chmod +x gradlew
+          ./gradlew bundleRelease
+
+      - name: Build APK (for testing)
+        run: |
+          cd ui/solid/android
+          ./gradlew assembleRelease
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: ui/solid/android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ui/solid/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Upload to Play Store
+        if: env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.kubegraf.app
+          releaseFiles: ui/solid/android/app/build/outputs/bundle/release/app-release.aab
+          track: production
+          status: completed
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+
