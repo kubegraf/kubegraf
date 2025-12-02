@@ -42,3 +42,19 @@ key.properties
 local.properties
 *.apk
 *.aab
+
+# iOS
+ui/solid/ios/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.app.dSYM
+DerivedData/
+Pods/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.mobileprovision
+*.p12
+*.cer
+*.certSigningRequest
