@@ -101,6 +101,8 @@ type App struct {
 	mlRecommender *MLRecommender
 	// Event monitoring
 	eventMonitor *EventMonitor
+	// Connectors
+	connectorManager *ConnectorManager
 }
 
 // TableData holds the current table information
