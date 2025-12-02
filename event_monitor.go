@@ -649,7 +649,18 @@ func (em *EventMonitor) GetEvents(filter FilterOptions) []MonitoredEvent {
 	return events
 }
 
-// GetLogErrors returns all log errors
+// GetMonitoredEvents returns all monitored events without filtering (for MCP compatibility)
+func (em *EventMonitor) GetMonitoredEvents() []MonitoredEvent {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	events := make([]MonitoredEvent, len(em.monitoredEvents))
+	copy(events, em.monitoredEvents)
+	return events
+}
+
+// GetLogErrors returns all log errors, optionally filtered
 func (em *EventMonitor) GetLogErrors(filter FilterOptions) []LogError {
 	em.logErrorsMu.RLock()
 	defer em.logErrorsMu.RUnlock()
@@ -663,17 +674,6 @@ func (em *EventMonitor) GetLogErrors(filter FilterOptions) []LogError {
 	}
 
 	return errors
-}
-
-// GetMonitoredEvents returns all monitored events without filtering (for MCP compatibility)
-func (em *EventMonitor) GetMonitoredEvents() []MonitoredEvent {
-	em.mu.RLock()
-	defer em.mu.RUnlock()
-	
-	// Return a copy to avoid race conditions
-	events := make([]MonitoredEvent, len(em.monitoredEvents))
-	copy(events, em.monitoredEvents)
-	return events
 }
 
 // GetLogErrorsSimple returns all log errors without filtering (for MCP compatibility)
