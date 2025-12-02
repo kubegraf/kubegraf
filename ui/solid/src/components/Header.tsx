@@ -405,33 +405,38 @@ const Header: Component = () => {
               <Show when={cloudInfo() && !cloudInfo.loading} fallback={
                 <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
               }>
-                <Show
-                  when={cloudInfo()?.consoleUrl}
-                  fallback={
+                {(() => {
+                  const info = cloudInfo();
+                  const hasConsoleUrl = info?.consoleUrl && info.consoleUrl.trim() !== '';
+                  
+                  if (hasConsoleUrl) {
+                    // Cloud provider with console URL - make it clickable
+                    return (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (info.consoleUrl) {
+                            window.open(info.consoleUrl, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        class="cursor-pointer hover:opacity-80 transition-opacity"
+                        title={`Open ${info?.displayName || 'Cloud'} Console`}
+                      >
+                        {getCloudLogo()()}
+                      </button>
+                    );
+                  } else {
                     // Local cluster - show icon but not clickable
-                    <div
-                      class="opacity-70"
-                      title={`${cloudInfo()?.displayName || 'Local'} Cluster (no console available)`}
-                    >
-                      {getCloudLogo()()}
-                    </div>
+                    return (
+                      <div
+                        class="opacity-70"
+                        title={`${info?.displayName || 'Local'} Cluster (no console available)`}
+                      >
+                        {getCloudLogo()()}
+                      </div>
+                    );
                   }
-                >
-                  {(consoleUrl) => (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (consoleUrl()) {
-                          window.open(consoleUrl(), '_blank', 'noopener,noreferrer');
-                        }
-                      }}
-                      class="cursor-pointer hover:opacity-80 transition-opacity"
-                      title={`Open ${cloudInfo()?.displayName || 'Cloud'} Console`}
-                    >
-                      {getCloudLogo()()}
-                    </button>
-                  )}
-                </Show>
+                })()}
               </Show>
               <div class="flex flex-col items-start">
                 <span class="truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
