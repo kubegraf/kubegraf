@@ -326,6 +326,12 @@ func (c *CostEstimator) generateConsoleUrl(cloudInfo *CloudInfo, contextName str
 		// AKS Console: https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.ContainerService%2FmanagedClusters
 		// Or login: https://portal.azure.com
 		cloudInfo.ConsoleUrl = "https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.ContainerService%2FmanagedClusters"
+	case CloudIBM, CloudOracle, CloudDigitalOcean, CloudAlibaba, CloudLinode, CloudVultr, CloudOVH, CloudHetzner:
+		// Other cloud providers - no console URL for now
+		cloudInfo.ConsoleUrl = ""
+	case CloudKind, CloudMinikube, CloudDockerDesktop, CloudK3d, CloudK3s, CloudRancher, CloudOpenShift, CloudUnknown:
+		// Local clusters and unknown - no console URL
+		cloudInfo.ConsoleUrl = ""
 	default:
 		// No console URL for other providers
 		cloudInfo.ConsoleUrl = ""

@@ -401,51 +401,37 @@ const Header: Component = () => {
             }}
           >
             <div class="flex items-center gap-2">
-              {/* Cloud provider logo - clickable to open cloud console */}
+              {/* Cloud provider logo - clickable only for cloud providers with console URLs */}
               <Show when={cloudInfo() && !cloudInfo.loading} fallback={
                 <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
               }>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Use consoleUrl from API if available, otherwise fallback to manual generation
-                    const consoleUrl = cloudInfo()?.consoleUrl;
-                    if (consoleUrl) {
-                      window.open(consoleUrl, '_blank', 'noopener,noreferrer');
-                    } else {
-                      // Fallback: generate URL manually (for backward compatibility)
-                      const provider = cloudInfo()?.provider?.toLowerCase();
-                      const region = cloudInfo()?.region || '';
-                      const contextName = currentContext() || '';
-                      let url = '';
-                      
-                      if (provider === 'gcp') {
-                        const parts = contextName.split('_');
-                        if (parts.length >= 4) {
-                          const project = parts[1];
-                          const clusterName = parts[3];
-                          url = `https://console.cloud.google.com/kubernetes/clusters/details/${region}/${clusterName}?project=${project}`;
-                        } else {
-                          url = `https://console.cloud.google.com/kubernetes/clusters?project=${parts[1] || ''}`;
-                        }
-                      } else if (provider === 'aws') {
-                        const parts = contextName.split('/');
-                        const clusterName = parts[parts.length - 1] || contextName;
-                        url = `https://console.aws.amazon.com/eks/home?region=${region}#/clusters/${clusterName}`;
-                      } else if (provider === 'azure') {
-                        url = `https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.ContainerService%2FmanagedClusters`;
-                      }
-                      
-                      if (url) {
-                        window.open(url, '_blank', 'noopener,noreferrer');
-                      }
-                    }
-                  }}
-                  class="cursor-pointer hover:opacity-80 transition-opacity"
-                  title={`Open ${cloudInfo()?.displayName || 'Cloud'} Console`}
+                <Show
+                  when={cloudInfo()?.consoleUrl}
+                  fallback={
+                    // Local cluster - show icon but not clickable
+                    <div
+                      class="opacity-70"
+                      title={`${cloudInfo()?.displayName || 'Local'} Cluster (no console available)`}
+                    >
+                      {getCloudLogo()()}
+                    </div>
+                  }
                 >
-                  {getCloudLogo()()}
-                </button>
+                  {(consoleUrl) => (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (consoleUrl()) {
+                          window.open(consoleUrl(), '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                      class="cursor-pointer hover:opacity-80 transition-opacity"
+                      title={`Open ${cloudInfo()?.displayName || 'Cloud'} Console`}
+                    >
+                      {getCloudLogo()()}
+                    </button>
+                  )}
+                </Show>
               </Show>
               <div class="flex flex-col items-start">
                 <span class="truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
