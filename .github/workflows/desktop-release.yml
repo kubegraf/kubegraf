@@ -161,38 +161,16 @@ jobs:
           find artifacts -type f || echo "No artifacts found"
           ls -R artifacts/ || true
 
-      - name: Create or Update Release
+      - name: Upload desktop apps to existing release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }} - Desktop Apps
-          body: |
-            ## Desktop Applications
-            
-            Download native desktop apps for macOS, Linux, and Windows.
-            
-            ### macOS
-            - **Intel Mac**: Download `.dmg` or `.zip`
-            - **Apple Silicon**: Download `-arm64.dmg` or `-arm64.zip`
-            
-            ### Windows
-            - **Installer**: Download `.exe` installer
-            - **Portable**: Download portable `.exe` (no installation)
-            
-            ### Linux
-            - **AppImage**: Universal Linux app (`.AppImage`)
-            - **Debian/Ubuntu**: Download `.deb` package
-            - **Red Hat/Fedora**: Download `.rpm` package
-            - **Portable**: Download `.tar.gz` archive
-            
-            All desktop apps include auto-update support via GitHub Releases.
           files: |
             artifacts/desktop-mac/**/*
             artifacts/desktop-win/**/*
             artifacts/desktop-linux/**/*
           draft: false
           prerelease: false
-          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
