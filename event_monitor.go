@@ -545,6 +545,28 @@ func (em *EventMonitor) parseLogLine(line, podName, namespace, containerName str
 	return nil
 }
 
+// GetMonitoredEvents returns all monitored events (thread-safe)
+func (em *EventMonitor) GetMonitoredEvents() []MonitoredEvent {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	events := make([]MonitoredEvent, len(em.monitoredEvents))
+	copy(events, em.monitoredEvents)
+	return events
+}
+
+// GetLogErrors returns all log errors (thread-safe)
+func (em *EventMonitor) GetLogErrors() []LogError {
+	em.logErrorsMu.RLock()
+	defer em.logErrorsMu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	errors := make([]LogError, len(em.logErrors))
+	copy(errors, em.logErrors)
+	return errors
+}
+
 // processLogError processes a log error and creates a monitored event
 func (em *EventMonitor) processLogError(logError LogError) {
 	// Only process HTTP errors (status code > 0)
