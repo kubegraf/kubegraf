@@ -23,6 +23,11 @@ const (
 	SeverityInfo     Severity = "info"
 )
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const diagnosticsEngineKey contextKey = "diagnostics_engine"
+
 // Finding represents a diagnostic finding
 type Finding struct {
 	Rule        string   `json:"rule"`
@@ -72,7 +77,7 @@ func (e *DiagnosticsEngine) getPodsCache(ctx context.Context) (*corev1.PodList, 
 	// Fetch pods once and cache
 	e.cacheMu.Lock()
 	defer e.cacheMu.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if e.podCache != nil {
 		return e.podCache, nil
@@ -96,7 +101,7 @@ func (e *DiagnosticsEngine) RunAll(ctx context.Context) ([]Finding, error) {
 	_, _ = e.getPodsCache(ctx)
 
 	// Create a context with timeout (30 seconds max per rule) and pass engine reference
-	ruleCtx := context.WithValue(ctx, "diagnostics_engine", e)
+	ruleCtx := context.WithValue(ctx, diagnosticsEngineKey, e)
 	ruleCtx, cancel := context.WithTimeout(ruleCtx, 30*time.Second)
 	defer cancel()
 
@@ -133,7 +138,7 @@ func (e *DiagnosticsEngine) RunByCategory(ctx context.Context, category string) 
 	_, _ = e.getPodsCache(ctx)
 
 	// Create a context with timeout (30 seconds max per rule) and pass engine reference
-	ruleCtx := context.WithValue(ctx, "diagnostics_engine", e)
+	ruleCtx := context.WithValue(ctx, diagnosticsEngineKey, e)
 	ruleCtx, cancel := context.WithTimeout(ruleCtx, 30*time.Second)
 	defer cancel()
 
@@ -640,7 +645,7 @@ func (e *DiagnosticsEngine) registerRules() {
 func checkPrivilegedContainers(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
 	// Use engine's pod cache if available (optimization)
-	engine, ok := ctx.Value("diagnostics_engine").(*DiagnosticsEngine)
+	engine, ok := ctx.Value(diagnosticsEngineKey).(*DiagnosticsEngine)
 	var pods *corev1.PodList
 	var err error
 	if ok && engine != nil {
@@ -673,7 +678,7 @@ func checkPrivilegedContainers(ctx context.Context, app *App) ([]Finding, error)
 func checkRunAsRoot(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
 	// Use engine's pod cache if available
-	engine, ok := ctx.Value("diagnostics_engine").(*DiagnosticsEngine)
+	engine, ok := ctx.Value(diagnosticsEngineKey).(*DiagnosticsEngine)
 	var pods *corev1.PodList
 	var err error
 	if ok && engine != nil {
@@ -715,7 +720,7 @@ func checkRunAsRoot(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkHostNetwork(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	engine, ok := ctx.Value("diagnostics_engine").(*DiagnosticsEngine)
+	engine, ok := ctx.Value(diagnosticsEngineKey).(*DiagnosticsEngine)
 	var pods *corev1.PodList
 	var err error
 	if ok && engine != nil {
@@ -1026,7 +1031,7 @@ func checkImagePullSecrets(ctx context.Context, app *App) ([]Finding, error) {
 
 	// Check for private registry patterns
 	privateRegistries := []string{"gcr.io", "docker.io", "quay.io", "registry.k8s.io", "ghcr.io"}
-	
+
 	for _, pod := range pods.Items {
 		for _, container := range pod.Spec.Containers {
 			image := container.Image
@@ -1159,7 +1164,7 @@ func checkMissingReadinessProbe(ctx context.Context, app *App) ([]Finding, error
 
 func checkSingleReplica(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	
+
 	// Check Deployments
 	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -1206,10 +1211,10 @@ func checkSingleReplica(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkMissingPDB(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	
+
 	// Build a map of PDB selectors by namespace
 	pdbMap := make(map[string]map[string]bool) // namespace -> selector map
-	
+
 	// Try PolicyV1 first
 	pdbs, err := app.clientset.PolicyV1().PodDisruptionBudgets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -1310,7 +1315,7 @@ func checkMissingPDB(ctx context.Context, app *App) ([]Finding, error) {
 
 func checkNoAntiAffinity(ctx context.Context, app *App) ([]Finding, error) {
 	var findings []Finding
-	
+
 	// Check Deployments
 	deployments, err := app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {

@@ -27,17 +27,17 @@ import (
 
 // MetricSample represents a single metric data point
 type MetricSample struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Namespace   string    `json:"namespace"`
-	PodName     string    `json:"podName"`
-	Deployment  string    `json:"deployment,omitempty"`
-	CPUUsage    float64   `json:"cpuUsage"`    // CPU usage in millicores
-	MemoryUsage float64   `json:"memoryUsage"` // Memory usage in bytes
-	CPURequest  float64   `json:"cpuRequest"`  // CPU request in millicores
-	MemoryRequest float64 `json:"memoryRequest"` // Memory request in bytes
-	RestartCount int32    `json:"restartCount"`
-	Phase        string   `json:"phase"`
-	Ready        bool     `json:"ready"`
+	Timestamp     time.Time `json:"timestamp"`
+	Namespace     string    `json:"namespace"`
+	PodName       string    `json:"podName"`
+	Deployment    string    `json:"deployment,omitempty"`
+	CPUUsage      float64   `json:"cpuUsage"`      // CPU usage in millicores
+	MemoryUsage   float64   `json:"memoryUsage"`   // Memory usage in bytes
+	CPURequest    float64   `json:"cpuRequest"`    // CPU request in millicores
+	MemoryRequest float64   `json:"memoryRequest"` // Memory request in bytes
+	RestartCount  int32     `json:"restartCount"`
+	Phase         string    `json:"phase"`
+	Ready         bool      `json:"ready"`
 }
 
 // FeatureVector represents processed features for ML
@@ -52,18 +52,18 @@ type FeatureVector struct {
 
 // Anomaly represents a detected anomaly
 type Anomaly struct {
-	ID            string    `json:"id"`
-	Timestamp     time.Time `json:"timestamp"`
-	Severity      string    `json:"severity"` // "critical", "warning", "info"
-	Type          string    `json:"type"`     // "cpu_spike", "memory_spike", "crash_loop", "hpa_maxed", "resource_exhaustion"
-	Namespace     string    `json:"namespace"`
-	PodName       string    `json:"podName"`
-	Deployment    string    `json:"deployment,omitempty"`
-	Message       string    `json:"message"`
-	Score         float64   `json:"score"` // Anomaly score (0-1, higher = more anomalous)
-	Recommendation string   `json:"recommendation"`
-	AutoRemediate bool      `json:"autoRemediate"` // Whether auto-remediation is available
-	Metrics       MetricSample `json:"metrics"`
+	ID             string       `json:"id"`
+	Timestamp      time.Time    `json:"timestamp"`
+	Severity       string       `json:"severity"` // "critical", "warning", "info"
+	Type           string       `json:"type"`     // "cpu_spike", "memory_spike", "crash_loop", "hpa_maxed", "resource_exhaustion"
+	Namespace      string       `json:"namespace"`
+	PodName        string       `json:"podName"`
+	Deployment     string       `json:"deployment,omitempty"`
+	Message        string       `json:"message"`
+	Score          float64      `json:"score"` // Anomaly score (0-1, higher = more anomalous)
+	Recommendation string       `json:"recommendation"`
+	AutoRemediate  bool         `json:"autoRemediate"` // Whether auto-remediation is available
+	Metrics        MetricSample `json:"metrics"`
 }
 
 // AnomalyDetector handles anomaly detection
@@ -71,7 +71,7 @@ type AnomalyDetector struct {
 	app            *App
 	metricsHistory []MetricSample
 	mu             sync.RWMutex
-	maxHistory     int // Maximum number of samples to keep
+	maxHistory     int     // Maximum number of samples to keep
 	threshold      float64 // Anomaly threshold (0-1)
 }
 
@@ -254,8 +254,8 @@ func (ad *AnomalyDetector) IsolationForestScore(features FeatureVector, historic
 		math.Abs((features.CPUUsagePercent - means.CPUUsagePercent) / (stds.CPUUsagePercent + 1e-6)),
 		math.Abs((features.MemoryUsagePercent - means.MemoryUsagePercent) / (stds.MemoryUsagePercent + 1e-6)),
 		math.Abs((features.CPUPerMemory - means.CPUPerMemory) / (stds.CPUPerMemory + 1e-6)),
-		features.RestartFlag, // Binary flag
-		features.NotReadyFlag, // Binary flag
+		features.RestartFlag,   // Binary flag
+		features.NotReadyFlag,  // Binary flag
 		features.CrashLoopFlag, // Binary flag
 	}
 
@@ -416,16 +416,16 @@ func (ad *AnomalyDetector) checkHPAStatus(ctx context.Context) ([]Anomaly, error
 		// Check if HPA is maxed out
 		if currentReplicas >= maxReplicas {
 			anomaly := Anomaly{
-				ID:            fmt.Sprintf("hpa-%s-%s", hpa.Namespace, hpa.Name),
-				Timestamp:     time.Now(),
-				Severity:      "warning",
-				Type:          "hpa_maxed",
-				Namespace:     hpa.Namespace,
-				Deployment:    hpa.Name,
-				Message:       fmt.Sprintf("HPA %s is at maximum replicas (%d/%d)", hpa.Name, currentReplicas, maxReplicas),
-				Score:         0.8,
+				ID:             fmt.Sprintf("hpa-%s-%s", hpa.Namespace, hpa.Name),
+				Timestamp:      time.Now(),
+				Severity:       "warning",
+				Type:           "hpa_maxed",
+				Namespace:      hpa.Namespace,
+				Deployment:     hpa.Name,
+				Message:        fmt.Sprintf("HPA %s is at maximum replicas (%d/%d)", hpa.Name, currentReplicas, maxReplicas),
+				Score:          0.8,
 				Recommendation: fmt.Sprintf("Consider increasing maxReplicas for HPA %s or optimizing resource usage", hpa.Name),
-				AutoRemediate: true,
+				AutoRemediate:  true,
 			}
 			anomalies = append(anomalies, anomaly)
 		}
@@ -581,11 +581,11 @@ func (ad *AnomalyDetector) restartPod(ctx context.Context, namespace, podName st
 // GetAnomalyStats returns statistics about detected anomalies
 func (ad *AnomalyDetector) GetAnomalyStats(anomalies []Anomaly) map[string]interface{} {
 	stats := map[string]interface{}{
-		"total":      len(anomalies),
-		"critical":  0,
-		"warning":   0,
-		"info":       0,
-		"byType":     make(map[string]int),
+		"total":       len(anomalies),
+		"critical":    0,
+		"warning":     0,
+		"info":        0,
+		"byType":      make(map[string]int),
 		"byNamespace": make(map[string]int),
 	}
 
@@ -610,4 +610,3 @@ func (ad *AnomalyDetector) GetAnomalyStats(anomalies []Anomaly) map[string]inter
 
 	return stats
 }
-

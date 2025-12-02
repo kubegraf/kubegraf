@@ -21,13 +21,13 @@ import (
 
 // NVD API structures
 type NVDResponse struct {
-	ResultsPerPage  int           `json:"resultsPerPage"`
-	StartIndex      int           `json:"startIndex"`
-	TotalResults    int           `json:"totalResults"`
-	Format          string        `json:"format"`
-	Version         string        `json:"version"`
-	Timestamp       string        `json:"timestamp"`
-	Vulnerabilities []NVDVuln      `json:"vulnerabilities"`
+	ResultsPerPage  int       `json:"resultsPerPage"`
+	StartIndex      int       `json:"startIndex"`
+	TotalResults    int       `json:"totalResults"`
+	Format          string    `json:"format"`
+	Version         string    `json:"version"`
+	Timestamp       string    `json:"timestamp"`
+	Vulnerabilities []NVDVuln `json:"vulnerabilities"`
 }
 
 type NVDVuln struct {
@@ -35,15 +35,15 @@ type NVDVuln struct {
 }
 
 type NVDCVE struct {
-	ID               string      `json:"id"`
-	SourceIdentifier string      `json:"sourceIdentifier"`
-	Published        string      `json:"published"`
-	LastModified     string      `json:"lastModified"`
-	VulnStatus      string      `json:"vulnStatus"`
-	Descriptions     []NVDDesc   `json:"descriptions"`
-	Metrics          NVDMetrics  `json:"metrics"`
+	ID               string        `json:"id"`
+	SourceIdentifier string        `json:"sourceIdentifier"`
+	Published        string        `json:"published"`
+	LastModified     string        `json:"lastModified"`
+	VulnStatus       string        `json:"vulnStatus"`
+	Descriptions     []NVDDesc     `json:"descriptions"`
+	Metrics          NVDMetrics    `json:"metrics"`
 	Weaknesses       []NVDWeakness `json:"weaknesses"`
-	References       []NVDRef    `json:"references"`
+	References       []NVDRef      `json:"references"`
 }
 
 type NVDDesc struct {
@@ -58,28 +58,28 @@ type NVDMetrics struct {
 }
 
 type CVSSMetricV31 struct {
-	Source            string  `json:"source"`
-	Type              string  `json:"type"`
-	CvssData          CVSSData `json:"cvssData"`
-	ExploitabilityScore float64 `json:"exploitabilityScore"`
-	ImpactScore       float64 `json:"impactScore"`
+	Source              string   `json:"source"`
+	Type                string   `json:"type"`
+	CvssData            CVSSData `json:"cvssData"`
+	ExploitabilityScore float64  `json:"exploitabilityScore"`
+	ImpactScore         float64  `json:"impactScore"`
 }
 
 type CVSSMetricV30 struct {
-	Source            string  `json:"source"`
-	Type              string  `json:"type"`
-	CvssData          CVSSData `json:"cvssData"`
-	ExploitabilityScore float64 `json:"exploitabilityScore"`
-	ImpactScore       float64 `json:"impactScore"`
+	Source              string   `json:"source"`
+	Type                string   `json:"type"`
+	CvssData            CVSSData `json:"cvssData"`
+	ExploitabilityScore float64  `json:"exploitabilityScore"`
+	ImpactScore         float64  `json:"impactScore"`
 }
 
 type CVSSMetricV2 struct {
-	Source            string  `json:"source"`
-	Type              string  `json:"type"`
-	CvssData          CVSSDataV2 `json:"cvssData"`
-	BaseSeverity     string  `json:"baseSeverity"`
-	ExploitabilityScore float64 `json:"exploitabilityScore"`
-	ImpactScore       float64 `json:"impactScore"`
+	Source              string     `json:"source"`
+	Type                string     `json:"type"`
+	CvssData            CVSSDataV2 `json:"cvssData"`
+	BaseSeverity        string     `json:"baseSeverity"`
+	ExploitabilityScore float64    `json:"exploitabilityScore"`
+	ImpactScore         float64    `json:"impactScore"`
 }
 
 type CVSSData struct {
@@ -110,35 +110,35 @@ type CVSSDataV2 struct {
 }
 
 type NVDWeakness struct {
-	Source      string   `json:"source"`
-	Type        string   `json:"type"`
+	Source      string    `json:"source"`
+	Type        string    `json:"type"`
 	Description []NVDDesc `json:"description"`
 }
 
 type NVDRef struct {
-	URL   string   `json:"url"`
-	Source string  `json:"source"`
-	Tags  []string `json:"tags"`
+	URL    string   `json:"url"`
+	Source string   `json:"source"`
+	Tags   []string `json:"tags"`
 }
 
 // Vulnerability represents a CVE found in the cluster
 type Vulnerability struct {
-	CVEID           string    `json:"cveId"`
-	Title           string    `json:"title"`
-	Description     string    `json:"description"`
-	Severity        string    `json:"severity"`
-	CVSSScore       float64   `json:"cvssScore"`
-	CVSSVector      string    `json:"cvssVector"`
-	Published       string    `json:"published"`
-	LastModified    string    `json:"lastModified"`
-	AffectedImage   string    `json:"affectedImage"`
-	AffectedPackage string    `json:"affectedPackage"`
-	PackageVersion  string    `json:"packageVersion"`
-	Namespace       string    `json:"namespace"`
-	PodName         string    `json:"podName"`
-	ContainerName   string    `json:"containerName"`
-	Remediation     string    `json:"remediation"`
-	References      []string  `json:"references"`
+	CVEID           string   `json:"cveId"`
+	Title           string   `json:"title"`
+	Description     string   `json:"description"`
+	Severity        string   `json:"severity"`
+	CVSSScore       float64  `json:"cvssScore"`
+	CVSSVector      string   `json:"cvssVector"`
+	Published       string   `json:"published"`
+	LastModified    string   `json:"lastModified"`
+	AffectedImage   string   `json:"affectedImage"`
+	AffectedPackage string   `json:"affectedPackage"`
+	PackageVersion  string   `json:"packageVersion"`
+	Namespace       string   `json:"namespace"`
+	PodName         string   `json:"podName"`
+	ContainerName   string   `json:"containerName"`
+	Remediation     string   `json:"remediation"`
+	References      []string `json:"references"`
 }
 
 // VulnerabilityScanner handles NVD integration and vulnerability scanning
@@ -155,17 +155,17 @@ type VulnerabilityScanner struct {
 func NewVulnerabilityScanner(app *App) *VulnerabilityScanner {
 	cacheDir := filepath.Join(os.TempDir(), "kubegraf-nvd-cache")
 	os.MkdirAll(cacheDir, 0755)
-	
+
 	scanner := &VulnerabilityScanner{
 		app:      app,
 		cacheDir: cacheDir,
 		nvdCache: make(map[string]*NVDCVE),
 		apiKey:   os.Getenv("NVD_API_KEY"), // Optional API key for higher rate limits
 	}
-	
+
 	// Load existing cache on startup
 	scanner.loadCache()
-	
+
 	return scanner
 }
 
@@ -181,24 +181,24 @@ func (vs *VulnerabilityScanner) RefreshNVDData(ctx context.Context) error {
 	}
 
 	log.Printf("Refreshing NVD vulnerability data...")
-	
+
 	// Fetch recent CVEs (last 30 days)
 	// NVD API v2.0 uses ISO 8601 format: YYYY-MM-DDTHH:mm:ss.mmmZ or YYYY-MM-DDTHH:mm:ss.mmm-HH:mm
 	now := time.Now()
 	startDate := now.AddDate(0, 0, -30).UTC().Format("2006-01-02T15:04:05.000")
 	endDate := now.UTC().Format("2006-01-02T15:04:05.000")
-	
+
 	// Use the correct NVD API v2.0 endpoint - try with Z suffix first
-	url := fmt.Sprintf("https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=%sZ&pubEndDate=%sZ&resultsPerPage=2000", 
+	url := fmt.Sprintf("https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=%sZ&pubEndDate=%sZ&resultsPerPage=2000",
 		startDate, endDate)
-	
+
 	log.Printf("Fetching NVD data from: %s", url)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
-	
+
 	req.Header.Set("Accept", "application/json")
 	if vs.apiKey != "" {
 		req.Header.Set("apiKey", vs.apiKey)
@@ -231,7 +231,7 @@ func (vs *VulnerabilityScanner) RefreshNVDData(ctx context.Context) error {
 
 	vs.lastRefresh = time.Now()
 	log.Printf("Refreshed NVD data: %d CVEs cached", len(vs.nvdCache))
-	
+
 	return nil
 }
 
@@ -258,12 +258,12 @@ func (vs *VulnerabilityScanner) loadCache() error {
 		log.Printf("Error reading cache file: %v", err)
 		return err
 	}
-	
+
 	if err := json.Unmarshal(data, &vs.nvdCache); err != nil {
 		log.Printf("Error unmarshaling cache: %v", err)
 		return err
 	}
-	
+
 	log.Printf("Loaded %d CVEs from cache", len(vs.nvdCache))
 	return nil
 }
@@ -299,10 +299,10 @@ func (vs *VulnerabilityScanner) ScanCluster(ctx context.Context) ([]Vulnerabilit
 	for _, pod := range pods.Items {
 		for _, container := range pod.Spec.Containers {
 			image := container.Image
-			
+
 			// Extract image name and tag
 			imageName, imageTag := vs.parseImage(image)
-			
+
 			// Scan for known vulnerable images/packages
 			vulns := vs.scanImage(imageName, imageTag, pod.Namespace, pod.Name, container.Name)
 			vulnerabilities = append(vulnerabilities, vulns...)
@@ -331,17 +331,17 @@ func (vs *VulnerabilityScanner) scanImage(imageName, imageTag, namespace, podNam
 	// 1. Extract actual packages from the image
 	// 2. Match against CVE affected packages
 	// 3. Check package versions
-	
+
 	for cveID, cve := range vs.nvdCache {
 		// Get severity
 		severity := vs.getSeverity(cve)
 		score := vs.getCVSSScore(cve)
-		
+
 		// Filter by severity (only Critical and High for now)
 		if severity != "CRITICAL" && severity != "HIGH" {
 			continue
 		}
-		
+
 		// Check if CVE description mentions common vulnerable components
 		description := vs.getDescription(cve)
 		if vs.matchesImage(description, imageName) {
@@ -437,20 +437,20 @@ func (vs *VulnerabilityScanner) getReferences(cve *NVDCVE) []string {
 func (vs *VulnerabilityScanner) matchesImage(description, imageName string) bool {
 	desc := strings.ToLower(description)
 	img := strings.ToLower(imageName)
-	
+
 	// Common vulnerable components
 	vulnerableKeywords := []string{
 		"docker", "container", "kubernetes", "k8s",
 		"alpine", "ubuntu", "debian", "centos",
 		"nginx", "apache", "node", "python", "java",
 	}
-	
+
 	for _, keyword := range vulnerableKeywords {
 		if strings.Contains(desc, keyword) && strings.Contains(img, keyword) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -470,17 +470,17 @@ func (vs *VulnerabilityScanner) extractPackage(description string) string {
 func (vs *VulnerabilityScanner) StartBackgroundRefresh(ctx context.Context) {
 	// Load cache on startup
 	vs.loadCache()
-	
+
 	// Initial refresh
 	go func() {
 		if err := vs.RefreshNVDData(ctx); err != nil {
 			log.Printf("Failed to refresh NVD data: %v", err)
 		}
-		
+
 		// Refresh daily
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -493,4 +493,3 @@ func (vs *VulnerabilityScanner) StartBackgroundRefresh(ctx context.Context) {
 		}
 	}()
 }
-

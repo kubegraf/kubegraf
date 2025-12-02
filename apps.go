@@ -349,7 +349,7 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 			osType := runtime.GOOS
 			arch := runtime.GOARCH
-			
+
 			if !dockerAvailable {
 				dockerURL := "https://docs.docker.com/get-docker/"
 				if osType == "windows" {
@@ -357,7 +357,7 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 				} else if osType == "darwin" {
 					dockerURL = "https://www.docker.com/products/docker-desktop/"
 				}
-				
+
 				errorMsg := fmt.Sprintf("Docker is not installed or not running.\n\n"+
 					"Local clusters (k3d, kind, minikube) require Docker to be installed and running.\n\n"+
 					"Please install Docker Desktop:\n%s\n\n"+
@@ -365,9 +365,9 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 					"1. Start Docker Desktop\n"+
 					"2. Wait for Docker to be ready\n"+
 					"3. Try installing the cluster again", dockerURL)
-				
+
 				fmt.Printf("❌ %s\n", errorMsg)
-				
+
 				// Try to send error to frontend via WebSocket if possible
 				// For now, the error will be visible in server logs
 				// The frontend will show a generic error from the API response
@@ -417,8 +417,9 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 			case "kind":
 				// Check if kind is installed
-				kindPath := "kind"
+				var kindPath string
 				if _, err := exec.LookPath("kind"); err != nil {
+					// kind is not in PATH, need to download it
 					// Install kind based on OS
 					if osType == "windows" {
 						// Windows: Download .exe
@@ -448,7 +449,7 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 						cmd = exec.CommandContext(ctx, kindPath, "create", "cluster", "--name", clusterName)
 					}
 				} else {
-					// kind is already installed
+					// kind is already installed, use it from PATH
 					cmd = exec.CommandContext(ctx, "kind", "create", "cluster", "--name", clusterName)
 				}
 
@@ -502,7 +503,7 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					errorOutput := string(output)
 					fmt.Printf("❌ Local cluster install error for %s: %v\nOutput: %s\n", app.Name, err, errorOutput)
-					
+
 					// Check for common errors and provide helpful messages
 					if strings.Contains(errorOutput, "docker") || strings.Contains(errorOutput, "Cannot connect to the Docker daemon") {
 						fmt.Printf("💡 Tip: Make sure Docker Desktop is running and try again.\n")
@@ -877,8 +878,8 @@ func (ws *WebServer) handleLocalClusters(w http.ResponseWriter, r *http.Request)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
+		"success":  true,
 		"clusters": clusters,
-		"total":   len(clusters),
+		"total":    len(clusters),
 	})
 }
