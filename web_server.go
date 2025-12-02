@@ -161,11 +161,13 @@ type WebServer struct {
 	costCacheMu   sync.RWMutex
 	// Event monitor integration
 	eventMonitorStarted bool
+	// MCP Server for AI agents
+	mcpServer *MCPServer
 }
 
 // NewWebServer creates a new web server
 func NewWebServer(app *App) *WebServer {
-	return &WebServer{
+	ws := &WebServer{
 		app:          app,
 		clients:      make(map[*websocket.Conn]bool),
 		portForwards: make(map[string]*PortForwardSession),
@@ -174,6 +176,9 @@ func NewWebServer(app *App) *WebServer {
 		costCache:    make(map[string]*ClusterCost),
 		costCacheTime: make(map[string]time.Time),
 	}
+	// Initialize MCP server for AI agents
+	ws.mcpServer = NewMCPServer(app)
+	return ws
 }
 
 // Start starts the web server
