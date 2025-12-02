@@ -23,6 +23,7 @@ import Drift from './routes/Drift';
 import Events from './routes/Events';
 import MonitoredEvents from './routes/MonitoredEvents';
 import Connectors from './routes/Connectors';
+import MCPAgents from './routes/MCPAgents';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Apps from './routes/Apps';

@@ -332,6 +332,11 @@ func (ws *WebServer) Start(port int) error {
 	// Event monitoring
 	ws.RegisterEventHandlers()
 
+	// MCP (Model Context Protocol) Server for AI agents
+	if ws.mcpServer != nil {
+		http.HandleFunc("/api/mcp", ws.mcpServer.HandleRequest)
+	}
+
 	// Connectors
 	ws.RegisterConnectorHandlers()
 
