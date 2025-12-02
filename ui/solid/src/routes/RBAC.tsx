@@ -1,0 +1,416 @@
+import { Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
+import { api } from '../services/api';
+import { namespace } from '../stores/cluster';
+import { addNotification } from '../stores/ui';
+import Modal from '../components/Modal';
+import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
+import ActionMenu from '../components/ActionMenu';
+
+interface Role {
+  name: string;
+  namespace: string;
+  rules: number;
+  age: string;
+}
+
+interface RoleBinding {
+  name: string;
+  namespace: string;
+  roleRef: string;
+  subjects: number;
+  age: string;
+}
+
+interface ClusterRole {
+  name: string;
+  rules: number;
+  age: string;
+}
+
+interface ClusterRoleBinding {
+  name: string;
+  roleRef: string;
+  subjects: number;
+  age: string;
+}
+
+const RBAC: Component = () => {
+  const [activeTab, setActiveTab] = createSignal<'roles' | 'rolebindings' | 'clusterroles' | 'clusterrolebindings'>('roles');
+  const [selectedRole, setSelectedRole] = createSignal<any>(null);
+  const [selectedRB, setSelectedRB] = createSignal<any>(null);
+  const [selectedCR, setSelectedCR] = createSignal<any>(null);
+  const [selectedCRB, setSelectedCRB] = createSignal<any>(null);
+  const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
+  const [yamlContent, setYamlContent] = createSignal('');
+  const [yamlLoading, setYamlLoading] = createSignal(false);
+
+  // Fetch Roles
+  const [roles] = createResource(
+    () => namespace(),
+    async (ns) => {
+      try {
+        const nsParam = ns === '_all' ? undefined : ns;
+        const response = await fetch(`/api/rbac/roles${nsParam ? `?namespace=${nsParam}` : ''}`);
+        if (!response.ok) throw new Error('Failed to fetch Roles');
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
+      } catch (err) {
+        console.error('Failed to fetch Roles:', err);
+        return [];
+      }
+    }
+  );
+
+  // Fetch RoleBindings
+  const [roleBindings] = createResource(
+    () => namespace(),
+    async (ns) => {
+      try {
+        const nsParam = ns === '_all' ? undefined : ns;
+        const response = await fetch(`/api/rbac/rolebindings${nsParam ? `?namespace=${nsParam}` : ''}`);
+        if (!response.ok) throw new Error('Failed to fetch RoleBindings');
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
+      } catch (err) {
+        console.error('Failed to fetch RoleBindings:', err);
+        return [];
+      }
+    }
+  );
+
+  // Fetch ClusterRoles
+  const [clusterRoles] = createResource(async () => {
+    try {
+      const response = await fetch('/api/rbac/clusterroles');
+      if (!response.ok) throw new Error('Failed to fetch ClusterRoles');
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.error('Failed to fetch ClusterRoles:', err);
+      return [];
+    }
+  });
+
+  // Fetch ClusterRoleBindings
+  const [clusterRoleBindings] = createResource(async () => {
+    try {
+      const response = await fetch('/api/rbac/clusterrolebindings');
+      if (!response.ok) throw new Error('Failed to fetch ClusterRoleBindings');
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.error('Failed to fetch ClusterRoleBindings:', err);
+      return [];
+    }
+  });
+
+  return (
+    <div class="space-y-6 p-6" style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
+      {/* Header */}
+      <div class="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>RBAC</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>Manage Roles, RoleBindings, ClusterRoles, and ClusterRoleBindings</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div class="flex gap-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
+        <button
+          onClick={() => setActiveTab('roles')}
+          class={`px-4 py-2 font-medium transition-colors ${
+            activeTab() === 'roles' ? 'border-b-2' : ''
+          }`}
+          style={{
+            color: activeTab() === 'roles' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom-color': activeTab() === 'roles' ? 'var(--accent-primary)' : 'transparent',
+          }}
+        >
+          Roles ({roles()?.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab('rolebindings')}
+          class={`px-4 py-2 font-medium transition-colors ${
+            activeTab() === 'rolebindings' ? 'border-b-2' : ''
+          }`}
+          style={{
+            color: activeTab() === 'rolebindings' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom-color': activeTab() === 'rolebindings' ? 'var(--accent-primary)' : 'transparent',
+          }}
+        >
+          RoleBindings ({roleBindings()?.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab('clusterroles')}
+          class={`px-4 py-2 font-medium transition-colors ${
+            activeTab() === 'clusterroles' ? 'border-b-2' : ''
+          }`}
+          style={{
+            color: activeTab() === 'clusterroles' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom-color': activeTab() === 'clusterroles' ? 'var(--accent-primary)' : 'transparent',
+          }}
+        >
+          ClusterRoles ({clusterRoles()?.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab('clusterrolebindings')}
+          class={`px-4 py-2 font-medium transition-colors ${
+            activeTab() === 'clusterrolebindings' ? 'border-b-2' : ''
+          }`}
+          style={{
+            color: activeTab() === 'clusterrolebindings' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom-color': activeTab() === 'clusterrolebindings' ? 'var(--accent-primary)' : 'transparent',
+          }}
+        >
+          ClusterRoleBindings ({clusterRoleBindings()?.length || 0})
+        </button>
+      </div>
+
+      {/* Content */}
+      <Show when={activeTab() === 'roles'}>
+        <div class="card overflow-hidden">
+          <Show when={roles.loading}>
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading Roles...</span>
+            </div>
+          </Show>
+          <Show when={!roles.loading && (!roles() || roles().length === 0)}>
+            <div class="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+              <p>No Roles found</p>
+            </div>
+          </Show>
+          <Show when={!roles.loading && roles() && roles().length > 0}>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead style={{ background: 'var(--bg-secondary)' }}>
+                  <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Namespace</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Rules</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={roles()}>
+                    {(role: any) => (
+                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{role.name}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{role.namespace || 'default'}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{role.rules || 0}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{role.age || 'N/A'}</td>
+                        <td class="px-4 py-3 text-sm">
+                          <ActionMenu
+                            actions={[
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRole(role); loadYAML('role', role.name, role.namespace); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRole(role); loadYAML('role', role.name, role.namespace); setShowEdit(true); } },
+                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('role', role.name, role.namespace), variant: 'danger', divider: true },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={activeTab() === 'rolebindings'}>
+        <div class="card overflow-hidden">
+          <Show when={roleBindings.loading}>
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading RoleBindings...</span>
+            </div>
+          </Show>
+          <Show when={!roleBindings.loading && (!roleBindings() || roleBindings().length === 0)}>
+            <div class="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+              <p>No RoleBindings found</p>
+            </div>
+          </Show>
+          <Show when={!roleBindings.loading && roleBindings() && roleBindings().length > 0}>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead style={{ background: 'var(--bg-secondary)' }}>
+                  <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Namespace</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Role Ref</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Subjects</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={roleBindings()}>
+                    {(rb: any) => (
+                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{rb.name}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.namespace || 'default'}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.roleRef || 'N/A'}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.subjects || 0}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.age || 'N/A'}</td>
+                        <td class="px-4 py-3 text-sm">
+                          <ActionMenu
+                            actions={[
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRB(rb); loadYAML('rb', rb.name, rb.namespace); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRB(rb); loadYAML('rb', rb.name, rb.namespace); setShowEdit(true); } },
+                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('rb', rb.name, rb.namespace), variant: 'danger', divider: true },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={activeTab() === 'clusterroles'}>
+        <div class="card overflow-hidden">
+          <Show when={clusterRoles.loading}>
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading ClusterRoles...</span>
+            </div>
+          </Show>
+          <Show when={!clusterRoles.loading && (!clusterRoles() || clusterRoles().length === 0)}>
+            <div class="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+              <p>No ClusterRoles found</p>
+            </div>
+          </Show>
+          <Show when={!clusterRoles.loading && clusterRoles() && clusterRoles().length > 0}>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead style={{ background: 'var(--bg-secondary)' }}>
+                  <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Rules</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={clusterRoles()}>
+                    {(cr: any) => (
+                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{cr.name}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{cr.rules || 0}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{cr.age || 'N/A'}</td>
+                        <td class="px-4 py-3 text-sm">
+                          <ActionMenu
+                            actions={[
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCR(cr); loadYAML('cr', cr.name); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCR(cr); loadYAML('cr', cr.name); setShowEdit(true); } },
+                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('cr', cr.name), variant: 'danger', divider: true },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={activeTab() === 'clusterrolebindings'}>
+        <div class="card overflow-hidden">
+          <Show when={clusterRoleBindings.loading}>
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading ClusterRoleBindings...</span>
+            </div>
+          </Show>
+          <Show when={!clusterRoleBindings.loading && (!clusterRoleBindings() || clusterRoleBindings().length === 0)}>
+            <div class="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+              <p>No ClusterRoleBindings found</p>
+            </div>
+          </Show>
+          <Show when={!clusterRoleBindings.loading && clusterRoleBindings() && clusterRoleBindings().length > 0}>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead style={{ background: 'var(--bg-secondary)' }}>
+                  <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Role Ref</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Subjects</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={clusterRoleBindings()}>
+                    {(crb: any) => (
+                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{crb.name}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{crb.roleRef || 'N/A'}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{crb.subjects || 0}</td>
+                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{crb.age || 'N/A'}</td>
+                        <td class="px-4 py-3 text-sm">
+                          <ActionMenu
+                            actions={[
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCRB(crb); loadYAML('crb', crb.name); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCRB(crb); loadYAML('crb', crb.name); setShowEdit(true); } },
+                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('crb', crb.name), variant: 'danger', divider: true },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* YAML Viewer Modal */}
+      <Show when={showYaml()}>
+        <Modal
+          size="large"
+          title={`View YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
+          onClose={() => { setShowYaml(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+        >
+          <Show when={yamlLoading()} fallback={<YAMLViewer content={yamlContent()} />}>
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading YAML...</span>
+            </div>
+          </Show>
+        </Modal>
+      </Show>
+
+      {/* YAML Editor Modal */}
+      <Show when={showEdit()}>
+        <Modal
+          size="large"
+          title={`Edit YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
+          onClose={() => { setShowEdit(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+        >
+          <Show when={yamlLoading()} fallback={<YAMLEditor content={yamlContent()} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />}>
+            <div class="p-8 text-center">
+              <div class="spinner mx-auto mb-2" />
+              <span style={{ color: 'var(--text-muted)' }}>Loading YAML...</span>
+            </div>
+          </Show>
+        </Modal>
+      </Show>
+    </div>
+  );
+};
+
+export default RBAC;
+
