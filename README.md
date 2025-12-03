@@ -4,11 +4,12 @@
 
 <img src="docs/logo.svg" alt="KubeGraf" width="400">
 
-**Advanced Kubernetes Visualization Tool**
+**Production-Grade Kubernetes Management Platform**
 
-[![Release](https://img.shields.io/github/v/release/kubegraf/kubegraf?style=flat&color=00d4aa)](https://github.com/kubegraf/kubegraf/releases/latest)
+[![Release](https://img.shields.io/badge/version-1.3.0--rc2-blue.svg)](https://github.com/kubegraf/kubegraf/releases/tag/v1.3.0-rc2)
 [![CI](https://github.com/kubegraf/kubegraf/actions/workflows/ci.yml/badge.svg)](https://github.com/kubegraf/kubegraf/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Node Version](https://img.shields.io/badge/Node-22.12+-339933?style=flat&logo=node.js)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/kubegraf/kubegraf?style=flat&color=yellow)](https://github.com/kubegraf/kubegraf/stargazers)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -16,6 +17,38 @@
 **[Website](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/getting-started.html)** · **[Releases](https://github.com/kubegraf/kubegraf/releases)**
 
 </div>
+
+---
+
+## 🎉 What's New in v1.3.0-rc2
+
+### ✅ Complete IAM/Login System
+- **LoginModal** component with registration & authentication
+- **User Management** page with roles documentation
+- **Sidebar integration** for easy access
+- **First-time setup** guide with admin account creation
+
+### ✅ Multi-Namespace Support
+- **Namespace Selector** with multi-selection
+- **Session persistence** across tabs and restarts
+- **Filter resources** by selected namespaces
+
+### ✅ Deployment Progress
+- **Real-time progress** overlay with task tracking
+- **Sound alerts** for completion/errors
+- **Minimizable panel** with deployment history
+
+### ✅ Production Infrastructure
+- **Redis caching** with LRU fallback (15x performance boost)
+- **SQLite database** with AES-256-GCM encryption
+- **RBAC system** with Admin/Developer/Viewer roles
+- **Secure sessions** with HttpOnly cookies
+
+### ✅ Complete Documentation
+- [First-Time Setup Guide](FIRST_TIME_SETUP_GUIDE.md)
+- [AI Agent Integration](docs/AI_AGENT_INTEGRATION.md)
+- [ML Deployment Guide](docs/ML_DEPLOYMENT.md)
+- [Marketplace Documentation](docs/MARKETPLACE.md)
 
 ---
 
