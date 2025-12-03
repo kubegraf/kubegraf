@@ -84,9 +84,24 @@ const UserManagement: Component = () => {
             when={currentUser()}
             fallback={
               <button
-                onClick={() => setShowLoginModal(true)}
-                class="px-6 py-2 rounded-lg font-medium"
-                style={{ background: 'var(--accent-primary)', color: 'white' }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Login button clicked! Current state:', showLoginModal());
+                  setShowLoginModal(true);
+                  console.log('After setState:', showLoginModal());
+                  setTimeout(() => {
+                    console.log('After timeout:', showLoginModal());
+                  }, 0);
+                }}
+                class="px-6 py-2 rounded-lg font-medium transition-all hover:opacity-90"
+                style={{
+                  background: 'var(--accent-primary)',
+                  color: 'white',
+                  cursor: 'pointer',
+                  border: 'none'
+                }}
+                type="button"
               >
                 🔑 Login
               </button>
@@ -332,12 +347,17 @@ const UserManagement: Component = () => {
         </div>
       </div>
 
-      {/* Login Modal */}
-      <LoginModal
-        isOpen={showLoginModal()}
-        onClose={() => setShowLoginModal(false)}
-        onLoginSuccess={handleLoginSuccess}
-      />
+      {/* Login Modal - Always rendered, visibility controlled by isOpen */}
+      <Show when={true}>
+        <LoginModal
+          isOpen={showLoginModal()}
+          onClose={() => {
+            console.log('Closing login modal');
+            setShowLoginModal(false);
+          }}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      </Show>
     </div>
   );
 };

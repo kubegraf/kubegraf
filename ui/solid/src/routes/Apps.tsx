@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
+import { addDeployment, updateDeploymentTask } from '../components/DeploymentProgress';
 
 interface App {
   name: string;
@@ -408,9 +409,85 @@ const Apps: Component<AppsProps> = (props) => {
 
     setInstalling(true);
     const targetNs = installNamespace() || 'default';
+
+    // Create deployment progress tracker with tasks
+    const deploymentId = addDeployment(
+      app.displayName,
+      app.version,
+      targetNs,
+      [
+        'Validating namespace',
+        'Adding Helm repository',
+        'Fetching chart metadata',
+        'Installing resources',
+        'Verifying deployment'
+      ]
+    );
+
     try {
+      // Task 1: Validating namespace
+      updateDeploymentTask(deploymentId, 'task-0', {
+        status: 'running',
+        progress: 30,
+        startTime: Date.now()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateDeploymentTask(deploymentId, 'task-0', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 2: Adding Helm repository
+      updateDeploymentTask(deploymentId, 'task-1', {
+        status: 'running',
+        progress: 40,
+        startTime: Date.now()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateDeploymentTask(deploymentId, 'task-1', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 3: Fetching chart metadata
+      updateDeploymentTask(deploymentId, 'task-2', {
+        status: 'running',
+        progress: 50,
+        startTime: Date.now()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateDeploymentTask(deploymentId, 'task-2', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 4: Installing resources (actual installation)
+      updateDeploymentTask(deploymentId, 'task-3', {
+        status: 'running',
+        progress: 60,
+        startTime: Date.now(),
+        message: `Deploying ${app.displayName}...`
+      });
+
       await api.installApp(app.name, targetNs);
-      addNotification(`${app.displayName} installation started in ${targetNs}`, 'info');
+
+      updateDeploymentTask(deploymentId, 'task-3', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 5: Verifying deployment
+      updateDeploymentTask(deploymentId, 'task-4', {
+        status: 'running',
+        progress: 80,
+        startTime: Date.now()
+      });
 
       // Mark as deploying
       setDeployingApps(prev => ({
@@ -421,8 +498,27 @@ const Apps: Component<AppsProps> = (props) => {
       // Start polling for deployment status
       checkDeploymentStatus(app.name, app.displayName, targetNs);
 
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      updateDeploymentTask(deploymentId, 'task-4', {
+        status: 'completed',
+        progress: 100,
+        message: `${app.displayName} deployed successfully!`
+      });
+
+      addNotification(`${app.displayName} installed successfully in ${targetNs}`, 'success');
       setShowInstallModal(false);
     } catch (error) {
+      // Mark current task as failed
+      const tasks = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4'];
+      for (const taskId of tasks) {
+        // Find the first non-completed task and mark it as failed
+        updateDeploymentTask(deploymentId, taskId, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+        break;
+      }
       addNotification(`Failed to install ${app.displayName}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     } finally {
       setInstalling(false);

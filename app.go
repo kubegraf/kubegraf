@@ -221,6 +221,10 @@ func (a *App) Initialize() error {
 
 	// Initialize connector manager
 	a.connectorManager = NewConnectorManager(a)
+	
+	// Initialize SRE Agent
+	a.sreAgent = NewSREAgent(a)
+	
 	// Start monitoring (will wait for cluster connection)
 	a.eventMonitor.Start(a.ctx)
 

@@ -169,27 +169,37 @@ const Services: Component = () => {
     if (!svc) return;
     try {
       await api.startPortForward('service', svc.name, svc.namespace, localPort(), remotePort());
+      addNotification(`✅ Port forward started: localhost:${localPort()} → ${svc.name}:${remotePort()}`, 'success');
       setShowPortForward(false);
       refetchPF();
     } catch (error) {
       console.error('Failed to start port forward:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to start port forward: ${errorMsg}`, 'error');
     }
   };
 
   const stopPortForward = async (pf: PortForward) => {
     try {
       await api.stopPortForward(pf.id);
+      addNotification(`✅ Port forward stopped: ${pf.name}`, 'success');
       refetchPF();
     } catch (error) {
       console.error('Failed to stop port forward:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to stop port forward: ${errorMsg}`, 'error');
     }
   };
 
   const openPortForward = (svc: Service) => {
     setSelected(svc);
-    const portMatch = svc.ports?.match(/(\d+)/);
-    if (portMatch) {
-      setRemotePort(parseInt(portMatch[1]));
+    // Safely parse port from ports string
+    const portsStr = svc.ports;
+    if (typeof portsStr === 'string' && portsStr.trim() !== '' && portsStr !== '-') {
+      const portMatch = portsStr.match(/(\d+)/);
+      if (portMatch) {
+        setRemotePort(parseInt(portMatch[1]));
+      }
     }
     setShowPortForward(true);
   };

@@ -1,6 +1,7 @@
 import { Component, For, Show, createResource, createSignal, createEffect, onMount, createMemo } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
+import { settings } from '../stores/settings';
 
 interface Finding {
   rule: string;
@@ -30,18 +31,15 @@ const Security: Component = () => {
 
   // Check if features are enabled
   const isDiagnosticsEnabled = () => {
-    const saved = localStorage.getItem('kubegraf-enable-diagnostics');
-    return saved === null || saved === 'true'; // Default to enabled
+    return settings().enableDiagnostics;
   };
 
   const isCVEEnabled = () => {
-    const saved = localStorage.getItem('kubegraf-enable-cve-vulnerabilities');
-    return saved === null || saved === 'true'; // Default to enabled
+    return settings().enableCVEVulnerabilities;
   };
 
   const isSecurityChecksEnabled = () => {
-    const saved = localStorage.getItem('kubegraf-enable-security-checks');
-    return saved === null || saved === 'true'; // Default to enabled
+    return settings().enableSecurityChecks;
   };
 
   const [categories] = createResource(api.getDiagnosticsCategories);

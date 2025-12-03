@@ -1,4 +1,5 @@
 import { Component, createSignal, Show } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { api } from '../services/api';
 import { addNotification } from '../stores/ui';
 
@@ -80,14 +81,20 @@ const LoginModal: Component<LoginModalProps> = (props) => {
     }
   };
 
-  if (!props.isOpen) return null;
+  console.log('[LoginModal] Render called - isOpen:', props.isOpen);
 
   return (
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0, 0, 0, 0.7)' }}
-      onClick={props.onClose}
-    >
+    <Show when={props.isOpen}>
+      <Portal>
+        <div
+          class="fixed inset-0 flex items-center justify-center"
+          style={{
+            background: 'rgba(0, 0, 0, 0.7)',
+            'z-index': '9999',
+            'pointer-events': 'auto'
+          }}
+          onClick={props.onClose}
+        >
       <div
         class="card p-8 max-w-md w-full mx-4"
         style={{ background: 'var(--bg-card)' }}
@@ -246,6 +253,8 @@ const LoginModal: Component<LoginModalProps> = (props) => {
         </Show>
       </div>
     </div>
+      </Portal>
+    </Show>
   );
 };
 

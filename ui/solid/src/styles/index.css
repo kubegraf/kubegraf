@@ -1,3 +1,6 @@
+/* UI/UX Improvements */
+@import './improvements.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

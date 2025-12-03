@@ -103,6 +103,8 @@ type App struct {
 	eventMonitor *EventMonitor
 	// Connectors
 	connectorManager *ConnectorManager
+	// SRE Agent
+	sreAgent *SREAgent
 }
 
 // TableData holds the current table information

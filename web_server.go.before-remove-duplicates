@@ -1493,55 +1493,55 @@ func matchesSelector(selector, labels map[string]string) bool {
 
 
 // handleConfigMaps returns configmap list
-// func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
-// 	namespace := r.URL.Query().Get("namespace")
-// 	if !r.URL.Query().Has("namespace") {
-// 		namespace = ws.app.namespace
-// 	}
-// 	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 
-// 	cmList := []map[string]interface{}{}
-// 	for _, cm := range configmaps.Items {
-// 		cmList = append(cmList, map[string]interface{}{
-// 			"name":      cm.Name,
-// 			"data":      len(cm.Data),
-// 			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
-// 			"namespace": cm.Namespace,
-// 		})
-// 	}
-// 
-// 	json.NewEncoder(w).Encode(cmList)
-// }
+func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-// // handleSecrets returns secrets list
-// func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
-// 	namespace := r.URL.Query().Get("namespace")
-// 	if !r.URL.Query().Has("namespace") {
-// 		namespace = ws.app.namespace
-// 	}
-// 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 
-// 	secretList := []map[string]interface{}{}
-// 	for _, secret := range secrets.Items {
-// 		secretList = append(secretList, map[string]interface{}{
-// 			"name":      secret.Name,
-// 			"type":      string(secret.Type),
-// 			"data":      len(secret.Data),
-// 			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
-// 			"namespace": secret.Namespace,
-// 		})
-// 	}
-// 
-// 	json.NewEncoder(w).Encode(secretList)
-// }
+	cmList := []map[string]interface{}{}
+	for _, cm := range configmaps.Items {
+		cmList = append(cmList, map[string]interface{}{
+			"name":      cm.Name,
+			"data":      len(cm.Data),
+			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
+			"namespace": cm.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(cmList)
+}
+
+// handleSecrets returns secrets list
+func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	secretList := []map[string]interface{}{}
+	for _, secret := range secrets.Items {
+		secretList = append(secretList, map[string]interface{}{
+			"name":      secret.Name,
+			"type":      string(secret.Type),
+			"data":      len(secret.Data),
+			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
+			"namespace": secret.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(secretList)
+}
 
 // handleResourceMap returns enhanced topology data
 

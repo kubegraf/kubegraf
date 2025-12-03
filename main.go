@@ -106,8 +106,31 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
+		// TUI mode - initialize cluster connection first
+		fmt.Println("🔌 Connecting to Kubernetes cluster...")
+		if err := app.Initialize(); err != nil {
+			fmt.Fprintf(os.Stderr, "\n❌ Failed to connect to cluster: %v\n\n", err)
+			fmt.Println("Please ensure:")
+			fmt.Println("  • kubeconfig is configured (~/.kube/config)")
+			fmt.Println("  • kubectl can access the cluster")
+			fmt.Println("  • You have proper permissions")
+			fmt.Println("\nTry running: kubectl cluster-info")
+			os.Exit(1)
+		}
+		fmt.Println("✅ Connected successfully!")
+		fmt.Println()
+
 		// Run TUI application
 		if err := app.Run(); err != nil {
+			// Check if it's a TTY error
+			if strings.Contains(err.Error(), "/dev/tty") || strings.Contains(err.Error(), "device not configured") {
+				fmt.Fprintf(os.Stderr, "\n❌ Terminal UI requires an interactive terminal\n\n")
+				fmt.Println("TUI cannot run in background. Please run directly in your terminal:")
+				fmt.Println("  ./kubegraf")
+				fmt.Println("\nOr use web UI instead:")
+				fmt.Println("  ./kubegraf web --port=3001")
+				os.Exit(1)
+			}
 			fmt.Fprintf(os.Stderr, "Application error: %v\n", err)
 			os.Exit(1)
 		}
