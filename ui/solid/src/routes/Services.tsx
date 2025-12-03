@@ -33,6 +33,7 @@ type SortDirection = 'asc' | 'desc';
 
 const Services: Component = () => {
   const [search, setSearch] = createSignal('');
+  const [typeFilter, setTypeFilter] = createSignal('all');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
   const [currentPage, setCurrentPage] = createSignal(1);
@@ -88,6 +89,12 @@ const Services: Component = () => {
   const filteredAndSorted = createMemo(() => {
     let all = services() || [];
     const query = search().toLowerCase();
+    const type = typeFilter();
+
+    // Filter by type
+    if (type !== 'all') {
+      all = all.filter((s: Service) => s.type === type);
+    }
 
     // Filter by search
     if (query) {
@@ -226,21 +233,49 @@ const Services: Component = () => {
         </div>
       </div>
 
-      {/* Status summary */}
+      {/* Status summary with clickable filters */}
       <div class="flex flex-wrap items-center gap-3">
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          style={{
+            'border-left': typeFilter() === 'all' ? '3px solid var(--accent-primary)' : '3px solid transparent',
+            opacity: typeFilter() === 'all' ? 1 : 0.7
+          }}
+          onClick={() => { setTypeFilter('all'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
           <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          style={{
+            'border-left': typeFilter() === 'ClusterIP' ? '3px solid var(--success-color)' : '3px solid transparent',
+            opacity: typeFilter() === 'ClusterIP' ? 1 : 0.7
+          }}
+          onClick={() => { setTypeFilter('ClusterIP'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">ClusterIP</span>
           <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().clusterIP}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          style={{
+            'border-left': typeFilter() === 'NodePort' ? '3px solid var(--warning-color)' : '3px solid transparent',
+            opacity: typeFilter() === 'NodePort' ? 1 : 0.7
+          }}
+          onClick={() => { setTypeFilter('NodePort'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">NodePort</span>
           <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().nodePort}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #3b82f6' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          style={{
+            'border-left': typeFilter() === 'LoadBalancer' ? '3px solid #3b82f6' : '3px solid transparent',
+            opacity: typeFilter() === 'LoadBalancer' ? 1 : 0.7
+          }}
+          onClick={() => { setTypeFilter('LoadBalancer'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">LoadBalancer</span>
           <span class="text-xl font-bold" style={{ color: '#3b82f6' }}>{statusCounts().loadBalancer}</span>
         </div>

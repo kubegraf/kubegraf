@@ -409,7 +409,7 @@ const Settings: Component = () => {
           badgeColor: 'cyan',
         },
         {
-          id: 'showAIAgentsMenu',
+          id: 'showMCPAgentsMenu',
           label: 'Show AI Agents Menu',
           description: 'Display AI Agents in Integrations section',
           type: 'toggle',

@@ -146,7 +146,7 @@ const views: Record<string, Component> = {
   rollouts: Rollouts,
   storage: Storage,
   rbac: RBAC,
-  networkpolicies: NetworkPolicies,  terminal: Dashboard, // Terminal opens modal, not a view
+  terminal: Dashboard, // Terminal opens modal, not a view
 };
 
 const App: Component = () => {

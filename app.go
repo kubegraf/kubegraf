@@ -224,8 +224,9 @@ func (a *App) Initialize() error {
 	// Start monitoring (will wait for cluster connection)
 	a.eventMonitor.Start(a.ctx)
 
-	// Setup UI
-	a.setupUI()
+	// Setup UI - only for TUI mode, not for web mode
+	// Web mode doesn't need TUI components
+	// This will be called separately when running TUI mode
 
 	return nil
 }
@@ -277,8 +278,11 @@ func (a *App) GetCurrentContext() string {
 	return a.contextManager.CurrentContext
 }
 
-// Run starts the application
+// Run starts the application (TUI mode only)
 func (a *App) Run() error {
+	// Setup UI for TUI mode
+	a.setupUI()
+
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

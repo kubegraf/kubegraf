@@ -599,19 +599,70 @@ const Header: Component = () => {
         </button>
 
         {/* Cloud Provider Badge - Far right */}
-        <div
-          class="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-          style={{
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border-color)',
-          }}
-          title={`${cloudInfo()?.displayName || 'Cloud'} - ${cloudInfo()?.region || ''}`}
-        >
-          {getCloudLogo()()}
-          <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            {cloudInfo.loading ? '...' : getProviderShortName()}
-          </span>
-        </div>
+        <Show when={cloudInfo() && !cloudInfo.loading} fallback={
+          <div
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+            }}
+            title="Loading cloud provider info..."
+          >
+            {getCloudLogo()()}
+            <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              ...
+            </span>
+          </div>
+        }>
+          {(() => {
+            const info = cloudInfo();
+            const hasConsoleUrl = info?.consoleUrl && info.consoleUrl.trim() !== '';
+
+            if (hasConsoleUrl) {
+              // Cloud provider with console URL - make it clickable
+              return (
+                <button
+                  onClick={() => {
+                    if (info.consoleUrl) {
+                      window.open(info.consoleUrl, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  title={`Click to open ${info?.displayName || 'Cloud'} Console - ${info?.region || ''}`}
+                >
+                  {getCloudLogo()()}
+                  <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {getProviderShortName()}
+                  </span>
+                  <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </button>
+              );
+            } else {
+              // Local cluster - show badge but not clickable
+              return (
+                <div
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg opacity-90"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  title={`${info?.displayName || 'Local'} Cluster - ${info?.region || ''} (no cloud console available)`}
+                >
+                  {getCloudLogo()()}
+                  <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {getProviderShortName()}
+                  </span>
+                </div>
+              );
+            }
+          })()}
+        </Show>
       </div>
 
       {/* Local Terminal Modal */}
