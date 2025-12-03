@@ -19,16 +19,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
-
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
-	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 // AppDefinition represents an app in the marketplace
@@ -331,355 +325,419 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle local cluster installers differently
-	if app.ChartRepo == "local-cluster" {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-			defer cancel()
-
-			// Check for Docker/container runtime first
-			dockerAvailable := false
-			if _, err := exec.LookPath("docker"); err == nil {
-				// Check if Docker daemon is running
-				checkCmd := exec.CommandContext(ctx, "docker", "info")
-				if err := checkCmd.Run(); err == nil {
-					dockerAvailable = true
-				}
-			}
-
-			osType := runtime.GOOS
-			arch := runtime.GOARCH
-
-			if !dockerAvailable {
-				dockerURL := "https://docs.docker.com/get-docker/"
-				if osType == "windows" {
-					dockerURL = "https://www.docker.com/products/docker-desktop/"
-				} else if osType == "darwin" {
-					dockerURL = "https://www.docker.com/products/docker-desktop/"
-				}
-
-				errorMsg := fmt.Sprintf("Docker is not installed or not running.\n\n"+
-					"Local clusters (k3d, kind, minikube) require Docker to be installed and running.\n\n"+
-					"Please install Docker Desktop:\n%s\n\n"+
-					"After installing Docker, please:\n"+
-					"1. Start Docker Desktop\n"+
-					"2. Wait for Docker to be ready\n"+
-					"3. Try installing the cluster again", dockerURL)
-
-				fmt.Printf("❌ %s\n", errorMsg)
-
-				// Try to send error to frontend via WebSocket if possible
-				// For now, the error will be visible in server logs
-				// The frontend will show a generic error from the API response
-				return
-			}
-
-			var cmd *exec.Cmd
-			// Use custom cluster name if provided, otherwise default
-			clusterName := req.ClusterName
-			if clusterName == "" {
-				clusterName = "kubegraf-cluster"
-			}
-
-			switch app.Name {
-			case "k3d":
-				// Check if k3d is installed
-				k3dPath := "k3d"
-				if _, err := exec.LookPath("k3d"); err != nil {
-					// Install k3d based on OS
-					if osType == "windows" {
-						// Windows: Use PowerShell to install
-						installCmd := exec.CommandContext(ctx, "powershell", "-Command",
-							"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -UseBasicParsing | Invoke-Expression")
-						if err := installCmd.Run(); err != nil {
-							fmt.Printf("Failed to install k3d: %v\n", err)
-							return
-						}
-					} else {
-						// macOS/Linux: Use bash script
-						installCmd := exec.CommandContext(ctx, "sh", "-c",
-							"curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash")
-						if err := installCmd.Run(); err != nil {
-							fmt.Printf("Failed to install k3d: %v\n", err)
-							return
-						}
-					}
-				}
-				// Create lightweight single-node k3d cluster
-				// Note: k3d doesn't set Docker resource limits by default, so it uses all available resources.
-				// To limit resources, configure Docker Desktop: Settings > Resources > Advanced
-				// For a lightweight cluster, we create a single-node setup (no agents)
-				cmd = exec.CommandContext(ctx, k3dPath, "cluster", "create", clusterName,
-					"--agents", "0", // Single node cluster (no agent nodes) - reduces resource usage
-					"--port", "8080:80@loadbalancer",
-					"--port", "8443:443@loadbalancer",
-					"--wait")
-
-			case "kind":
-				// Check if kind is installed
-				var kindPath string
-				if _, err := exec.LookPath("kind"); err != nil {
-					// kind is not in PATH, need to download it
-					// Install kind based on OS
-					if osType == "windows" {
-						// Windows: Download .exe
-						kindPath = filepath.Join(os.TempDir(), "kind.exe")
-						downloadCmd := exec.CommandContext(ctx, "powershell", "-Command",
-							fmt.Sprintf("Invoke-WebRequest -Uri https://kind.sigs.k8s.io/dl/v0.20.0/kind-windows-amd64 -OutFile %s", kindPath))
-						downloadCmd.Run()
-						// Add to PATH or use full path
-						// For simplicity, we'll use the full path
-						cmd = exec.CommandContext(ctx, kindPath, "create", "cluster", "--name", clusterName)
-					} else {
-						// macOS/Linux: Download binary
-						kindPath = filepath.Join(os.TempDir(), "kind")
-						archSuffix := "amd64"
-						if arch == "arm64" {
-							archSuffix = "arm64"
-						}
-						osSuffix := "linux"
-						if osType == "darwin" {
-							osSuffix = "darwin"
-						}
-						downloadCmd := exec.CommandContext(ctx, "sh", "-c",
-							fmt.Sprintf("curl -Lo %s https://kind.sigs.k8s.io/dl/v0.20.0/kind-%s-%s && chmod +x %s",
-								kindPath, osSuffix, archSuffix, kindPath))
-						downloadCmd.Run()
-						// Create cluster using downloaded binary
-						cmd = exec.CommandContext(ctx, kindPath, "create", "cluster", "--name", clusterName)
-					}
-				} else {
-					// kind is already installed, use it from PATH
-					cmd = exec.CommandContext(ctx, "kind", "create", "cluster", "--name", clusterName)
-				}
-
-			case "minikube":
-				// Check if minikube is installed
-				if _, err := exec.LookPath("minikube"); err != nil {
-					// Install minikube based on OS
-					var installCmd *exec.Cmd
-					if osType == "windows" {
-						// Windows: Use chocolatey or direct download
-						if _, err := exec.LookPath("choco"); err == nil {
-							installCmd = exec.CommandContext(ctx, "choco", "install", "minikube", "-y")
-						} else {
-							// Direct download for Windows
-							minikubePath := filepath.Join(os.TempDir(), "minikube.exe")
-							downloadCmd := exec.CommandContext(ctx, "powershell", "-Command",
-								fmt.Sprintf("Invoke-WebRequest -Uri https://github.com/kubernetes/minikube/releases/latest/download/minikube-windows-amd64.exe -OutFile %s", minikubePath))
-							downloadCmd.Run()
-							// Note: User may need to add to PATH manually
-						}
-					} else if osType == "darwin" {
-						// macOS: Use brew
-						if _, err := exec.LookPath("brew"); err == nil {
-							installCmd = exec.CommandContext(ctx, "brew", "install", "minikube")
-						}
-					} else {
-						// Linux: Use package manager or direct download
-						if _, err := exec.LookPath("apt-get"); err == nil {
-							installCmd = exec.CommandContext(ctx, "sh", "-c",
-								"curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && sudo install minikube-linux-amd64 /usr/local/bin/minikube")
-						}
-					}
-					if installCmd != nil {
-						installCmd.Run()
-					}
-				}
-				// Start minikube cluster
-				driver := "docker"
-				if osType == "windows" {
-					driver = "docker" // or "hyperv" if available
-				}
-				cmd = exec.CommandContext(ctx, "minikube", "start", "--driver="+driver, "--profile", clusterName)
-
-			default:
-				fmt.Printf("Unknown local cluster type: %s\n", app.Name)
-				return
-			}
-
-			if cmd != nil {
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					errorOutput := string(output)
-					fmt.Printf("❌ Local cluster install error for %s: %v\nOutput: %s\n", app.Name, err, errorOutput)
-
-					// Check for common errors and provide helpful messages
-					if strings.Contains(errorOutput, "docker") || strings.Contains(errorOutput, "Cannot connect to the Docker daemon") {
-						fmt.Printf("💡 Tip: Make sure Docker Desktop is running and try again.\n")
-					} else if strings.Contains(errorOutput, "permission denied") {
-						fmt.Printf("💡 Tip: On Linux, you may need to run with sudo or add your user to the docker group.\n")
-					} else if strings.Contains(errorOutput, "port") || strings.Contains(errorOutput, "already in use") {
-						fmt.Printf("💡 Tip: A cluster with this name may already exist. Try deleting it first or use a different name.\n")
-					}
-				} else {
-					fmt.Printf("Successfully created %s cluster: %s\n", app.DisplayName, clusterName)
-
-					// Update kubeconfig and switch context
-					var contextName string
-					if app.Name == "k3d" {
-						// k3d automatically updates kubeconfig
-						exec.CommandContext(ctx, "k3d", "kubeconfig", "merge", clusterName, "--kubeconfig-merge-default").Run()
-						contextName = "k3d-" + clusterName
-					} else if app.Name == "kind" {
-						// kind automatically updates kubeconfig
-						exec.CommandContext(ctx, "kind", "export", "kubeconfig", "--name", clusterName).Run()
-						contextName = "kind-" + clusterName
-					} else if app.Name == "minikube" {
-						// minikube automatically updates kubeconfig
-						exec.CommandContext(ctx, "minikube", "update-context", "--profile", clusterName).Run()
-						contextName = clusterName
-					}
-
-					// Wait a moment for kubeconfig to be updated
-					time.Sleep(3 * time.Second)
-
-					// Reload contexts and automatically switch to the new cluster
-					if ws.app != nil && ws.app.contextManager != nil {
-						// Reload kubeconfig to detect new context
-						loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-						configOverrides := &clientcmd.ConfigOverrides{}
-						kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-
-						rawConfig, err := kubeConfig.RawConfig()
-						if err == nil {
-							// Check if the new context exists
-							if _, exists := rawConfig.Contexts[contextName]; exists {
-								// Create config for the new context
-								contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-									loadingRules,
-									&clientcmd.ConfigOverrides{CurrentContext: contextName},
-								)
-
-								config, err := contextConfig.ClientConfig()
-								if err == nil {
-									clientset, err := kubernetes.NewForConfig(config)
-									if err == nil {
-										metricsClient, _ := metricsclientset.NewForConfig(config)
-
-										// Add to context manager
-										ws.app.contextManager.mu.Lock()
-										ws.app.contextManager.Contexts[contextName] = &ClusterContext{
-											Name:          contextName,
-											Clientset:     clientset,
-											MetricsClient: metricsClient,
-											Config:        config,
-											Connected:     true,
-											ServerVersion: "", // Will be populated on first use
-										}
-										// Add to context order if not already present
-										found := false
-										for _, name := range ws.app.contextManager.ContextOrder {
-											if name == contextName {
-												found = true
-												break
-											}
-										}
-										if !found {
-											ws.app.contextManager.ContextOrder = append(ws.app.contextManager.ContextOrder, contextName)
-										}
-										ws.app.contextManager.mu.Unlock()
-
-										// Automatically switch to the new context
-										if err := ws.app.SwitchContext(contextName); err == nil {
-											fmt.Printf("✓ Successfully created and connected to %s cluster (context: %s)\n", app.DisplayName, contextName)
-
-											// Broadcast context change to all WebSocket clients
-											contextMsg := map[string]interface{}{
-												"type":    "contextSwitch",
-												"context": contextName,
-												"message": fmt.Sprintf("Connected to new %s cluster", app.DisplayName),
-											}
-											for client := range ws.clients {
-												if err := client.WriteJSON(contextMsg); err != nil {
-													client.Close()
-													delete(ws.clients, client)
-												}
-											}
-										} else {
-											fmt.Printf("Cluster created but failed to switch context: %v\n", err)
-										}
-									} else {
-										fmt.Printf("Cluster created but failed to create clientset: %v\n", err)
-									}
-								} else {
-									fmt.Printf("Cluster created but failed to create config: %v\n", err)
-								}
-							} else {
-								fmt.Printf("Cluster created but context '%s' not found in kubeconfig. Available contexts: %v\n", contextName, func() []string {
-									ctxs := make([]string, 0, len(rawConfig.Contexts))
-									for k := range rawConfig.Contexts {
-										ctxs = append(ctxs, k)
-									}
-									return ctxs
-								}())
-							}
-						} else {
-							fmt.Printf("Cluster created but failed to reload kubeconfig: %v\n", err)
-						}
-					} else {
-						fmt.Printf("Cluster created successfully. Context name: %s\n", contextName)
-						fmt.Printf("Please refresh the app to see the new cluster.\n")
-					}
-				}
-			}
-		}()
-
-		// Return success immediately - actual installation happens in goroutine
-		// Errors will be logged to console, and user can check server logs
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": fmt.Sprintf("Installation of %s started. This may take a few minutes. The cluster will be automatically connected when ready.", app.DisplayName),
-			"note":    "If Docker is not installed or not running, installation will fail. Check server logs for details.",
-		})
-		return
+	// Create installation record in database
+	var installationID int
+	if ws.db != nil {
+		installation, err := ws.db.CreateAppInstallation(app.Name, app.DisplayName, app.Version, req.Namespace)
+		if err == nil {
+			installationID = installation.ID
+			// Update progress to 10% (initializing)
+			ws.db.UpdateAppInstallation(installationID, "initializing", 10, "")
+		}
 	}
 
-	// Namespace will be created by helm --create-namespace flag
-
-	// Install using helm
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-
-		// Add repo
-		repoName := strings.ReplaceAll(app.Name, "-", "")
-		addRepoCmd := exec.CommandContext(ctx, "helm", "repo", "add", repoName, app.ChartRepo)
-		addRepoCmd.Run() // Ignore errors if repo already exists
-
-		// Update repo
-		updateCmd := exec.CommandContext(ctx, "helm", "repo", "update")
-		updateCmd.Run()
-
-		// Install chart
-		namespace := req.Namespace
-		if namespace == "" {
-			namespace = "default"
-		}
-
-		args := []string{
-			"install", app.Name,
-			fmt.Sprintf("%s/%s", repoName, app.ChartName),
-			"--namespace", namespace,
-			"--create-namespace",
-			"--wait",
-			"--timeout", "5m",
-		}
-
-		installCmd := exec.CommandContext(ctx, "helm", args...)
-		output, err := installCmd.CombinedOutput()
-		if err != nil {
-			// Log installation error (visible in server logs)
-			fmt.Printf("Helm install error for %s: %v\nOutput: %s\n", app.Name, err, string(output))
-		} else {
-			fmt.Printf("Successfully installed %s in namespace %s\n", app.Name, namespace)
-		}
-	}()
+	// Handle local cluster installers differently
+	if app.ChartRepo == "local-cluster" {
+		go ws.installLocalCluster(app, req.Namespace, req.ClusterName, installationID)
+	} else {
+		go ws.installHelmApp(app, req.Namespace, req.Values, installationID)
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("Installation of %s started in namespace %s", app.DisplayName, req.Namespace),
+		"message": fmt.Sprintf("Installation of %s has started", app.DisplayName),
+		"app":     app.Name,
 	})
+}
+
+// installLocalCluster installs a local Kubernetes cluster (k3d, kind, minikube)
+func (ws *WebServer) installLocalCluster(app *AppDefinition, namespace, clusterName string, installationID int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	// Update progress to 20% (checking Docker)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "checking_docker", 20, "")
+	}
+
+	// Check for Docker/container runtime first
+	dockerAvailable := false
+	if _, err := exec.LookPath("docker"); err == nil {
+		// Check if Docker daemon is running
+		checkCmd := exec.CommandContext(ctx, "docker", "info")
+		if err := checkCmd.Run(); err == nil {
+			dockerAvailable = true
+		}
+	}
+
+	osType := runtime.GOOS
+
+	if !dockerAvailable {
+		dockerURL := "https://docs.docker.com/get-docker/"
+		if osType == "windows" {
+			dockerURL = "https://www.docker.com/products/docker-desktop/"
+		} else if osType == "darwin" {
+			dockerURL = "https://www.docker.com/products/docker-desktop/"
+		}
+
+		errorMsg := fmt.Sprintf("Docker is not installed or not running.\n\n"+
+			"Local clusters (k3d, kind, minikube) require Docker to be installed and running.\n\n"+
+			"Please install Docker Desktop:\n%s\n\n"+
+			"After installing Docker, please:\n"+
+			"1. Start Docker Desktop\n"+
+			"2. Wait for Docker to be ready\n"+
+			"3. Try installing the cluster again", dockerURL)
+
+		fmt.Printf("❌ %s\n", errorMsg)
+
+		// Update installation record with error
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errorMsg)
+		}
+		return
+	}
+
+	// Use custom cluster name if provided, otherwise default
+	if clusterName == "" {
+		clusterName = "kubegraf-cluster"
+	}
+
+	// Update progress to 30% (installing tools)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "installing_tools", 30, "")
+	}
+
+	switch app.Name {
+	case "k3d":
+		ws.installK3d(ctx, clusterName, installationID)
+	case "kind":
+		ws.installKind(ctx, clusterName, installationID)
+	case "minikube":
+		ws.installMinikube(ctx, clusterName, installationID)
+	}
+}
+
+// installK3d installs a k3d cluster
+func (ws *WebServer) installK3d(ctx context.Context, clusterName string, installationID int) {
+	// Check if k3d is installed
+	osType := runtime.GOOS
+
+	if _, err := exec.LookPath("k3d"); err != nil {
+		// Install k3d based on OS
+		if osType == "windows" {
+			// Windows: Use PowerShell to install
+			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
+				"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -UseBasicParsing | Invoke-Expression")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install k3d: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install k3d: %v", err))
+				}
+				return
+			}
+		} else {
+			// macOS/Linux: Use bash script
+			installCmd := exec.CommandContext(ctx, "sh", "-c",
+				"curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install k3d: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install k3d: %v", err))
+				}
+				return
+			}
+		}
+	}
+
+	// Update progress to 40% (creating cluster)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "creating_cluster", 40, "")
+	}
+
+	// Create k3d cluster
+	createCmd := exec.CommandContext(ctx, "k3d", "cluster", "create", clusterName,
+		"--agents", "1",
+		"--servers", "1",
+		"--port", "8080:80@loadbalancer",
+		"--port", "8443:443@loadbalancer",
+		"--wait")
+	
+	if err := createCmd.Run(); err != nil {
+		fmt.Printf("Failed to create k3d cluster: %v\n", err)
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to create k3d cluster: %v", err))
+		}
+		return
+	}
+
+	// Update progress to 80% (configuring kubectl)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "configuring_kubectl", 80, "")
+	}
+
+	// Get kubeconfig
+	kubeconfigCmd := exec.CommandContext(ctx, "k3d", "kubeconfig", "write", clusterName)
+	if err := kubeconfigCmd.Run(); err != nil {
+		fmt.Printf("Failed to write kubeconfig: %v\n", err)
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to write kubeconfig: %v", err))
+		}
+		return
+	}
+
+	// Update progress to 100% (completed)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "completed", 100, "K3d cluster created successfully")
+	}
+
+	fmt.Printf("✅ k3d cluster '%s' created successfully\n", clusterName)
+}
+
+// installKind installs a kind cluster
+func (ws *WebServer) installKind(ctx context.Context, clusterName string, installationID int) {
+	// Check if kind is installed
+	osType := runtime.GOOS
+
+	if _, err := exec.LookPath("kind"); err != nil {
+		// Install kind based on OS
+		if osType == "windows" {
+			// Windows: Use PowerShell to install
+			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
+				"curl.exe -Lo kind-windows-amd64.exe https://kind.sigs.k8s.io/dl/latest/kind-windows-amd64 && "+
+					"Move-Item kind-windows-amd64.exe C:\\Windows\\System32\\kind.exe")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install kind: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install kind: %v", err))
+				}
+				return
+			}
+		} else if osType == "darwin" {
+			// macOS: Use brew or direct download
+			installCmd := exec.CommandContext(ctx, "sh", "-c",
+				"command -v brew >/dev/null 2>&1 && brew install kind || "+
+					"curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-$(uname)-$(uname -m | sed 's/x86_64/amd64/') && "+
+					"chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install kind: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install kind: %v", err))
+				}
+				return
+			}
+		} else {
+			// Linux: Direct download
+			installCmd := exec.CommandContext(ctx, "sh", "-c",
+				"curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 && "+
+					"chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install kind: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install kind: %v", err))
+				}
+				return
+			}
+		}
+	}
+
+	// Update progress to 40% (creating cluster)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "creating_cluster", 40, "")
+	}
+
+	// Create kind cluster
+	createCmd := exec.CommandContext(ctx, "kind", "create", "cluster", "--name", clusterName, "--wait", "5m")
+
+	if err := createCmd.Run(); err != nil {
+		fmt.Printf("Failed to create kind cluster: %v\n", err)
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to create kind cluster: %v", err))
+		}
+		return
+	}
+
+	// Update progress to 80% (configuring kubectl)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "configuring_kubectl", 80, "")
+	}
+
+	// Get kubeconfig (kind automatically merges into default kubeconfig)
+	// Verify the cluster is accessible
+	verifyCmd := exec.CommandContext(ctx, "kubectl", "cluster-info", "--context", "kind-"+clusterName)
+	if err := verifyCmd.Run(); err != nil {
+		fmt.Printf("Warning: Failed to verify kind cluster: %v\n", err)
+	}
+
+	// Update progress to 100% (completed)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "completed", 100, "Kind cluster created successfully")
+	}
+
+	fmt.Printf("✅ kind cluster '%s' created successfully\n", clusterName)
+}
+
+// installMinikube installs a minikube cluster
+func (ws *WebServer) installMinikube(ctx context.Context, clusterName string, installationID int) {
+	// Check if minikube is installed
+	osType := runtime.GOOS
+
+	if _, err := exec.LookPath("minikube"); err != nil {
+		// Install minikube based on OS
+		if osType == "windows" {
+			// Windows: Use PowerShell to install
+			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
+				"New-Item -Path 'C:\\minikube' -Type Directory -Force; "+
+					"Invoke-WebRequest -Uri 'https://storage.googleapis.com/minikube/releases/latest/minikube-windows-amd64.exe' -OutFile 'C:\\minikube\\minikube.exe'; "+
+					"$env:Path += ';C:\\minikube'")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install minikube: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install minikube: %v", err))
+				}
+				return
+			}
+		} else if osType == "darwin" {
+			// macOS: Use brew or direct download
+			installCmd := exec.CommandContext(ctx, "sh", "-c",
+				"command -v brew >/dev/null 2>&1 && brew install minikube || "+
+					"curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-$(uname -m | sed 's/x86_64/amd64/') && "+
+					"sudo install minikube-darwin-* /usr/local/bin/minikube")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install minikube: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install minikube: %v", err))
+				}
+				return
+			}
+		} else {
+			// Linux: Direct download
+			installCmd := exec.CommandContext(ctx, "sh", "-c",
+				"curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && "+
+					"sudo install minikube-linux-amd64 /usr/local/bin/minikube")
+			if err := installCmd.Run(); err != nil {
+				fmt.Printf("Failed to install minikube: %v\n", err)
+				if installationID > 0 {
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install minikube: %v", err))
+				}
+				return
+			}
+		}
+	}
+
+	// Update progress to 40% (creating cluster)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "creating_cluster", 40, "")
+	}
+
+	// Create minikube cluster
+	createCmd := exec.CommandContext(ctx, "minikube", "start", "-p", clusterName, "--driver=docker")
+
+	if err := createCmd.Run(); err != nil {
+		fmt.Printf("Failed to create minikube cluster: %v\n", err)
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to create minikube cluster: %v", err))
+		}
+		return
+	}
+
+	// Update progress to 80% (configuring kubectl)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "configuring_kubectl", 80, "")
+	}
+
+	// Get kubeconfig (minikube automatically updates default kubeconfig)
+	// Verify the cluster is accessible
+	verifyCmd := exec.CommandContext(ctx, "kubectl", "cluster-info", "--context", clusterName)
+	if err := verifyCmd.Run(); err != nil {
+		fmt.Printf("Warning: Failed to verify minikube cluster: %v\n", err)
+	}
+
+	// Update progress to 100% (completed)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "completed", 100, "Minikube cluster created successfully")
+	}
+
+	fmt.Printf("✅ minikube cluster '%s' created successfully\n", clusterName)
+}
+
+// installHelmApp installs a Helm chart
+func (ws *WebServer) installHelmApp(app *AppDefinition, namespace string, values map[string]interface{}, installationID int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	// Update progress to 20% (checking Helm)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "checking_helm", 20, "")
+	}
+
+	// Check if Helm is installed
+	if _, err := exec.LookPath("helm"); err != nil {
+		errorMsg := "Helm is not installed. Please install Helm first: https://helm.sh/docs/intro/install/"
+		fmt.Printf("❌ %s\n", errorMsg)
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errorMsg)
+		}
+		return
+	}
+
+	// Update progress to 30% (adding repo)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "adding_repo", 30, "")
+	}
+
+	// Add Helm repo
+	repoName := strings.ReplaceAll(app.Name, "-", "") + "-repo"
+	addRepoCmd := exec.CommandContext(ctx, "helm", "repo", "add", repoName, app.ChartRepo)
+	if err := addRepoCmd.Run(); err != nil {
+		fmt.Printf("Warning: Failed to add Helm repo (might already exist): %v\n", err)
+	}
+
+	// Update repo
+	updateRepoCmd := exec.CommandContext(ctx, "helm", "repo", "update")
+	if err := updateRepoCmd.Run(); err != nil {
+		fmt.Printf("Warning: Failed to update Helm repos: %v\n", err)
+	}
+
+	// Update progress to 50% (installing chart)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "installing_chart", 50, "")
+	}
+
+	// Create namespace if it doesn't exist
+	createNsCmd := exec.CommandContext(ctx, "kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml")
+	if output, err := createNsCmd.Output(); err == nil {
+		applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
+		applyCmd.Stdin = strings.NewReader(string(output))
+		applyCmd.Run()
+	}
+
+	// Install Helm chart
+	installArgs := []string{"install", app.Name, repoName + "/" + app.ChartName, "--namespace", namespace, "--create-namespace", "--wait", "--timeout", "10m"}
+
+	// Add custom values if provided
+	if values != nil && len(values) > 0 {
+		valuesJSON, _ := json.Marshal(values)
+		installArgs = append(installArgs, "--set-json", string(valuesJSON))
+	}
+
+	installCmd := exec.CommandContext(ctx, "helm", installArgs...)
+	output, err := installCmd.CombinedOutput()
+
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to install Helm chart: %v\nOutput: %s", err, string(output))
+		fmt.Printf("❌ %s\n", errorMsg)
+		if installationID > 0 {
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errorMsg)
+		}
+		return
+	}
+
+	// Update progress to 100% (completed)
+	if installationID > 0 {
+		ws.db.UpdateAppInstallation(installationID, "completed", 100, "Application installed successfully")
+	}
+
+	fmt.Printf("✅ %s installed successfully in namespace %s\n", app.DisplayName, namespace)
 }
 
 // handleUninstallApp handles app uninstallation requests
@@ -693,9 +751,8 @@ func (ws *WebServer) handleUninstallApp(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Name        string `json:"name"`
-		Namespace   string `json:"namespace"`
-		ClusterName string `json:"clusterName,omitempty"` // For local clusters
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -706,171 +763,96 @@ func (ws *WebServer) handleUninstallApp(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Find app in catalog
-	var app *AppDefinition
-	for _, a := range appsCatalog {
-		if a.Name == req.Name {
-			app = &a
-			break
-		}
-	}
+	// Uninstall using Helm
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	if app == nil {
+	uninstallCmd := exec.CommandContext(ctx, "helm", "uninstall", req.Name, "--namespace", req.Namespace)
+	output, err := uninstallCmd.CombinedOutput()
+
+	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"error":   "App not found in catalog",
+			"error":   fmt.Sprintf("Failed to uninstall: %v\nOutput: %s", err, string(output)),
 		})
 		return
 	}
-
-	// Handle local cluster uninstallation differently
-	if app.ChartRepo == "local-cluster" {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-
-			clusterName := req.ClusterName
-			if clusterName == "" {
-				clusterName = "kubegraf-cluster" // Default name
-			}
-
-			var cmd *exec.Cmd
-			switch app.Name {
-			case "k3d":
-				cmd = exec.CommandContext(ctx, "k3d", "cluster", "delete", clusterName)
-			case "kind":
-				cmd = exec.CommandContext(ctx, "kind", "delete", "cluster", "--name", clusterName)
-			case "minikube":
-				cmd = exec.CommandContext(ctx, "minikube", "delete", "--profile", clusterName)
-			default:
-				fmt.Printf("Unknown local cluster type: %s\n", app.Name)
-				return
-			}
-
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				fmt.Printf("Failed to delete %s cluster %s: %v\nOutput: %s\n", app.Name, clusterName, err, string(output))
-			} else {
-				fmt.Printf("Successfully deleted %s cluster: %s\n", app.DisplayName, clusterName)
-			}
-		}()
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": fmt.Sprintf("Deletion of %s cluster started", app.DisplayName),
-		})
-		return
-	}
-
-	// Uninstall using helm for regular apps
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-
-		namespace := req.Namespace
-		if namespace == "" {
-			namespace = "default"
-		}
-
-		cmd := exec.CommandContext(ctx, "helm", "uninstall", app.Name, "--namespace", namespace)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Printf("Helm uninstall error for %s: %v\nOutput: %s\n", app.Name, err, string(output))
-		} else {
-			fmt.Printf("Successfully uninstalled %s from namespace %s\n", app.Name, namespace)
-		}
-	}()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("Uninstallation of %s started", app.DisplayName),
+		"message": fmt.Sprintf("Successfully uninstalled %s from namespace %s", req.Name, req.Namespace),
 	})
 }
 
-// LocalClusterInfo represents information about a local cluster
-type LocalClusterInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"` // "k3d", "kind", "minikube"
-	Status    string `json:"status"`
-	Context   string `json:"context"`
-	CreatedAt string `json:"createdAt,omitempty"`
-}
-
-// handleLocalClusters returns a list of local clusters (k3d, kind, minikube)
+// handleLocalClusters returns information about local clusters
 func (ws *WebServer) handleLocalClusters(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	clusters := []map[string]interface{}{}
 
-	var clusters []LocalClusterInfo
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// Check for k3d clusters
+	if _, err := exec.LookPath("k3d"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	// List k3d clusters
-	if k3dPath, err := exec.LookPath("k3d"); err == nil {
-		cmd := exec.CommandContext(ctx, k3dPath, "cluster", "list", "--no-headers", "-o", "json")
-		output, err := cmd.Output()
-		if err == nil {
-			var k3dClusters []struct {
-				Name   string `json:"name"`
-				Status string `json:"serversRunning"`
-			}
+		cmd := exec.CommandContext(ctx, "k3d", "cluster", "list", "-o", "json")
+		if output, err := cmd.Output(); err == nil {
+			var k3dClusters []map[string]interface{}
 			if err := json.Unmarshal(output, &k3dClusters); err == nil {
-				for _, c := range k3dClusters {
-					status := "Stopped"
-					if c.Status != "" && c.Status != "0" {
-						status = "Running"
-					}
-					clusters = append(clusters, LocalClusterInfo{
-						Name:    c.Name,
-						Type:    "k3d",
-						Status:  status,
-						Context: "k3d-" + c.Name,
+				for _, cluster := range k3dClusters {
+					clusters = append(clusters, map[string]interface{}{
+						"name":     cluster["name"],
+						"type":     "k3d",
+						"status":   cluster["status"],
+						"provider": "k3d",
 					})
 				}
 			}
 		}
 	}
 
-	// List kind clusters
-	if kindPath, err := exec.LookPath("kind"); err == nil {
-		cmd := exec.CommandContext(ctx, kindPath, "get", "clusters")
-		output, err := cmd.Output()
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			for _, name := range lines {
-				if name != "" {
-					clusters = append(clusters, LocalClusterInfo{
-						Name:    name,
-						Type:    "kind",
-						Status:  "Running", // kind doesn't easily show status, assume running if listed
-						Context: "kind-" + name,
+	// Check for kind clusters
+	if _, err := exec.LookPath("kind"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "kind", "get", "clusters")
+		if output, err := cmd.Output(); err == nil {
+			kindClusters := strings.Split(strings.TrimSpace(string(output)), "\n")
+			for _, clusterName := range kindClusters {
+				if clusterName != "" {
+					clusters = append(clusters, map[string]interface{}{
+						"name":     clusterName,
+						"type":     "kind",
+						"status":   "running",
+						"provider": "kind",
 					})
 				}
 			}
 		}
 	}
 
-	// List minikube profiles
-	if minikubePath, err := exec.LookPath("minikube"); err == nil {
-		cmd := exec.CommandContext(ctx, minikubePath, "profile", "list", "-o", "json")
-		output, err := cmd.Output()
-		if err == nil {
-			var minikubeProfiles []struct {
-				Name   string `json:"Name"`
-				Status string `json:"Status"`
+	// Check for minikube clusters
+	if _, err := exec.LookPath("minikube"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "minikube", "profile", "list", "-o", "json")
+		if output, err := cmd.Output(); err == nil {
+			var result struct {
+				Valid []struct {
+					Name   string `json:"Name"`
+					Status string `json:"Status"`
+				} `json:"valid"`
 			}
-			if err := json.Unmarshal(output, &minikubeProfiles); err == nil {
-				for _, p := range minikubeProfiles {
-					clusters = append(clusters, LocalClusterInfo{
-						Name:    p.Name,
-						Type:    "minikube",
-						Status:  p.Status,
-						Context: p.Name,
+			if err := json.Unmarshal(output, &result); err == nil {
+				for _, profile := range result.Valid {
+					clusters = append(clusters, map[string]interface{}{
+						"name":     profile.Name,
+						"type":     "minikube",
+						"status":   profile.Status,
+						"provider": "minikube",
 					})
 				}
 			}
@@ -878,8 +860,7 @@ func (ws *WebServer) handleLocalClusters(w http.ResponseWriter, r *http.Request)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
 		"clusters": clusters,
-		"total":    len(clusters),
+		"count":    len(clusters),
 	})
 }

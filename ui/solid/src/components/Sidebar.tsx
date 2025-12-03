@@ -1,7 +1,6 @@
 import { Component, For, Show, createSignal, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, type View } from '../stores/ui';
-import LocalTerminalModal from './LocalTerminalModal';
+import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, type View } from '../stores/ui';
 
 interface NavSection {
   title: string;
@@ -88,12 +87,13 @@ const navSections: NavSection[] = [
     items: [
       { id: 'plugins', label: 'Plugins', icon: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z' },
       { id: 'terminal', label: 'Terminal', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+      { id: 'uidemo', label: 'UI Demo', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z' },
     ],
   },
 ];
 
 // Collapsible Section Component
-const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean }> = (props) => {
+const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean; onTerminalClick?: () => void }> = (props) => {
   const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? true);
 
   // Check if any item in this section is currently active
@@ -134,7 +134,7 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
                     e.stopPropagation();
                     // Special handling for terminal
                     if (item.id === 'terminal') {
-                      handleTerminalClick();
+                      props.onTerminalClick?.();
                     } else {
                       setCurrentView(item.id);
                     }
@@ -191,12 +191,13 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
 };
 
 const Sidebar: Component = () => {
-  const [terminalOpen, setTerminalOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal('');
-  
-  // Handle terminal view
+
+  // Handle terminal view - toggle docked terminal at bottom
   const handleTerminalClick = () => {
-    setTerminalOpen(true);
+    console.log('[Sidebar] Terminal icon clicked - calling toggleTerminal()');
+    toggleTerminal();
+    console.log('[Sidebar] toggleTerminal() called');
   };
 
   // Filter sections based on search query
@@ -327,6 +328,7 @@ const Sidebar: Component = () => {
               <CollapsibleSection
                 section={section}
                 defaultExpanded={index() < 3 || section.title === 'Integrations'}
+                onTerminalClick={handleTerminalClick}
               />
             );
           }}
@@ -363,9 +365,6 @@ const Sidebar: Component = () => {
           </div>
         </Show>
       </div>
-
-      {/* Local Terminal Modal */}
-      <LocalTerminalModal isOpen={terminalOpen()} onClose={() => setTerminalOpen(false)} />
     </aside>
   );
 };

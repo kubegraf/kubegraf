@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Check KubeGraf Settings</title>
+    <style>
+        body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+        pre { background: #161b22; padding: 10px; border-radius: 5px; }
+        .enabled { color: #22c55e; }
+        .disabled { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <h1>KubeGraf Settings Check</h1>
+    <div id="output"></div>
+    <script>
+        const output = document.getElementById('output');
+        const settings = localStorage.getItem('kubegraf-settings');
+        const version = localStorage.getItem('kubegraf-settings-version');
+        
+        let html = `<p>Settings Version: ${version || 'Not set'}</p>`;
+        
+        if (settings) {
+            try {
+                const parsed = JSON.parse(settings);
+                html += '<h2>Current Settings:</h2>';
+                html += '<pre>' + JSON.stringify(parsed, null, 2) + '</pre>';
+                
+                // Check specific flags
+                html += '<h2>Feature Flags:</h2>';
+                const flags = [
+                    'enableDiagnostics',
+                    'enableCVEVulnerabilities',
+                    'enableSecurityChecks',
+                    'enableMLRecommendations',
+                    'enableEventMonitoring'
+                ];
+                
+                flags.forEach(flag => {
+                    const value = parsed[flag];
+                    html += `<p>${flag}: <span class="${value ? 'enabled' : 'disabled'}">${value ? 'ENABLED' : 'DISABLED'}</span></p>`;
+                });
+            } catch (e) {
+                html += `<p>Error parsing settings: ${e.message}</p>`;
+            }
+        } else {
+            html += '<p>No settings found in localStorage. Using defaults.</p>';
+            html += '<p>Default values should be: enableDiagnostics: true, enableCVEVulnerabilities: true</p>';
+        }
+        
+        output.innerHTML = html;
+    </script>
+</body>
+</html>

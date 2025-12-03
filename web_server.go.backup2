@@ -520,8 +520,352 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 
 // handleMetrics returns cluster metrics
 
+// handlePods returns pod list
+func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	// Only default to app.namespace if namespace param is not provided at all
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
+	// Batch fetch all pod metrics at once (much faster than individual calls)
+	metricsMap := make(map[string]struct {
+		cpu    string
+		memory string
+	})
+	if ws.app.metricsClient != nil {
+		if metricsList, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for _, pm := range metricsList.Items {
+				var totalCPU, totalMemory int64
+				for _, cm := range pm.Containers {
+					totalCPU += cm.Usage.Cpu().MilliValue()
+					totalMemory += cm.Usage.Memory().Value()
+				}
+				key := pm.Namespace + "/" + pm.Name
+				metricsMap[key] = struct {
+					cpu    string
+					memory string
+				}{
+					cpu:    fmt.Sprintf("%dm", totalCPU),
+					memory: fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024)),
+				}
+			}
+		}
+	}
 
+	podList := []map[string]interface{}{}
+	for _, pod := range pods.Items {
+		// Calculate ready count from container statuses
+		ready := 0
+		total := len(pod.Spec.Containers)
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Ready {
+				ready++
+			}
+		}
+
+		// Calculate total restarts
+		restarts := int32(0)
+		for _, cs := range pod.Status.ContainerStatuses {
+			restarts += cs.RestartCount
+		}
+
+		// Determine actual status
+		status := string(pod.Status.Phase)
+		if pod.DeletionTimestamp != nil {
+			status = "Terminating"
+		} else if pod.Status.Phase == "Pending" {
+			// Check container statuses for more detail
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.State.Waiting != nil {
+					status = cs.State.Waiting.Reason
+					break
+				}
+			}
+		} else if pod.Status.Phase == "Running" {
+			// Check if all containers are actually ready
+			allReady := true
+			for _, cs := range pod.Status.ContainerStatuses {
+				if !cs.Ready {
+					allReady = false
+					if cs.State.Waiting != nil {
+						status = cs.State.Waiting.Reason
+					}
+					break
+				}
+			}
+			if allReady && ready == total {
+				status = "Running"
+			}
+		}
+
+		// Get metrics from pre-fetched map
+		cpu := "-"
+		memory := "-"
+		if m, ok := metricsMap[pod.Namespace+"/"+pod.Name]; ok {
+			cpu = m.cpu
+			memory = m.memory
+		}
+
+		podList = append(podList, map[string]interface{}{
+			"name":      pod.Name,
+			"status":    status,
+			"ready":     fmt.Sprintf("%d/%d", ready, total),
+			"restarts":  restarts,
+			"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+			"createdAt": pod.CreationTimestamp.Time.Format(time.RFC3339),
+			"ip":        pod.Status.PodIP,
+			"node":      pod.Spec.NodeName,
+			"namespace": pod.Namespace,
+			"cpu":       cpu,
+			"memory":    memory,
+		})
+	}
+
+	json.NewEncoder(w).Encode(podList)
+}
+
+// handlePodMetrics returns only CPU/memory metrics for pods (lightweight, for live updates)
+func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	metricsMap := make(map[string]map[string]string)
+	if ws.app.metricsClient != nil {
+		if metricsList, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for _, pm := range metricsList.Items {
+				var totalCPU, totalMemory int64
+				for _, cm := range pm.Containers {
+					totalCPU += cm.Usage.Cpu().MilliValue()
+					totalMemory += cm.Usage.Memory().Value()
+				}
+				key := pm.Namespace + "/" + pm.Name
+				metricsMap[key] = map[string]string{
+					"cpu":    fmt.Sprintf("%dm", totalCPU),
+					"memory": fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024)),
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(metricsMap)
+}
+
+// handleDeployments returns deployment list
+func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	depList := []map[string]interface{}{}
+	for _, dep := range deployments.Items {
+		depList = append(depList, map[string]interface{}{
+			"name":      dep.Name,
+			"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
+			"available": dep.Status.AvailableReplicas,
+			"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
+			"namespace": dep.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(depList)
+}
+
+// handleStatefulSets returns statefulset list
+func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ssList := []map[string]interface{}{}
+	for _, ss := range statefulsets.Items {
+		ssList = append(ssList, map[string]interface{}{
+			"name":      ss.Name,
+			"ready":     fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
+			"available": ss.Status.ReadyReplicas,
+			"age":       formatAge(time.Since(ss.CreationTimestamp.Time)),
+			"namespace": ss.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(ssList)
+}
+
+// handleDaemonSets returns daemonset list
+func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	dsList := []map[string]interface{}{}
+	for _, ds := range daemonsets.Items {
+		dsList = append(dsList, map[string]interface{}{
+			"name":      ds.Name,
+			"desired":   ds.Status.DesiredNumberScheduled,
+			"current":   ds.Status.CurrentNumberScheduled,
+			"ready":     fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled),
+			"available": ds.Status.NumberAvailable,
+			"age":       formatAge(time.Since(ds.CreationTimestamp.Time)),
+			"namespace": ds.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(dsList)
+}
+
+// handleServices returns service list
+func (ws *WebServer) handleServices(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	services, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	svcList := []map[string]interface{}{}
+	for _, svc := range services.Items {
+		// Format ports string (e.g., "80:8080/TCP,443:8443/TCP")
+		var ports []string
+		for _, p := range svc.Spec.Ports {
+			portStr := fmt.Sprintf("%d:%d", p.Port, p.TargetPort.IntVal)
+			if p.NodePort != 0 {
+				portStr = fmt.Sprintf("%d:%d", p.NodePort, p.Port)
+			}
+			if p.Protocol != corev1.ProtocolTCP {
+				portStr += fmt.Sprintf("/%s", p.Protocol)
+			}
+			ports = append(ports, portStr)
+		}
+		portsStr := strings.Join(ports, ",")
+		if portsStr == "" {
+			portsStr = "-"
+		}
+
+		// Get external IPs
+		var externalIPs []string
+		for _, ing := range svc.Status.LoadBalancer.Ingress {
+			if ing.IP != "" {
+				externalIPs = append(externalIPs, ing.IP)
+			} else if ing.Hostname != "" {
+				externalIPs = append(externalIPs, ing.Hostname)
+			}
+		}
+		externalIP := strings.Join(externalIPs, ",")
+		if externalIP == "" {
+			externalIP = "-"
+		}
+
+		svcList = append(svcList, map[string]interface{}{
+			"name":       svc.Name,
+			"type":       string(svc.Spec.Type),
+			"clusterIP":  svc.Spec.ClusterIP,
+			"externalIP": externalIP,
+			"ports":      portsStr,
+			"age":        formatAge(time.Since(svc.CreationTimestamp.Time)),
+			"namespace":  svc.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(svcList)
+}
+
+// handleNodes returns node list
+func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
+	nodes, err := ws.app.clientset.CoreV1().Nodes().List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	nodeList := []map[string]interface{}{}
+	for _, node := range nodes.Items {
+		// Determine node status
+		status := "Unknown"
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == v1.NodeReady {
+				if condition.Status == v1.ConditionTrue {
+					status = "Ready"
+				} else {
+					status = "NotReady"
+				}
+				break
+			}
+		}
+
+		// Get node roles
+		roles := "worker"
+		for label := range node.Labels {
+			if strings.Contains(label, "node-role.kubernetes.io/control-plane") || strings.Contains(label, "node-role.kubernetes.io/master") {
+				roles = "control-plane"
+				break
+			}
+		}
+
+		// Get CPU and Memory capacity
+		cpu := node.Status.Capacity.Cpu().String()
+
+		// Convert memory to a readable format
+		memoryBytes := node.Status.Capacity.Memory().Value()
+		memoryGi := float64(memoryBytes) / (1024 * 1024 * 1024)
+		memory := fmt.Sprintf("%.1fGi", memoryGi)
+
+		// Get metrics for this node if available
+		cpuUsage := "-"
+		memoryUsage := "-"
+		if ws.app.metricsClient != nil {
+			if metrics, err := ws.app.metricsClient.MetricsV1beta1().NodeMetricses().Get(ws.app.ctx, node.Name, metav1.GetOptions{}); err == nil {
+				cpuMillis := metrics.Usage.Cpu().MilliValue()
+				memUsed := metrics.Usage.Memory().Value()
+				memUsedMi := float64(memUsed) / (1024 * 1024)
+				cpuUsage = fmt.Sprintf("%dm", cpuMillis)
+				memoryUsage = fmt.Sprintf("%.0fMi", memUsedMi)
+			}
+		}
+
+		nodeList = append(nodeList, map[string]interface{}{
+			"name":        node.Name,
+			"status":      status,
+			"roles":       roles,
+			"version":     node.Status.NodeInfo.KubeletVersion,
+			"cpu":         cpu,
+			"cpuUsage":    cpuUsage,
+			"memory":      memory,
+			"memoryUsage": memoryUsage,
+			"age":         formatAge(time.Since(node.CreationTimestamp.Time)),
+		})
+	}
+
+	json.NewEncoder(w).Encode(nodeList)
+}
 
 // handleTopology returns topology data for visualization
 
@@ -1491,57 +1835,115 @@ func matchesSelector(selector, labels map[string]string) bool {
 	return true
 }
 
+// handleIngresses returns ingress list
+func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	// Handle "_all" namespace - query all namespaces
+	if namespace == "_all" {
+		namespace = ""
+	}
+	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ingList := []map[string]interface{}{}
+	for _, ing := range ingresses.Items {
+		hosts := []string{}
+		for _, rule := range ing.Spec.Rules {
+			hosts = append(hosts, rule.Host)
+		}
+
+		// Get ingress class
+		ingressClass := ""
+		if ing.Spec.IngressClassName != nil {
+			ingressClass = *ing.Spec.IngressClassName
+		}
+
+		// Get load balancer address
+		address := ""
+		if len(ing.Status.LoadBalancer.Ingress) > 0 {
+			if ing.Status.LoadBalancer.Ingress[0].IP != "" {
+				address = ing.Status.LoadBalancer.Ingress[0].IP
+			} else if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
+				address = ing.Status.LoadBalancer.Ingress[0].Hostname
+			}
+		}
+
+		// Get ports
+		ports := "80"
+		if ing.Spec.TLS != nil && len(ing.Spec.TLS) > 0 {
+			ports = "80, 443"
+		}
+
+		ingList = append(ingList, map[string]interface{}{
+			"name":      ing.Name,
+			"hosts":     hosts,
+			"age":       formatAge(time.Since(ing.CreationTimestamp.Time)),
+			"namespace": ing.Namespace,
+			"class":     ingressClass,
+			"address":   address,
+			"ports":     ports,
+		})
+	}
+
+	json.NewEncoder(w).Encode(ingList)
+}
 
 // handleConfigMaps returns configmap list
-// func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
-// 	namespace := r.URL.Query().Get("namespace")
-// 	if !r.URL.Query().Has("namespace") {
-// 		namespace = ws.app.namespace
-// 	}
-// 	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 
-// 	cmList := []map[string]interface{}{}
-// 	for _, cm := range configmaps.Items {
-// 		cmList = append(cmList, map[string]interface{}{
-// 			"name":      cm.Name,
-// 			"data":      len(cm.Data),
-// 			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
-// 			"namespace": cm.Namespace,
-// 		})
-// 	}
-// 
-// 	json.NewEncoder(w).Encode(cmList)
-// }
+func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-// // handleSecrets returns secrets list
-// func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
-// 	namespace := r.URL.Query().Get("namespace")
-// 	if !r.URL.Query().Has("namespace") {
-// 		namespace = ws.app.namespace
-// 	}
-// 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 
-// 	secretList := []map[string]interface{}{}
-// 	for _, secret := range secrets.Items {
-// 		secretList = append(secretList, map[string]interface{}{
-// 			"name":      secret.Name,
-// 			"type":      string(secret.Type),
-// 			"data":      len(secret.Data),
-// 			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
-// 			"namespace": secret.Namespace,
-// 		})
-// 	}
-// 
-// 	json.NewEncoder(w).Encode(secretList)
-// }
+	cmList := []map[string]interface{}{}
+	for _, cm := range configmaps.Items {
+		cmList = append(cmList, map[string]interface{}{
+			"name":      cm.Name,
+			"data":      len(cm.Data),
+			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
+			"namespace": cm.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(cmList)
+}
+
+// handleSecrets returns secrets list
+func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	secretList := []map[string]interface{}{}
+	for _, secret := range secrets.Items {
+		secretList = append(secretList, map[string]interface{}{
+			"name":      secret.Name,
+			"type":      string(secret.Type),
+			"data":      len(secret.Data),
+			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
+			"namespace": secret.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(secretList)
+}
 
 // handleResourceMap returns enhanced topology data
 

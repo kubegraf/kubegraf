@@ -32,6 +32,9 @@ import Storage from './routes/Storage';
 import RBAC from './routes/RBAC';
 import NetworkPolicies from './routes/NetworkPolicies';
 import UserManagement from './routes/UserManagement';
+import DeploymentProgress from './components/DeploymentProgress';
+import DockedTerminal from './components/DockedTerminal';
+import UIDemo from './components/UIDemo';
 // Wrapper components for Apps with different default tabs
 // Note: We removed defaultTab so tabs are always visible
 const Marketplace: Component = () => <Apps />;
@@ -107,7 +110,7 @@ const GitOps: Component = () => (
 
 import Settings from './routes/Settings';
 import AIChat from './components/AIChat';
-import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
+import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen } from './stores/ui';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
 import { api } from './services/api';
@@ -149,7 +152,8 @@ const views: Record<string, Component> = {
   rbac: RBAC,
   networkpolicies: NetworkPolicies,
   usermanagement: UserManagement,
-  terminal: Dashboard, // Terminal opens modal, not a view
+  // UI Demo
+  uidemo: UIDemo,
 };
 
 const App: Component = () => {
@@ -489,8 +493,18 @@ const App: Component = () => {
           </div>
         </Show>
       </div>
+
+      {/* Deployment Progress Overlay */}
+      <DeploymentProgress />
+
+      {/* Docked Terminal */}
+      <DockedTerminal
+        isOpen={terminalOpen()}
+        onClose={() => setTerminalOpen(false)}
+      />
     </div>
   );
 };
+
 
 export default App;

@@ -100,7 +100,7 @@ const defaultFeatureFlags: FeatureFlags = {
   // Monitoring & Alerts
   enableAutoRefresh: true,
   enableNotifications: true,
-  enableSoundEffects: false,
+  enableSoundEffects: true,
 
   // Sidebar Visibility - All sections visible by default
   showOverviewSection: true,
@@ -125,6 +125,9 @@ const defaultFeatureFlags: FeatureFlags = {
   showTerminalMenu: true,
 };
 
+// Settings version - increment this when defaults change to force update
+const SETTINGS_VERSION = 3;
+
 // Default settings
 const defaultSettings: AppSettings = {
   ...defaultFeatureFlags,
@@ -141,7 +144,16 @@ const defaultSettings: AppSettings = {
 // Load settings from localStorage
 function loadSettings(): AppSettings {
   try {
+    const storedVersion = localStorage.getItem('kubegraf-settings-version');
     const stored = localStorage.getItem('kubegraf-settings');
+
+    // If version mismatch or no version, reset to defaults
+    if (!storedVersion || parseInt(storedVersion) < SETTINGS_VERSION) {
+      console.log('Settings version mismatch or upgrade needed - resetting to defaults');
+      localStorage.setItem('kubegraf-settings-version', SETTINGS_VERSION.toString());
+      return defaultSettings;
+    }
+
     if (stored) {
       const parsed = JSON.parse(stored);
       // Merge with defaults to handle new settings
