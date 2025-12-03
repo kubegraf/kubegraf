@@ -163,6 +163,10 @@ type WebServer struct {
 	eventMonitorStarted bool
 	// MCP Server for AI agents
 	mcpServer *MCPServer
+	// Production upgrades
+	cache *Cache
+	db    *Database
+	iam   *IAM
 }
 
 // NewWebServer creates a new web server
@@ -1976,6 +1980,10 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+	// Handle "_all" namespace - query all namespaces
+	if namespace == "_all" {
+		namespace = ""
+	}
 	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1989,11 +1997,36 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 			hosts = append(hosts, rule.Host)
 		}
 
+		// Get ingress class
+		ingressClass := ""
+		if ing.Spec.IngressClassName != nil {
+			ingressClass = *ing.Spec.IngressClassName
+		}
+
+		// Get load balancer address
+		address := ""
+		if len(ing.Status.LoadBalancer.Ingress) > 0 {
+			if ing.Status.LoadBalancer.Ingress[0].IP != "" {
+				address = ing.Status.LoadBalancer.Ingress[0].IP
+			} else if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
+				address = ing.Status.LoadBalancer.Ingress[0].Hostname
+			}
+		}
+
+		// Get ports
+		ports := "80"
+		if ing.Spec.TLS != nil && len(ing.Spec.TLS) > 0 {
+			ports = "80, 443"
+		}
+
 		ingList = append(ingList, map[string]interface{}{
 			"name":      ing.Name,
 			"hosts":     hosts,
 			"age":       formatAge(time.Since(ing.CreationTimestamp.Time)),
 			"namespace": ing.Namespace,
+			"class":     ingressClass,
+			"address":   address,
+			"ports":     ports,
 		})
 	}
 
@@ -4364,6 +4397,12 @@ func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) 
 		namespace = ws.app.namespace
 	}
 
+	// Handle "_all" namespace
+	queryNs := namespace
+	if namespace == "_all" {
+		queryNs = ""
+	}
+
 	// Create dynamic client for CRD access
 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 	if err != nil {
@@ -4377,12 +4416,7 @@ func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) 
 		Resource: "certificates",
 	}
 
-	var certList *unstructured.UnstructuredList
-	if namespace == "" {
-		certList, err = dynamicClient.Resource(certGVR).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
-	} else {
-		certList, err = dynamicClient.Resource(certGVR).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	}
+	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
 
 	if err != nil {
 		// cert-manager may not be installed

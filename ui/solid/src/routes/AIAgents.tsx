@@ -16,7 +16,7 @@ interface MCPStatus {
   };
 }
 
-const MCPAgents: Component = () => {
+const AIAgents: Component = () => {
   const [mcpStatus, { refetch }] = createResource(async () => {
     try {
       // Try to initialize MCP connection
@@ -135,10 +135,10 @@ const MCPAgents: Component = () => {
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            MCP Agents
+            AI Agents
           </h1>
           <p class="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
-            Model Context Protocol (MCP) server for AI agents to interact with your Kubernetes cluster
+            AI agents powered by Model Context Protocol (MCP) to interact with your Kubernetes cluster
           </p>
         </div>
         <button
@@ -332,5 +332,5 @@ const MCPAgents: Component = () => {
   );
 };
 
-export default MCPAgents;
+export default AIAgents;
 

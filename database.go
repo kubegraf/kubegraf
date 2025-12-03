@@ -1,0 +1,370 @@
+package main
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// Database provides encrypted storage for credentials and sessions
+type Database struct {
+	db      *sql.DB
+	gcm     cipher.AEAD
+	enabled bool
+}
+
+// User represents a local user with RBAC
+type User struct {
+	ID           int       `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"` // Never expose
+	Email        string    `json:"email"`
+	Role         string    `json:"role"` // admin, developer, viewer
+	CreatedAt    time.Time `json:"created_at"`
+	LastLogin    time.Time `json:"last_login"`
+	Enabled      bool      `json:"enabled"`
+}
+
+// Session represents an active user session
+type Session struct {
+	ID        string    `json:"id"`
+	UserID    int       `json:"user_id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// CloudCredential represents encrypted cloud provider credentials
+type CloudCredential struct {
+	ID           int       `json:"id"`
+	Provider     string    `json:"provider"` // gcp, aws, azure
+	Name         string    `json:"name"`
+	AccessToken  string    `json:"-"` // Encrypted
+	RefreshToken string    `json:"-"` // Encrypted
+	ExpiresAt    time.Time `json:"expires_at"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// NewDatabase creates or opens the SQLite database
+func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
+	// Create directory if not exists
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, fmt.Errorf("create db directory: %w", err)
+	}
+
+	// Open database
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+
+	// Initialize encryption
+	key := sha256.Sum256([]byte(encryptionKey))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, fmt.Errorf("create cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("create GCM: %w", err)
+	}
+
+	database := &Database{
+		db:      db,
+		gcm:     gcm,
+		enabled: true,
+	}
+
+	// Initialize schema
+	if err := database.initSchema(); err != nil {
+		return nil, fmt.Errorf("init schema: %w", err)
+	}
+
+	fmt.Println("✅ SQLite database initialized with AES-256-GCM encryption")
+	return database, nil
+}
+
+// initSchema creates tables if they don't exist
+func (d *Database) initSchema() error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		email TEXT,
+		role TEXT NOT NULL DEFAULT 'viewer',
+		created_at DATETIME NOT NULL,
+		last_login DATETIME,
+		enabled BOOLEAN NOT NULL DEFAULT 1
+	);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		token TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		created_at DATETIME NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS cloud_credentials (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		provider TEXT NOT NULL,
+		name TEXT NOT NULL,
+		access_token TEXT NOT NULL,
+		refresh_token TEXT,
+		expires_at DATETIME,
+		created_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS audit_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER,
+		action TEXT NOT NULL,
+		resource_type TEXT,
+		resource_name TEXT,
+		namespace TEXT,
+		status TEXT NOT NULL,
+		details TEXT,
+		timestamp DATETIME NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_cloud_credentials_provider ON cloud_credentials(provider);
+	`
+
+	_, err := d.db.Exec(schema)
+	return err
+}
+
+// Encrypt encrypts data using AES-256-GCM
+func (d *Database) Encrypt(plaintext string) (string, error) {
+	nonce := make([]byte, d.gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := d.gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// Decrypt decrypts data using AES-256-GCM
+func (d *Database) Decrypt(encrypted string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := d.gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := d.gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
+}
+
+// User operations
+func (d *Database) CreateUser(username, passwordHash, email, role string) (*User, error) {
+	result, err := d.db.Exec(
+		"INSERT INTO users (username, password_hash, email, role, created_at) VALUES (?, ?, ?, ?, ?)",
+		username, passwordHash, email, role, time.Now(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	id, _ := result.LastInsertId()
+	return &User{
+		ID:           int(id),
+		Username:     username,
+		PasswordHash: passwordHash,
+		Email:        email,
+		Role:         role,
+		CreatedAt:    time.Now(),
+		Enabled:      true,
+	}, nil
+}
+
+func (d *Database) GetUser(username string) (*User, error) {
+	var user User
+	err := d.db.QueryRow(
+		"SELECT id, username, password_hash, email, role, created_at, last_login, enabled FROM users WHERE username = ?",
+		username,
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.LastLogin, &user.Enabled)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("user not found")
+	}
+	return &user, err
+}
+
+func (d *Database) UpdateLastLogin(userID int) error {
+	_, err := d.db.Exec("UPDATE users SET last_login = ? WHERE id = ?", time.Now(), userID)
+	return err
+}
+
+// Session operations
+func (d *Database) CreateSession(userID int, token string, duration time.Duration) (*Session, error) {
+	session := &Session{
+		ID:        generateSessionID(),
+		UserID:    userID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(duration),
+		CreatedAt: time.Now(),
+	}
+
+	_, err := d.db.Exec(
+		"INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+		session.ID, session.UserID, session.Token, session.ExpiresAt, session.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (d *Database) GetSession(token string) (*Session, error) {
+	var session Session
+	err := d.db.QueryRow(
+		"SELECT id, user_id, token, expires_at, created_at FROM sessions WHERE token = ? AND expires_at > ?",
+		token, time.Now(),
+	).Scan(&session.ID, &session.UserID, &session.Token, &session.ExpiresAt, &session.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found or expired")
+	}
+	return &session, err
+}
+
+func (d *Database) DeleteSession(token string) error {
+	_, err := d.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	return err
+}
+
+func (d *Database) CleanExpiredSessions() error {
+	_, err := d.db.Exec("DELETE FROM sessions WHERE expires_at <= ?", time.Now())
+	return err
+}
+
+// Cloud Credential operations
+func (d *Database) SaveCloudCredential(provider, name, accessToken, refreshToken string, expiresAt time.Time) error {
+	encryptedAccess, err := d.Encrypt(accessToken)
+	if err != nil {
+		return err
+	}
+
+	encryptedRefresh := ""
+	if refreshToken != "" {
+		encryptedRefresh, err = d.Encrypt(refreshToken)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = d.db.Exec(
+		"INSERT OR REPLACE INTO cloud_credentials (provider, name, access_token, refresh_token, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		provider, name, encryptedAccess, encryptedRefresh, expiresAt, time.Now(),
+	)
+	return err
+}
+
+func (d *Database) GetCloudCredential(provider, name string) (*CloudCredential, error) {
+	var cred CloudCredential
+	var encryptedAccess, encryptedRefresh string
+
+	err := d.db.QueryRow(
+		"SELECT id, provider, name, access_token, refresh_token, expires_at, created_at FROM cloud_credentials WHERE provider = ? AND name = ?",
+		provider, name,
+	).Scan(&cred.ID, &cred.Provider, &cred.Name, &encryptedAccess, &encryptedRefresh, &cred.ExpiresAt, &cred.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("credential not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt tokens
+	cred.AccessToken, err = d.Decrypt(encryptedAccess)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt access token: %w", err)
+	}
+
+	if encryptedRefresh != "" {
+		cred.RefreshToken, err = d.Decrypt(encryptedRefresh)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt refresh token: %w", err)
+		}
+	}
+
+	return &cred, nil
+}
+
+// Audit Log operations
+func (d *Database) LogAudit(userID int, action, resourceType, resourceName, namespace, status string, details interface{}) error {
+	detailsJSON, _ := json.Marshal(details)
+	_, err := d.db.Exec(
+		"INSERT INTO audit_logs (user_id, action, resource_type, resource_name, namespace, status, details, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		userID, action, resourceType, resourceName, namespace, status, string(detailsJSON), time.Now(),
+	)
+	return err
+}
+
+// Settings operations
+func (d *Database) GetSetting(key string) (string, error) {
+	var value string
+	err := d.db.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func (d *Database) SetSetting(key, value string) error {
+	_, err := d.db.Exec(
+		"INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+		key, value, time.Now(),
+	)
+	return err
+}
+
+// Close closes the database connection
+func (d *Database) Close() error {
+	return d.db.Close()
+}
+
+// Helper function to generate session ID
+func generateSessionID() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return base64.URLEncoding.EncodeToString(b)
+}
