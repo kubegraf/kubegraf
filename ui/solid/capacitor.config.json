@@ -1,0 +1,17 @@
+{
+  "appId": "io.kubegraf.app",
+  "appName": "KubeGraf",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#0d1117",
+      "androidSplashResourceName": "splash",
+      "iosSplashResourceName": "splash"
+    }
+  }
+}

@@ -31,6 +31,7 @@ import Placeholder from './routes/Placeholder';
 import Storage from './routes/Storage';
 import RBAC from './routes/RBAC';
 import NetworkPolicies from './routes/NetworkPolicies';
+import UserManagement from './routes/UserManagement';
 // Wrapper components for Apps with different default tabs
 // Note: We removed defaultTab so tabs are always visible
 const Marketplace: Component = () => <Apps />;
@@ -146,7 +147,9 @@ const views: Record<string, Component> = {
   rollouts: Rollouts,
   storage: Storage,
   rbac: RBAC,
-  networkpolicies: NetworkPolicies,  terminal: Dashboard, // Terminal opens modal, not a view
+  networkpolicies: NetworkPolicies,
+  usermanagement: UserManagement,
+  terminal: Dashboard, // Terminal opens modal, not a view
 };
 
 const App: Component = () => {
