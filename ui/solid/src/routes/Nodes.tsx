@@ -19,6 +19,29 @@ const Nodes: Component = () => {
   const [selected, setSelected] = createSignal<Node | null>(null);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('nodes-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('nodes-font-family') || 'Monaco');
+
+  const getFontFamilyCSS = (family: string): string => {
+    switch (family) {
+      case 'Monospace': return 'monospace';
+      case 'System-ui': return 'system-ui';
+      case 'Monaco': return 'Monaco, monospace';
+      case 'Consolas': return 'Consolas, monospace';
+      case 'Courier': return '"Courier New", monospace';
+      default: return 'Monaco, monospace';
+    }
+  };
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('nodes-font-size', size.toString());
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('nodes-font-family', family);
+  };
 
   const nodes = createMemo(() => {
     const all = nodesResource() || [];
@@ -131,9 +154,14 @@ const Nodes: Component = () => {
 
   // List View Component (Table)
   const ListView = () => (
-    <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+    <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
       <div class="overflow-x-auto">
-        <table class="data-table terminal-table">
+        <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+          <style>{`
+            table { width: 100%; border-collapse: collapse; }
+            thead { background: #000000; position: sticky; top: 0; z-index: 10; }
+            tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+          `}</style>
           <thead>
             <tr>
               <th class="whitespace-nowrap">Name</th>
@@ -250,6 +278,36 @@ const Nodes: Component = () => {
           <p class="text-gray-400 mt-1">Cluster node management</p>
         </div>
         <div class="flex items-center gap-3">
+          <select
+            value={fontSize()}
+            onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Size"
+          >
+            <option value="12">12px</option>
+            <option value="13">13px</option>
+            <option value="14">14px</option>
+            <option value="15">15px</option>
+            <option value="16">16px</option>
+            <option value="17">17px</option>
+            <option value="18">18px</option>
+            <option value="19">19px</option>
+            <option value="20">20px</option>
+          </select>
+          <select
+            value={fontFamily()}
+            onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Family"
+          >
+            <option value="Monospace">Monospace</option>
+            <option value="System-ui">System-ui</option>
+            <option value="Monaco">Monaco</option>
+            <option value="Consolas">Consolas</option>
+            <option value="Courier">Courier</option>
+          </select>
           {/* View Mode Selector */}
           <div class="flex items-center rounded-lg overflow-hidden" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
             <For each={(['card', 'list', 'grid'] as ViewMode[])}>
