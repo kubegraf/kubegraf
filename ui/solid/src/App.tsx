@@ -24,6 +24,7 @@ import Events from './routes/Events';
 import MonitoredEvents from './routes/MonitoredEvents';
 import Connectors from './routes/Connectors';
 import AIAgents from './routes/AIAgents';
+import SREAgent from './routes/SREAgent';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Apps from './routes/Apps';
@@ -141,6 +142,7 @@ const views: Record<string, Component> = {
   anomalies: Anomalies,
   connectors: Connectors,
   aiagents: AIAgents,
+  sreagent: SREAgent,
   apps: Marketplace,
   customapps: CustomApps,
   settings: Settings,

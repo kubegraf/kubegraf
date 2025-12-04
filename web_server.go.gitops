@@ -652,641 +652,641 @@ type ImpactAnalysis struct {
 }
 
 // handleImpactAnalysis analyzes the impact of deleting or modifying a resource
-func (ws *WebServer) handleImpactAnalysis(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	resourceType := r.URL.Query().Get("type")
-	resourceName := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if namespace == "" || namespace == "All Namespaces" {
-		namespace = ws.app.namespace
-	}
-
-	if resourceType == "" || resourceName == "" {
-		http.Error(w, "Missing required parameters: type and name", http.StatusBadRequest)
-		return
-	}
-
-	var analysis *ImpactAnalysis
-	var err error
-
-	switch strings.ToLower(resourceType) {
-	case "service":
-		analysis, err = ws.analyzeServiceImpact(resourceName, namespace)
-	case "configmap":
-		analysis, err = ws.analyzeConfigMapImpact(resourceName, namespace)
-	case "secret":
-		analysis, err = ws.analyzeSecretImpact(resourceName, namespace)
-	case "deployment":
-		analysis, err = ws.analyzeDeploymentImpact(resourceName, namespace)
-	case "pod":
-		analysis, err = ws.analyzePodImpact(resourceName, namespace)
-	case "node":
-		analysis, err = ws.analyzeNodeImpact(resourceName)
-	default:
-		http.Error(w, fmt.Sprintf("Impact analysis not supported for resource type: %s", resourceType), http.StatusBadRequest)
-		return
-	}
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(analysis)
-}
-
+// func (ws *WebServer) handleImpactAnalysis(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 	w.Header().Set("Access-Control-Allow-Origin", "*")
+// 
+// 	resourceType := r.URL.Query().Get("type")
+// 	resourceName := r.URL.Query().Get("name")
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	if resourceType == "" || resourceName == "" {
+// 		http.Error(w, "Missing required parameters: type and name", http.StatusBadRequest)
+// 		return
+// 	}
+// 
+// 	var analysis *ImpactAnalysis
+// 	var err error
+// 
+// 	switch strings.ToLower(resourceType) {
+// 	case "service":
+// 		analysis, err = ws.analyzeServiceImpact(resourceName, namespace)
+// 	case "configmap":
+// 		analysis, err = ws.analyzeConfigMapImpact(resourceName, namespace)
+// 	case "secret":
+// 		analysis, err = ws.analyzeSecretImpact(resourceName, namespace)
+// 	case "deployment":
+// 		analysis, err = ws.analyzeDeploymentImpact(resourceName, namespace)
+// 	case "pod":
+// 		analysis, err = ws.analyzePodImpact(resourceName, namespace)
+// 	case "node":
+// 		analysis, err = ws.analyzeNodeImpact(resourceName)
+// 	default:
+// 		http.Error(w, fmt.Sprintf("Impact analysis not supported for resource type: %s", resourceType), http.StatusBadRequest)
+// 		return
+// 	}
+// 
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(analysis)
+// }
+// 
 // analyzeServiceImpact analyzes what depends on a Service
-func (ws *WebServer) analyzeServiceImpact(name, namespace string) (*ImpactAnalysis, error) {
-	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Service",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Ingresses that route to this service
-	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, ing := range ingresses.Items {
-		for _, rule := range ing.Spec.Rules {
-			if rule.HTTP != nil {
-				for _, path := range rule.HTTP.Paths {
-					if path.Backend.Service != nil && path.Backend.Service.Name == name {
-						node := &ImpactNode{
-							Type:      "Ingress",
-							Name:      ing.Name,
-							Namespace: ing.Namespace,
-							Severity:  "critical",
-							Impact:    fmt.Sprintf("Ingress %s routes traffic to this service via path %s", ing.Name, path.Path),
-						}
-						analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-						analysis.CriticalCount++
-					}
-				}
-			}
-		}
-	}
-
-	// Find Pods that this service selects (would lose endpoint)
-	if len(service.Spec.Selector) > 0 {
-		pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-			LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: service.Spec.Selector}),
-		})
-		for _, pod := range pods.Items {
-			node := &ImpactNode{
-				Type:      "Pod",
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-				Severity:  "medium",
-				Impact:    "Pod will lose service endpoint and external access",
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.MediumCount++
-		}
-	}
-
-	// Calculate totals
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Service '%s' will affect %d resource(s): %d critical, %d high, %d medium, %d low",
-		name, analysis.TotalImpacted, analysis.CriticalCount, analysis.HighCount, analysis.MediumCount, analysis.LowCount)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Update Ingress configurations before deleting this Service")
-	}
-	if analysis.MediumCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Ensure pods have alternative network access or are not required")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeServiceImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Service",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Ingresses that route to this service
+// 	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, ing := range ingresses.Items {
+// 		for _, rule := range ing.Spec.Rules {
+// 			if rule.HTTP != nil {
+// 				for _, path := range rule.HTTP.Paths {
+// 					if path.Backend.Service != nil && path.Backend.Service.Name == name {
+// 						node := &ImpactNode{
+// 							Type:      "Ingress",
+// 							Name:      ing.Name,
+// 							Namespace: ing.Namespace,
+// 							Severity:  "critical",
+// 							Impact:    fmt.Sprintf("Ingress %s routes traffic to this service via path %s", ing.Name, path.Path),
+// 						}
+// 						analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 						analysis.CriticalCount++
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// Find Pods that this service selects (would lose endpoint)
+// 	if len(service.Spec.Selector) > 0 {
+// 		pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+// 			LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: service.Spec.Selector}),
+// 		})
+// 		for _, pod := range pods.Items {
+// 			node := &ImpactNode{
+// 				Type:      "Pod",
+// 				Name:      pod.Name,
+// 				Namespace: pod.Namespace,
+// 				Severity:  "medium",
+// 				Impact:    "Pod will lose service endpoint and external access",
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.MediumCount++
+// 		}
+// 	}
+// 
+// 	// Calculate totals
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Service '%s' will affect %d resource(s): %d critical, %d high, %d medium, %d low",
+// 		name, analysis.TotalImpacted, analysis.CriticalCount, analysis.HighCount, analysis.MediumCount, analysis.LowCount)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Update Ingress configurations before deleting this Service")
+// 	}
+// 	if analysis.MediumCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Ensure pods have alternative network access or are not required")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeConfigMapImpact analyzes what depends on a ConfigMap
-func (ws *WebServer) analyzeConfigMapImpact(name, namespace string) (*ImpactAnalysis, error) {
-	_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "ConfigMap",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Deployments that use this ConfigMap
-	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, dep := range deployments.Items {
-		usesConfigMap := false
-		var usageType string
-
-		// Check volume mounts
-		for _, vol := range dep.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
-				usesConfigMap = true
-				usageType = "volume mount"
-				break
-			}
-		}
-
-		// Check env references
-		if !usesConfigMap {
-			for _, container := range dep.Spec.Template.Spec.Containers {
-				for _, env := range container.EnvFrom {
-					if env.ConfigMapRef != nil && env.ConfigMapRef.Name == name {
-						usesConfigMap = true
-						usageType = "environment variables"
-						break
-					}
-				}
-				if usesConfigMap {
-					break
-				}
-			}
-		}
-
-		if usesConfigMap {
-			node := &ImpactNode{
-				Type:      "Deployment",
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Severity:  "critical",
-				Impact:    fmt.Sprintf("Deployment uses this ConfigMap as %s - pods may fail to start", usageType),
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.CriticalCount++
-		}
-	}
-
-	// Check StatefulSets
-	statefulsets, _ := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, sts := range statefulsets.Items {
-		for _, vol := range sts.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
-				node := &ImpactNode{
-					Type:      "StatefulSet",
-					Name:      sts.Name,
-					Namespace: sts.Namespace,
-					Severity:  "critical",
-					Impact:    "StatefulSet uses this ConfigMap - pods may fail to start",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.CriticalCount++
-				break
-			}
-		}
-	}
-
-	// Check DaemonSets
-	daemonsets, _ := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, ds := range daemonsets.Items {
-		for _, vol := range ds.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
-				node := &ImpactNode{
-					Type:      "DaemonSet",
-					Name:      ds.Name,
-					Namespace: ds.Namespace,
-					Severity:  "critical",
-					Impact:    "DaemonSet uses this ConfigMap - pods may fail to start on all nodes",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.CriticalCount++
-				break
-			}
-		}
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting ConfigMap '%s' will affect %d workload(s)", name, analysis.TotalImpacted)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Update workloads to remove ConfigMap references before deletion")
-		analysis.Recommendations = append(analysis.Recommendations, "Consider creating a replacement ConfigMap with updated values first")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeConfigMapImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "ConfigMap",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Deployments that use this ConfigMap
+// 	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, dep := range deployments.Items {
+// 		usesConfigMap := false
+// 		var usageType string
+// 
+// 		// Check volume mounts
+// 		for _, vol := range dep.Spec.Template.Spec.Volumes {
+// 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+// 				usesConfigMap = true
+// 				usageType = "volume mount"
+// 				break
+// 			}
+// 		}
+// 
+// 		// Check env references
+// 		if !usesConfigMap {
+// 			for _, container := range dep.Spec.Template.Spec.Containers {
+// 				for _, env := range container.EnvFrom {
+// 					if env.ConfigMapRef != nil && env.ConfigMapRef.Name == name {
+// 						usesConfigMap = true
+// 						usageType = "environment variables"
+// 						break
+// 					}
+// 				}
+// 				if usesConfigMap {
+// 					break
+// 				}
+// 			}
+// 		}
+// 
+// 		if usesConfigMap {
+// 			node := &ImpactNode{
+// 				Type:      "Deployment",
+// 				Name:      dep.Name,
+// 				Namespace: dep.Namespace,
+// 				Severity:  "critical",
+// 				Impact:    fmt.Sprintf("Deployment uses this ConfigMap as %s - pods may fail to start", usageType),
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.CriticalCount++
+// 		}
+// 	}
+// 
+// 	// Check StatefulSets
+// 	statefulsets, _ := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, sts := range statefulsets.Items {
+// 		for _, vol := range sts.Spec.Template.Spec.Volumes {
+// 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "StatefulSet",
+// 					Name:      sts.Name,
+// 					Namespace: sts.Namespace,
+// 					Severity:  "critical",
+// 					Impact:    "StatefulSet uses this ConfigMap - pods may fail to start",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.CriticalCount++
+// 				break
+// 			}
+// 		}
+// 	}
+// 
+// 	// Check DaemonSets
+// 	daemonsets, _ := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, ds := range daemonsets.Items {
+// 		for _, vol := range ds.Spec.Template.Spec.Volumes {
+// 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "DaemonSet",
+// 					Name:      ds.Name,
+// 					Namespace: ds.Namespace,
+// 					Severity:  "critical",
+// 					Impact:    "DaemonSet uses this ConfigMap - pods may fail to start on all nodes",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.CriticalCount++
+// 				break
+// 			}
+// 		}
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting ConfigMap '%s' will affect %d workload(s)", name, analysis.TotalImpacted)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Update workloads to remove ConfigMap references before deletion")
+// 		analysis.Recommendations = append(analysis.Recommendations, "Consider creating a replacement ConfigMap with updated values first")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeSecretImpact analyzes what depends on a Secret
-func (ws *WebServer) analyzeSecretImpact(name, namespace string) (*ImpactAnalysis, error) {
-	_, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Secret",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Deployments that use this Secret
-	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, dep := range deployments.Items {
-		usesSecret := false
-		var usageType string
-
-		for _, vol := range dep.Spec.Template.Spec.Volumes {
-			if vol.Secret != nil && vol.Secret.SecretName == name {
-				usesSecret = true
-				usageType = "volume mount"
-				break
-			}
-		}
-
-		if !usesSecret {
-			for _, container := range dep.Spec.Template.Spec.Containers {
-				for _, env := range container.EnvFrom {
-					if env.SecretRef != nil && env.SecretRef.Name == name {
-						usesSecret = true
-						usageType = "environment variables"
-						break
-					}
-				}
-				// Check individual env vars
-				for _, env := range container.Env {
-					if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == name {
-						usesSecret = true
-						usageType = "environment variable"
-						break
-					}
-				}
-				if usesSecret {
-					break
-				}
-			}
-		}
-
-		// Check imagePullSecrets
-		if !usesSecret {
-			for _, ips := range dep.Spec.Template.Spec.ImagePullSecrets {
-				if ips.Name == name {
-					usesSecret = true
-					usageType = "image pull secret"
-					break
-				}
-			}
-		}
-
-		if usesSecret {
-			node := &ImpactNode{
-				Type:      "Deployment",
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Severity:  "critical",
-				Impact:    fmt.Sprintf("Deployment uses this Secret as %s - pods may fail to start or authenticate", usageType),
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.CriticalCount++
-		}
-	}
-
-	// Find ServiceAccounts that reference this secret
-	serviceAccounts, _ := ws.app.clientset.CoreV1().ServiceAccounts(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, sa := range serviceAccounts.Items {
-		for _, secretRef := range sa.Secrets {
-			if secretRef.Name == name {
-				node := &ImpactNode{
-					Type:      "ServiceAccount",
-					Name:      sa.Name,
-					Namespace: sa.Namespace,
-					Severity:  "high",
-					Impact:    "ServiceAccount references this Secret - authentication may fail",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.HighCount++
-				break
-			}
-		}
-		for _, ips := range sa.ImagePullSecrets {
-			if ips.Name == name {
-				node := &ImpactNode{
-					Type:      "ServiceAccount",
-					Name:      sa.Name,
-					Namespace: sa.Namespace,
-					Severity:  "high",
-					Impact:    "ServiceAccount uses this Secret for image pulls - containers may fail to pull images",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.HighCount++
-				break
-			}
-		}
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Secret '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
-
-	if analysis.CriticalCount > 0 || analysis.HighCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Ensure no workloads require this Secret before deletion")
-		analysis.Recommendations = append(analysis.Recommendations, "Consider rotating Secret with a new one before deleting the old")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeSecretImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	_, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Secret",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Deployments that use this Secret
+// 	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, dep := range deployments.Items {
+// 		usesSecret := false
+// 		var usageType string
+// 
+// 		for _, vol := range dep.Spec.Template.Spec.Volumes {
+// 			if vol.Secret != nil && vol.Secret.SecretName == name {
+// 				usesSecret = true
+// 				usageType = "volume mount"
+// 				break
+// 			}
+// 		}
+// 
+// 		if !usesSecret {
+// 			for _, container := range dep.Spec.Template.Spec.Containers {
+// 				for _, env := range container.EnvFrom {
+// 					if env.SecretRef != nil && env.SecretRef.Name == name {
+// 						usesSecret = true
+// 						usageType = "environment variables"
+// 						break
+// 					}
+// 				}
+// 				// Check individual env vars
+// 				for _, env := range container.Env {
+// 					if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == name {
+// 						usesSecret = true
+// 						usageType = "environment variable"
+// 						break
+// 					}
+// 				}
+// 				if usesSecret {
+// 					break
+// 				}
+// 			}
+// 		}
+// 
+// 		// Check imagePullSecrets
+// 		if !usesSecret {
+// 			for _, ips := range dep.Spec.Template.Spec.ImagePullSecrets {
+// 				if ips.Name == name {
+// 					usesSecret = true
+// 					usageType = "image pull secret"
+// 					break
+// 				}
+// 			}
+// 		}
+// 
+// 		if usesSecret {
+// 			node := &ImpactNode{
+// 				Type:      "Deployment",
+// 				Name:      dep.Name,
+// 				Namespace: dep.Namespace,
+// 				Severity:  "critical",
+// 				Impact:    fmt.Sprintf("Deployment uses this Secret as %s - pods may fail to start or authenticate", usageType),
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.CriticalCount++
+// 		}
+// 	}
+// 
+// 	// Find ServiceAccounts that reference this secret
+// 	serviceAccounts, _ := ws.app.clientset.CoreV1().ServiceAccounts(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, sa := range serviceAccounts.Items {
+// 		for _, secretRef := range sa.Secrets {
+// 			if secretRef.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "ServiceAccount",
+// 					Name:      sa.Name,
+// 					Namespace: sa.Namespace,
+// 					Severity:  "high",
+// 					Impact:    "ServiceAccount references this Secret - authentication may fail",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.HighCount++
+// 				break
+// 			}
+// 		}
+// 		for _, ips := range sa.ImagePullSecrets {
+// 			if ips.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "ServiceAccount",
+// 					Name:      sa.Name,
+// 					Namespace: sa.Namespace,
+// 					Severity:  "high",
+// 					Impact:    "ServiceAccount uses this Secret for image pulls - containers may fail to pull images",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.HighCount++
+// 				break
+// 			}
+// 		}
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Secret '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
+// 
+// 	if analysis.CriticalCount > 0 || analysis.HighCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Ensure no workloads require this Secret before deletion")
+// 		analysis.Recommendations = append(analysis.Recommendations, "Consider rotating Secret with a new one before deleting the old")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeDeploymentImpact analyzes what depends on a Deployment
-func (ws *WebServer) analyzeDeploymentImpact(name, namespace string) (*ImpactAnalysis, error) {
-	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Deployment",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Services that select this Deployment's pods
-	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, svc := range services.Items {
-		if len(svc.Spec.Selector) > 0 {
-			if matchesSelector(svc.Spec.Selector, deployment.Spec.Template.Labels) {
-				node := &ImpactNode{
-					Type:      "Service",
-					Name:      svc.Name,
-					Namespace: svc.Namespace,
-					Severity:  "critical",
-					Impact:    "Service selects this Deployment's pods - endpoints will be removed",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.CriticalCount++
-			}
-		}
-	}
-
-	// Find HPA targeting this deployment
-	hpas, _ := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, hpa := range hpas.Items {
-		if hpa.Spec.ScaleTargetRef.Kind == "Deployment" && hpa.Spec.ScaleTargetRef.Name == name {
-			node := &ImpactNode{
-				Type:      "HorizontalPodAutoscaler",
-				Name:      hpa.Name,
-				Namespace: hpa.Namespace,
-				Severity:  "medium",
-				Impact:    "HPA targets this Deployment - autoscaling will be orphaned",
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.MediumCount++
-		}
-	}
-
-	// Add running pods info
-	pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
-	})
-	runningPods := 0
-	for _, pod := range pods.Items {
-		if pod.Status.Phase == v1.PodRunning {
-			runningPods++
-		}
-	}
-	if runningPods > 0 {
-		node := &ImpactNode{
-			Type:       "Pod",
-			Name:       fmt.Sprintf("%d running pods", runningPods),
-			Namespace:  namespace,
-			Severity:   "high",
-			Impact:     "All running pods will be terminated",
-			Dependents: runningPods,
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.HighCount++
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Deployment '%s' will affect %d resource(s) including %d running pods",
-		name, analysis.TotalImpacted, runningPods)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Update Service selectors before deleting this Deployment")
-	}
-	if runningPods > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Consider scaling down to 0 replicas first to gracefully terminate pods")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeDeploymentImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Deployment",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Services that select this Deployment's pods
+// 	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, svc := range services.Items {
+// 		if len(svc.Spec.Selector) > 0 {
+// 			if matchesSelector(svc.Spec.Selector, deployment.Spec.Template.Labels) {
+// 				node := &ImpactNode{
+// 					Type:      "Service",
+// 					Name:      svc.Name,
+// 					Namespace: svc.Namespace,
+// 					Severity:  "critical",
+// 					Impact:    "Service selects this Deployment's pods - endpoints will be removed",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.CriticalCount++
+// 			}
+// 		}
+// 	}
+// 
+// 	// Find HPA targeting this deployment
+// 	hpas, _ := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, hpa := range hpas.Items {
+// 		if hpa.Spec.ScaleTargetRef.Kind == "Deployment" && hpa.Spec.ScaleTargetRef.Name == name {
+// 			node := &ImpactNode{
+// 				Type:      "HorizontalPodAutoscaler",
+// 				Name:      hpa.Name,
+// 				Namespace: hpa.Namespace,
+// 				Severity:  "medium",
+// 				Impact:    "HPA targets this Deployment - autoscaling will be orphaned",
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.MediumCount++
+// 		}
+// 	}
+// 
+// 	// Add running pods info
+// 	pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+// 		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
+// 	})
+// 	runningPods := 0
+// 	for _, pod := range pods.Items {
+// 		if pod.Status.Phase == v1.PodRunning {
+// 			runningPods++
+// 		}
+// 	}
+// 	if runningPods > 0 {
+// 		node := &ImpactNode{
+// 			Type:       "Pod",
+// 			Name:       fmt.Sprintf("%d running pods", runningPods),
+// 			Namespace:  namespace,
+// 			Severity:   "high",
+// 			Impact:     "All running pods will be terminated",
+// 			Dependents: runningPods,
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.HighCount++
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Deployment '%s' will affect %d resource(s) including %d running pods",
+// 		name, analysis.TotalImpacted, runningPods)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Update Service selectors before deleting this Deployment")
+// 	}
+// 	if runningPods > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Consider scaling down to 0 replicas first to gracefully terminate pods")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzePodImpact analyzes what depends on a Pod
-func (ws *WebServer) analyzePodImpact(name, namespace string) (*ImpactAnalysis, error) {
-	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Pod",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Services that select this Pod
-	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, svc := range services.Items {
-		if len(svc.Spec.Selector) > 0 {
-			if matchesSelector(svc.Spec.Selector, pod.Labels) {
-				// Check if this is the only pod for this service
-				pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-					LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector}),
-				})
-				severity := "low"
-				impact := "Pod is one of multiple endpoints for this Service"
-				if len(pods.Items) <= 1 {
-					severity = "critical"
-					impact = "This is the only pod for this Service - service will have no endpoints"
-				}
-
-				node := &ImpactNode{
-					Type:      "Service",
-					Name:      svc.Name,
-					Namespace: svc.Namespace,
-					Severity:  severity,
-					Impact:    impact,
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				if severity == "critical" {
-					analysis.CriticalCount++
-				} else {
-					analysis.LowCount++
-				}
-			}
-		}
-	}
-
-	// Check if pod is managed by a controller
-	for _, ownerRef := range pod.OwnerReferences {
-		if ownerRef.Controller != nil && *ownerRef.Controller {
-			node := &ImpactNode{
-				Type:      ownerRef.Kind,
-				Name:      ownerRef.Name,
-				Namespace: namespace,
-				Severity:  "low",
-				Impact:    fmt.Sprintf("Pod will be recreated by %s controller", ownerRef.Kind),
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.LowCount++
-		}
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Pod '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Ensure other pods are available for the Service before deleting")
-	}
-	if len(pod.OwnerReferences) == 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "This is an orphan pod - it will not be recreated after deletion")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzePodImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Pod",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Services that select this Pod
+// 	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, svc := range services.Items {
+// 		if len(svc.Spec.Selector) > 0 {
+// 			if matchesSelector(svc.Spec.Selector, pod.Labels) {
+// 				// Check if this is the only pod for this service
+// 				pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+// 					LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector}),
+// 				})
+// 				severity := "low"
+// 				impact := "Pod is one of multiple endpoints for this Service"
+// 				if len(pods.Items) <= 1 {
+// 					severity = "critical"
+// 					impact = "This is the only pod for this Service - service will have no endpoints"
+// 				}
+// 
+// 				node := &ImpactNode{
+// 					Type:      "Service",
+// 					Name:      svc.Name,
+// 					Namespace: svc.Namespace,
+// 					Severity:  severity,
+// 					Impact:    impact,
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				if severity == "critical" {
+// 					analysis.CriticalCount++
+// 				} else {
+// 					analysis.LowCount++
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// Check if pod is managed by a controller
+// 	for _, ownerRef := range pod.OwnerReferences {
+// 		if ownerRef.Controller != nil && *ownerRef.Controller {
+// 			node := &ImpactNode{
+// 				Type:      ownerRef.Kind,
+// 				Name:      ownerRef.Name,
+// 				Namespace: namespace,
+// 				Severity:  "low",
+// 				Impact:    fmt.Sprintf("Pod will be recreated by %s controller", ownerRef.Kind),
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.LowCount++
+// 		}
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Pod '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Ensure other pods are available for the Service before deleting")
+// 	}
+// 	if len(pod.OwnerReferences) == 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "This is an orphan pod - it will not be recreated after deletion")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeNodeImpact analyzes what would be affected by a Node being unavailable
-func (ws *WebServer) analyzeNodeImpact(nodeName string) (*ImpactAnalysis, error) {
-	_, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        nodeName,
-		ResourceType:    "Node",
-		Namespace:       "cluster-wide",
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find all pods running on this node
-	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
-	})
-
-	deploymentPods := make(map[string]int)
-	statefulsetPods := make(map[string]int)
-	daemonsetPods := make(map[string]int)
-	standalonePods := []string{}
-
-	for _, pod := range pods.Items {
-		hasController := false
-		for _, ownerRef := range pod.OwnerReferences {
-			if ownerRef.Controller != nil && *ownerRef.Controller {
-				hasController = true
-				switch ownerRef.Kind {
-				case "ReplicaSet":
-					// Find the deployment
-					rs, err := ws.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ws.app.ctx, ownerRef.Name, metav1.GetOptions{})
-					if err == nil {
-						for _, rsOwner := range rs.OwnerReferences {
-							if rsOwner.Kind == "Deployment" {
-								key := fmt.Sprintf("%s/%s", pod.Namespace, rsOwner.Name)
-								deploymentPods[key]++
-							}
-						}
-					}
-				case "StatefulSet":
-					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
-					statefulsetPods[key]++
-				case "DaemonSet":
-					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
-					daemonsetPods[key]++
-				}
-				break
-			}
-		}
-		if !hasController {
-			standalonePods = append(standalonePods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
-		}
-	}
-
-	// Add deployment impacts
-	for key, count := range deploymentPods {
-		parts := strings.Split(key, "/")
-		node := &ImpactNode{
-			Type:       "Deployment",
-			Name:       parts[1],
-			Namespace:  parts[0],
-			Severity:   "medium",
-			Impact:     fmt.Sprintf("%d pod(s) will be rescheduled to other nodes", count),
-			Dependents: count,
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.MediumCount++
-	}
-
-	// Add statefulset impacts
-	for key, count := range statefulsetPods {
-		parts := strings.Split(key, "/")
-		node := &ImpactNode{
-			Type:       "StatefulSet",
-			Name:       parts[1],
-			Namespace:  parts[0],
-			Severity:   "high",
-			Impact:     fmt.Sprintf("%d pod(s) will need rescheduling - may require manual intervention for PVs", count),
-			Dependents: count,
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.HighCount++
-	}
-
-	// Add daemonset impacts
-	for key := range daemonsetPods {
-		parts := strings.Split(key, "/")
-		node := &ImpactNode{
-			Type:      "DaemonSet",
-			Name:      parts[1],
-			Namespace: parts[0],
-			Severity:  "low",
-			Impact:    "DaemonSet pod will not run on this node while unavailable",
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.LowCount++
-	}
-
-	// Add standalone pod impacts
-	if len(standalonePods) > 0 {
-		node := &ImpactNode{
-			Type:       "Pod (standalone)",
-			Name:       fmt.Sprintf("%d pods", len(standalonePods)),
-			Namespace:  "various",
-			Severity:   "critical",
-			Impact:     "Standalone pods will be lost permanently - no controller to reschedule",
-			Dependents: len(standalonePods),
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.CriticalCount++
-	}
-
-	analysis.TotalImpacted = len(pods.Items)
-	analysis.Summary = fmt.Sprintf("Node '%s' hosts %d pod(s) from %d workload(s)",
-		nodeName, len(pods.Items), len(analysis.ImpactedNodes))
-
-	if len(standalonePods) > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Migrate standalone pods to Deployments before draining node")
-	}
-	if len(statefulsetPods) > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Verify PersistentVolumes are accessible from other nodes")
-	}
-	analysis.Recommendations = append(analysis.Recommendations, "Use 'kubectl drain' for graceful workload migration")
-
-	return analysis, nil
-}
+// func (ws *WebServer) analyzeNodeImpact(nodeName string) (*ImpactAnalysis, error) {
+// 	_, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, nodeName, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        nodeName,
+// 		ResourceType:    "Node",
+// 		Namespace:       "cluster-wide",
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find all pods running on this node
+// 	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
+// 		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+// 	})
+// 
+// 	deploymentPods := make(map[string]int)
+// 	statefulsetPods := make(map[string]int)
+// 	daemonsetPods := make(map[string]int)
+// 	standalonePods := []string{}
+// 
+// 	for _, pod := range pods.Items {
+// 		hasController := false
+// 		for _, ownerRef := range pod.OwnerReferences {
+// 			if ownerRef.Controller != nil && *ownerRef.Controller {
+// 				hasController = true
+// 				switch ownerRef.Kind {
+// 				case "ReplicaSet":
+// 					// Find the deployment
+// 					rs, err := ws.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ws.app.ctx, ownerRef.Name, metav1.GetOptions{})
+// 					if err == nil {
+// 						for _, rsOwner := range rs.OwnerReferences {
+// 							if rsOwner.Kind == "Deployment" {
+// 								key := fmt.Sprintf("%s/%s", pod.Namespace, rsOwner.Name)
+// 								deploymentPods[key]++
+// 							}
+// 						}
+// 					}
+// 				case "StatefulSet":
+// 					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
+// 					statefulsetPods[key]++
+// 				case "DaemonSet":
+// 					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
+// 					daemonsetPods[key]++
+// 				}
+// 				break
+// 			}
+// 		}
+// 		if !hasController {
+// 			standalonePods = append(standalonePods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+// 		}
+// 	}
+// 
+// 	// Add deployment impacts
+// 	for key, count := range deploymentPods {
+// 		parts := strings.Split(key, "/")
+// 		node := &ImpactNode{
+// 			Type:       "Deployment",
+// 			Name:       parts[1],
+// 			Namespace:  parts[0],
+// 			Severity:   "medium",
+// 			Impact:     fmt.Sprintf("%d pod(s) will be rescheduled to other nodes", count),
+// 			Dependents: count,
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.MediumCount++
+// 	}
+// 
+// 	// Add statefulset impacts
+// 	for key, count := range statefulsetPods {
+// 		parts := strings.Split(key, "/")
+// 		node := &ImpactNode{
+// 			Type:       "StatefulSet",
+// 			Name:       parts[1],
+// 			Namespace:  parts[0],
+// 			Severity:   "high",
+// 			Impact:     fmt.Sprintf("%d pod(s) will need rescheduling - may require manual intervention for PVs", count),
+// 			Dependents: count,
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.HighCount++
+// 	}
+// 
+// 	// Add daemonset impacts
+// 	for key := range daemonsetPods {
+// 		parts := strings.Split(key, "/")
+// 		node := &ImpactNode{
+// 			Type:      "DaemonSet",
+// 			Name:      parts[1],
+// 			Namespace: parts[0],
+// 			Severity:  "low",
+// 			Impact:    "DaemonSet pod will not run on this node while unavailable",
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.LowCount++
+// 	}
+// 
+// 	// Add standalone pod impacts
+// 	if len(standalonePods) > 0 {
+// 		node := &ImpactNode{
+// 			Type:       "Pod (standalone)",
+// 			Name:       fmt.Sprintf("%d pods", len(standalonePods)),
+// 			Namespace:  "various",
+// 			Severity:   "critical",
+// 			Impact:     "Standalone pods will be lost permanently - no controller to reschedule",
+// 			Dependents: len(standalonePods),
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.CriticalCount++
+// 	}
+// 
+// 	analysis.TotalImpacted = len(pods.Items)
+// 	analysis.Summary = fmt.Sprintf("Node '%s' hosts %d pod(s) from %d workload(s)",
+// 		nodeName, len(pods.Items), len(analysis.ImpactedNodes))
+// 
+// 	if len(standalonePods) > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Migrate standalone pods to Deployments before draining node")
+// 	}
+// 	if len(statefulsetPods) > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Verify PersistentVolumes are accessible from other nodes")
+// 	}
+// 	analysis.Recommendations = append(analysis.Recommendations, "Use 'kubectl drain' for graceful workload migration")
+// 
+// 	return analysis, nil
+// }
 
 // getClusterMetrics collects cluster metrics
 func (ws *WebServer) getClusterMetrics() map[string]interface{} {
@@ -1479,245 +1479,245 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 }
 
 // matchesSelector checks if labels match selector
-func matchesSelector(selector, labels map[string]string) bool {
-	if len(selector) == 0 {
-		return false
-	}
-	for k, v := range selector {
-		if labels[k] != v {
-			return false
-		}
-	}
-	return true
-}
+// func matchesSelector(selector, labels map[string]string) bool {
+// 	if len(selector) == 0 {
+// 		return false
+// 	}
+// 	for k, v := range selector {
+// 		if labels[k] != v {
+// 			return false
+// 		}
+// 	}
+// 	return true
+// }
 
 
 // handleConfigMaps returns configmap list
-func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+// func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	cmList := []map[string]interface{}{}
+// 	for _, cm := range configmaps.Items {
+// 		cmList = append(cmList, map[string]interface{}{
+// 			"name":      cm.Name,
+// 			"data":      len(cm.Data),
+// 			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
+// 			"namespace": cm.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(cmList)
+// }
 
-	cmList := []map[string]interface{}{}
-	for _, cm := range configmaps.Items {
-		cmList = append(cmList, map[string]interface{}{
-			"name":      cm.Name,
-			"data":      len(cm.Data),
-			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
-			"namespace": cm.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(cmList)
-}
-
-// handleSecrets returns secrets list
-func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	secretList := []map[string]interface{}{}
-	for _, secret := range secrets.Items {
-		secretList = append(secretList, map[string]interface{}{
-			"name":      secret.Name,
-			"type":      string(secret.Type),
-			"data":      len(secret.Data),
-			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
-			"namespace": secret.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(secretList)
-}
+// // handleSecrets returns secrets list
+// func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	secretList := []map[string]interface{}{}
+// 	for _, secret := range secrets.Items {
+// 		secretList = append(secretList, map[string]interface{}{
+// 			"name":      secret.Name,
+// 			"type":      string(secret.Type),
+// 			"data":      len(secret.Data),
+// 			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
+// 			"namespace": secret.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(secretList)
+// }
 
 // handleResourceMap returns enhanced topology data
 
 // handlePodDetails returns detailed information about a specific pod
-func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Pod name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-
-	// Get pod
-	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Build containers info
-	containers := []map[string]interface{}{}
-	for _, c := range pod.Spec.Containers {
-		containerInfo := map[string]interface{}{
-			"name":  c.Name,
-			"image": c.Image,
-		}
-
-		// Find container status
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.Name == c.Name {
-				containerInfo["ready"] = cs.Ready
-				containerInfo["restartCount"] = cs.RestartCount
-				containerInfo["containerID"] = cs.ContainerID
-
-				// State information
-				if cs.State.Running != nil {
-					containerInfo["state"] = "Running"
-					containerInfo["startedAt"] = cs.State.Running.StartedAt.String()
-				} else if cs.State.Waiting != nil {
-					containerInfo["state"] = "Waiting"
-					containerInfo["reason"] = cs.State.Waiting.Reason
-					containerInfo["message"] = cs.State.Waiting.Message
-				} else if cs.State.Terminated != nil {
-					containerInfo["state"] = "Terminated"
-					containerInfo["reason"] = cs.State.Terminated.Reason
-					containerInfo["exitCode"] = cs.State.Terminated.ExitCode
-				}
-				break
-			}
-		}
-
-		containers = append(containers, containerInfo)
-	}
-
-	// Build volumes info
-	volumes := []map[string]interface{}{}
-	for _, v := range pod.Spec.Volumes {
-		volumeInfo := map[string]interface{}{
-			"name": v.Name,
-		}
-		if v.ConfigMap != nil {
-			volumeInfo["type"] = "ConfigMap"
-			volumeInfo["source"] = v.ConfigMap.Name
-		} else if v.Secret != nil {
-			volumeInfo["type"] = "Secret"
-			volumeInfo["source"] = v.Secret.SecretName
-		} else if v.PersistentVolumeClaim != nil {
-			volumeInfo["type"] = "PVC"
-			volumeInfo["source"] = v.PersistentVolumeClaim.ClaimName
-		} else if v.EmptyDir != nil {
-			volumeInfo["type"] = "EmptyDir"
-		} else {
-			volumeInfo["type"] = "Other"
-		}
-		volumes = append(volumes, volumeInfo)
-	}
-
-	// Build conditions
-	conditions := []map[string]interface{}{}
-	for _, c := range pod.Status.Conditions {
-		conditions = append(conditions, map[string]interface{}{
-			"type":    string(c.Type),
-			"status":  string(c.Status),
-			"reason":  c.Reason,
-			"message": c.Message,
-		})
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s", name),
-	})
-
-	eventList := []map[string]interface{}{}
-	for _, e := range events.Items {
-		eventList = append(eventList, map[string]interface{}{
-			"type":    e.Type,
-			"reason":  e.Reason,
-			"message": e.Message,
-			"count":   e.Count,
-			"age":     formatAge(time.Since(e.LastTimestamp.Time)),
-		})
-	}
-
-	// Generate YAML (using kubectl-style format)
-	pod.ManagedFields = nil
-	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
-
-	// Get real-time metrics if available
-	var podMetrics map[string]interface{}
-	if ws.app.metricsClient != nil {
-		if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{}); err == nil {
-			// Calculate total CPU and memory
-			var totalCPU, totalMemory int64
-			containerMetrics := []map[string]interface{}{}
-
-			for _, cm := range metrics.Containers {
-				cpuMillis := cm.Usage.Cpu().MilliValue()
-				memoryBytes := cm.Usage.Memory().Value()
-				totalCPU += cpuMillis
-				totalMemory += memoryBytes
-
-				containerMetrics = append(containerMetrics, map[string]interface{}{
-					"name":        cm.Name,
-					"cpuMillis":   cpuMillis,
-					"cpu":         fmt.Sprintf("%dm", cpuMillis),
-					"memoryBytes": memoryBytes,
-					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
-				})
-			}
-
-			podMetrics = map[string]interface{}{
-				"totalCPU":         fmt.Sprintf("%dm", totalCPU),
-				"totalCPUMillis":   totalCPU,
-				"totalMemory":      fmt.Sprintf("%.2fMi", float64(totalMemory)/(1024*1024)),
-				"totalMemoryBytes": totalMemory,
-				"containers":       containerMetrics,
-				"timestamp":        metrics.Timestamp.String(),
-			}
-		}
-	}
-
-	// Build response
-	details := map[string]interface{}{
-		"success":    true,
-		"name":       pod.Name,
-		"namespace":  pod.Namespace,
-		"status":     string(pod.Status.Phase),
-		"ip":         pod.Status.PodIP,
-		"node":       pod.Spec.NodeName,
-		"qos":        string(pod.Status.QOSClass),
-		"created":    pod.CreationTimestamp.String(),
-		"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
-		"labels":     pod.Labels,
-		"containers": containers,
-		"volumes":    volumes,
-		"conditions": conditions,
-		"events":     eventList,
-		"yaml":       string(yamlData),
-		"metrics":    podMetrics,
-	}
-
-	json.NewEncoder(w).Encode(details)
-}
+// func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Pod name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Get pod
+// 	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Build containers info
+// 	containers := []map[string]interface{}{}
+// 	for _, c := range pod.Spec.Containers {
+// 		containerInfo := map[string]interface{}{
+// 			"name":  c.Name,
+// 			"image": c.Image,
+// 		}
+// 
+// 		// Find container status
+// 		for _, cs := range pod.Status.ContainerStatuses {
+// 			if cs.Name == c.Name {
+// 				containerInfo["ready"] = cs.Ready
+// 				containerInfo["restartCount"] = cs.RestartCount
+// 				containerInfo["containerID"] = cs.ContainerID
+// 
+// 				// State information
+// 				if cs.State.Running != nil {
+// 					containerInfo["state"] = "Running"
+// 					containerInfo["startedAt"] = cs.State.Running.StartedAt.String()
+// 				} else if cs.State.Waiting != nil {
+// 					containerInfo["state"] = "Waiting"
+// 					containerInfo["reason"] = cs.State.Waiting.Reason
+// 					containerInfo["message"] = cs.State.Waiting.Message
+// 				} else if cs.State.Terminated != nil {
+// 					containerInfo["state"] = "Terminated"
+// 					containerInfo["reason"] = cs.State.Terminated.Reason
+// 					containerInfo["exitCode"] = cs.State.Terminated.ExitCode
+// 				}
+// 				break
+// 			}
+// 		}
+// 
+// 		containers = append(containers, containerInfo)
+// 	}
+// 
+// 	// Build volumes info
+// 	volumes := []map[string]interface{}{}
+// 	for _, v := range pod.Spec.Volumes {
+// 		volumeInfo := map[string]interface{}{
+// 			"name": v.Name,
+// 		}
+// 		if v.ConfigMap != nil {
+// 			volumeInfo["type"] = "ConfigMap"
+// 			volumeInfo["source"] = v.ConfigMap.Name
+// 		} else if v.Secret != nil {
+// 			volumeInfo["type"] = "Secret"
+// 			volumeInfo["source"] = v.Secret.SecretName
+// 		} else if v.PersistentVolumeClaim != nil {
+// 			volumeInfo["type"] = "PVC"
+// 			volumeInfo["source"] = v.PersistentVolumeClaim.ClaimName
+// 		} else if v.EmptyDir != nil {
+// 			volumeInfo["type"] = "EmptyDir"
+// 		} else {
+// 			volumeInfo["type"] = "Other"
+// 		}
+// 		volumes = append(volumes, volumeInfo)
+// 	}
+// 
+// 	// Build conditions
+// 	conditions := []map[string]interface{}{}
+// 	for _, c := range pod.Status.Conditions {
+// 		conditions = append(conditions, map[string]interface{}{
+// 			"type":    string(c.Type),
+// 			"status":  string(c.Status),
+// 			"reason":  c.Reason,
+// 			"message": c.Message,
+// 		})
+// 	}
+// 
+// 	// Get events
+// 	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
+// 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", name),
+// 	})
+// 
+// 	eventList := []map[string]interface{}{}
+// 	for _, e := range events.Items {
+// 		eventList = append(eventList, map[string]interface{}{
+// 			"type":    e.Type,
+// 			"reason":  e.Reason,
+// 			"message": e.Message,
+// 			"count":   e.Count,
+// 			"age":     formatAge(time.Since(e.LastTimestamp.Time)),
+// 		})
+// 	}
+// 
+// 	// Generate YAML (using kubectl-style format)
+// 	pod.ManagedFields = nil
+// 	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
+// 
+// 	// Get real-time metrics if available
+// 	var podMetrics map[string]interface{}
+// 	if ws.app.metricsClient != nil {
+// 		if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{}); err == nil {
+// 			// Calculate total CPU and memory
+// 			var totalCPU, totalMemory int64
+// 			containerMetrics := []map[string]interface{}{}
+// 
+// 			for _, cm := range metrics.Containers {
+// 				cpuMillis := cm.Usage.Cpu().MilliValue()
+// 				memoryBytes := cm.Usage.Memory().Value()
+// 				totalCPU += cpuMillis
+// 				totalMemory += memoryBytes
+// 
+// 				containerMetrics = append(containerMetrics, map[string]interface{}{
+// 					"name":        cm.Name,
+// 					"cpuMillis":   cpuMillis,
+// 					"cpu":         fmt.Sprintf("%dm", cpuMillis),
+// 					"memoryBytes": memoryBytes,
+// 					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
+// 				})
+// 			}
+// 
+// 			podMetrics = map[string]interface{}{
+// 				"totalCPU":         fmt.Sprintf("%dm", totalCPU),
+// 				"totalCPUMillis":   totalCPU,
+// 				"totalMemory":      fmt.Sprintf("%.2fMi", float64(totalMemory)/(1024*1024)),
+// 				"totalMemoryBytes": totalMemory,
+// 				"containers":       containerMetrics,
+// 				"timestamp":        metrics.Timestamp.String(),
+// 			}
+// 		}
+// 	}
+// 
+// 	// Build response
+// 	details := map[string]interface{}{
+// 		"success":    true,
+// 		"name":       pod.Name,
+// 		"namespace":  pod.Namespace,
+// 		"status":     string(pod.Status.Phase),
+// 		"ip":         pod.Status.PodIP,
+// 		"node":       pod.Spec.NodeName,
+// 		"qos":        string(pod.Status.QOSClass),
+// 		"created":    pod.CreationTimestamp.String(),
+// 		"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
+// 		"labels":     pod.Labels,
+// 		"containers": containers,
+// 		"volumes":    volumes,
+// 		"conditions": conditions,
+// 		"events":     eventList,
+// 		"yaml":       string(yamlData),
+// 		"metrics":    podMetrics,
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(details)
+// }
 
 // handlePodExec handles pod exec - serves web terminal for GET, executes commands for POST
 func (ws *WebServer) handlePodExec(w http.ResponseWriter, r *http.Request) {
@@ -3707,442 +3707,442 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 }
 
 // handleCertificates returns certificate list (cert-manager CRD)
-func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-
-	// Handle "_all" namespace
-	queryNs := namespace
-	if namespace == "_all" {
-		queryNs = ""
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
-
-	if err != nil {
-		// cert-manager may not be installed
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
-		return
-	}
-
-	certs := []map[string]interface{}{}
-	for _, cert := range certList.Items {
-		metadata := cert.Object["metadata"].(map[string]interface{})
-		spec := cert.Object["spec"].(map[string]interface{})
-
-		name := metadata["name"].(string)
-		ns := metadata["namespace"].(string)
-
-		// Get creation time for age
-		creationTimeStr, _ := metadata["creationTimestamp"].(string)
-		var age string
-		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
-			age = formatAge(time.Since(creationTime))
-		}
-
-		// Get secret name
-		secretName, _ := spec["secretName"].(string)
-
-		// Get issuer ref
-		var issuer string
-		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
-			issuerName, _ := issuerRef["name"].(string)
-			issuerKind, _ := issuerRef["kind"].(string)
-			if issuerKind == "" {
-				issuerKind = "Issuer"
-			}
-			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
-		}
-
-		// Get DNS names
-		var dnsNames []string
-		if dns, ok := spec["dnsNames"].([]interface{}); ok {
-			for _, d := range dns {
-				if s, ok := d.(string); ok {
-					dnsNames = append(dnsNames, s)
-				}
-			}
-		}
-
-		// Get status
-		status := "Unknown"
-		var notBefore, notAfter, renewalTime string
-		if statusObj, ok := cert.Object["status"].(map[string]interface{}); ok {
-			if conditions, ok := statusObj["conditions"].([]interface{}); ok {
-				for _, cond := range conditions {
-					if c, ok := cond.(map[string]interface{}); ok {
-						if c["type"] == "Ready" {
-							if c["status"] == "True" {
-								status = "Ready"
-							} else if c["status"] == "False" {
-								status = "Failed"
-							} else {
-								status = "Pending"
-							}
-							break
-						}
-					}
-				}
-			}
-			if nb, ok := statusObj["notBefore"].(string); ok {
-				notBefore = nb
-			}
-			if na, ok := statusObj["notAfter"].(string); ok {
-				notAfter = na
-			}
-			if rt, ok := statusObj["renewalTime"].(string); ok {
-				renewalTime = rt
-			}
-		}
-
-		certs = append(certs, map[string]interface{}{
-			"name":        name,
-			"namespace":   ns,
-			"secretName":  secretName,
-			"issuer":      issuer,
-			"status":      status,
-			"notBefore":   notBefore,
-			"notAfter":    notAfter,
-			"renewalTime": renewalTime,
-			"dnsNames":    dnsNames,
-			"age":         age,
-		})
-	}
-
-	json.NewEncoder(w).Encode(certs)
-}
-
-// handleCertificateYAML returns the YAML representation of a certificate
-func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Remove managed fields for cleaner YAML
-	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
-
-	yamlData, err := yaml.Marshal(cert.Object)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"yaml":    string(yamlData),
-	})
-}
-
-// handleCertificateUpdate updates a certificate from YAML
-func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "POST" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Read YAML from request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to read request body: %v", err),
-		})
-		return
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	// Unmarshal YAML to unstructured object
-	var cert unstructured.Unstructured
-	if err := yaml.Unmarshal(body, &cert); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
-		})
-		return
-	}
-
-	// Update the certificate
-	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Certificate %s updated successfully", name),
-	})
-}
-
-// handleCertificateDescribe returns kubectl describe output for a certificate
-func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"describe": describe,
-	})
-}
-
-// handleCertificateDelete deletes a certificate
-func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "DELETE" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
-	})
-}
+// func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Handle "_all" namespace
+// 	queryNs := namespace
+// 	if namespace == "_all" {
+// 		queryNs = ""
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode([]map[string]interface{}{})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
+// 
+// 	if err != nil {
+// 		// cert-manager may not be installed
+// 		json.NewEncoder(w).Encode([]map[string]interface{}{})
+// 		return
+// 	}
+// 
+// 	certs := []map[string]interface{}{}
+// 	for _, cert := range certList.Items {
+// 		metadata := cert.Object["metadata"].(map[string]interface{})
+// 		spec := cert.Object["spec"].(map[string]interface{})
+// 
+// 		name := metadata["name"].(string)
+// 		ns := metadata["namespace"].(string)
+// 
+// 		// Get creation time for age
+// 		creationTimeStr, _ := metadata["creationTimestamp"].(string)
+// 		var age string
+// 		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
+// 			age = formatAge(time.Since(creationTime))
+// 		}
+// 
+// 		// Get secret name
+// 		secretName, _ := spec["secretName"].(string)
+// 
+// 		// Get issuer ref
+// 		var issuer string
+// 		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
+// 			issuerName, _ := issuerRef["name"].(string)
+// 			issuerKind, _ := issuerRef["kind"].(string)
+// 			if issuerKind == "" {
+// 				issuerKind = "Issuer"
+// 			}
+// 			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
+// 		}
+// 
+// 		// Get DNS names
+// 		var dnsNames []string
+// 		if dns, ok := spec["dnsNames"].([]interface{}); ok {
+// 			for _, d := range dns {
+// 				if s, ok := d.(string); ok {
+// 					dnsNames = append(dnsNames, s)
+// 				}
+// 			}
+// 		}
+// 
+// 		// Get status
+// 		status := "Unknown"
+// 		var notBefore, notAfter, renewalTime string
+// 		if statusObj, ok := cert.Object["status"].(map[string]interface{}); ok {
+// 			if conditions, ok := statusObj["conditions"].([]interface{}); ok {
+// 				for _, cond := range conditions {
+// 					if c, ok := cond.(map[string]interface{}); ok {
+// 						if c["type"] == "Ready" {
+// 							if c["status"] == "True" {
+// 								status = "Ready"
+// 							} else if c["status"] == "False" {
+// 								status = "Failed"
+// 							} else {
+// 								status = "Pending"
+// 							}
+// 							break
+// 						}
+// 					}
+// 				}
+// 			}
+// 			if nb, ok := statusObj["notBefore"].(string); ok {
+// 				notBefore = nb
+// 			}
+// 			if na, ok := statusObj["notAfter"].(string); ok {
+// 				notAfter = na
+// 			}
+// 			if rt, ok := statusObj["renewalTime"].(string); ok {
+// 				renewalTime = rt
+// 			}
+// 		}
+// 
+// 		certs = append(certs, map[string]interface{}{
+// 			"name":        name,
+// 			"namespace":   ns,
+// 			"secretName":  secretName,
+// 			"issuer":      issuer,
+// 			"status":      status,
+// 			"notBefore":   notBefore,
+// 			"notAfter":    notAfter,
+// 			"renewalTime": renewalTime,
+// 			"dnsNames":    dnsNames,
+// 			"age":         age,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(certs)
+// }
+// 
+// // handleCertificateYAML returns the YAML representation of a certificate
+// func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Remove managed fields for cleaner YAML
+// 	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
+// 
+// 	yamlData, err := yaml.Marshal(cert.Object)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"yaml":    string(yamlData),
+// 	})
+// }
+// 
+// // handleCertificateUpdate updates a certificate from YAML
+// func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "POST" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Read YAML from request body
+// 	body, err := io.ReadAll(r.Body)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	// Unmarshal YAML to unstructured object
+// 	var cert unstructured.Unstructured
+// 	if err := yaml.Unmarshal(body, &cert); err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Update the certificate
+// 	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"message": fmt.Sprintf("Certificate %s updated successfully", name),
+// 	})
+// }
+// 
+// // handleCertificateDescribe returns kubectl describe output for a certificate
+// func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":  true,
+// 		"describe": describe,
+// 	})
+// }
+// 
+// // handleCertificateDelete deletes a certificate
+// func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "DELETE" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
+// 	})
+// }
 
 // handleCronJobs returns cronjob list
-func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	cjList := []map[string]interface{}{}
-	for _, cj := range cronjobs.Items {
-		// Get last schedule time
-		lastSchedule := "Never"
-		if cj.Status.LastScheduleTime != nil {
-			lastSchedule = formatAge(time.Since(cj.Status.LastScheduleTime.Time)) + " ago"
-		}
-
-		// Get active jobs count
-		activeJobs := len(cj.Status.Active)
-
-		cjList = append(cjList, map[string]interface{}{
-			"name":         cj.Name,
-			"schedule":     cj.Spec.Schedule,
-			"suspend":      cj.Spec.Suspend != nil && *cj.Spec.Suspend,
-			"active":       activeJobs,
-			"lastSchedule": lastSchedule,
-			"age":          formatAge(time.Since(cj.CreationTimestamp.Time)),
-			"namespace":    cj.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(cjList)
-}
+// func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	cjList := []map[string]interface{}{}
+// 	for _, cj := range cronjobs.Items {
+// 		// Get last schedule time
+// 		lastSchedule := "Never"
+// 		if cj.Status.LastScheduleTime != nil {
+// 			lastSchedule = formatAge(time.Since(cj.Status.LastScheduleTime.Time)) + " ago"
+// 		}
+// 
+// 		// Get active jobs count
+// 		activeJobs := len(cj.Status.Active)
+// 
+// 		cjList = append(cjList, map[string]interface{}{
+// 			"name":         cj.Name,
+// 			"schedule":     cj.Spec.Schedule,
+// 			"suspend":      cj.Spec.Suspend != nil && *cj.Spec.Suspend,
+// 			"active":       activeJobs,
+// 			"lastSchedule": lastSchedule,
+// 			"age":          formatAge(time.Since(cj.CreationTimestamp.Time)),
+// 			"namespace":    cj.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(cjList)
+// }
 
 // handleJobs returns job list
-func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	jobList := []map[string]interface{}{}
-	for _, job := range jobs.Items {
-		// Determine status
-		status := "Running"
-		if job.Status.Succeeded > 0 {
-			status = "Complete"
-		} else if job.Status.Failed > 0 {
-			status = "Failed"
-		}
-
-		// Get completions
-		completions := "?"
-		if job.Spec.Completions != nil {
-			completions = fmt.Sprintf("%d", *job.Spec.Completions)
-		}
-
-		// Get duration
-		duration := "-"
-		if job.Status.CompletionTime != nil {
-			duration = formatAge(job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time))
-		} else if job.Status.StartTime != nil {
-			duration = formatAge(time.Since(job.Status.StartTime.Time))
-		}
-
-		jobList = append(jobList, map[string]interface{}{
-			"name":        job.Name,
-			"status":      status,
-			"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
-			"duration":    duration,
-			"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
-			"namespace":   job.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(jobList)
-}
+// func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	jobList := []map[string]interface{}{}
+// 	for _, job := range jobs.Items {
+// 		// Determine status
+// 		status := "Running"
+// 		if job.Status.Succeeded > 0 {
+// 			status = "Complete"
+// 		} else if job.Status.Failed > 0 {
+// 			status = "Failed"
+// 		}
+// 
+// 		// Get completions
+// 		completions := "?"
+// 		if job.Spec.Completions != nil {
+// 			completions = fmt.Sprintf("%d", *job.Spec.Completions)
+// 		}
+// 
+// 		// Get duration
+// 		duration := "-"
+// 		if job.Status.CompletionTime != nil {
+// 			duration = formatAge(job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time))
+// 		} else if job.Status.StartTime != nil {
+// 			duration = formatAge(time.Since(job.Status.StartTime.Time))
+// 		}
+// 
+// 		jobList = append(jobList, map[string]interface{}{
+// 			"name":        job.Name,
+// 			"status":      status,
+// 			"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
+// 			"duration":    duration,
+// 			"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
+// 			"namespace":   job.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(jobList)
+// }
 
 // handleStatefulSetDetails returns detailed information about a statefulset
 func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Request) {
@@ -5174,308 +5174,308 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // findAvailablePort finds an available port starting from the given port
 
 // SecurityFinding represents a security recommendation
-type SecurityFinding struct {
-	Severity    string `json:"severity"`    // critical, high, medium, low
-	Category    string `json:"category"`    // security-context, network-policy, ingress-ports, etc.
-	Resource    string `json:"resource"`    // resource type (Pod, Deployment, Ingress, etc.)
-	Name        string `json:"name"`        // resource name
-	Namespace   string `json:"namespace"`   // namespace
-	Title       string `json:"title"`       // short description
-	Description string `json:"description"` // detailed description
-	Remediation string `json:"remediation"` // how to fix
-}
-
-// handleSecurityAnalysis performs security best practices analysis
-func (ws *WebServer) handleSecurityAnalysis(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	findings := []SecurityFinding{}
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Use empty string for all namespaces
-	listNamespace := namespace
-	if namespace == "_all" {
-		listNamespace = ""
-	}
-
-	// 1. Check Pods for missing SecurityContext
-	pods, err := ws.app.clientset.CoreV1().Pods(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, pod := range pods.Items {
-			// Skip completed/failed pods
-			if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
-				continue
-			}
-
-			hasSecurityContext := false
-			runAsNonRoot := false
-			readOnlyRootFS := false
-			privileged := false
-			allowPrivilegeEscalation := true // default is true
-
-			// Check pod-level security context
-			if pod.Spec.SecurityContext != nil {
-				hasSecurityContext = true
-				if pod.Spec.SecurityContext.RunAsNonRoot != nil && *pod.Spec.SecurityContext.RunAsNonRoot {
-					runAsNonRoot = true
-				}
-			}
-
-			// Check container-level security contexts
-			for _, container := range pod.Spec.Containers {
-				if container.SecurityContext != nil {
-					hasSecurityContext = true
-					if container.SecurityContext.RunAsNonRoot != nil && *container.SecurityContext.RunAsNonRoot {
-						runAsNonRoot = true
-					}
-					if container.SecurityContext.ReadOnlyRootFilesystem != nil && *container.SecurityContext.ReadOnlyRootFilesystem {
-						readOnlyRootFS = true
-					}
-					if container.SecurityContext.Privileged != nil && *container.SecurityContext.Privileged {
-						privileged = true
-					}
-					if container.SecurityContext.AllowPrivilegeEscalation != nil && !*container.SecurityContext.AllowPrivilegeEscalation {
-						allowPrivilegeEscalation = false
-					}
-				}
-			}
-
-			// Finding: No SecurityContext at all
-			if !hasSecurityContext {
-				findings = append(findings, SecurityFinding{
-					Severity:    "critical",
-					Category:    "security-context",
-					Resource:    "Pod",
-					Name:        pod.Name,
-					Namespace:   pod.Namespace,
-					Title:       "Missing SecurityContext",
-					Description: "Pod has no SecurityContext defined. This is a critical security risk as containers run with default privileges.",
-					Remediation: "Add a SecurityContext to the pod or container spec with runAsNonRoot: true, readOnlyRootFilesystem: true, and allowPrivilegeEscalation: false",
-				})
-			} else {
-				// Check individual security settings
-				if !runAsNonRoot {
-					findings = append(findings, SecurityFinding{
-						Severity:    "high",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Container may run as root",
-						Description: "Pod does not enforce runAsNonRoot. Containers could run as root user, increasing attack surface.",
-						Remediation: "Set securityContext.runAsNonRoot: true in the pod or container spec",
-					})
-				}
-
-				if privileged {
-					findings = append(findings, SecurityFinding{
-						Severity:    "critical",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Privileged container detected",
-						Description: "Container is running in privileged mode. This grants full access to the host system.",
-						Remediation: "Remove privileged: true from the container securityContext unless absolutely necessary",
-					})
-				}
-
-				if allowPrivilegeEscalation {
-					findings = append(findings, SecurityFinding{
-						Severity:    "medium",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Privilege escalation allowed",
-						Description: "Container allows privilege escalation. Processes could gain more privileges than their parent.",
-						Remediation: "Set securityContext.allowPrivilegeEscalation: false",
-					})
-				}
-
-				if !readOnlyRootFS {
-					findings = append(findings, SecurityFinding{
-						Severity:    "low",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Root filesystem is writable",
-						Description: "Container filesystem is writable. Attackers could modify files if container is compromised.",
-						Remediation: "Set securityContext.readOnlyRootFilesystem: true and use emptyDir volumes for writable paths",
-					})
-				}
-			}
-		}
-	}
-
-	// 2. Check for missing NetworkPolicies
-	// Get all namespaces that have pods
-	namespacesWithPods := make(map[string]bool)
-	if pods != nil {
-		for _, pod := range pods.Items {
-			namespacesWithPods[pod.Namespace] = true
-		}
-	}
-
-	// Check which namespaces have NetworkPolicies
-	networkPolicies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	namespacesWithNetPol := make(map[string]bool)
-	if err == nil {
-		for _, np := range networkPolicies.Items {
-			namespacesWithNetPol[np.Namespace] = true
-		}
-	}
-
-	// Report namespaces without NetworkPolicies
-	for ns := range namespacesWithPods {
-		if !namespacesWithNetPol[ns] {
-			// Skip system namespaces
-			if ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease" {
-				continue
-			}
-			findings = append(findings, SecurityFinding{
-				Severity:    "high",
-				Category:    "network-policy",
-				Resource:    "Namespace",
-				Name:        ns,
-				Namespace:   ns,
-				Title:       "No NetworkPolicy defined",
-				Description: "Namespace has no NetworkPolicy. All pods can communicate with any other pod in the cluster by default.",
-				Remediation: "Create NetworkPolicies to restrict ingress and egress traffic. Start with a default-deny policy.",
-			})
-		}
-	}
-
-	// 3. Check Ingresses for insecure ports
-	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err == nil {
-		insecurePorts := map[int32]string{
-			80:   "HTTP (unencrypted)",
-			8080: "Common HTTP alternative (unencrypted)",
-			8000: "Common development port",
-			3000: "Common development port",
-		}
-
-		for _, ing := range ingresses.Items {
-			// Check if TLS is configured
-			hasTLS := len(ing.Spec.TLS) > 0
-
-			for _, rule := range ing.Spec.Rules {
-				if rule.HTTP != nil {
-					for _, path := range rule.HTTP.Paths {
-						port := path.Backend.Service.Port.Number
-						if portDesc, isInsecure := insecurePorts[port]; isInsecure {
-							severity := "medium"
-							if port == 80 || port == 8080 {
-								severity = "high"
-							}
-							findings = append(findings, SecurityFinding{
-								Severity:    severity,
-								Category:    "ingress-ports",
-								Resource:    "Ingress",
-								Name:        ing.Name,
-								Namespace:   ing.Namespace,
-								Title:       fmt.Sprintf("Using port %d (%s)", port, portDesc),
-								Description: fmt.Sprintf("Ingress routes traffic to port %d. Using default or well-known ports can be a security risk.", port),
-								Remediation: "Consider using non-standard ports and ensure TLS termination is configured",
-							})
-						}
-					}
-				}
-			}
-
-			// Check for missing TLS
-			if !hasTLS {
-				findings = append(findings, SecurityFinding{
-					Severity:    "high",
-					Category:    "ingress-tls",
-					Resource:    "Ingress",
-					Name:        ing.Name,
-					Namespace:   ing.Namespace,
-					Title:       "No TLS configured",
-					Description: "Ingress does not have TLS configured. Traffic may be transmitted unencrypted.",
-					Remediation: "Configure TLS in the Ingress spec with a valid certificate",
-				})
-			}
-		}
-	}
-
-	// 4. Check Services for NodePort exposure
-	services, err := ws.app.clientset.CoreV1().Services(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, svc := range services.Items {
-			if svc.Spec.Type == v1.ServiceTypeNodePort {
-				findings = append(findings, SecurityFinding{
-					Severity:    "medium",
-					Category:    "service-exposure",
-					Resource:    "Service",
-					Name:        svc.Name,
-					Namespace:   svc.Namespace,
-					Title:       "NodePort service exposed",
-					Description: "Service is exposed via NodePort, making it accessible on all cluster nodes.",
-					Remediation: "Consider using LoadBalancer or Ingress with proper access controls instead of NodePort",
-				})
-			}
-
-			if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
-				// Check if external traffic policy is set to Local
-				if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
-					findings = append(findings, SecurityFinding{
-						Severity:    "low",
-						Category:    "service-exposure",
-						Resource:    "Service",
-						Name:        svc.Name,
-						Namespace:   svc.Namespace,
-						Title:       "External traffic policy not optimized",
-						Description: "LoadBalancer service uses Cluster external traffic policy. Client source IP is not preserved.",
-						Remediation: "Set externalTrafficPolicy: Local to preserve client source IP for security logging",
-					})
-				}
-			}
-		}
-	}
-
-	// Calculate summary statistics
-	summary := map[string]int{
-		"critical": 0,
-		"high":     0,
-		"medium":   0,
-		"low":      0,
-		"total":    len(findings),
-	}
-
-	for _, f := range findings {
-		summary[f.Severity]++
-	}
-
-	// Calculate security score (0-100)
-	// Weight: critical=40, high=25, medium=10, low=5
-	totalWeight := summary["critical"]*40 + summary["high"]*25 + summary["medium"]*10 + summary["low"]*5
-	maxScore := 100
-	score := maxScore - totalWeight
-	if score < 0 {
-		score = 0
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"findings": findings,
-		"summary":  summary,
-		"score":    score,
-	})
-}
+// type SecurityFinding struct {
+// 	Severity    string `json:"severity"`    // critical, high, medium, low
+// 	Category    string `json:"category"`    // security-context, network-policy, ingress-ports, etc.
+// 	Resource    string `json:"resource"`    // resource type (Pod, Deployment, Ingress, etc.)
+// 	Name        string `json:"name"`        // resource name
+// 	Namespace   string `json:"namespace"`   // namespace
+// 	Title       string `json:"title"`       // short description
+// 	Description string `json:"description"` // detailed description
+// 	Remediation string `json:"remediation"` // how to fix
+// }
+// 
+// // handleSecurityAnalysis performs security best practices analysis
+// func (ws *WebServer) handleSecurityAnalysis(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	findings := []SecurityFinding{}
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Use empty string for all namespaces
+// 	listNamespace := namespace
+// 	if namespace == "_all" {
+// 		listNamespace = ""
+// 	}
+// 
+// 	// 1. Check Pods for missing SecurityContext
+// 	pods, err := ws.app.clientset.CoreV1().Pods(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err == nil {
+// 		for _, pod := range pods.Items {
+// 			// Skip completed/failed pods
+// 			if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
+// 				continue
+// 			}
+// 
+// 			hasSecurityContext := false
+// 			runAsNonRoot := false
+// 			readOnlyRootFS := false
+// 			privileged := false
+// 			allowPrivilegeEscalation := true // default is true
+// 
+// 			// Check pod-level security context
+// 			if pod.Spec.SecurityContext != nil {
+// 				hasSecurityContext = true
+// 				if pod.Spec.SecurityContext.RunAsNonRoot != nil && *pod.Spec.SecurityContext.RunAsNonRoot {
+// 					runAsNonRoot = true
+// 				}
+// 			}
+// 
+// 			// Check container-level security contexts
+// 			for _, container := range pod.Spec.Containers {
+// 				if container.SecurityContext != nil {
+// 					hasSecurityContext = true
+// 					if container.SecurityContext.RunAsNonRoot != nil && *container.SecurityContext.RunAsNonRoot {
+// 						runAsNonRoot = true
+// 					}
+// 					if container.SecurityContext.ReadOnlyRootFilesystem != nil && *container.SecurityContext.ReadOnlyRootFilesystem {
+// 						readOnlyRootFS = true
+// 					}
+// 					if container.SecurityContext.Privileged != nil && *container.SecurityContext.Privileged {
+// 						privileged = true
+// 					}
+// 					if container.SecurityContext.AllowPrivilegeEscalation != nil && !*container.SecurityContext.AllowPrivilegeEscalation {
+// 						allowPrivilegeEscalation = false
+// 					}
+// 				}
+// 			}
+// 
+// 			// Finding: No SecurityContext at all
+// 			if !hasSecurityContext {
+// 				findings = append(findings, SecurityFinding{
+// 					Severity:    "critical",
+// 					Category:    "security-context",
+// 					Resource:    "Pod",
+// 					Name:        pod.Name,
+// 					Namespace:   pod.Namespace,
+// 					Title:       "Missing SecurityContext",
+// 					Description: "Pod has no SecurityContext defined. This is a critical security risk as containers run with default privileges.",
+// 					Remediation: "Add a SecurityContext to the pod or container spec with runAsNonRoot: true, readOnlyRootFilesystem: true, and allowPrivilegeEscalation: false",
+// 				})
+// 			} else {
+// 				// Check individual security settings
+// 				if !runAsNonRoot {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "high",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Container may run as root",
+// 						Description: "Pod does not enforce runAsNonRoot. Containers could run as root user, increasing attack surface.",
+// 						Remediation: "Set securityContext.runAsNonRoot: true in the pod or container spec",
+// 					})
+// 				}
+// 
+// 				if privileged {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "critical",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Privileged container detected",
+// 						Description: "Container is running in privileged mode. This grants full access to the host system.",
+// 						Remediation: "Remove privileged: true from the container securityContext unless absolutely necessary",
+// 					})
+// 				}
+// 
+// 				if allowPrivilegeEscalation {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "medium",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Privilege escalation allowed",
+// 						Description: "Container allows privilege escalation. Processes could gain more privileges than their parent.",
+// 						Remediation: "Set securityContext.allowPrivilegeEscalation: false",
+// 					})
+// 				}
+// 
+// 				if !readOnlyRootFS {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "low",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Root filesystem is writable",
+// 						Description: "Container filesystem is writable. Attackers could modify files if container is compromised.",
+// 						Remediation: "Set securityContext.readOnlyRootFilesystem: true and use emptyDir volumes for writable paths",
+// 					})
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// 2. Check for missing NetworkPolicies
+// 	// Get all namespaces that have pods
+// 	namespacesWithPods := make(map[string]bool)
+// 	if pods != nil {
+// 		for _, pod := range pods.Items {
+// 			namespacesWithPods[pod.Namespace] = true
+// 		}
+// 	}
+// 
+// 	// Check which namespaces have NetworkPolicies
+// 	networkPolicies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	namespacesWithNetPol := make(map[string]bool)
+// 	if err == nil {
+// 		for _, np := range networkPolicies.Items {
+// 			namespacesWithNetPol[np.Namespace] = true
+// 		}
+// 	}
+// 
+// 	// Report namespaces without NetworkPolicies
+// 	for ns := range namespacesWithPods {
+// 		if !namespacesWithNetPol[ns] {
+// 			// Skip system namespaces
+// 			if ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease" {
+// 				continue
+// 			}
+// 			findings = append(findings, SecurityFinding{
+// 				Severity:    "high",
+// 				Category:    "network-policy",
+// 				Resource:    "Namespace",
+// 				Name:        ns,
+// 				Namespace:   ns,
+// 				Title:       "No NetworkPolicy defined",
+// 				Description: "Namespace has no NetworkPolicy. All pods can communicate with any other pod in the cluster by default.",
+// 				Remediation: "Create NetworkPolicies to restrict ingress and egress traffic. Start with a default-deny policy.",
+// 			})
+// 		}
+// 	}
+// 
+// 	// 3. Check Ingresses for insecure ports
+// 	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err == nil {
+// 		insecurePorts := map[int32]string{
+// 			80:   "HTTP (unencrypted)",
+// 			8080: "Common HTTP alternative (unencrypted)",
+// 			8000: "Common development port",
+// 			3000: "Common development port",
+// 		}
+// 
+// 		for _, ing := range ingresses.Items {
+// 			// Check if TLS is configured
+// 			hasTLS := len(ing.Spec.TLS) > 0
+// 
+// 			for _, rule := range ing.Spec.Rules {
+// 				if rule.HTTP != nil {
+// 					for _, path := range rule.HTTP.Paths {
+// 						port := path.Backend.Service.Port.Number
+// 						if portDesc, isInsecure := insecurePorts[port]; isInsecure {
+// 							severity := "medium"
+// 							if port == 80 || port == 8080 {
+// 								severity = "high"
+// 							}
+// 							findings = append(findings, SecurityFinding{
+// 								Severity:    severity,
+// 								Category:    "ingress-ports",
+// 								Resource:    "Ingress",
+// 								Name:        ing.Name,
+// 								Namespace:   ing.Namespace,
+// 								Title:       fmt.Sprintf("Using port %d (%s)", port, portDesc),
+// 								Description: fmt.Sprintf("Ingress routes traffic to port %d. Using default or well-known ports can be a security risk.", port),
+// 								Remediation: "Consider using non-standard ports and ensure TLS termination is configured",
+// 							})
+// 						}
+// 					}
+// 				}
+// 			}
+// 
+// 			// Check for missing TLS
+// 			if !hasTLS {
+// 				findings = append(findings, SecurityFinding{
+// 					Severity:    "high",
+// 					Category:    "ingress-tls",
+// 					Resource:    "Ingress",
+// 					Name:        ing.Name,
+// 					Namespace:   ing.Namespace,
+// 					Title:       "No TLS configured",
+// 					Description: "Ingress does not have TLS configured. Traffic may be transmitted unencrypted.",
+// 					Remediation: "Configure TLS in the Ingress spec with a valid certificate",
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// 4. Check Services for NodePort exposure
+// 	services, err := ws.app.clientset.CoreV1().Services(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err == nil {
+// 		for _, svc := range services.Items {
+// 			if svc.Spec.Type == v1.ServiceTypeNodePort {
+// 				findings = append(findings, SecurityFinding{
+// 					Severity:    "medium",
+// 					Category:    "service-exposure",
+// 					Resource:    "Service",
+// 					Name:        svc.Name,
+// 					Namespace:   svc.Namespace,
+// 					Title:       "NodePort service exposed",
+// 					Description: "Service is exposed via NodePort, making it accessible on all cluster nodes.",
+// 					Remediation: "Consider using LoadBalancer or Ingress with proper access controls instead of NodePort",
+// 				})
+// 			}
+// 
+// 			if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
+// 				// Check if external traffic policy is set to Local
+// 				if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "low",
+// 						Category:    "service-exposure",
+// 						Resource:    "Service",
+// 						Name:        svc.Name,
+// 						Namespace:   svc.Namespace,
+// 						Title:       "External traffic policy not optimized",
+// 						Description: "LoadBalancer service uses Cluster external traffic policy. Client source IP is not preserved.",
+// 						Remediation: "Set externalTrafficPolicy: Local to preserve client source IP for security logging",
+// 					})
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// Calculate summary statistics
+// 	summary := map[string]int{
+// 		"critical": 0,
+// 		"high":     0,
+// 		"medium":   0,
+// 		"low":      0,
+// 		"total":    len(findings),
+// 	}
+// 
+// 	for _, f := range findings {
+// 		summary[f.Severity]++
+// 	}
+// 
+// 	// Calculate security score (0-100)
+// 	// Weight: critical=40, high=25, medium=10, low=5
+// 	totalWeight := summary["critical"]*40 + summary["high"]*25 + summary["medium"]*10 + summary["low"]*5
+// 	maxScore := 100
+// 	score := maxScore - totalWeight
+// 	if score < 0 {
+// 		score = 0
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":  true,
+// 		"findings": findings,
+// 		"summary":  summary,
+// 		"score":    score,
+// 	})
+// }
 
 // HelmRelease represents a Helm release
 type HelmRelease struct {

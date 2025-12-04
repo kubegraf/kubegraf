@@ -321,11 +321,32 @@ func (ws *WebServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify admin permission (simplified - check user role from context)
-	userRole := r.Header.Get("X-User-Role")
-	if userRole != string(RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	// Check if this is the first user registration
+	userCount, err := ws.db.CountUsers()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
 		return
+	}
+
+	// If there are existing users, verify admin permission
+	if userCount > 0 {
+		// Extract token and validate session
+		token := extractToken(r)
+		if token == "" {
+			http.Error(w, "unauthorized - admin authentication required", http.StatusUnauthorized)
+			return
+		}
+
+		currentUser, err := ws.iam.ValidateSession(token)
+		if err != nil || currentUser.Role != string(RoleAdmin) {
+			http.Error(w, "forbidden - admin role required", http.StatusForbidden)
+			return
+		}
+	} else {
+		// First user must be admin
+		if req.Role != string(RoleAdmin) {
+			req.Role = string(RoleAdmin)
+		}
 	}
 
 	user, err := ws.iam.Register(req.Username, req.Password, req.Email, req.Role)
