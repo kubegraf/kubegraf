@@ -46,6 +46,43 @@ const Services: Component = () => {
   const [localPort, setLocalPort] = createSignal(8080);
   const [remotePort, setRemotePort] = createSignal(80);
 
+  // Font size selector with localStorage persistence
+  const getInitialFontSize = (): number => {
+    const saved = localStorage.getItem('services-font-size');
+    return saved ? parseInt(saved) : 14;
+  };
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('services-font-size', size.toString());
+  };
+
+  // Font family selector with localStorage persistence
+  const getInitialFontFamily = (): string => {
+    const saved = localStorage.getItem('services-font-family');
+    return saved || 'Monaco';
+  };
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('services-font-family', family);
+  };
+
+  // Map font family option to actual font-family CSS value
+  const getFontFamilyCSS = (): string => {
+    const family = fontFamily();
+    switch (family) {
+      case 'Monospace': return '"Courier New", Monaco, monospace';
+      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
+      case 'Consolas': return 'Consolas, "Courier New", monospace';
+      case 'Courier': return 'Courier, "Courier New", monospace';
+      default: return '"Courier New", Monaco, monospace';
+    }
+  };
+
   const [services, { refetch }] = createResource(namespace, api.getServices);
   const [portForwards, { refetch: refetchPF }] = createResource(api.listPortForwards);
   const [yamlContent] = createResource(
@@ -292,6 +329,36 @@ const Services: Component = () => {
 
         <div class="flex-1" />
 
+        {/* Font Size Selector */}
+        <select
+          value={fontSize()}
+          onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+          class="px-3 py-2 rounded-lg text-sm"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          title="Font Size"
+        >
+          <option value="12">12px</option>
+          <option value="14">14px</option>
+          <option value="16">16px</option>
+          <option value="18">18px</option>
+          <option value="20">20px</option>
+        </select>
+
+        {/* Font Family Selector */}
+        <select
+          value={fontFamily()}
+          onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+          class="px-3 py-2 rounded-lg text-sm"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          title="Font Family"
+        >
+          <option value="Monospace">Monospace</option>
+          <option value="System-ui">System-ui</option>
+          <option value="Monaco">Monaco</option>
+          <option value="Consolas">Consolas</option>
+          <option value="Courier">Courier</option>
+        </select>
+
         <input
           type="text"
           placeholder="Search..."
@@ -345,7 +412,7 @@ const Services: Component = () => {
       </Show>
 
       {/* Services table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
           when={!services.loading}
           fallback={
@@ -356,7 +423,18 @@ const Services: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{
+              fontSize: `${fontSize()}px`,
+              fontFamily: getFontFamilyCSS(),
+              color: '#0ea5e9',
+              fontWeight: 900
+            }}>
+              <style>{`
+                table { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
+                table thead { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
+                table tbody { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
+                table tr { height: ${Math.max(24, fontSize() * 1.7)}px; }
+              `}</style>
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>

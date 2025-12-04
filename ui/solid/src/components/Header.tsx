@@ -251,7 +251,7 @@ const Header: Component = () => {
       });
 
       addNotification('Cluster disconnected successfully', 'success');
-      refreshAll();
+      // Don't call refreshAll() as it will refetch status and immediately reconnect
     } catch (error) {
       console.error('Disconnect error:', error);
       // Even if API fails, we can simulate disconnection on UI
