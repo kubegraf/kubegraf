@@ -242,6 +242,12 @@ func (d *Database) GetUser(username string) (*User, error) {
 	return &user, err
 }
 
+func (d *Database) CountUsers() (int, error) {
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
+}
+
 func (d *Database) UpdateLastLogin(userID int) error {
 	_, err := d.db.Exec("UPDATE users SET last_login = ? WHERE id = ?", time.Now(), userID)
 	return err

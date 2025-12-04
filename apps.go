@@ -262,22 +262,16 @@ func (ws *WebServer) getInstalledApps() ([]InstalledApp, error) {
 		return nil, fmt.Errorf("failed to parse helm output: %v", err)
 	}
 
-	// Match releases with our catalog
-	installed := make([]InstalledApp, 0)
+	// Return ALL installed Helm releases (not just catalog matches)
+	installed := make([]InstalledApp, 0, len(releases))
 	for _, release := range releases {
-		// Check if release matches any of our catalog apps
-		for _, app := range appsCatalog {
-			if strings.Contains(release.Chart, app.ChartName) || release.Name == app.Name {
-				installed = append(installed, InstalledApp{
-					Name:      app.Name,
-					Namespace: release.Namespace,
-					Status:    release.Status,
-					Version:   release.AppVersion,
-					Chart:     release.Chart,
-				})
-				break
-			}
-		}
+		installed = append(installed, InstalledApp{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+			Status:    release.Status,
+			Version:   release.AppVersion,
+			Chart:     release.Chart,
+		})
 	}
 
 	return installed, nil

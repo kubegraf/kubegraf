@@ -48,6 +48,43 @@ const Storage: Component = () => {
   const [yamlContent, setYamlContent] = createSignal('');
   const [yamlLoading, setYamlLoading] = createSignal(false);
 
+  // Font size selector with localStorage persistence
+  const getInitialFontSize = (): number => {
+    const saved = localStorage.getItem('storage-font-size');
+    return saved ? parseInt(saved) : 14;
+  };
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('storage-font-size', size.toString());
+  };
+
+  // Font family selector with localStorage persistence
+  const getInitialFontFamily = (): string => {
+    const saved = localStorage.getItem('storage-font-family');
+    return saved || 'Monospace';
+  };
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('storage-font-family', family);
+  };
+
+  // Map font family option to actual font-family CSS value
+  const getFontFamilyCSS = (): string => {
+    const family = fontFamily();
+    switch (family) {
+      case 'Monospace': return '"Courier New", Monaco, monospace';
+      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
+      case 'Consolas': return 'Consolas, "Courier New", monospace';
+      case 'Courier': return 'Courier, "Courier New", monospace';
+      default: return '"Courier New", Monaco, monospace';
+    }
+  };
+
   // Fetch PersistentVolumes
   const [pvs, { refetch: refetchPVs }] = createResource(async () => {
     try {
@@ -165,6 +202,37 @@ const Storage: Component = () => {
           <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>Storage</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Manage PersistentVolumes, PersistentVolumeClaims, and StorageClasses</p>
         </div>
+        <div class="flex items-center gap-2">
+          {/* Font Size Selector */}
+          <select
+            value={fontSize()}
+            onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+            class="px-3 py-2 rounded-lg text-sm font-bold"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Size"
+          >
+            <option value="12">12px</option>
+            <option value="14">14px</option>
+            <option value="16">16px</option>
+            <option value="18">18px</option>
+            <option value="20">20px</option>
+          </select>
+
+          {/* Font Style Selector */}
+          <select
+            value={fontFamily()}
+            onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+            class="px-3 py-2 rounded-lg text-sm font-bold"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Style"
+          >
+            <option value="Monospace">Monospace</option>
+            <option value="System-ui">System-ui</option>
+            <option value="Monaco">Monaco</option>
+            <option value="Consolas">Consolas</option>
+            <option value="Courier">Courier</option>
+          </select>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -223,7 +291,7 @@ const Storage: Component = () => {
           </Show>
           <Show when={!pvs.loading && pvs() && pvs().length > 0}>
             <div class="overflow-x-auto">
-              <table class="w-full">
+              <table class="w-full" style={{ 'font-family': getFontFamilyCSS() }}>
                 <thead style={{ background: 'var(--bg-secondary)' }}>
                   <tr>
                     <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
@@ -291,7 +359,7 @@ const Storage: Component = () => {
           </Show>
           <Show when={!pvcs.loading && pvcs() && Array.isArray(pvcs()) && pvcs().length > 0}>
             <div class="overflow-x-auto">
-              <table class="w-full">
+              <table class="w-full" style={{ 'font-family': getFontFamilyCSS() }}>
                 <thead style={{ background: 'var(--bg-secondary)' }}>
                   <tr>
                     <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
@@ -359,7 +427,7 @@ const Storage: Component = () => {
           </Show>
           <Show when={!storageClasses.loading && storageClasses() && storageClasses().length > 0}>
             <div class="overflow-x-auto">
-              <table class="w-full">
+              <table class="w-full" style={{ 'font-family': getFontFamilyCSS() }}>
                 <thead style={{ background: 'var(--bg-secondary)' }}>
                   <tr>
                     <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
