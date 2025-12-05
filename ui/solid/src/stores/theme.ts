@@ -1,6 +1,6 @@
 import { createSignal, createEffect } from 'solid-js';
 
-export type ThemeName = 'dark' | 'light' | 'midnight' | 'cyberpunk' | 'ocean' | 'terminal';
+export type ThemeName = 'dark' | 'light' | 'midnight' | 'dracula' | 'nord' | 'ocean' | 'terminal' | 'github-dark';
 
 export interface Theme {
   name: ThemeName;
@@ -100,28 +100,52 @@ export const themes: Record<ThemeName, Theme> = {
       errorColor: '#f43f5e',
     },
   },
-  cyberpunk: {
-    name: 'cyberpunk',
-    label: 'Cyberpunk',
-    icon: 'bolt',
+  dracula: {
+    name: 'dracula',
+    label: 'Dracula',
+    icon: 'skull',
     colors: {
-      bgPrimary: '#0a0a0f',
-      bgSecondary: '#12121a',
-      bgTertiary: '#1a1a25',
-      bgCard: 'rgba(18, 18, 26, 0.95)',
-      bgNavbar: 'rgba(10, 10, 15, 0.98)',
-      bgInput: 'rgba(18, 18, 26, 0.9)',
-      textPrimary: '#00ff9f',
-      textSecondary: '#ff00ff',
-      textMuted: '#00d4ff',
-      borderColor: 'rgba(0, 255, 159, 0.3)',
-      borderLight: 'rgba(255, 0, 255, 0.4)',
-      accentPrimary: '#00ff9f',
-      accentSecondary: '#ff00ff',
-      accentGradient: 'linear-gradient(135deg, #00ff9f 0%, #ff00ff 100%)',
-      successColor: '#00ff9f',
-      warningColor: '#ffff00',
-      errorColor: '#ff0055',
+      bgPrimary: '#282a36',
+      bgSecondary: '#21222c',
+      bgTertiary: '#44475a',
+      bgCard: 'rgba(40, 42, 54, 0.9)',
+      bgNavbar: 'rgba(40, 42, 54, 0.98)',
+      bgInput: 'rgba(40, 42, 54, 0.9)',
+      textPrimary: '#f8f8f2',
+      textSecondary: '#6272a4',
+      textMuted: '#44475a',
+      borderColor: 'rgba(98, 114, 164, 0.3)',
+      borderLight: 'rgba(98, 114, 164, 0.5)',
+      accentPrimary: '#bd93f9',
+      accentSecondary: '#ff79c6',
+      accentGradient: 'linear-gradient(135deg, #bd93f9 0%, #ff79c6 100%)',
+      successColor: '#50fa7b',
+      warningColor: '#f1fa8c',
+      errorColor: '#ff5555',
+    },
+  },
+  nord: {
+    name: 'nord',
+    label: 'Nord',
+    icon: 'snowflake',
+    colors: {
+      bgPrimary: '#2e3440',
+      bgSecondary: '#3b4252',
+      bgTertiary: '#434c5e',
+      bgCard: 'rgba(46, 52, 64, 0.9)',
+      bgNavbar: 'rgba(46, 52, 64, 0.98)',
+      bgInput: 'rgba(46, 52, 64, 0.9)',
+      textPrimary: '#eceff4',
+      textSecondary: '#d8dee9',
+      textMuted: '#81a1c1',
+      borderColor: 'rgba(129, 161, 193, 0.3)',
+      borderLight: 'rgba(129, 161, 193, 0.5)',
+      accentPrimary: '#81a1c1',
+      accentSecondary: '#5e81ac',
+      accentGradient: 'linear-gradient(135deg, #81a1c1 0%, #5e81ac 100%)',
+      successColor: '#a3be8c',
+      warningColor: '#ebcb8b',
+      errorColor: '#bf616a',
     },
   },
   ocean: {
@@ -172,6 +196,30 @@ export const themes: Record<ThemeName, Theme> = {
       errorColor: '#ff3b30',
     },
   },
+  'github-dark': {
+    name: 'github-dark',
+    label: 'GitHub Dark',
+    icon: 'github',
+    colors: {
+      bgPrimary: '#0d1117',
+      bgSecondary: '#161b22',
+      bgTertiary: '#21262d',
+      bgCard: 'rgba(13, 17, 23, 0.9)',
+      bgNavbar: 'rgba(13, 17, 23, 0.98)',
+      bgInput: 'rgba(13, 17, 23, 0.9)',
+      textPrimary: '#c9d1d9',
+      textSecondary: '#8b949e',
+      textMuted: '#6e7681',
+      borderColor: 'rgba(48, 54, 61, 0.4)',
+      borderLight: 'rgba(48, 54, 61, 0.6)',
+      accentPrimary: '#58a6ff',
+      accentSecondary: '#79c0ff',
+      accentGradient: 'linear-gradient(135deg, #58a6ff 0%, #79c0ff 100%)',
+      successColor: '#3fb950',
+      warningColor: '#d29922',
+      errorColor: '#f85149',
+    },
+  },
 };
 
 // Get initial theme from localStorage or default to 'dark'
@@ -213,7 +261,7 @@ export function setTheme(themeName: ThemeName) {
 
 // Cycle through themes
 export function cycleTheme() {
-  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'cyberpunk', 'ocean', 'terminal'];
+  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'dracula', 'nord', 'ocean', 'terminal', 'github-dark'];
   const currentIndex = themeOrder.indexOf(currentTheme());
   const nextIndex = (currentIndex + 1) % themeOrder.length;
   setTheme(themeOrder[nextIndex]);
