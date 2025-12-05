@@ -1038,6 +1038,7 @@ const Pods: Component = () => {
                             { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
                             { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger' },
                           ]}
+                          onOpenChange={setActionMenuOpen}
                         />
                       </td>
                     </tr>
