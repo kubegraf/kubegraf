@@ -336,9 +336,20 @@ const CronJobs: Component = () => {
                 <For each={paginatedCronJobs()} fallback={
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No CronJobs found</td></tr>
                 }>
-                  {(cj: CronJob) => (
+                  {(cj: CronJob) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(cj); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -347,21 +358,81 @@ const CronJobs: Component = () => {
                           {cj.name.length > 40 ? cj.name.slice(0, 37) + '...' : cj.name}
                         </button>
                       </td>
-                      <td>{cj.namespace}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{cj.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <code class="px-2 py-1 rounded text-xs" style={{ background: 'var(--bg-tertiary)' }}>
                           {cj.schedule}
                         </code>
                       </td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${cj.suspend ? 'badge-warning' : 'badge-success'}`}>
                           {cj.suspend ? 'Yes' : 'No'}
                         </span>
                       </td>
-                      <td>{cj.active}</td>
-                      <td>{cj.lastSchedule || 'Never'}</td>
-                      <td>{cj.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{cj.active}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{cj.lastSchedule || 'Never'}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{cj.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Trigger', icon: 'restart', onClick: () => triggerCronJob(cj) },
@@ -373,7 +444,8 @@ const CronJobs: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

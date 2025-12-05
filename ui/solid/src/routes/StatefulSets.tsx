@@ -396,9 +396,20 @@ const StatefulSets: Component = () => {
                 <For each={paginatedStatefulSets()} fallback={
                   <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No StatefulSets found</td></tr>
                 }>
-                  {(sts: StatefulSet) => (
+                  {(sts: StatefulSet) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(sts); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -407,23 +418,65 @@ const StatefulSets: Component = () => {
                           {sts.name.length > 40 ? sts.name.slice(0, 37) + '...' : sts.name}
                         </button>
                       </td>
-                      <td>{sts.namespace}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{sts.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${
                           sts.ready.split('/')[0] === sts.ready.split('/')[1] ? 'badge-success' : 'badge-warning'
                         }`}>
                           {sts.ready}
                         </span>
                       </td>
-                      <td>{sts.replicas}</td>
-                      <td>{sts.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{sts.replicas}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{sts.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Scale', icon: 'scale', onClick: () => openScale(sts) },
-                            { 
-                              label: 'Restart', 
-                              icon: 'restart', 
+                            {
+                              label: 'Restart',
+                              icon: 'restart',
                               onClick: () => restart(sts),
                               loading: restarting() === `${sts.namespace}/${sts.name}`
                             },
@@ -434,7 +487,8 @@ const StatefulSets: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

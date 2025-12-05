@@ -459,9 +459,20 @@ const Services: Component = () => {
                 <For each={paginatedServices()} fallback={
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No services found</td></tr>
                 }>
-                  {(svc: Service) => (
+                  {(svc: Service) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(svc); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -470,17 +481,77 @@ const Services: Component = () => {
                           {svc.name.length > 40 ? svc.name.slice(0, 37) + '...' : svc.name}
                         </button>
                       </td>
-                      <td>{svc.namespace}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{svc.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${svc.type === 'LoadBalancer' ? 'badge-info' : svc.type === 'NodePort' ? 'badge-warning' : 'badge-success'}`}>
                           {svc.type}
                         </span>
                       </td>
-                      <td class="font-mono text-sm">{svc.clusterIP}</td>
-                      <td class="font-mono text-sm">{svc.externalIP || '-'}</td>
-                      <td class="text-sm">{svc.ports}</td>
-                      <td>{svc.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }} class="font-mono text-sm">{svc.clusterIP}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }} class="font-mono text-sm">{svc.externalIP || '-'}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }} class="text-sm">{svc.ports}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{svc.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Port Forward', icon: 'portforward', onClick: () => openPortForward(svc) },
@@ -491,7 +562,8 @@ const Services: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

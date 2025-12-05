@@ -319,9 +319,20 @@ const Ingresses: Component = () => {
                 <For each={paginatedIngresses()} fallback={
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ingresses found</td></tr>
                 }>
-                  {(ing: Ingress) => (
+                  {(ing: Ingress) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(ing); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -330,9 +341,36 @@ const Ingresses: Component = () => {
                           {ing.name.length > 40 ? ing.name.slice(0, 37) + '...' : ing.name}
                         </button>
                       </td>
-                      <td>{ing.namespace}</td>
-                      <td>{ing.class || '-'}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ing.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ing.class || '-'}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <div class="flex flex-wrap gap-1">
                           <For each={ing.hosts || []}>
                             {(host) => (
@@ -344,10 +382,43 @@ const Ingresses: Component = () => {
                           </For>
                         </div>
                       </td>
-                      <td>{ing.address || '-'}</td>
-                      <td>{ing.ports}</td>
-                      <td>{ing.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ing.address || '-'}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ing.ports}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ing.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(ing); setShowYaml(true); } },
@@ -357,7 +428,8 @@ const Ingresses: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

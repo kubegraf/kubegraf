@@ -45,6 +45,11 @@ const Pods: Component = () => {
   const [showPortForward, setShowPortForward] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [podToDelete, setPodToDelete] = createSignal<Pod | null>(null);
+  const [showContainerSelect, setShowContainerSelect] = createSignal(false);
+  const [containerSelectPod, setContainerSelectPod] = createSignal<Pod | null>(null);
+
+  // Track if any action menu is open to pause auto-refresh
+  const [actionMenuOpen, setActionMenuOpen] = createSignal(false);
 
   // Port forward state
   const [localPort, setLocalPort] = createSignal(8080);
@@ -190,10 +195,13 @@ const Pods: Component = () => {
     ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
     
     // Auto-refresh pods every 2 seconds (silent background refresh)
+    // but pause when action menu is open to allow user interaction
     podsRefreshTimer = setInterval(() => {
-      // Use refetch with silent option to avoid UI flicker
-      refetch().catch(err => console.error('Background refresh error:', err));
-      fetchMetrics();
+      // Only refresh if no action menu is open
+      if (!actionMenuOpen()) {
+        refetch().catch(err => console.error('Background refresh error:', err));
+        fetchMetrics();
+      }
     }, 2000);
     
     // Keyboard navigation
@@ -454,8 +462,19 @@ const Pods: Component = () => {
   };
 
   const openShellInNewTab = (pod: Pod) => {
-    const container = pod.containers?.[0] || '';
-    // Open shell endpoint in new tab - backend should handle WebSocket terminal
+    // Show container selector if pod has multiple containers
+    if (pod.containers && pod.containers.length > 1) {
+      setContainerSelectPod(pod);
+      setShowContainerSelect(true);
+    } else {
+      const container = pod.containers?.[0] || '';
+      // Open shell endpoint in new tab - backend should handle WebSocket terminal
+      window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
+    }
+  };
+
+  const connectToContainer = (pod: Pod, container: string) => {
+    setShowContainerSelect(false);
     window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
   };
 
@@ -1441,6 +1460,44 @@ const Pods: Component = () => {
               Delete Pod
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Container Selector Modal */}
+      <Modal isOpen={showContainerSelect()} onClose={() => setShowContainerSelect(false)} title={`Select Container for ${containerSelectPod()?.name}`} size="sm">
+        <div class="space-y-2">
+          <Show when={containerSelectPod()?.containers} fallback={<div>No containers found</div>}>
+            {(containers) => (
+              <For each={containers()}>
+                {(container) => (
+                  <button
+                    onClick={() => connectToContainer(containerSelectPod()!, container)}
+                    class="w-full p-3 rounded-lg text-left transition-colors"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border-color)',
+                      'hover-background': 'var(--bg-tertiary)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                  >
+                    <div class="flex items-center gap-2">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      <div>
+                        <div class="font-medium">{container}</div>
+                        <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          Container • {containerSelectPod()?.namespace}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </For>
+            )}
+          </Show>
         </div>
       </Modal>
     </div>

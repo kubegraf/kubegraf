@@ -180,9 +180,19 @@ const Nodes: Component = () => {
               {(node) => {
                 const isReady = node.status === 'Ready';
                 const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
+                const textColor = '#0ea5e9';
                 return (
                   <tr>
-                    <td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       <div class="flex items-center gap-2">
                         <div class={`p-1 rounded ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
                           <svg class={`w-4 h-4 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -198,20 +208,74 @@ const Nodes: Component = () => {
                         </button>
                       </div>
                     </td>
-                    <td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       <span class={`badge ${isReady ? 'badge-success' : 'badge-error'}`}>
                         {node.status}
                       </span>
                     </td>
-                    <td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       <span class={`text-sm ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`}>
                         {node.roles || 'worker'}
                       </span>
                     </td>
-                    <td class="font-mono text-sm">{node.cpu || 'N/A'}</td>
-                    <td class="font-mono text-sm">{node.memory || 'N/A'}</td>
-                    <td class="font-mono text-sm">{node.version}</td>
-                    <td>{node.age}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }} class="font-mono text-sm">{node.cpu || 'N/A'}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }} class="font-mono text-sm">{node.memory || 'N/A'}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }} class="font-mono text-sm">{node.version}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{node.age}</td>
                   </tr>
                 );
               }}

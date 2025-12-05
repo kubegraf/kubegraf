@@ -327,9 +327,20 @@ const DaemonSets: Component = () => {
                 <For each={paginatedDaemonSets()} fallback={
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No DaemonSets found</td></tr>
                 }>
-                  {(ds: DaemonSet) => (
+                  {(ds: DaemonSet) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(ds); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -338,17 +349,77 @@ const DaemonSets: Component = () => {
                           {ds.name.length > 40 ? ds.name.slice(0, 37) + '...' : ds.name}
                         </button>
                       </td>
-                      <td>{ds.namespace}</td>
-                      <td>{ds.desired}</td>
-                      <td>{ds.current}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.desired}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.current}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${ds.ready === ds.desired ? 'badge-success' : 'badge-warning'}`}>
                           {ds.ready}
                         </span>
                       </td>
-                      <td>{ds.available}</td>
-                      <td>{ds.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.available}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Restart', icon: 'restart', onClick: () => restart(ds) },
@@ -359,7 +430,8 @@ const DaemonSets: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
