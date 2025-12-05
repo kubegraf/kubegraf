@@ -1,0 +1,159 @@
+> distance between each cell and cell sizing , horizontal line spaceing everything shoudl be exactly similar to pods in all other reosuce tabs. and when i click on pods it should give me an option to login to any container
+ shell. and currently every 2 secs the each pod horizonal items are refreshed including age is refreshed. but once i click on three dots in actions, its getting refreshed and i can't click on any section in the actions 
+example shell , its getting refreshed continuosly before i click on the shell inside actions. 
+
+⏺ I'll address these issues systematically. Let me first examine the Pods component to understand the exact styling and refresh mechanism:
+
+⏺ Read(ui/solid/src/routes/Pods.tsx)
+  ⎿  Read 150 lines
+
+⏺ I can see the issue! There's a 2-second auto-refresh interval (line 192-197) that prevents interaction with the actions menu. Let me read more of the Pods component to understand the table structure and then fix these
+  issues:
+
+⏺ Read(ui/solid/src/routes/Pods.tsx)
+  ⎿  Read 150 lines
+
+⏺ Let me find the table structure and ActionMenu to understand cell spacing:
+
+⏺ Search(pattern: "ActionMenu|data-table|<td|<th", path: "ui/solid/src/routes/Pods.tsx", output_mode: "content", head_limit: 30)
+  ⎿  Found 24 lines (ctrl+o to expand)
+
+⏺ Read(ui/solid/src/routes/Pods.tsx)
+  ⎿  Read 200 lines
+
+⏺ Now I understand the issues. Let me create a comprehensive plan to fix these:
+
+  1. Auto-refresh blocking actions menu - Pause refresh when actions menu is open
+  2. Container shell login - Add container selector modal
+  3. Exact cell styling - Apply same padding (0 8px), height, and line-height to all tabs
+
+  Let me start by fixing the Pods component:
+
+⏺ Update(ui/solid/src/routes/Pods.tsx)
+  ⎿  Updated ui/solid/src/routes/Pods.tsx with 5 additions                                        
+       45      const [showPortForward, setShowPortForward] = createSignal(false);
+       46      const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+       47      const [podToDelete, setPodToDelete] = createSignal<Pod | null>(null);
+       48 +    const [showContainerSelect, setShowContainerSelect] = createSignal(false);
+       49 +    const [containerSelectPod, setContainerSelectPod] = createSignal<Pod | null>(null);
+       50    
+       51 +    // Track if any action menu is open to pause auto-refresh
+       52 +    const [actionMenuOpen, setActionMenuOpen] = createSignal(false);
+       53 +  
+       54      // Port forward state
+       55      const [localPort, setLocalPort] = createSignal(8080);
+       56      const [remotePort, setRemotePort] = createSignal(80);
+
+⏺ Update(ui/solid/src/routes/Pods.tsx)
+  ⎿  Updated ui/solid/src/routes/Pods.tsx with 6 additions and 3 removals                     
+       195        ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
+       196        
+       197        // Auto-refresh pods every 2 seconds (silent background refresh)
+       198 +      // but pause when action menu is open to allow user interaction
+       199        podsRefreshTimer = setInterval(() => {
+       200 -        // Use refetch with silent option to avoid UI flicker
+       201 -        refetch().catch(err => console.error('Background refresh error:', err));
+       202 -        fetchMetrics();
+       200 +        // Only refresh if no action menu is open
+       201 +        if (!actionMenuOpen()) {
+       202 +          refetch().catch(err => console.error('Background refresh error:', err));
+       203 +          fetchMetrics();
+       204 +        }
+       205        }, 2000);
+       206        
+       207        // Keyboard navigation
+
+⏺ Update(ui/solid/src/routes/Pods.tsx)
+  ⎿  Updated ui/solid/src/routes/Pods.tsx with 13 additions and 2 removals                                                    
+       462      };
+       463    
+       464      const openShellInNewTab = (pod: Pod) => {
+       465 -      const container = pod.containers?.[0] || '';
+       466 -      // Open shell endpoint in new tab - backend should handle WebSocket terminal
+       465 +      // Show container selector if pod has multiple containers
+       466 +      if (pod.containers && pod.containers.length > 1) {
+       467 +        setContainerSelectPod(pod);
+       468 +        setShowContainerSelect(true);
+       469 +      } else {
+       470 +        const container = pod.containers?.[0] || '';
+       471 +        // Open shell endpoint in new tab - backend should handle WebSocket terminal
+       472 +        window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
+       473 +      }
+       474 +    };
+       475 +  
+       476 +    const connectToContainer = (pod: Pod, container: string) => {
+       477 +      setShowContainerSelect(false);
+       478        window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
+       479      };
+       480    
+
+⏺ Read(ui/solid/src/routes/Pods.tsx)
+  ⎿  Read 100 lines
+
+⏺ Search(pattern: "export default Pods", path: "ui/solid/src/routes/Pods.tsx", output_mode: "content")
+  ⎿  Found 1 line (ctrl+o to expand)
+
+⏺ Read(ui/solid/src/routes/Pods.tsx)
+  ⎿  Read 41 lines
+
+⏺ Update(ui/solid/src/routes/Pods.tsx)
+  ⎿  Updated ui/solid/src/routes/Pods.tsx with 38 additions                                                                                                                                                                
+       1462              </div>
+       1463            </div>
+       1464          </Modal>
+       1465 +  
+       1466 +        {/* Container Selector Modal */}
+       1467 +        <Modal isOpen={showContainerSelect()} onClose={() => setShowContainerSelect(false)} title={`Select Container for ${containerSelectPod()?.name}`} size="sm">
+       1468 +          <div class="space-y-2">
+       1469 +            <Show when={containerSelectPod()?.containers} fallback={<div>No containers found</div>}>
+       1470 +              {(containers) => (
+       1471 +                <For each={containers()}>
+       1472 +                  {(container) => (
+       1473 +                    <button
+       1474 +                      onClick={() => connectToContainer(containerSelectPod()!, container)}
+       1475 +                      class="w-full p-3 rounded-lg text-left transition-colors"
+       1476 +                      style={{
+       1477 +                        background: 'var(--bg-secondary)',
+       1478 +                        color: 'var(--text-primary)',
+       1479 +                        border: '1px solid var(--border-color)',
+       1480 +                        'hover-background': 'var(--bg-tertiary)'
+       1481 +                      }}
+       1482 +                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+       1483 +                      onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+       1484 +                    >
+       1485 +                      <div class="flex items-center gap-2">
+       1486 +                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+       1487 +                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0
+            +  012-2h2a2 2 0 012 2" />
+       1488 +                        </svg>
+       1489 +                        <div>
+       1490 +                          <div class="font-medium">{container}</div>
+       1491 +                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+       1492 +                            Container • {containerSelectPod()?.namespace}
+       1493 +                          </div>
+       1494 +                        </div>
+       1495 +                      </div>
+       1496 +                    </button>
+       1497 +                  )}
+       1498 +                </For>
+       1499 +              )}
+       1500 +            </Show>
+       1501 +          </div>
+       1502 +        </Modal>
+       1503        </div>
+       1504      );
+       1505    };
+
+⏺ Now I need to apply the exact cell styling from Pods to all other resource tabs. Let me use the Task tool to do this efficiently:
+
+⏺ Task(Apply exact Pods cell styling to all resource tabs)
+  ⎿  Done (41 tool uses · 103.1k tokens · 7m 13s)                                                                                                                                                                            
+
+⏺ I need to ensure the ActionMenu notifies the parent component when it's open. Let me check the ActionMenu component:
+
+⏺ Read(ui/solid/src/components/ActionMenu.tsx)
+  ⎿  Read 150 lines
+  ⎿  Limit reached · resets 4am (Europe/London) · /upgrade to Max or turn on /extra-usage
+     /upgrade or /extra-usage to finish what you're working on.
+
+
