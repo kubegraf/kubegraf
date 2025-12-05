@@ -198,31 +198,27 @@ func NewWebServer(app *App) *WebServer {
 	if encryptionKey == "" {
 		// Use a default key (not secure for production, but okay for development)
 		encryptionKey = "default-encryption-key-change-in-production"
-		fmt.Println("⚠️  Using default encryption key. Set KUBEGRAF_ENCRYPTION_KEY environment variable for production.")
 	}
 	
 	db, err := NewDatabase(dbPath, encryptionKey)
 	if err != nil {
-		fmt.Printf("⚠️  Failed to initialize database: %v\n", err)
+		// Silent failure for production
 	} else {
 		ws.db = db
-		fmt.Printf("✅ Database initialized at %s\n", dbPath)
 	}
 	
 	// Initialize cache (use LRU backend by default)
 	cache, err := NewCache(CacheBackendLRU, "")
 	if err != nil {
-		fmt.Printf("⚠️  Failed to initialize cache: %v\n", err)
+		// Silent failure for production
 	} else {
 		ws.cache = cache
-		fmt.Println("✅ Cache initialized (LRU backend)")
 	}
 	
 	// Initialize IAM (enabled by default)
 	iamEnabled := true
 	if ws.db != nil {
 		ws.iam = NewIAM(ws.db, iamEnabled)
-		fmt.Println("✅ IAM initialized")
 	}
 	
 	return ws
@@ -404,25 +400,22 @@ func (ws *WebServer) Start(port int) error {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		// Port is in use, find next available port
-		log.Printf("⚠️  Port %d is already in use, searching for available port...", port)
 		actualPort, err = findAvailablePort(port)
 		if err != nil {
 			return fmt.Errorf("failed to find available port: %v", err)
 		}
-		if actualPort != port {
-			log.Printf("✅ Using port %d instead (port %d was in use)", actualPort, port)
-		}
-	} else {
+	}
+	if listener != nil {
 		listener.Close()
 	}
 
 	addr := fmt.Sprintf(":%d", actualPort)
-	log.Printf("🌐 Web UI available at http://localhost%s", addr)
-	log.Printf("📊 Dashboard: http://localhost%s", addr)
-	log.Printf("🗺️  Topology: http://localhost%s/topology", addr)
 
 	// Pre-warm the cost cache in background (waits for cluster connection)
 	go ws.prewarmCostCache()
+	
+	// Show startup banner
+	ws.showStartupBanner(actualPort)
 
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
@@ -444,23 +437,19 @@ func (ws *WebServer) prewarmCostCache() {
 	}
 
 	if ws.app.clientset == nil || !ws.app.connected {
-		log.Printf("⚠️ Skipping cost cache pre-warm: cluster not connected")
 		return
 	}
 
 	currentContext := ws.app.GetCurrentContext()
 	if currentContext == "" {
-		log.Printf("⚠️ Skipping cost cache pre-warm: no context selected")
 		return
 	}
 
-	log.Printf("💰 Pre-warming cost cache in background...")
 	estimator := NewCostEstimator(ws.app)
 	ctx := context.Background()
 
 	cost, err := estimator.EstimateClusterCost(ctx)
 	if err != nil {
-		log.Printf("⚠️ Failed to pre-warm cost cache: %v", err)
 		return
 	}
 
@@ -468,11 +457,25 @@ func (ws *WebServer) prewarmCostCache() {
 	ws.costCache[currentContext] = cost
 	ws.costCacheTime[currentContext] = time.Now()
 	ws.costCacheMu.Unlock()
+}
 
-	log.Printf("✅ Cost cache warmed: $%.2f/month (%s - %s)",
-		cost.MonthlyCost,
-		cost.Cloud.DisplayName,
-		cost.Cloud.Region)
+// showStartupBanner displays a startup message with the web server port
+func (ws *WebServer) showStartupBanner(port int) {
+	fmt.Println("╔══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║                    KubeGraf Web Dashboard                    ║")
+	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║  Web UI: http://localhost:%d                                  ║\n", port)
+	fmt.Println("║                                                              ║")
+	fmt.Println("║  Features:                                                   ║")
+	fmt.Println("║  • Real-time cluster monitoring                              ║")
+	fmt.Println("║  • Interactive terminal access                               ║")
+	fmt.Println("║  • Security analysis                                         ║")
+	fmt.Println("║  • Cost estimation                                           ║")
+	fmt.Println("║  • AI-powered recommendations                                ║")
+	fmt.Println("║                                                              ║")
+	fmt.Println("║  Press Ctrl+C to stop the server                             ║")
+	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
 }
 
 // handleStaticFiles serves static files from the embedded filesystem
