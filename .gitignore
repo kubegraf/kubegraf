@@ -61,9 +61,8 @@ Pods/
 
 # Electron/Desktop
 ui/solid/release/
-ui/solid/electron/main.js
-ui/solid/electron/preload.js
-ui/solid/electron/entitlements.mac.plist
+# Note: electron source files (main.js, preload.js, entitlements.mac.plist) are tracked in git
+# to enable desktop builds via GitHub Actions
 *.dmg
 *.exe
 *.msi
