@@ -16,6 +16,10 @@ interface Secret {
   age: string;
 }
 
+interface SecretData {
+  [key: string]: string; // base64 encoded values
+}
+
 type SortField = 'name' | 'namespace' | 'type' | 'data' | 'age';
 type SortDirection = 'asc' | 'desc';
 
@@ -32,6 +36,39 @@ const Secrets: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+
+  // Secret value visibility state - track which secrets are visible
+  const [visibleSecrets, setVisibleSecrets] = createSignal<Set<string>>(new Set());
+
+  // Toggle secret visibility for a specific secret
+  const toggleSecretVisibility = (secretKey: string) => {
+    const visible = new Set(visibleSecrets());
+    if (visible.has(secretKey)) {
+      visible.delete(secretKey);
+    } else {
+      visible.add(secretKey);
+    }
+    setVisibleSecrets(visible);
+  };
+
+  // Decode base64 value
+  const decodeBase64 = (value: string): string => {
+    try {
+      return atob(value);
+    } catch (e) {
+      return value;
+    }
+  };
+
+  // Copy decoded value to clipboard
+  const copyDecodedValue = (value: string) => {
+    const decoded = decodeBase64(value);
+    navigator.clipboard.writeText(decoded).then(() => {
+      addNotification('Decoded value copied to clipboard', 'success');
+    }).catch(() => {
+      addNotification('Failed to copy to clipboard', 'error');
+    });
+  };
 
   const [secrets, { refetch }] = createResource(namespace, api.getSecrets);
   const [yamlContent] = createResource(
@@ -212,37 +249,59 @@ const Secrets: Component = () => {
                   <For each={paginated()} fallback={
                     <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No secrets found</td></tr>
                   }>
-                    {(secret: Secret) => (
-                      <tr>
-                        <td>
-                          <button
-                            onClick={() => { setSelected(secret); setShowDescribe(true); }}
-                            class="font-medium hover:underline text-left"
-                            style={{ color: 'var(--accent-primary)' }}
-                          >
-                            {secret.name.length > 40 ? secret.name.slice(0, 37) + '...' : secret.name}
-                          </button>
-                        </td>
-                        <td>{secret.namespace}</td>
-                        <td>
-                          <span class={`badge ${getTypeBadgeClass(secret.type)}`}>
-                            {secret.type}
-                          </span>
-                        </td>
-                        <td>{secret.data}</td>
-                        <td>{secret.age}</td>
-                        <td>
-                          <ActionMenu
-                            actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(secret); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(secret); setShowEdit(true); } },
-                              { label: 'Describe', icon: 'describe', onClick: () => { setSelected(secret); setShowDescribe(true); } },
-                              { label: 'Delete', icon: 'delete', onClick: () => deleteSecret(secret), variant: 'danger', divider: true },
-                            ]}
-                          />
-                        </td>
-                      </tr>
-                    )}
+                    {(secret: Secret) => {
+                      const isOpaque = secret.type.includes('Opaque');
+                      const isTLS = secret.type.includes('tls');
+
+                      // Text color based on type - similar to Pods
+                      const getTextColor = () => {
+                        if (isTLS) return '#22c55e'; // Green for TLS
+                        return '#3b82f6'; // Light blue for default
+                      };
+
+                      const textColor = getTextColor();
+
+                      return (
+                        <tr
+                          style={{
+                            color: textColor,
+                            fontWeight: 'bold',
+                            fontSize: '0.9375rem',
+                            paddingTop: '0.25rem',
+                            paddingBottom: '0.25rem',
+                          }}
+                        >
+                          <td style={{ textAlign: 'left' }}>
+                            <button
+                              onClick={() => { setSelected(secret); setShowDetails(true); }}
+                              class="font-bold text-base hover:underline text-left"
+                              style={{ color: textColor }}
+                            >
+                              {secret.name.length > 40 ? secret.name.slice(0, 37) + '...' : secret.name}
+                            </button>
+                          </td>
+                          <td style={{ textAlign: 'left', color: textColor }}>{secret.namespace}</td>
+                          <td style={{ textAlign: 'left' }}>
+                            <span class={`badge ${getTypeBadgeClass(secret.type)}`}>
+                              {secret.type}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'left', color: textColor }}>{secret.data}</td>
+                          <td style={{ textAlign: 'left', color: textColor }}>{secret.age}</td>
+                          <td style={{ textAlign: 'left' }}>
+                            <ActionMenu
+                              actions={[
+                                { label: 'View Data', icon: 'describe', onClick: () => { setSelected(secret); setShowDetails(true); } },
+                                { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(secret); setShowYaml(true); } },
+                                { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(secret); setShowEdit(true); } },
+                                { label: 'Describe', icon: 'describe', onClick: () => { setSelected(secret); setShowDescribe(true); } },
+                                { label: 'Delete', icon: 'delete', onClick: () => deleteSecret(secret), variant: 'danger', divider: true },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    }}
                   </For>
                 </tbody>
               </table>
@@ -326,6 +385,130 @@ const Secrets: Component = () => {
         name={selected()?.name || ''}
         namespace={selected()?.namespace || ''}
       />
+
+      {/* Details Modal - Shows secret data with eye icons and decrypt/copy */}
+      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Secret Data: ${selected()?.name}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [secretDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                const yaml = await api.getSecretYAML(params.name, params.ns);
+                // Parse YAML to extract data fields
+                try {
+                  // Simple extraction of data fields from YAML
+                  const dataMatch = yaml.yaml.match(/data:\s*([\s\S]*?)(?=\n\w|$)/);
+                  if (dataMatch) {
+                    const dataSection = dataMatch[1];
+                    const data: SecretData = {};
+                    const lines = dataSection.split('\n');
+                    for (const line of lines) {
+                      const match = line.match(/^\s+([^:]+):\s*(.+)$/);
+                      if (match) {
+                        data[match[1].trim()] = match[2].trim();
+                      }
+                    }
+                    return data;
+                  }
+                } catch (e) {
+                  console.error('Failed to parse secret data:', e);
+                }
+                return {};
+              }
+            );
+
+            return (
+              <Show when={!secretDetails.loading} fallback={
+                <div class="p-8 text-center">
+                  <div class="spinner mx-auto mb-2" />
+                  <span style={{ color: 'var(--text-muted)' }}>Loading secret data...</span>
+                </div>
+              }>
+                <div class="space-y-4">
+                  <Show when={secretDetails() && Object.keys(secretDetails()!).length > 0} fallback={
+                    <div class="p-4 text-center" style={{ color: 'var(--text-muted)' }}>
+                      No data fields found in this secret
+                    </div>
+                  }>
+                    <For each={Object.entries(secretDetails()!)}>
+                      {([key, value]) => {
+                        const secretKey = `${selected()!.name}/${key}`;
+                        const isVisible = visibleSecrets().has(secretKey);
+                        const decodedValue = decodeBase64(value);
+
+                        return (
+                          <div
+                            class="p-4 rounded-lg border"
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              borderColor: 'var(--border-color)'
+                            }}
+                          >
+                            <div class="flex items-center justify-between mb-2">
+                              <span class="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                                {key}
+                              </span>
+                              <div class="flex items-center gap-2">
+                                {/* Eye icon to toggle visibility */}
+                                <button
+                                  onClick={() => toggleSecretVisibility(secretKey)}
+                                  class="p-1.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                                  title={isVisible ? 'Hide value' : 'Show value'}
+                                >
+                                  <Show when={isVisible} fallback={
+                                    <svg class="w-5 h-5" style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                  }>
+                                    <svg class="w-5 h-5" style={{ color: 'var(--accent-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                    </svg>
+                                  </Show>
+                                </button>
+
+                                {/* Decrypt/Copy button */}
+                                <button
+                                  onClick={() => copyDecodedValue(value)}
+                                  class="px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1.5 transition-colors"
+                                  style={{
+                                    background: 'var(--accent-primary)',
+                                    color: 'white'
+                                  }}
+                                  title="Copy decoded value to clipboard"
+                                >
+                                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                  Copy Decoded
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Value display */}
+                            <div
+                              class="p-3 rounded font-mono text-sm overflow-x-auto"
+                              style={{
+                                background: 'var(--bg-tertiary)',
+                                color: isVisible ? 'var(--text-primary)' : 'var(--text-muted)',
+                                wordBreak: 'break-all',
+                                whiteSpace: 'pre-wrap'
+                              }}
+                            >
+                              {isVisible ? decodedValue : '••••••••••••••••••••••••••••'}
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </div>
+              </Show>
+            );
+          })()}
+        </Show>
+      </Modal>
     </div>
   );
 };

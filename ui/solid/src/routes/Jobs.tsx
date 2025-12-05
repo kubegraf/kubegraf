@@ -30,6 +30,29 @@ const Jobs: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('jobs-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('jobs-font-family') || 'Monaco');
+
+  const getFontFamilyCSS = (family: string): string => {
+    switch (family) {
+      case 'Monospace': return 'monospace';
+      case 'System-ui': return 'system-ui';
+      case 'Monaco': return 'Monaco, monospace';
+      case 'Consolas': return 'Consolas, monospace';
+      case 'Courier': return '"Courier New", monospace';
+      default: return 'Monaco, monospace';
+    }
+  };
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('jobs-font-size', size.toString());
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('jobs-font-family', family);
+  };
 
   const [jobs, { refetch }] = createResource(namespace, api.getJobs);
   const [yamlContent] = createResource(
@@ -162,6 +185,36 @@ const Jobs: Component = () => {
           <p style={{ color: 'var(--text-secondary)' }}>One-time task execution</p>
         </div>
         <div class="flex items-center gap-3">
+          <select
+            value={fontSize()}
+            onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Size"
+          >
+            <option value="12">12px</option>
+            <option value="13">13px</option>
+            <option value="14">14px</option>
+            <option value="15">15px</option>
+            <option value="16">16px</option>
+            <option value="17">17px</option>
+            <option value="18">18px</option>
+            <option value="19">19px</option>
+            <option value="20">20px</option>
+          </select>
+          <select
+            value={fontFamily()}
+            onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Family"
+          >
+            <option value="Monospace">Monospace</option>
+            <option value="System-ui">System-ui</option>
+            <option value="Monaco">Monaco</option>
+            <option value="Consolas">Consolas</option>
+            <option value="Courier">Courier</option>
+          </select>
           <button
             onClick={(e) => {
               const btn = e.currentTarget;
@@ -223,7 +276,7 @@ const Jobs: Component = () => {
       </div>
 
       {/* Jobs table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
           when={!jobs.loading}
           fallback={
@@ -234,7 +287,12 @@ const Jobs: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+              <style>{`
+                table { width: 100%; border-collapse: collapse; }
+                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
+                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+              `}</style>
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
@@ -258,9 +316,20 @@ const Jobs: Component = () => {
                 <For each={paginatedJobs()} fallback={
                   <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No jobs found</td></tr>
                 }>
-                  {(job: Job) => (
+                  {(job: Job) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(job); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -269,16 +338,67 @@ const Jobs: Component = () => {
                           {job.name.length > 40 ? job.name.slice(0, 37) + '...' : job.name}
                         </button>
                       </td>
-                      <td>{job.namespace}</td>
-                      <td>{job.completions}</td>
-                      <td>{job.duration || '-'}</td>
-                      <td>{job.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{job.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{job.completions}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{job.duration || '-'}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{job.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${job.status === 'Complete' ? 'badge-success' : job.status === 'Failed' ? 'badge-error' : 'badge-warning'}`}>
                           {job.status}
                         </span>
                       </td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(job); setShowYaml(true); } },
@@ -288,7 +408,8 @@ const Jobs: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

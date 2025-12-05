@@ -45,6 +45,11 @@ const Pods: Component = () => {
   const [showPortForward, setShowPortForward] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [podToDelete, setPodToDelete] = createSignal<Pod | null>(null);
+  const [showContainerSelect, setShowContainerSelect] = createSignal(false);
+  const [containerSelectPod, setContainerSelectPod] = createSignal<Pod | null>(null);
+
+  // Track if any action menu is open to pause auto-refresh
+  const [actionMenuOpen, setActionMenuOpen] = createSignal(false);
 
   // Port forward state
   const [localPort, setLocalPort] = createSignal(8080);
@@ -67,7 +72,44 @@ const Pods: Component = () => {
   
   // Terminal view mode
   const [terminalView, setTerminalView] = createSignal(false);
-  
+
+  // Font size selector with localStorage persistence
+  const getInitialFontSize = (): number => {
+    const saved = localStorage.getItem('pods-font-size');
+    return saved ? parseInt(saved) : 14;
+  };
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('pods-font-size', size.toString());
+  };
+
+  // Font family selector with localStorage persistence
+  const getInitialFontFamily = (): string => {
+    const saved = localStorage.getItem('pods-font-family');
+    return saved || 'Monospace';
+  };
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('pods-font-family', family);
+  };
+
+  // Map font family option to actual font-family CSS value
+  const getFontFamilyCSS = (): string => {
+    const family = fontFamily();
+    switch (family) {
+      case 'Monospace': return '"Courier New", Monaco, monospace';
+      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
+      case 'Consolas': return 'Consolas, "Courier New", monospace';
+      case 'Courier': return 'Courier, "Courier New", monospace';
+      default: return '"Courier New", Monaco, monospace';
+    }
+  };
+
   // Keyboard navigation
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
   let tableRef: HTMLTableElement | undefined;
@@ -153,10 +195,13 @@ const Pods: Component = () => {
     ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
     
     // Auto-refresh pods every 2 seconds (silent background refresh)
+    // but pause when action menu is open to allow user interaction
     podsRefreshTimer = setInterval(() => {
-      // Use refetch with silent option to avoid UI flicker
-      refetch().catch(err => console.error('Background refresh error:', err));
-      fetchMetrics();
+      // Only refresh if no action menu is open
+      if (!actionMenuOpen()) {
+        refetch().catch(err => console.error('Background refresh error:', err));
+        fetchMetrics();
+      }
     }, 2000);
     
     // Keyboard navigation
@@ -417,8 +462,19 @@ const Pods: Component = () => {
   };
 
   const openShellInNewTab = (pod: Pod) => {
-    const container = pod.containers?.[0] || '';
-    // Open shell endpoint in new tab - backend should handle WebSocket terminal
+    // Show container selector if pod has multiple containers
+    if (pod.containers && pod.containers.length > 1) {
+      setContainerSelectPod(pod);
+      setShowContainerSelect(true);
+    } else {
+      const container = pod.containers?.[0] || '';
+      // Open shell endpoint in new tab - backend should handle WebSocket terminal
+      window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
+    }
+  };
+
+  const connectToContainer = (pod: Pod, container: string) => {
+    setShowContainerSelect(false);
     window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
   };
 
@@ -517,7 +573,7 @@ const Pods: Component = () => {
 
 
   return (
-    <div class="space-y-4">
+    <div class="space-y-4 max-w-full">
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -575,6 +631,36 @@ const Pods: Component = () => {
 
         <div class="flex-1" />
 
+        {/* Font Size Selector */}
+        <select
+          value={fontSize()}
+          onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+          class="px-3 py-2 rounded-lg text-sm font-bold"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          title="Font Size"
+        >
+          <option value="12">12px</option>
+          <option value="14">14px</option>
+          <option value="16">16px</option>
+          <option value="18">18px</option>
+          <option value="20">20px</option>
+        </select>
+
+        {/* Font Style Selector */}
+        <select
+          value={fontFamily()}
+          onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+          class="px-3 py-2 rounded-lg text-sm font-bold"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          title="Font Style"
+        >
+          <option value="Monospace">Monospace</option>
+          <option value="System-ui">System-ui</option>
+          <option value="Monaco">Monaco</option>
+          <option value="Consolas">Consolas</option>
+          <option value="Courier">Courier</option>
+        </select>
+
         <select
           value={statusFilter()}
           onChange={(e) => { setStatusFilter(e.currentTarget.value); setCurrentPage(1); }}
@@ -596,17 +682,6 @@ const Pods: Component = () => {
           class="px-3 py-2 rounded-lg text-sm w-48"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         />
-
-        <select
-          value={pageSize()}
-          onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
-          class="px-3 py-2 rounded-lg text-sm"
-          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-        >
-          <option value="20">20</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
       </div>
 
 
@@ -642,7 +717,7 @@ const Pods: Component = () => {
       </Show>
 
       {/* Pods table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: terminalView() ? '#0d1117' : 'var(--bg-primary)' }}>
+      <div class="w-full" style={{ background: '#000000', margin: '0', padding: '0', border: '1px solid #333333', 'border-radius': '4px' }}>
         <Show
           when={!initialLoad() || pods() !== undefined}
           fallback={
@@ -652,40 +727,121 @@ const Pods: Component = () => {
             </div>
           }
         >
-          <div class="overflow-x-auto">
-            <table 
+          <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+            <table
               ref={tableRef}
-              class={`data-table ${terminalView() ? 'terminal-table' : ''}`} 
-              style={{ 
+              class="w-full"
+              style={{
+                width: '100%',
                 'table-layout': 'auto',
-                'font-family': terminalView() ? 'monospace' : 'inherit',
-                background: terminalView() ? '#0d1117' : 'transparent'
+                'font-family': getFontFamilyCSS(),
+                background: '#000000',
+                'border-collapse': 'collapse',
+                margin: '0',
+                padding: '0'
               }}
             >
               <thead>
-                <tr>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                <tr style={{
+                  height: `${Math.max(24, fontSize() * 1.7)}px`,
+                  'font-family': getFontFamilyCSS(),
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                }}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('status')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('status')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Status <SortIcon field="status" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Ready</th>
-                  <th class="whitespace-nowrap">IP</th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('cpu')}>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Ready</th>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>IP</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('cpu')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">CPU <SortIcon field="cpu" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('memory')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('memory')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Mem <SortIcon field="memory" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('restarts')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('restarts')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Restarts <SortIcon field="restarts" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Node</th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Node</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Actions</th>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -697,42 +853,47 @@ const Pods: Component = () => {
                     const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
                     const isPending = pod.status === 'Pending';
                     const [isHovered, setIsHovered] = createSignal(false);
-                    
-                    // Text color based on status
+
+                    // Text color based on status - terminal style colors
                     const getTextColor = () => {
-                      if (isFailed) return '#ef4444'; // Red text
-                      if (isPending) return '#f59e0b'; // Orange/yellow text
-                      return undefined; // Default text color
+                      if (pod.status === 'Terminating') return '#ef4444'; // Red for terminating
+                      if (isFailed) return '#ef4444'; // Red text for failed
+                      if (isPending) return '#f59e0b'; // Orange for pending
+                      return '#0ea5e9'; // Sky blue for default/running
                     };
-                    
-                    // Background color only on hover - matches text color
+
+                    // Background color only on hover
                     const getRowBackground = () => {
                       if (!isHovered()) return 'transparent';
                       if (isSelected()) {
-                        return terminalView() ? '#1f2937' : 'var(--bg-tertiary)';
+                        return '#1f2937';
                       }
                       if (isFailed) {
-                        return 'rgba(239, 68, 68, 0.2)'; // Red background on hover (matches red text)
+                        return 'rgba(239, 68, 68, 0.15)';
                       }
                       if (isPending) {
-                        return 'rgba(251, 191, 36, 0.2)'; // Orange/yellow background on hover (matches yellow text)
+                        return 'rgba(245, 158, 11, 0.15)';
                       }
-                      return 'rgba(255, 255, 255, 0.05)'; // Default hover background
+                      return 'rgba(14, 165, 233, 0.1)';
                     };
-                    
+
                     const textColor = getTextColor();
-                    
+
                     return (
                     <tr
-                      class={isSelected() ? 'selected-row' : ''}
                       style={{
                         background: getRowBackground(),
                         cursor: 'pointer',
-                        outline: isSelected() ? `2px solid ${terminalView() ? '#06b6d4' : 'var(--accent-primary)'}` : 'none',
-                        outlineOffset: '-2px',
-                        borderLeft: isFailed ? '3px solid #ef4444' : isPending ? '3px solid #f59e0b' : 'none',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         color: textColor,
-                        transition: 'background-color 0.2s ease'
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        'font-family': getFontFamilyCSS(),
+                        padding: '0',
+                        margin: '0',
+                        border: 'none',
+                        transition: 'background-color 0.15s ease'
                       }}
                       onClick={() => {
                         setSelectedIndex(index());
@@ -746,83 +907,127 @@ const Pods: Component = () => {
                       }}
                       onMouseLeave={() => setIsHovered(false)}
                     >
-                      <td>
-                        <span 
-                          class="font-medium text-xs" 
-                          style={{ 
-                            color: textColor || (terminalView() 
-                              ? (pod.status === 'Running' ? '#22c55e' : 'var(--text-primary)')
-                              : '#60a5fa') // Light blue instead of dark blue (var(--accent-primary))
-                          }}
-                        >
-                          {terminalView() ? '▶ ' : ''}
-                          {pod.name.length > 40 ? pod.name.slice(0, 37) + '...' : pod.name}
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        {pod.name.length > 40 ? pod.name.slice(0, 37) + '...' : pod.name}
+                      </td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <span style={{
+                          color: pod.status === 'Running' ? '#22c55e' :
+                                 isPending ? '#f59e0b' :
+                                 pod.status === 'Succeeded' ? '#06b6d4' :
+                                 isFailed ? '#ef4444' : '#ef4444',
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`
+                        }}>
+                          {pod.status === 'Running' ? '●' : isPending ? '○' : isFailed ? '✗' : '○'} {pod.status}
                         </span>
                       </td>
-                      <td>
-                        {(() => {
-                          const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
-                          const isPending = pod.status === 'Pending';
-                          const isRunning = pod.status === 'Running';
-                          const isSucceeded = pod.status === 'Succeeded';
-                          
-                          if (terminalView()) {
-                            return (
-                              <span style={{ 
-                                color: isRunning ? '#22c55e' : 
-                                       isPending ? '#f59e0b' : 
-                                       isSucceeded ? '#06b6d4' : 
-                                       isFailed ? '#ef4444' : '#ef4444',
-                                'font-weight': 'bold'
-                              }}>
-                                {isRunning ? '●' : isPending ? '○' : isFailed ? '✗' : '○'} {pod.status}
-                              </span>
-                            );
-                          } else {
-                            return (
-                              <span class={`badge ${
-                                isRunning ? 'badge-success' :
-                                isPending ? 'badge-warning' :
-                                isSucceeded ? 'badge-info' : 
-                                isFailed ? 'badge-error' : 'badge-error'
-                              }`} style={{
-                                ...(isPending && { 
-                                  background: 'rgba(251, 191, 36, 0.2)', 
-                                  color: '#fbbf24',
-                                  border: '1px solid rgba(251, 191, 36, 0.3)'
-                                }),
-                                ...(isFailed && { 
-                                  background: 'rgba(239, 68, 68, 0.2)', 
-                                  color: '#ef4444',
-                                  border: '1px solid rgba(239, 68, 68, 0.3)'
-                                })
-                              }}>
-                                {pod.status}
-                              </span>
-                            );
-                          }
-                        })()}
-                      </td>
-                      <td style={{ color: textColor || 'inherit' }}>{pod.ready}</td>
-                      <td class="font-mono" style={{ color: textColor || 'var(--text-secondary)' }}>{pod.ip || '-'}</td>
-                      <td>
-                        <span class="flex items-center" style={{ color: textColor || '#ec4899', 'font-weight': '600' }}>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{pod.ready}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{pod.ip || '-'}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <span class="flex items-center" style={{
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`
+                        }}>
                           {podMetrics()[`${pod.namespace}/${pod.name}`]?.cpu || pod.cpu || '-'}
-                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'up' && <span style={{ color: '#ef4444', 'font-size': '0.6rem' }}>▲</span>}
-                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'down' && <span style={{ color: '#22c55e', 'font-size': '0.6rem' }}>▼</span>}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'up' && <span style={{ color: '#ef4444', 'font-size': `${fontSize() * 0.7}px`, 'margin-left': '2px' }}>▲</span>}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'cpu') === 'down' && <span style={{ color: '#22c55e', 'font-size': `${fontSize() * 0.7}px`, 'margin-left': '2px' }}>▼</span>}
                         </span>
                       </td>
-                      <td>
-                        <span class="flex items-center" style={{ color: textColor || '#f59e0b', 'font-weight': '600' }}>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <span class="flex items-center" style={{
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`
+                        }}>
                           {podMetrics()[`${pod.namespace}/${pod.name}`]?.memory || pod.memory || '-'}
-                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'up' && <span style={{ color: '#ef4444', 'font-size': '0.6rem' }}>▲</span>}
-                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'down' && <span style={{ color: '#22c55e', 'font-size': '0.6rem' }}>▼</span>}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'up' && <span style={{ color: '#ef4444', 'font-size': `${fontSize() * 0.7}px`, 'margin-left': '2px' }}>▲</span>}
+                          {getChangeIndicator(`${pod.namespace}/${pod.name}`, 'memory') === 'down' && <span style={{ color: '#22c55e', 'font-size': `${fontSize() * 0.7}px`, 'margin-left': '2px' }}>▼</span>}
                         </span>
                       </td>
-                      <td style={{ color: textColor || (pod.restarts > 0 ? '#fbbf24' : 'inherit') }} class={pod.restarts > 0 ? 'font-semibold' : ''}>{pod.restarts}</td>
-                      <td style={{ color: textColor || 'var(--text-muted)' }}>{pod.node}</td>
-                      <td style={{ color: textColor || 'inherit' }}>{formatAgeFromTimestamp(pod.createdAt, ageTicker())}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{pod.restarts}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{pod.node}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{formatAgeFromTimestamp(pod.createdAt, ageTicker())}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Shell', icon: 'shell', onClick: () => openShellInNewTab(pod) },
@@ -833,6 +1038,7 @@ const Pods: Component = () => {
                             { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
                             { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger' },
                           ]}
+                          onOpenChange={setActionMenuOpen}
                         />
                       </td>
                     </tr>
@@ -885,6 +1091,16 @@ const Pods: Component = () => {
                 >
                   Last
                 </button>
+                <select
+                  value={pageSize()}
+                  onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
+                  class="px-3 py-1 rounded-lg text-sm ml-4"
+                  style={{ background: '#21262d', color: '#c9d1d9', border: '1px solid var(--border-color)' }}
+                >
+                  <option value="20">20 per page</option>
+                  <option value="50">50 per page</option>
+                  <option value="100">100 per page</option>
+                </select>
               </div>
             </div>
           </Show>
@@ -1245,6 +1461,44 @@ const Pods: Component = () => {
               Delete Pod
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Container Selector Modal */}
+      <Modal isOpen={showContainerSelect()} onClose={() => setShowContainerSelect(false)} title={`Select Container for ${containerSelectPod()?.name}`} size="sm">
+        <div class="space-y-2">
+          <Show when={containerSelectPod()?.containers} fallback={<div>No containers found</div>}>
+            {(containers) => (
+              <For each={containers()}>
+                {(container) => (
+                  <button
+                    onClick={() => connectToContainer(containerSelectPod()!, container)}
+                    class="w-full p-3 rounded-lg text-left transition-colors"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border-color)',
+                      'hover-background': 'var(--bg-tertiary)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                  >
+                    <div class="flex items-center gap-2">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      <div>
+                        <div class="font-medium">{container}</div>
+                        <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          Container • {containerSelectPod()?.namespace}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </For>
+            )}
+          </Show>
         </div>
       </Modal>
     </div>

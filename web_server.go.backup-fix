@@ -1,0 +1,844 @@
+// Copyright 2025 KubeGraf Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/creack/pty/v2"
+	"github.com/gorilla/websocket"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/remotecommand"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/yaml"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for development
+	},
+}
+
+// toKubectlYAML converts a Kubernetes object to YAML format matching kubectl output
+// It sets the TypeMeta (Kind/APIVersion) and removes managed fields for cleaner output
+func toKubectlYAML(obj runtime.Object, gvk schema.GroupVersionKind) ([]byte, error) {
+	// Set the TypeMeta on the object so it appears in the YAML
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
+
+	// Use sigs.k8s.io/yaml which properly handles JSON struct tags
+	return yaml.Marshal(obj)
+}
+
+// runKubectlDescribe runs kubectl describe and returns the output
+// resourceType: pod, deployment, service, statefulset, daemonset, cronjob, job, ingress, configmap, node
+func runKubectlDescribe(resourceType, name, namespace string) (string, error) {
+	var cmd *exec.Cmd
+	if namespace != "" {
+		cmd = exec.Command("kubectl", "describe", resourceType, name, "-n", namespace)
+	} else {
+		// For cluster-scoped resources like nodes
+		cmd = exec.Command("kubectl", "describe", resourceType, name)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl describe failed: %s - %v", string(output), err)
+	}
+	return string(output), nil
+}
+
+// formatAge converts a duration to human-readable format (e.g., "5d", "3h", "45m")
+func formatAge(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+
+	days := int(d.Hours() / 24)
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+	seconds := int(d.Seconds()) % 60
+
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dd %dh", days, hours)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
+	if hours > 0 {
+		if minutes > 0 {
+			return fmt.Sprintf("%dh %dm", hours, minutes)
+		}
+		return fmt.Sprintf("%dh", hours)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// PortForwardSession tracks an active port-forward session
+type PortForwardSession struct {
+	ID         string    `json:"id"`
+	Type       string    `json:"type"` // "pod" or "service"
+	Name       string    `json:"name"`
+	Namespace  string    `json:"namespace"`
+	LocalPort  int       `json:"localPort"`
+	RemotePort int       `json:"remotePort"`
+	StartedAt  time.Time `json:"startedAt"`
+	stopChan   chan struct{}
+	readyChan  chan struct{}
+}
+
+// WebEvent represents a Kubernetes event for web UI
+type WebEvent struct {
+	Time      time.Time `json:"time"`
+	Type      string    `json:"type"`
+	Reason    string    `json:"reason"`
+	Object    string    `json:"object"`
+	Kind      string    `json:"kind"`
+	Message   string    `json:"message"`
+	Namespace string    `json:"namespace"`
+	Count     int32     `json:"count"`
+	Source    string    `json:"source"`
+}
+
+// WebServer handles the web UI
+type WebServer struct {
+	app          *App
+	clients      map[*websocket.Conn]bool
+	mu           sync.Mutex
+	portForwards map[string]*PortForwardSession
+	pfMu         sync.Mutex
+	events       []WebEvent
+	eventsMu     sync.RWMutex
+	stopCh       chan struct{}
+	// Cost cache - caches results for 5 minutes to avoid slow API calls
+	// Keyed by cluster context to prevent cross-cluster cache hits
+	costCache     map[string]*ClusterCost // key: context name, value: cached cost
+	costCacheTime map[string]time.Time    // key: context name, value: cache time
+	costCacheMu   sync.RWMutex
+	// Event monitor integration
+	eventMonitorStarted bool
+	// MCP Server for AI agents
+	mcpServer *MCPServer
+	// Production upgrades
+	cache *Cache
+	db    *Database
+	iam   *IAM
+}
+
+// NewWebServer creates a new web server
+func NewWebServer(app *App) *WebServer {
+	ws := &WebServer{
+		app:          app,
+		clients:      make(map[*websocket.Conn]bool),
+		portForwards: make(map[string]*PortForwardSession),
+		events:       make([]WebEvent, 0, 500),
+		stopCh:       make(chan struct{}),
+		costCache:    make(map[string]*ClusterCost),
+		costCacheTime: make(map[string]time.Time),
+	}
+	// Initialize MCP server for AI agents
+	ws.mcpServer = NewMCPServer(app)
+	
+	// Initialize database, cache, and IAM for production upgrades
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to current directory
+		homeDir = "."
+	}
+	
+	// Create .kubegraf directory if it doesn't exist
+	kubegrafDir := filepath.Join(homeDir, ".kubegraf")
+	if err := os.MkdirAll(kubegrafDir, 0755); err != nil {
+		fmt.Printf("⚠️  Failed to create .kubegraf directory: %v\n", err)
+	}
+	
+	// Initialize database
+	dbPath := filepath.Join(kubegrafDir, "db.sqlite")
+	encryptionKey := os.Getenv("KUBEGRAF_ENCRYPTION_KEY")
+	if encryptionKey == "" {
+		// Use a default key (not secure for production, but okay for development)
+		encryptionKey = "default-encryption-key-change-in-production"
+		fmt.Println("⚠️  Using default encryption key. Set KUBEGRAF_ENCRYPTION_KEY environment variable for production.")
+	}
+	
+	db, err := NewDatabase(dbPath, encryptionKey)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize database: %v\n", err)
+	} else {
+		ws.db = db
+		fmt.Printf("✅ Database initialized at %s\n", dbPath)
+	}
+	
+	// Initialize cache (use LRU backend by default)
+	cache, err := NewCache(CacheBackendLRU, "")
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize cache: %v\n", err)
+	} else {
+		ws.cache = cache
+		fmt.Println("✅ Cache initialized (LRU backend)")
+	}
+	
+	// Initialize IAM (enabled by default)
+	iamEnabled := true
+	if ws.db != nil {
+		ws.iam = NewIAM(ws.db, iamEnabled)
+		fmt.Println("✅ IAM initialized")
+	}
+	
+	return ws
+}
+
+// Start starts the web server
+func (ws *WebServer) Start(port int) error {
+	// Get the embedded web UI filesystem
+	webFS, err := GetWebFS()
+	if err != nil {
+		return fmt.Errorf("failed to get web filesystem: %v", err)
+	}
+
+	// Serve static files with SPA routing (must be registered last)
+	staticHandler := ws.handleStaticFiles(webFS)
+	http.HandleFunc("/api/status", ws.handleConnectionStatus)
+	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
+	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
+	http.HandleFunc("/api/metrics", ws.handleMetrics)
+	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
+	http.HandleFunc("/api/pods", ws.handlePods)
+	http.HandleFunc("/api/pods/metrics", ws.handlePodMetrics)
+	http.HandleFunc("/api/deployments", ws.handleDeployments)
+	http.HandleFunc("/api/statefulsets", ws.handleStatefulSets)
+	http.HandleFunc("/api/daemonsets", ws.handleDaemonSets)
+	http.HandleFunc("/api/services", ws.handleServices)
+	http.HandleFunc("/api/ingresses", ws.handleIngresses)
+	http.HandleFunc("/api/configmaps", ws.handleConfigMaps)
+	http.HandleFunc("/api/secrets", ws.handleSecrets)
+	http.HandleFunc("/api/cronjobs", ws.handleCronJobs)
+	http.HandleFunc("/api/jobs", ws.handleJobs)
+	http.HandleFunc("/api/nodes", ws.handleNodes)
+	http.HandleFunc("/api/topology", ws.handleTopology)
+	http.HandleFunc("/api/resourcemap", ws.handleResourceMap)
+	http.HandleFunc("/ws", ws.handleWebSocket)
+
+	// Multi-cluster context endpoints
+	http.HandleFunc("/api/contexts", ws.handleContexts)
+	http.HandleFunc("/api/contexts/current", ws.handleCurrentContext)
+	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
+
+	// Real-time events endpoint
+	http.HandleFunc("/api/events", ws.handleEvents)
+
+	// Apps marketplace endpoints
+	http.HandleFunc("/api/apps", ws.handleApps)
+	http.HandleFunc("/api/apps/installed", ws.handleInstalledApps)
+	http.HandleFunc("/api/apps/install", ws.handleInstallApp)
+	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
+	http.HandleFunc("/api/apps/local-clusters", ws.handleLocalClusters)
+
+	// Impact analysis endpoint
+	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)
+
+	// Operations endpoints
+	http.HandleFunc("/api/pod/details", ws.handlePodDetails)
+	http.HandleFunc("/api/pod/yaml", ws.handlePodYAML)
+	http.HandleFunc("/api/pod/update", ws.handlePodUpdate)
+	http.HandleFunc("/api/pod/describe", ws.handlePodDescribe)
+	http.HandleFunc("/api/pod/exec", ws.handlePodExec)
+	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
+	http.HandleFunc("/api/pod/logs", ws.handlePodLogs)
+	http.HandleFunc("/api/local/terminal", ws.handleLocalTerminalWS)
+	http.HandleFunc("/terminal", ws.handleLocalTerminalPage)
+	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
+	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
+	http.HandleFunc("/api/deployment/details", ws.handleDeploymentDetails)
+	http.HandleFunc("/api/deployment/yaml", ws.handleDeploymentYAML)
+	http.HandleFunc("/api/deployment/update", ws.handleDeploymentUpdate)
+	http.HandleFunc("/api/deployment/describe", ws.handleDeploymentDescribe)
+	http.HandleFunc("/api/deployment/restart", ws.handleDeploymentRestart)
+	http.HandleFunc("/api/deployment/scale", ws.handleDeploymentScale)
+	http.HandleFunc("/api/deployment/delete", ws.handleDeploymentDelete)
+	http.HandleFunc("/api/statefulset/details", ws.handleStatefulSetDetails)
+	http.HandleFunc("/api/statefulset/yaml", ws.handleStatefulSetYAML)
+	http.HandleFunc("/api/statefulset/update", ws.handleStatefulSetUpdate)
+	http.HandleFunc("/api/statefulset/describe", ws.handleStatefulSetDescribe)
+	http.HandleFunc("/api/statefulset/restart", ws.handleStatefulSetRestart)
+	http.HandleFunc("/api/statefulset/scale", ws.handleStatefulSetScale)
+	http.HandleFunc("/api/statefulset/delete", ws.handleStatefulSetDelete)
+	http.HandleFunc("/api/daemonset/details", ws.handleDaemonSetDetails)
+	http.HandleFunc("/api/daemonset/yaml", ws.handleDaemonSetYAML)
+	http.HandleFunc("/api/daemonset/update", ws.handleDaemonSetUpdate)
+	http.HandleFunc("/api/daemonset/describe", ws.handleDaemonSetDescribe)
+	http.HandleFunc("/api/daemonset/restart", ws.handleDaemonSetRestart)
+	http.HandleFunc("/api/daemonset/delete", ws.handleDaemonSetDelete)
+	http.HandleFunc("/api/cronjob/details", ws.handleCronJobDetails)
+	http.HandleFunc("/api/cronjob/yaml", ws.handleCronJobYAML)
+	http.HandleFunc("/api/cronjob/update", ws.handleCronJobUpdate)
+	http.HandleFunc("/api/cronjob/describe", ws.handleCronJobDescribe)
+	http.HandleFunc("/api/cronjob/delete", ws.handleCronJobDelete)
+	http.HandleFunc("/api/job/details", ws.handleJobDetails)
+	http.HandleFunc("/api/job/yaml", ws.handleJobYAML)
+	http.HandleFunc("/api/job/update", ws.handleJobUpdate)
+	http.HandleFunc("/api/job/describe", ws.handleJobDescribe)
+	http.HandleFunc("/api/job/delete", ws.handleJobDelete)
+	http.HandleFunc("/api/service/details", ws.handleServiceDetails)
+	http.HandleFunc("/api/service/yaml", ws.handleServiceYAML)
+	http.HandleFunc("/api/service/update", ws.handleServiceUpdate)
+	http.HandleFunc("/api/service/describe", ws.handleServiceDescribe)
+	http.HandleFunc("/api/service/delete", ws.handleServiceDelete)
+	http.HandleFunc("/api/ingress/details", ws.handleIngressDetails)
+	http.HandleFunc("/api/ingress/yaml", ws.handleIngressYAML)
+	http.HandleFunc("/api/ingress/update", ws.handleIngressUpdate)
+	http.HandleFunc("/api/ingress/describe", ws.handleIngressDescribe)
+	http.HandleFunc("/api/ingress/delete", ws.handleIngressDelete)
+	http.HandleFunc("/api/configmap/details", ws.handleConfigMapDetails)
+	http.HandleFunc("/api/configmap/yaml", ws.handleConfigMapYAML)
+	http.HandleFunc("/api/configmap/update", ws.handleConfigMapUpdate)
+	http.HandleFunc("/api/configmap/describe", ws.handleConfigMapDescribe)
+	http.HandleFunc("/api/configmap/delete", ws.handleConfigMapDelete)
+	http.HandleFunc("/api/secret/yaml", ws.handleSecretYAML)
+	http.HandleFunc("/api/secret/update", ws.handleSecretUpdate)
+	http.HandleFunc("/api/secret/describe", ws.handleSecretDescribe)
+	http.HandleFunc("/api/secret/delete", ws.handleSecretDelete)
+	http.HandleFunc("/api/certificates", ws.handleCertificates)
+	http.HandleFunc("/api/certificate/yaml", ws.handleCertificateYAML)
+	http.HandleFunc("/api/certificate/update", ws.handleCertificateUpdate)
+	http.HandleFunc("/api/certificate/describe", ws.handleCertificateDescribe)
+	http.HandleFunc("/api/certificate/delete", ws.handleCertificateDelete)
+	http.HandleFunc("/api/node/details", ws.handleNodeDetails)
+	http.HandleFunc("/api/node/yaml", ws.handleNodeYAML)
+	http.HandleFunc("/api/node/describe", ws.handleNodeDescribe)
+
+	// Port-forward endpoints
+	http.HandleFunc("/api/portforward/start", ws.handlePortForwardStart)
+	http.HandleFunc("/api/portforward/stop", ws.handlePortForwardStop)
+	http.HandleFunc("/api/portforward/list", ws.handlePortForwardList)
+
+	// Authentication endpoints
+	http.HandleFunc("/api/auth/login", ws.handleLogin)
+	http.HandleFunc("/api/auth/logout", ws.handleLogout)
+	http.HandleFunc("/api/auth/register", ws.handleRegister)
+	http.HandleFunc("/api/auth/me", ws.handleGetCurrentUser)
+
+	// Security analysis endpoint
+	http.HandleFunc("/api/security", ws.handleSecurityAnalysis)
+
+	// Plugin endpoints - Helm
+	http.HandleFunc("/api/plugins/helm/releases", ws.handleHelmReleases)
+	http.HandleFunc("/api/plugins/helm/release", ws.handleHelmReleaseDetails)
+	http.HandleFunc("/api/plugins/helm/history", ws.handleHelmReleaseHistory)
+	http.HandleFunc("/api/plugins/helm/rollback", ws.handleHelmRollback)
+
+	// Plugin endpoints - Kustomize (resources managed by kustomize)
+	http.HandleFunc("/api/plugins/kustomize/resources", ws.handleKustomizeResources)
+
+	// Plugin endpoints - ArgoCD
+	http.HandleFunc("/api/plugins/argocd/apps", ws.handleArgoCDApps)
+	http.HandleFunc("/api/plugins/argocd/app", ws.handleArgoCDAppDetails)
+	http.HandleFunc("/api/plugins/argocd/sync", ws.handleArgoCDSync)
+	http.HandleFunc("/api/plugins/argocd/refresh", ws.handleArgoCDRefresh)
+
+	// Plugin endpoints - Flux
+	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
+
+	// Advanced features - AI, Diagnostics, Cost, Drift
+	ws.RegisterAdvancedHandlers()
+
+	// Event monitoring
+	ws.RegisterEventHandlers()
+
+	// MCP (Model Context Protocol) Server for AI agents
+	if ws.mcpServer != nil {
+		http.HandleFunc("/api/mcp", ws.mcpServer.HandleRequest)
+	}
+
+	// Connectors
+	ws.RegisterConnectorHandlers()
+
+	// SRE Agent
+	ws.RegisterSREAgentHandlers()
+
+	// Static files and SPA routing (must be last to not override API routes)
+	http.HandleFunc("/", staticHandler)
+
+	// Check if port is available, if not find next available port
+	actualPort := port
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		// Port is in use, find next available port
+		log.Printf("⚠️  Port %d is already in use, searching for available port...", port)
+		actualPort, err = findAvailablePort(port)
+		if err != nil {
+			return fmt.Errorf("failed to find available port: %v", err)
+		}
+		if actualPort != port {
+			log.Printf("✅ Using port %d instead (port %d was in use)", actualPort, port)
+		}
+	} else {
+		listener.Close()
+	}
+
+	addr := fmt.Sprintf(":%d", actualPort)
+	log.Printf("🌐 Web UI available at http://localhost%s", addr)
+	log.Printf("📊 Dashboard: http://localhost%s", addr)
+	log.Printf("🗺️  Topology: http://localhost%s/topology", addr)
+
+	// Pre-warm the cost cache in background (waits for cluster connection)
+	go ws.prewarmCostCache()
+
+	// Start broadcasting updates
+	go ws.broadcastUpdates()
+
+	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
+	go ws.watchKubernetesEvents()
+
+	return http.ListenAndServe(addr, nil)
+}
+
+// prewarmCostCache calculates cluster cost in background and caches the result
+func (ws *WebServer) prewarmCostCache() {
+	// Wait for cluster connection
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if ws.app.clientset == nil || !ws.app.connected {
+		log.Printf("⚠️ Skipping cost cache pre-warm: cluster not connected")
+		return
+	}
+
+	currentContext := ws.app.GetCurrentContext()
+	if currentContext == "" {
+		log.Printf("⚠️ Skipping cost cache pre-warm: no context selected")
+		return
+	}
+
+	log.Printf("💰 Pre-warming cost cache in background...")
+	estimator := NewCostEstimator(ws.app)
+	ctx := context.Background()
+
+	cost, err := estimator.EstimateClusterCost(ctx)
+	if err != nil {
+		log.Printf("⚠️ Failed to pre-warm cost cache: %v", err)
+		return
+	}
+
+	ws.costCacheMu.Lock()
+	ws.costCache[currentContext] = cost
+	ws.costCacheTime[currentContext] = time.Now()
+	ws.costCacheMu.Unlock()
+
+	log.Printf("✅ Cost cache warmed: $%.2f/month (%s - %s)",
+		cost.MonthlyCost,
+		cost.Cloud.DisplayName,
+		cost.Cloud.Region)
+}
+
+// handleStaticFiles serves static files from the embedded filesystem
+// It implements SPA routing: serves static files if they exist, otherwise serves index.html
+func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
+	fileServer := http.FileServer(http.FS(webFS))
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Clean the path
+		upath := r.URL.Path
+		if !strings.HasPrefix(upath, "/") {
+			upath = "/" + upath
+		}
+		upath = path.Clean(upath)
+
+		// Try to serve the file directly
+		if upath != "/" {
+			// Check if file exists in embedded FS
+			filePath := strings.TrimPrefix(upath, "/")
+			if _, err := fs.Stat(webFS, filePath); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Serve index.html for SPA routing (root path or file not found)
+		indexContent, err := fs.ReadFile(webFS, "index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexContent)
+	}
+}
+
+// handleConnectionStatus returns the cluster connection status
+
+// handleCheckUpdates checks for available updates
+
+// handleInstallUpdate downloads and installs the latest version
+
+// handleMetrics returns cluster metrics
+
+
+
+
+// handleTopology returns topology data for visualization
+
+// handleWebSocket handles WebSocket connections for real-time updates
+func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("WebSocket upgrade error:", err)
+		return
+	}
+	defer conn.Close()
+
+	ws.mu.Lock()
+	ws.clients[conn] = true
+	ws.mu.Unlock()
+
+	// Remove client on disconnect
+	defer func() {
+		ws.mu.Lock()
+		delete(ws.clients, conn)
+		ws.mu.Unlock()
+	}()
+
+	// Keep connection alive
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+// broadcastUpdates sends periodic updates to all connected clients
+func (ws *WebServer) broadcastUpdates() {
+	// Wait for cluster connection before starting updates
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		metrics := ws.getClusterMetrics()
+
+		ws.mu.Lock()
+		for client := range ws.clients {
+			err := client.WriteJSON(map[string]interface{}{
+				"type": "metrics",
+				"data": metrics,
+			})
+			if err != nil {
+				client.Close()
+				delete(ws.clients, client)
+			}
+		}
+		ws.mu.Unlock()
+	}
+}
+
+// handleEvents returns historical events via REST API
+
+// watchKubernetesEvents watches for Kubernetes events and broadcasts them to WebSocket clients
+
+// broadcastEvent sends an event to all connected WebSocket clients
+func (ws *WebServer) broadcastEvent(event WebEvent) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "event",
+		"data": event,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// broadcastMonitoredEvent sends a monitored event to all connected WebSocket clients
+func (ws *WebServer) broadcastMonitoredEvent(event MonitoredEvent) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "monitored_event",
+		"data": event,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// ImpactNode represents a node in the impact analysis tree
+type ImpactNode struct {
+	Type       string        `json:"type"`
+	Name       string        `json:"name"`
+	Namespace  string        `json:"namespace"`
+	Severity   string        `json:"severity"` // "critical", "high", "medium", "low"
+	Impact     string        `json:"impact"`   // Description of impact
+	Children   []*ImpactNode `json:"children,omitempty"`
+	Dependents int           `json:"dependents"`
+}
+
+// ImpactAnalysis represents the full impact analysis result
+type ImpactAnalysis struct {
+	Resource        string        `json:"resource"`
+	ResourceType    string        `json:"resourceType"`
+	Namespace       string        `json:"namespace"`
+	TotalImpacted   int           `json:"totalImpacted"`
+	CriticalCount   int           `json:"criticalCount"`
+	HighCount       int           `json:"highCount"`
+	MediumCount     int           `json:"mediumCount"`
+	LowCount        int           `json:"lowCount"`
+	ImpactedNodes   []*ImpactNode `json:"impactedNodes"`
+	Summary         string        `json:"summary"`
+	Recommendations []string      `json:"recommendations"`
+}
+
+// handleImpactAnalysis analyzes the impact of deleting or modifying a resource
+
+// getClusterMetrics collects cluster metrics
+func (ws *WebServer) getClusterMetrics() map[string]interface{} {
+	metrics := map[string]interface{}{
+		"timestamp":   time.Now().Unix(),
+		"cpu":         45.0 + float64(time.Now().Unix()%20),
+		"memory":      62.0 + float64(time.Now().Unix()%15),
+		"pods":        12,
+		"nodes":       5,
+		"clusterName": ws.app.cluster,
+		"namespace":   ws.app.namespace,
+	}
+
+	// Wait for clientset to be initialized
+	if ws.app.clientset == nil {
+		return metrics
+	}
+
+	// Get actual node count
+	nodes, err := ws.app.clientset.CoreV1().Nodes().List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		metrics["nodes"] = len(nodes.Items)
+	}
+
+	// Get actual pod count
+	pods, err := ws.app.clientset.CoreV1().Pods(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		metrics["pods"] = len(pods.Items)
+	}
+
+	return metrics
+}
+
+// buildTopologyData builds topology data for D3.js visualization
+func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} {
+	nodes := []map[string]interface{}{}
+	links := []map[string]interface{}{}
+
+	// Use empty string for all namespaces
+	ns := namespace
+	if ns == "" {
+		ns = "" // Empty string lists from all namespaces in Kubernetes API
+	}
+
+	// Get deployments
+	deployments, err := ws.app.clientset.AppsV1().Deployments(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, dep := range deployments.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+				"name":      dep.Name,
+				"type":      "deployment",
+				"namespace": dep.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get statefulsets
+	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, sts := range statefulsets.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("statefulset-%s-%s", sts.Namespace, sts.Name),
+				"name":      sts.Name,
+				"type":      "statefulset",
+				"namespace": sts.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get daemonsets
+	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, ds := range daemonsets.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("daemonset-%s-%s", ds.Namespace, ds.Name),
+				"name":      ds.Name,
+				"type":      "daemonset",
+				"namespace": ds.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get services
+	services, err := ws.app.clientset.CoreV1().Services(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, svc := range services.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+				"name":      svc.Name,
+				"type":      "service",
+				"namespace": svc.Namespace,
+				"group":     2,
+			})
+
+			// Link services to deployments
+			if deployments != nil {
+				for _, dep := range deployments.Items {
+					if dep.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+
+			// Link services to statefulsets
+			if statefulsets != nil {
+				for _, sts := range statefulsets.Items {
+					if sts.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, sts.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("statefulset-%s-%s", sts.Namespace, sts.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+
+			// Link services to daemonsets
+			if daemonsets != nil {
+				for _, ds := range daemonsets.Items {
+					if ds.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, ds.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("daemonset-%s-%s", ds.Namespace, ds.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Get ingresses
+	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, ing := range ingresses.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("ingress-%s-%s", ing.Namespace, ing.Name),
+				"name":      ing.Name,
+				"type":      "ingress",
+				"namespace": ing.Namespace,
+				"group":     3,
+			})
+
+			// Link ingresses to services
+			for _, rule := range ing.Spec.Rules {
+				if rule.HTTP != nil {
+					for _, path := range rule.HTTP.Paths {
+						svcName := path.Backend.Service.Name
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("ingress-%s-%s", ing.Namespace, ing.Name),
+							"target": fmt.Sprintf("service-%s-%s", ing.Namespace, svcName),
+							"value":  1,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Get configmaps (limit to avoid clutter)
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, cm := range configmaps.Items {
+			// Skip kube-system configmaps to reduce clutter
+			if cm.Namespace == "kube-system" {
+				continue
+			}
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("configmap-%s-%s", cm.Namespace, cm.Name),
+				"name":      cm.Name,
+				"type":      "configmap",
+				"namespace": cm.Namespace,
+				"group":     4,
+			})
+		}
+	}
+
+	return map[string]interface{}{
+		"nodes": nodes,
+		"links": links,
+	}
+}

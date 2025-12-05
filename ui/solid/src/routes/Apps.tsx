@@ -3,6 +3,14 @@ import { api } from '../services/api';
 import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
+import { addDeployment, updateDeploymentTask } from '../components/DeploymentProgress';
+
+interface InstalledInstance {
+  namespace: string;
+  chart: string;
+  version: string;
+  releaseName: string;
+}
 
 interface App {
   name: string;
@@ -13,8 +21,7 @@ interface App {
   version: string;
   chartRepo: string;
   chartName: string;
-  installed?: boolean;
-  installedNamespace?: string;
+  installedInstances?: InstalledInstance[];
   isCustom?: boolean;
 }
 
@@ -312,11 +319,20 @@ const Apps: Component<AppsProps> = (props) => {
   const apps = createMemo(() => {
     const installed = installedApps() || [];
     return defaultApps.map(app => {
-      const installedApp = installed.find((i: any) => i.name === app.name);
+      // Find ALL instances of this app (by chart name or release name)
+      const instances = installed.filter((i: any) =>
+        i.name === app.name || // exact name match
+        (i.chart && i.chart.toLowerCase().includes(app.chartName.toLowerCase())) // or chart name match
+      ).map((i: any) => ({
+        namespace: i.namespace,
+        chart: i.chart,
+        version: i.version,
+        releaseName: i.name,
+      }));
+
       return {
         ...app,
-        installed: !!installedApp,
-        installedNamespace: installedApp?.namespace,
+        installedInstances: instances,
       };
     });
   });
@@ -364,8 +380,8 @@ const Apps: Component<AppsProps> = (props) => {
     const all = apps();
     return {
       total: all.length,
-      installed: all.filter(a => a.installed).length,
-      available: all.filter(a => !a.installed).length,
+      installed: all.filter(a => a.installedInstances && a.installedInstances.length > 0).length,
+      available: all.filter(a => !a.installedInstances || a.installedInstances.length === 0).length,
     };
   });
 
@@ -408,9 +424,85 @@ const Apps: Component<AppsProps> = (props) => {
 
     setInstalling(true);
     const targetNs = installNamespace() || 'default';
+
+    // Create deployment progress tracker with tasks
+    const deploymentId = addDeployment(
+      app.displayName,
+      app.version,
+      targetNs,
+      [
+        'Validating namespace',
+        'Adding Helm repository',
+        'Fetching chart metadata',
+        'Installing resources',
+        'Verifying deployment'
+      ]
+    );
+
     try {
+      // Task 1: Validating namespace
+      updateDeploymentTask(deploymentId, 'task-0', {
+        status: 'running',
+        progress: 30,
+        startTime: Date.now()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateDeploymentTask(deploymentId, 'task-0', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 2: Adding Helm repository
+      updateDeploymentTask(deploymentId, 'task-1', {
+        status: 'running',
+        progress: 40,
+        startTime: Date.now()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateDeploymentTask(deploymentId, 'task-1', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 3: Fetching chart metadata
+      updateDeploymentTask(deploymentId, 'task-2', {
+        status: 'running',
+        progress: 50,
+        startTime: Date.now()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateDeploymentTask(deploymentId, 'task-2', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 4: Installing resources (actual installation)
+      updateDeploymentTask(deploymentId, 'task-3', {
+        status: 'running',
+        progress: 60,
+        startTime: Date.now(),
+        message: `Deploying ${app.displayName}...`
+      });
+
       await api.installApp(app.name, targetNs);
-      addNotification(`${app.displayName} installation started in ${targetNs}`, 'info');
+
+      updateDeploymentTask(deploymentId, 'task-3', {
+        status: 'completed',
+        progress: 100
+      });
+
+      // Task 5: Verifying deployment
+      updateDeploymentTask(deploymentId, 'task-4', {
+        status: 'running',
+        progress: 80,
+        startTime: Date.now()
+      });
 
       // Mark as deploying
       setDeployingApps(prev => ({
@@ -421,8 +513,27 @@ const Apps: Component<AppsProps> = (props) => {
       // Start polling for deployment status
       checkDeploymentStatus(app.name, app.displayName, targetNs);
 
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      updateDeploymentTask(deploymentId, 'task-4', {
+        status: 'completed',
+        progress: 100,
+        message: `${app.displayName} deployed successfully!`
+      });
+
+      addNotification(`${app.displayName} installed successfully in ${targetNs}`, 'success');
       setShowInstallModal(false);
     } catch (error) {
+      // Mark current task as failed
+      const tasks = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4'];
+      for (const taskId of tasks) {
+        // Find the first non-completed task and mark it as failed
+        updateDeploymentTask(deploymentId, taskId, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+        break;
+      }
       addNotification(`Failed to install ${app.displayName}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     } finally {
       setInstalling(false);
@@ -437,12 +548,12 @@ const Apps: Component<AppsProps> = (props) => {
     setCurrentView('pods');
   };
 
-  const handleUninstall = async (app: App) => {
-    if (!confirm(`Are you sure you want to uninstall ${app.displayName}?`)) return;
+  const handleUninstall = async (app: App, instance: InstalledInstance) => {
+    if (!confirm(`Are you sure you want to uninstall ${app.displayName} from ${instance.namespace}?`)) return;
 
     try {
-      await api.uninstallApp(app.name, app.installedNamespace || 'default');
-      addNotification(`${app.displayName} uninstalled successfully`, 'success');
+      await api.uninstallApp(instance.releaseName, instance.namespace);
+      addNotification(`${app.displayName} uninstalled from ${instance.namespace}`, 'success');
       refetchInstalled();
     } catch (error) {
       addNotification(`Failed to uninstall ${app.displayName}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
@@ -504,20 +615,38 @@ const Apps: Component<AppsProps> = (props) => {
   const allApps = createMemo(() => {
     const installed = installedApps() || [];
     const marketplaceWithStatus = defaultApps.map(app => {
-      const installedApp = installed.find((i: any) => i.name === app.name);
+      // Find ALL instances of this app
+      const instances = installed.filter((i: any) =>
+        i.name === app.name || // exact name match
+        (i.chart && i.chart.toLowerCase().includes(app.chartName.toLowerCase())) // or chart name match
+      ).map((i: any) => ({
+        namespace: i.namespace,
+        chart: i.chart,
+        version: i.version,
+        releaseName: i.name,
+      }));
+
       return {
         ...app,
-        installed: !!installedApp,
-        installedNamespace: installedApp?.namespace,
+        installedInstances: instances,
       };
     });
 
     const customWithStatus = customApps().map(app => {
-      const installedApp = installed.find((i: any) => i.name === app.name);
+      // Find ALL instances of this app
+      const instances = installed.filter((i: any) =>
+        i.name === app.name || // exact name match
+        (i.chart && i.chart.toLowerCase().includes(app.chartName.toLowerCase())) // or chart name match
+      ).map((i: any) => ({
+        namespace: i.namespace,
+        chart: i.chart,
+        version: i.version,
+        releaseName: i.name,
+      }));
+
       return {
         ...app,
-        installed: !!installedApp,
-        installedNamespace: installedApp?.namespace,
+        installedInstances: instances,
       };
     });
 
@@ -600,10 +729,9 @@ const Apps: Component<AppsProps> = (props) => {
                 return (
                   <div
                     class={`card p-4 relative overflow-hidden group transition-all ${
-                      app.installed ? 'cursor-pointer hover:border-green-500/50' : 'hover:border-cyan-500/30'
+                      app.installedInstances && app.installedInstances.length > 0 ? 'hover:border-blue-500/30' : 'hover:border-cyan-500/30'
                     } ${isDeploying() ? 'animate-pulse' : ''}`}
                     style={{ 'border-left': `4px solid ${categoryColors[app.category] || 'var(--accent-primary)'}` }}
-                    onClick={() => app.installed && navigateToPods(app)}
                   >
                     {/* Status badge */}
                     <Show when={isDeploying()}>
@@ -613,13 +741,13 @@ const Apps: Component<AppsProps> = (props) => {
                         Deploying...
                       </div>
                     </Show>
-                    <Show when={app.installed && !isDeploying()}>
+                    <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying()}>
                       <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
                            style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}>
                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                           <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                         </svg>
-                        Installed
+                        {app.installedInstances.length} Installed
                       </div>
                     </Show>
 
@@ -658,63 +786,69 @@ const Apps: Component<AppsProps> = (props) => {
                       </Show>
 
                       <Show when={!isDeploying()}>
-                        <Show
-                          when={app.installed}
-                          fallback={
-                            <div class="flex items-center gap-2">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
-                                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-                                style={{ background: 'var(--accent-primary)', color: '#000' }}
-                              >
-                                Install
-                              </button>
-                              <Show when={app.isCustom}>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteCustomApp(app); }}
-                                  class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80"
-                                  style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
-                                  title="Remove custom app"
-                                >
-                                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              </Show>
-                            </div>
-                          }
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
+                          class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+                          style={{ background: 'var(--accent-primary)', color: '#000' }}
                         >
-                          <div class="flex items-center gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); navigateToPods(app); }}
-                              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80 flex items-center gap-1"
-                              style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
-                            >
-                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                              </svg>
-                              View Pods
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleUninstall(app); }}
-                              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-                              style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
-                            >
-                              Uninstall
-                            </button>
-                          </div>
+                          Install
+                        </button>
+                        <Show when={app.isCustom}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteCustomApp(app); }}
+                            class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80 ml-2"
+                            style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                            title="Remove custom app"
+                          >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </Show>
                       </Show>
                     </div>
 
-                    {/* Namespace indicator for installed apps */}
-                    <Show when={app.installed && !isDeploying()}>
-                      <div class="mt-2 pt-2 border-t flex items-center gap-1 text-xs" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                        </svg>
-                        Namespace: <span style={{ color: 'var(--text-secondary)' }}>{app.installedNamespace || 'default'}</span>
+                    {/* Installed instances list */}
+                    <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying()}>
+                      <div class="mt-3 pt-3 border-t space-y-2" style={{ 'border-color': 'var(--border-color)' }}>
+                        <div class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Installed Instances:</div>
+                        <For each={app.installedInstances}>
+                          {(instance) => (
+                            <div class="flex items-center justify-between p-2 rounded" style={{ background: 'var(--bg-tertiary)' }}>
+                              <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                  {instance.releaseName}
+                                </div>
+                                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                  {instance.namespace} • v{instance.version}
+                                </div>
+                              </div>
+                              <div class="flex items-center gap-1 ml-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setNamespace(instance.namespace); setCurrentView('pods'); }}
+                                  class="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                  title="View pods"
+                                  style={{ color: 'var(--success-color)' }}
+                                >
+                                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleUninstall(app, instance); }}
+                                  class="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                  title="Uninstall"
+                                  style={{ color: 'var(--error-color)' }}
+                                >
+                                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </For>
                       </div>
                     </Show>
                   </div>

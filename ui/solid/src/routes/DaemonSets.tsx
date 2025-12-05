@@ -31,6 +31,29 @@ const DaemonSets: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('daemonsets-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('daemonsets-font-family') || 'Monaco');
+
+  const getFontFamilyCSS = (family: string): string => {
+    switch (family) {
+      case 'Monospace': return 'monospace';
+      case 'System-ui': return 'system-ui';
+      case 'Monaco': return 'Monaco, monospace';
+      case 'Consolas': return 'Consolas, monospace';
+      case 'Courier': return '"Courier New", monospace';
+      default: return 'Monaco, monospace';
+    }
+  };
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('daemonsets-font-size', size.toString());
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('daemonsets-font-family', family);
+  };
 
   const [daemonsets, { refetch }] = createResource(namespace, api.getDaemonSets);
   const [yamlContent] = createResource(
@@ -172,6 +195,36 @@ const DaemonSets: Component = () => {
           <p style={{ color: 'var(--text-secondary)' }}>Node-level workloads running on all or selected nodes</p>
         </div>
         <div class="flex items-center gap-3">
+          <select
+            value={fontSize()}
+            onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Size"
+          >
+            <option value="12">12px</option>
+            <option value="13">13px</option>
+            <option value="14">14px</option>
+            <option value="15">15px</option>
+            <option value="16">16px</option>
+            <option value="17">17px</option>
+            <option value="18">18px</option>
+            <option value="19">19px</option>
+            <option value="20">20px</option>
+          </select>
+          <select
+            value={fontFamily()}
+            onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Family"
+          >
+            <option value="Monospace">Monospace</option>
+            <option value="System-ui">System-ui</option>
+            <option value="Monaco">Monaco</option>
+            <option value="Consolas">Consolas</option>
+            <option value="Courier">Courier</option>
+          </select>
           <button
             onClick={(e) => {
               const btn = e.currentTarget;
@@ -233,7 +286,7 @@ const DaemonSets: Component = () => {
       </div>
 
       {/* DaemonSets table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
           when={!daemonsets.loading}
           fallback={
@@ -244,7 +297,12 @@ const DaemonSets: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+              <style>{`
+                table { width: 100%; border-collapse: collapse; }
+                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
+                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+              `}</style>
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
@@ -269,9 +327,20 @@ const DaemonSets: Component = () => {
                 <For each={paginatedDaemonSets()} fallback={
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No DaemonSets found</td></tr>
                 }>
-                  {(ds: DaemonSet) => (
+                  {(ds: DaemonSet) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(ds); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -280,17 +349,77 @@ const DaemonSets: Component = () => {
                           {ds.name.length > 40 ? ds.name.slice(0, 37) + '...' : ds.name}
                         </button>
                       </td>
-                      <td>{ds.namespace}</td>
-                      <td>{ds.desired}</td>
-                      <td>{ds.current}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.desired}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.current}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${ds.ready === ds.desired ? 'badge-success' : 'badge-warning'}`}>
                           {ds.ready}
                         </span>
                       </td>
-                      <td>{ds.available}</td>
-                      <td>{ds.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.available}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{ds.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Restart', icon: 'restart', onClick: () => restart(ds) },
@@ -301,7 +430,8 @@ const DaemonSets: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

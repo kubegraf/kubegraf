@@ -248,6 +248,7 @@ export {
   setNamespace,
   namespaces,
   clusterStatus,
+  setClusterStatus,
   contexts,
   currentContext,
   clusterSwitching,

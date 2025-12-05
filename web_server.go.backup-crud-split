@@ -1,0 +1,5176 @@
+// Copyright 2025 KubeGraf Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/creack/pty/v2"
+	"github.com/gorilla/websocket"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/remotecommand"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/yaml"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for development
+	},
+}
+
+// toKubectlYAML converts a Kubernetes object to YAML format matching kubectl output
+// It sets the TypeMeta (Kind/APIVersion) and removes managed fields for cleaner output
+func toKubectlYAML(obj runtime.Object, gvk schema.GroupVersionKind) ([]byte, error) {
+	// Set the TypeMeta on the object so it appears in the YAML
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
+
+	// Use sigs.k8s.io/yaml which properly handles JSON struct tags
+	return yaml.Marshal(obj)
+}
+
+// runKubectlDescribe runs kubectl describe and returns the output
+// resourceType: pod, deployment, service, statefulset, daemonset, cronjob, job, ingress, configmap, node
+func runKubectlDescribe(resourceType, name, namespace string) (string, error) {
+	var cmd *exec.Cmd
+	if namespace != "" {
+		cmd = exec.Command("kubectl", "describe", resourceType, name, "-n", namespace)
+	} else {
+		// For cluster-scoped resources like nodes
+		cmd = exec.Command("kubectl", "describe", resourceType, name)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl describe failed: %s - %v", string(output), err)
+	}
+	return string(output), nil
+}
+
+// formatAge converts a duration to human-readable format (e.g., "5d", "3h", "45m")
+func formatAge(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+
+	days := int(d.Hours() / 24)
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+	seconds := int(d.Seconds()) % 60
+
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dd %dh", days, hours)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
+	if hours > 0 {
+		if minutes > 0 {
+			return fmt.Sprintf("%dh %dm", hours, minutes)
+		}
+		return fmt.Sprintf("%dh", hours)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// PortForwardSession tracks an active port-forward session
+type PortForwardSession struct {
+	ID         string    `json:"id"`
+	Type       string    `json:"type"` // "pod" or "service"
+	Name       string    `json:"name"`
+	Namespace  string    `json:"namespace"`
+	LocalPort  int       `json:"localPort"`
+	RemotePort int       `json:"remotePort"`
+	StartedAt  time.Time `json:"startedAt"`
+	stopChan   chan struct{}
+	readyChan  chan struct{}
+}
+
+// WebEvent represents a Kubernetes event for web UI
+type WebEvent struct {
+	Time      time.Time `json:"time"`
+	Type      string    `json:"type"`
+	Reason    string    `json:"reason"`
+	Object    string    `json:"object"`
+	Kind      string    `json:"kind"`
+	Message   string    `json:"message"`
+	Namespace string    `json:"namespace"`
+	Count     int32     `json:"count"`
+	Source    string    `json:"source"`
+}
+
+// WebServer handles the web UI
+type WebServer struct {
+	app          *App
+	clients      map[*websocket.Conn]bool
+	mu           sync.Mutex
+	portForwards map[string]*PortForwardSession
+	pfMu         sync.Mutex
+	events       []WebEvent
+	eventsMu     sync.RWMutex
+	stopCh       chan struct{}
+	// Cost cache - caches results for 5 minutes to avoid slow API calls
+	// Keyed by cluster context to prevent cross-cluster cache hits
+	costCache     map[string]*ClusterCost // key: context name, value: cached cost
+	costCacheTime map[string]time.Time    // key: context name, value: cache time
+	costCacheMu   sync.RWMutex
+	// Event monitor integration
+	eventMonitorStarted bool
+	// MCP Server for AI agents
+	mcpServer *MCPServer
+	// Production upgrades
+	cache *Cache
+	db    *Database
+	iam   *IAM
+}
+
+// NewWebServer creates a new web server
+func NewWebServer(app *App) *WebServer {
+	ws := &WebServer{
+		app:          app,
+		clients:      make(map[*websocket.Conn]bool),
+		portForwards: make(map[string]*PortForwardSession),
+		events:       make([]WebEvent, 0, 500),
+		stopCh:       make(chan struct{}),
+		costCache:    make(map[string]*ClusterCost),
+		costCacheTime: make(map[string]time.Time),
+	}
+	// Initialize MCP server for AI agents
+	ws.mcpServer = NewMCPServer(app)
+	
+	// Initialize database, cache, and IAM for production upgrades
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to current directory
+		homeDir = "."
+	}
+	
+	// Create .kubegraf directory if it doesn't exist
+	kubegrafDir := filepath.Join(homeDir, ".kubegraf")
+	if err := os.MkdirAll(kubegrafDir, 0755); err != nil {
+		fmt.Printf("⚠️  Failed to create .kubegraf directory: %v\n", err)
+	}
+	
+	// Initialize database
+	dbPath := filepath.Join(kubegrafDir, "db.sqlite")
+	encryptionKey := os.Getenv("KUBEGRAF_ENCRYPTION_KEY")
+	if encryptionKey == "" {
+		// Use a default key (not secure for production, but okay for development)
+		encryptionKey = "default-encryption-key-change-in-production"
+		fmt.Println("⚠️  Using default encryption key. Set KUBEGRAF_ENCRYPTION_KEY environment variable for production.")
+	}
+	
+	db, err := NewDatabase(dbPath, encryptionKey)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize database: %v\n", err)
+	} else {
+		ws.db = db
+		fmt.Printf("✅ Database initialized at %s\n", dbPath)
+	}
+	
+	// Initialize cache (use LRU backend by default)
+	cache, err := NewCache(CacheBackendLRU, "")
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize cache: %v\n", err)
+	} else {
+		ws.cache = cache
+		fmt.Println("✅ Cache initialized (LRU backend)")
+	}
+	
+	// Initialize IAM (enabled by default)
+	iamEnabled := true
+	if ws.db != nil {
+		ws.iam = NewIAM(ws.db, iamEnabled)
+		fmt.Println("✅ IAM initialized")
+	}
+	
+	return ws
+}
+
+// Start starts the web server
+func (ws *WebServer) Start(port int) error {
+	// Get the embedded web UI filesystem
+	webFS, err := GetWebFS()
+	if err != nil {
+		return fmt.Errorf("failed to get web filesystem: %v", err)
+	}
+
+	// Serve static files with SPA routing (must be registered last)
+	staticHandler := ws.handleStaticFiles(webFS)
+	http.HandleFunc("/api/status", ws.handleConnectionStatus)
+	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
+	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
+	http.HandleFunc("/api/metrics", ws.handleMetrics)
+	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
+	http.HandleFunc("/api/pods", ws.handlePods)
+	http.HandleFunc("/api/pods/metrics", ws.handlePodMetrics)
+	http.HandleFunc("/api/deployments", ws.handleDeployments)
+	http.HandleFunc("/api/statefulsets", ws.handleStatefulSets)
+	http.HandleFunc("/api/daemonsets", ws.handleDaemonSets)
+	http.HandleFunc("/api/services", ws.handleServices)
+	http.HandleFunc("/api/ingresses", ws.handleIngresses)
+	http.HandleFunc("/api/configmaps", ws.handleConfigMaps)
+	http.HandleFunc("/api/secrets", ws.handleSecrets)
+	http.HandleFunc("/api/cronjobs", ws.handleCronJobs)
+	http.HandleFunc("/api/jobs", ws.handleJobs)
+	http.HandleFunc("/api/nodes", ws.handleNodes)
+	http.HandleFunc("/api/topology", ws.handleTopology)
+	http.HandleFunc("/api/resourcemap", ws.handleResourceMap)
+	http.HandleFunc("/ws", ws.handleWebSocket)
+
+	// Multi-cluster context endpoints
+	http.HandleFunc("/api/contexts", ws.handleContexts)
+	http.HandleFunc("/api/contexts/current", ws.handleCurrentContext)
+	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
+
+	// Real-time events endpoint
+	http.HandleFunc("/api/events", ws.handleEvents)
+
+	// Apps marketplace endpoints
+	http.HandleFunc("/api/apps", ws.handleApps)
+	http.HandleFunc("/api/apps/installed", ws.handleInstalledApps)
+	http.HandleFunc("/api/apps/install", ws.handleInstallApp)
+	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
+	http.HandleFunc("/api/apps/local-clusters", ws.handleLocalClusters)
+
+	// Impact analysis endpoint
+	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)
+
+	// Operations endpoints
+	http.HandleFunc("/api/pod/details", ws.handlePodDetails)
+	http.HandleFunc("/api/pod/yaml", ws.handlePodYAML)
+	http.HandleFunc("/api/pod/update", ws.handlePodUpdate)
+	http.HandleFunc("/api/pod/describe", ws.handlePodDescribe)
+	http.HandleFunc("/api/pod/exec", ws.handlePodExec)
+	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
+	http.HandleFunc("/api/pod/logs", ws.handlePodLogs)
+	http.HandleFunc("/api/local/terminal", ws.handleLocalTerminalWS)
+	http.HandleFunc("/terminal", ws.handleLocalTerminalPage)
+	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
+	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
+	http.HandleFunc("/api/deployment/details", ws.handleDeploymentDetails)
+	http.HandleFunc("/api/deployment/yaml", ws.handleDeploymentYAML)
+	http.HandleFunc("/api/deployment/update", ws.handleDeploymentUpdate)
+	http.HandleFunc("/api/deployment/describe", ws.handleDeploymentDescribe)
+	http.HandleFunc("/api/deployment/restart", ws.handleDeploymentRestart)
+	http.HandleFunc("/api/deployment/scale", ws.handleDeploymentScale)
+	http.HandleFunc("/api/deployment/delete", ws.handleDeploymentDelete)
+	http.HandleFunc("/api/statefulset/details", ws.handleStatefulSetDetails)
+	http.HandleFunc("/api/statefulset/yaml", ws.handleStatefulSetYAML)
+	http.HandleFunc("/api/statefulset/update", ws.handleStatefulSetUpdate)
+	http.HandleFunc("/api/statefulset/describe", ws.handleStatefulSetDescribe)
+	http.HandleFunc("/api/statefulset/restart", ws.handleStatefulSetRestart)
+	http.HandleFunc("/api/statefulset/scale", ws.handleStatefulSetScale)
+	http.HandleFunc("/api/statefulset/delete", ws.handleStatefulSetDelete)
+	http.HandleFunc("/api/daemonset/details", ws.handleDaemonSetDetails)
+	http.HandleFunc("/api/daemonset/yaml", ws.handleDaemonSetYAML)
+	http.HandleFunc("/api/daemonset/update", ws.handleDaemonSetUpdate)
+	http.HandleFunc("/api/daemonset/describe", ws.handleDaemonSetDescribe)
+	http.HandleFunc("/api/daemonset/restart", ws.handleDaemonSetRestart)
+	http.HandleFunc("/api/daemonset/delete", ws.handleDaemonSetDelete)
+	http.HandleFunc("/api/cronjob/details", ws.handleCronJobDetails)
+	http.HandleFunc("/api/cronjob/yaml", ws.handleCronJobYAML)
+	http.HandleFunc("/api/cronjob/update", ws.handleCronJobUpdate)
+	http.HandleFunc("/api/cronjob/describe", ws.handleCronJobDescribe)
+	http.HandleFunc("/api/cronjob/delete", ws.handleCronJobDelete)
+	http.HandleFunc("/api/job/details", ws.handleJobDetails)
+	http.HandleFunc("/api/job/yaml", ws.handleJobYAML)
+	http.HandleFunc("/api/job/update", ws.handleJobUpdate)
+	http.HandleFunc("/api/job/describe", ws.handleJobDescribe)
+	http.HandleFunc("/api/job/delete", ws.handleJobDelete)
+	http.HandleFunc("/api/service/details", ws.handleServiceDetails)
+	http.HandleFunc("/api/service/yaml", ws.handleServiceYAML)
+	http.HandleFunc("/api/service/update", ws.handleServiceUpdate)
+	http.HandleFunc("/api/service/describe", ws.handleServiceDescribe)
+	http.HandleFunc("/api/service/delete", ws.handleServiceDelete)
+	http.HandleFunc("/api/ingress/details", ws.handleIngressDetails)
+	http.HandleFunc("/api/ingress/yaml", ws.handleIngressYAML)
+	http.HandleFunc("/api/ingress/update", ws.handleIngressUpdate)
+	http.HandleFunc("/api/ingress/describe", ws.handleIngressDescribe)
+	http.HandleFunc("/api/ingress/delete", ws.handleIngressDelete)
+	http.HandleFunc("/api/configmap/details", ws.handleConfigMapDetails)
+	http.HandleFunc("/api/configmap/yaml", ws.handleConfigMapYAML)
+	http.HandleFunc("/api/configmap/update", ws.handleConfigMapUpdate)
+	http.HandleFunc("/api/configmap/describe", ws.handleConfigMapDescribe)
+	http.HandleFunc("/api/configmap/delete", ws.handleConfigMapDelete)
+	http.HandleFunc("/api/secret/yaml", ws.handleSecretYAML)
+	http.HandleFunc("/api/secret/update", ws.handleSecretUpdate)
+	http.HandleFunc("/api/secret/describe", ws.handleSecretDescribe)
+	http.HandleFunc("/api/secret/delete", ws.handleSecretDelete)
+	http.HandleFunc("/api/certificates", ws.handleCertificates)
+	http.HandleFunc("/api/certificate/yaml", ws.handleCertificateYAML)
+	http.HandleFunc("/api/certificate/update", ws.handleCertificateUpdate)
+	http.HandleFunc("/api/certificate/describe", ws.handleCertificateDescribe)
+	http.HandleFunc("/api/certificate/delete", ws.handleCertificateDelete)
+	http.HandleFunc("/api/node/details", ws.handleNodeDetails)
+	http.HandleFunc("/api/node/yaml", ws.handleNodeYAML)
+	http.HandleFunc("/api/node/describe", ws.handleNodeDescribe)
+
+	// Port-forward endpoints
+	http.HandleFunc("/api/portforward/start", ws.handlePortForwardStart)
+	http.HandleFunc("/api/portforward/stop", ws.handlePortForwardStop)
+	http.HandleFunc("/api/portforward/list", ws.handlePortForwardList)
+
+	// Authentication endpoints
+	http.HandleFunc("/api/auth/login", ws.handleLogin)
+	http.HandleFunc("/api/auth/logout", ws.handleLogout)
+	http.HandleFunc("/api/auth/register", ws.handleRegister)
+	http.HandleFunc("/api/auth/me", ws.handleGetCurrentUser)
+
+	// Security analysis endpoint
+	http.HandleFunc("/api/security", ws.handleSecurityAnalysis)
+
+	// Plugin endpoints - Helm
+	http.HandleFunc("/api/plugins/helm/releases", ws.handleHelmReleases)
+	http.HandleFunc("/api/plugins/helm/release", ws.handleHelmReleaseDetails)
+	http.HandleFunc("/api/plugins/helm/history", ws.handleHelmReleaseHistory)
+	http.HandleFunc("/api/plugins/helm/rollback", ws.handleHelmRollback)
+
+	// Plugin endpoints - Kustomize (resources managed by kustomize)
+	http.HandleFunc("/api/plugins/kustomize/resources", ws.handleKustomizeResources)
+
+	// Plugin endpoints - ArgoCD
+	http.HandleFunc("/api/plugins/argocd/apps", ws.handleArgoCDApps)
+	http.HandleFunc("/api/plugins/argocd/app", ws.handleArgoCDAppDetails)
+	http.HandleFunc("/api/plugins/argocd/sync", ws.handleArgoCDSync)
+	http.HandleFunc("/api/plugins/argocd/refresh", ws.handleArgoCDRefresh)
+
+	// Plugin endpoints - Flux
+	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
+
+	// Advanced features - AI, Diagnostics, Cost, Drift
+	ws.RegisterAdvancedHandlers()
+
+	// Event monitoring
+	ws.RegisterEventHandlers()
+
+	// MCP (Model Context Protocol) Server for AI agents
+	if ws.mcpServer != nil {
+		http.HandleFunc("/api/mcp", ws.mcpServer.HandleRequest)
+	}
+
+	// Connectors
+	ws.RegisterConnectorHandlers()
+
+	// SRE Agent
+	ws.RegisterSREAgentHandlers()
+
+	// Static files and SPA routing (must be last to not override API routes)
+	http.HandleFunc("/", staticHandler)
+
+	// Check if port is available, if not find next available port
+	actualPort := port
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		// Port is in use, find next available port
+		log.Printf("⚠️  Port %d is already in use, searching for available port...", port)
+		actualPort, err = findAvailablePort(port)
+		if err != nil {
+			return fmt.Errorf("failed to find available port: %v", err)
+		}
+		if actualPort != port {
+			log.Printf("✅ Using port %d instead (port %d was in use)", actualPort, port)
+		}
+	} else {
+		listener.Close()
+	}
+
+	addr := fmt.Sprintf(":%d", actualPort)
+	log.Printf("🌐 Web UI available at http://localhost%s", addr)
+	log.Printf("📊 Dashboard: http://localhost%s", addr)
+	log.Printf("🗺️  Topology: http://localhost%s/topology", addr)
+
+	// Pre-warm the cost cache in background (waits for cluster connection)
+	go ws.prewarmCostCache()
+
+	// Start broadcasting updates
+	go ws.broadcastUpdates()
+
+	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
+	go ws.watchKubernetesEvents()
+
+	return http.ListenAndServe(addr, nil)
+}
+
+// prewarmCostCache calculates cluster cost in background and caches the result
+func (ws *WebServer) prewarmCostCache() {
+	// Wait for cluster connection
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if ws.app.clientset == nil || !ws.app.connected {
+		log.Printf("⚠️ Skipping cost cache pre-warm: cluster not connected")
+		return
+	}
+
+	currentContext := ws.app.GetCurrentContext()
+	if currentContext == "" {
+		log.Printf("⚠️ Skipping cost cache pre-warm: no context selected")
+		return
+	}
+
+	log.Printf("💰 Pre-warming cost cache in background...")
+	estimator := NewCostEstimator(ws.app)
+	ctx := context.Background()
+
+	cost, err := estimator.EstimateClusterCost(ctx)
+	if err != nil {
+		log.Printf("⚠️ Failed to pre-warm cost cache: %v", err)
+		return
+	}
+
+	ws.costCacheMu.Lock()
+	ws.costCache[currentContext] = cost
+	ws.costCacheTime[currentContext] = time.Now()
+	ws.costCacheMu.Unlock()
+
+	log.Printf("✅ Cost cache warmed: $%.2f/month (%s - %s)",
+		cost.MonthlyCost,
+		cost.Cloud.DisplayName,
+		cost.Cloud.Region)
+}
+
+// handleStaticFiles serves static files from the embedded filesystem
+// It implements SPA routing: serves static files if they exist, otherwise serves index.html
+func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
+	fileServer := http.FileServer(http.FS(webFS))
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Clean the path
+		upath := r.URL.Path
+		if !strings.HasPrefix(upath, "/") {
+			upath = "/" + upath
+		}
+		upath = path.Clean(upath)
+
+		// Try to serve the file directly
+		if upath != "/" {
+			// Check if file exists in embedded FS
+			filePath := strings.TrimPrefix(upath, "/")
+			if _, err := fs.Stat(webFS, filePath); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Serve index.html for SPA routing (root path or file not found)
+		indexContent, err := fs.ReadFile(webFS, "index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexContent)
+	}
+}
+
+// handleConnectionStatus returns the cluster connection status
+
+// handleCheckUpdates checks for available updates
+
+// handleInstallUpdate downloads and installs the latest version
+
+// handleMetrics returns cluster metrics
+
+
+
+
+// handleTopology returns topology data for visualization
+
+// handleWebSocket handles WebSocket connections for real-time updates
+func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("WebSocket upgrade error:", err)
+		return
+	}
+	defer conn.Close()
+
+	ws.mu.Lock()
+	ws.clients[conn] = true
+	ws.mu.Unlock()
+
+	// Remove client on disconnect
+	defer func() {
+		ws.mu.Lock()
+		delete(ws.clients, conn)
+		ws.mu.Unlock()
+	}()
+
+	// Keep connection alive
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+// broadcastUpdates sends periodic updates to all connected clients
+func (ws *WebServer) broadcastUpdates() {
+	// Wait for cluster connection before starting updates
+	for i := 0; i < 60; i++ {
+		if ws.app.clientset != nil && ws.app.connected {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		metrics := ws.getClusterMetrics()
+
+		ws.mu.Lock()
+		for client := range ws.clients {
+			err := client.WriteJSON(map[string]interface{}{
+				"type": "metrics",
+				"data": metrics,
+			})
+			if err != nil {
+				client.Close()
+				delete(ws.clients, client)
+			}
+		}
+		ws.mu.Unlock()
+	}
+}
+
+// handleEvents returns historical events via REST API
+
+// watchKubernetesEvents watches for Kubernetes events and broadcasts them to WebSocket clients
+
+// broadcastEvent sends an event to all connected WebSocket clients
+func (ws *WebServer) broadcastEvent(event WebEvent) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "event",
+		"data": event,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// broadcastMonitoredEvent sends a monitored event to all connected WebSocket clients
+func (ws *WebServer) broadcastMonitoredEvent(event MonitoredEvent) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "monitored_event",
+		"data": event,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// ImpactNode represents a node in the impact analysis tree
+type ImpactNode struct {
+	Type       string        `json:"type"`
+	Name       string        `json:"name"`
+	Namespace  string        `json:"namespace"`
+	Severity   string        `json:"severity"` // "critical", "high", "medium", "low"
+	Impact     string        `json:"impact"`   // Description of impact
+	Children   []*ImpactNode `json:"children,omitempty"`
+	Dependents int           `json:"dependents"`
+}
+
+// ImpactAnalysis represents the full impact analysis result
+type ImpactAnalysis struct {
+	Resource        string        `json:"resource"`
+	ResourceType    string        `json:"resourceType"`
+	Namespace       string        `json:"namespace"`
+	TotalImpacted   int           `json:"totalImpacted"`
+	CriticalCount   int           `json:"criticalCount"`
+	HighCount       int           `json:"highCount"`
+	MediumCount     int           `json:"mediumCount"`
+	LowCount        int           `json:"lowCount"`
+	ImpactedNodes   []*ImpactNode `json:"impactedNodes"`
+	Summary         string        `json:"summary"`
+	Recommendations []string      `json:"recommendations"`
+}
+
+// handleImpactAnalysis analyzes the impact of deleting or modifying a resource
+func (ws *WebServer) handleImpactAnalysis(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	resourceType := r.URL.Query().Get("type")
+	resourceName := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if namespace == "" || namespace == "All Namespaces" {
+		namespace = ws.app.namespace
+	}
+
+	if resourceType == "" || resourceName == "" {
+		http.Error(w, "Missing required parameters: type and name", http.StatusBadRequest)
+		return
+	}
+
+	var analysis *ImpactAnalysis
+	var err error
+
+	switch strings.ToLower(resourceType) {
+	case "service":
+		analysis, err = ws.analyzeServiceImpact(resourceName, namespace)
+	case "configmap":
+		analysis, err = ws.analyzeConfigMapImpact(resourceName, namespace)
+	case "secret":
+		analysis, err = ws.analyzeSecretImpact(resourceName, namespace)
+	case "deployment":
+		analysis, err = ws.analyzeDeploymentImpact(resourceName, namespace)
+	case "pod":
+		analysis, err = ws.analyzePodImpact(resourceName, namespace)
+	case "node":
+		analysis, err = ws.analyzeNodeImpact(resourceName)
+	default:
+		http.Error(w, fmt.Sprintf("Impact analysis not supported for resource type: %s", resourceType), http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(analysis)
+}
+
+// analyzeServiceImpact analyzes what depends on a Service
+func (ws *WebServer) analyzeServiceImpact(name, namespace string) (*ImpactAnalysis, error) {
+	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	analysis := &ImpactAnalysis{
+		Resource:        name,
+		ResourceType:    "Service",
+		Namespace:       namespace,
+		ImpactedNodes:   []*ImpactNode{},
+		Recommendations: []string{},
+	}
+
+	// Find Ingresses that route to this service
+	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, ing := range ingresses.Items {
+		for _, rule := range ing.Spec.Rules {
+			if rule.HTTP != nil {
+				for _, path := range rule.HTTP.Paths {
+					if path.Backend.Service != nil && path.Backend.Service.Name == name {
+						node := &ImpactNode{
+							Type:      "Ingress",
+							Name:      ing.Name,
+							Namespace: ing.Namespace,
+							Severity:  "critical",
+							Impact:    fmt.Sprintf("Ingress %s routes traffic to this service via path %s", ing.Name, path.Path),
+						}
+						analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+						analysis.CriticalCount++
+					}
+				}
+			}
+		}
+	}
+
+	// Find Pods that this service selects (would lose endpoint)
+	if len(service.Spec.Selector) > 0 {
+		pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+			LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: service.Spec.Selector}),
+		})
+		for _, pod := range pods.Items {
+			node := &ImpactNode{
+				Type:      "Pod",
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Severity:  "medium",
+				Impact:    "Pod will lose service endpoint and external access",
+			}
+			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+			analysis.MediumCount++
+		}
+	}
+
+	// Calculate totals
+	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+	analysis.Summary = fmt.Sprintf("Deleting Service '%s' will affect %d resource(s): %d critical, %d high, %d medium, %d low",
+		name, analysis.TotalImpacted, analysis.CriticalCount, analysis.HighCount, analysis.MediumCount, analysis.LowCount)
+
+	if analysis.CriticalCount > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Update Ingress configurations before deleting this Service")
+	}
+	if analysis.MediumCount > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Ensure pods have alternative network access or are not required")
+	}
+
+	return analysis, nil
+}
+
+// analyzeConfigMapImpact analyzes what depends on a ConfigMap
+func (ws *WebServer) analyzeConfigMapImpact(name, namespace string) (*ImpactAnalysis, error) {
+	_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	analysis := &ImpactAnalysis{
+		Resource:        name,
+		ResourceType:    "ConfigMap",
+		Namespace:       namespace,
+		ImpactedNodes:   []*ImpactNode{},
+		Recommendations: []string{},
+	}
+
+	// Find Deployments that use this ConfigMap
+	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, dep := range deployments.Items {
+		usesConfigMap := false
+		var usageType string
+
+		// Check volume mounts
+		for _, vol := range dep.Spec.Template.Spec.Volumes {
+			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+				usesConfigMap = true
+				usageType = "volume mount"
+				break
+			}
+		}
+
+		// Check env references
+		if !usesConfigMap {
+			for _, container := range dep.Spec.Template.Spec.Containers {
+				for _, env := range container.EnvFrom {
+					if env.ConfigMapRef != nil && env.ConfigMapRef.Name == name {
+						usesConfigMap = true
+						usageType = "environment variables"
+						break
+					}
+				}
+				if usesConfigMap {
+					break
+				}
+			}
+		}
+
+		if usesConfigMap {
+			node := &ImpactNode{
+				Type:      "Deployment",
+				Name:      dep.Name,
+				Namespace: dep.Namespace,
+				Severity:  "critical",
+				Impact:    fmt.Sprintf("Deployment uses this ConfigMap as %s - pods may fail to start", usageType),
+			}
+			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+			analysis.CriticalCount++
+		}
+	}
+
+	// Check StatefulSets
+	statefulsets, _ := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, sts := range statefulsets.Items {
+		for _, vol := range sts.Spec.Template.Spec.Volumes {
+			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+				node := &ImpactNode{
+					Type:      "StatefulSet",
+					Name:      sts.Name,
+					Namespace: sts.Namespace,
+					Severity:  "critical",
+					Impact:    "StatefulSet uses this ConfigMap - pods may fail to start",
+				}
+				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+				analysis.CriticalCount++
+				break
+			}
+		}
+	}
+
+	// Check DaemonSets
+	daemonsets, _ := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, ds := range daemonsets.Items {
+		for _, vol := range ds.Spec.Template.Spec.Volumes {
+			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+				node := &ImpactNode{
+					Type:      "DaemonSet",
+					Name:      ds.Name,
+					Namespace: ds.Namespace,
+					Severity:  "critical",
+					Impact:    "DaemonSet uses this ConfigMap - pods may fail to start on all nodes",
+				}
+				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+				analysis.CriticalCount++
+				break
+			}
+		}
+	}
+
+	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+	analysis.Summary = fmt.Sprintf("Deleting ConfigMap '%s' will affect %d workload(s)", name, analysis.TotalImpacted)
+
+	if analysis.CriticalCount > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Update workloads to remove ConfigMap references before deletion")
+		analysis.Recommendations = append(analysis.Recommendations, "Consider creating a replacement ConfigMap with updated values first")
+	}
+
+	return analysis, nil
+}
+
+// analyzeSecretImpact analyzes what depends on a Secret
+func (ws *WebServer) analyzeSecretImpact(name, namespace string) (*ImpactAnalysis, error) {
+	_, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	analysis := &ImpactAnalysis{
+		Resource:        name,
+		ResourceType:    "Secret",
+		Namespace:       namespace,
+		ImpactedNodes:   []*ImpactNode{},
+		Recommendations: []string{},
+	}
+
+	// Find Deployments that use this Secret
+	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, dep := range deployments.Items {
+		usesSecret := false
+		var usageType string
+
+		for _, vol := range dep.Spec.Template.Spec.Volumes {
+			if vol.Secret != nil && vol.Secret.SecretName == name {
+				usesSecret = true
+				usageType = "volume mount"
+				break
+			}
+		}
+
+		if !usesSecret {
+			for _, container := range dep.Spec.Template.Spec.Containers {
+				for _, env := range container.EnvFrom {
+					if env.SecretRef != nil && env.SecretRef.Name == name {
+						usesSecret = true
+						usageType = "environment variables"
+						break
+					}
+				}
+				// Check individual env vars
+				for _, env := range container.Env {
+					if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == name {
+						usesSecret = true
+						usageType = "environment variable"
+						break
+					}
+				}
+				if usesSecret {
+					break
+				}
+			}
+		}
+
+		// Check imagePullSecrets
+		if !usesSecret {
+			for _, ips := range dep.Spec.Template.Spec.ImagePullSecrets {
+				if ips.Name == name {
+					usesSecret = true
+					usageType = "image pull secret"
+					break
+				}
+			}
+		}
+
+		if usesSecret {
+			node := &ImpactNode{
+				Type:      "Deployment",
+				Name:      dep.Name,
+				Namespace: dep.Namespace,
+				Severity:  "critical",
+				Impact:    fmt.Sprintf("Deployment uses this Secret as %s - pods may fail to start or authenticate", usageType),
+			}
+			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+			analysis.CriticalCount++
+		}
+	}
+
+	// Find ServiceAccounts that reference this secret
+	serviceAccounts, _ := ws.app.clientset.CoreV1().ServiceAccounts(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, sa := range serviceAccounts.Items {
+		for _, secretRef := range sa.Secrets {
+			if secretRef.Name == name {
+				node := &ImpactNode{
+					Type:      "ServiceAccount",
+					Name:      sa.Name,
+					Namespace: sa.Namespace,
+					Severity:  "high",
+					Impact:    "ServiceAccount references this Secret - authentication may fail",
+				}
+				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+				analysis.HighCount++
+				break
+			}
+		}
+		for _, ips := range sa.ImagePullSecrets {
+			if ips.Name == name {
+				node := &ImpactNode{
+					Type:      "ServiceAccount",
+					Name:      sa.Name,
+					Namespace: sa.Namespace,
+					Severity:  "high",
+					Impact:    "ServiceAccount uses this Secret for image pulls - containers may fail to pull images",
+				}
+				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+				analysis.HighCount++
+				break
+			}
+		}
+	}
+
+	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+	analysis.Summary = fmt.Sprintf("Deleting Secret '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
+
+	if analysis.CriticalCount > 0 || analysis.HighCount > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Ensure no workloads require this Secret before deletion")
+		analysis.Recommendations = append(analysis.Recommendations, "Consider rotating Secret with a new one before deleting the old")
+	}
+
+	return analysis, nil
+}
+
+// analyzeDeploymentImpact analyzes what depends on a Deployment
+func (ws *WebServer) analyzeDeploymentImpact(name, namespace string) (*ImpactAnalysis, error) {
+	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	analysis := &ImpactAnalysis{
+		Resource:        name,
+		ResourceType:    "Deployment",
+		Namespace:       namespace,
+		ImpactedNodes:   []*ImpactNode{},
+		Recommendations: []string{},
+	}
+
+	// Find Services that select this Deployment's pods
+	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, svc := range services.Items {
+		if len(svc.Spec.Selector) > 0 {
+			if matchesSelector(svc.Spec.Selector, deployment.Spec.Template.Labels) {
+				node := &ImpactNode{
+					Type:      "Service",
+					Name:      svc.Name,
+					Namespace: svc.Namespace,
+					Severity:  "critical",
+					Impact:    "Service selects this Deployment's pods - endpoints will be removed",
+				}
+				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+				analysis.CriticalCount++
+			}
+		}
+	}
+
+	// Find HPA targeting this deployment
+	hpas, _ := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, hpa := range hpas.Items {
+		if hpa.Spec.ScaleTargetRef.Kind == "Deployment" && hpa.Spec.ScaleTargetRef.Name == name {
+			node := &ImpactNode{
+				Type:      "HorizontalPodAutoscaler",
+				Name:      hpa.Name,
+				Namespace: hpa.Namespace,
+				Severity:  "medium",
+				Impact:    "HPA targets this Deployment - autoscaling will be orphaned",
+			}
+			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+			analysis.MediumCount++
+		}
+	}
+
+	// Add running pods info
+	pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
+	})
+	runningPods := 0
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == v1.PodRunning {
+			runningPods++
+		}
+	}
+	if runningPods > 0 {
+		node := &ImpactNode{
+			Type:       "Pod",
+			Name:       fmt.Sprintf("%d running pods", runningPods),
+			Namespace:  namespace,
+			Severity:   "high",
+			Impact:     "All running pods will be terminated",
+			Dependents: runningPods,
+		}
+		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+		analysis.HighCount++
+	}
+
+	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+	analysis.Summary = fmt.Sprintf("Deleting Deployment '%s' will affect %d resource(s) including %d running pods",
+		name, analysis.TotalImpacted, runningPods)
+
+	if analysis.CriticalCount > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Update Service selectors before deleting this Deployment")
+	}
+	if runningPods > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Consider scaling down to 0 replicas first to gracefully terminate pods")
+	}
+
+	return analysis, nil
+}
+
+// analyzePodImpact analyzes what depends on a Pod
+func (ws *WebServer) analyzePodImpact(name, namespace string) (*ImpactAnalysis, error) {
+	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	analysis := &ImpactAnalysis{
+		Resource:        name,
+		ResourceType:    "Pod",
+		Namespace:       namespace,
+		ImpactedNodes:   []*ImpactNode{},
+		Recommendations: []string{},
+	}
+
+	// Find Services that select this Pod
+	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	for _, svc := range services.Items {
+		if len(svc.Spec.Selector) > 0 {
+			if matchesSelector(svc.Spec.Selector, pod.Labels) {
+				// Check if this is the only pod for this service
+				pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+					LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector}),
+				})
+				severity := "low"
+				impact := "Pod is one of multiple endpoints for this Service"
+				if len(pods.Items) <= 1 {
+					severity = "critical"
+					impact = "This is the only pod for this Service - service will have no endpoints"
+				}
+
+				node := &ImpactNode{
+					Type:      "Service",
+					Name:      svc.Name,
+					Namespace: svc.Namespace,
+					Severity:  severity,
+					Impact:    impact,
+				}
+				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+				if severity == "critical" {
+					analysis.CriticalCount++
+				} else {
+					analysis.LowCount++
+				}
+			}
+		}
+	}
+
+	// Check if pod is managed by a controller
+	for _, ownerRef := range pod.OwnerReferences {
+		if ownerRef.Controller != nil && *ownerRef.Controller {
+			node := &ImpactNode{
+				Type:      ownerRef.Kind,
+				Name:      ownerRef.Name,
+				Namespace: namespace,
+				Severity:  "low",
+				Impact:    fmt.Sprintf("Pod will be recreated by %s controller", ownerRef.Kind),
+			}
+			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+			analysis.LowCount++
+		}
+	}
+
+	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+	analysis.Summary = fmt.Sprintf("Deleting Pod '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
+
+	if analysis.CriticalCount > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Ensure other pods are available for the Service before deleting")
+	}
+	if len(pod.OwnerReferences) == 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "This is an orphan pod - it will not be recreated after deletion")
+	}
+
+	return analysis, nil
+}
+
+// analyzeNodeImpact analyzes what would be affected by a Node being unavailable
+func (ws *WebServer) analyzeNodeImpact(nodeName string) (*ImpactAnalysis, error) {
+	_, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	analysis := &ImpactAnalysis{
+		Resource:        nodeName,
+		ResourceType:    "Node",
+		Namespace:       "cluster-wide",
+		ImpactedNodes:   []*ImpactNode{},
+		Recommendations: []string{},
+	}
+
+	// Find all pods running on this node
+	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+	})
+
+	deploymentPods := make(map[string]int)
+	statefulsetPods := make(map[string]int)
+	daemonsetPods := make(map[string]int)
+	standalonePods := []string{}
+
+	for _, pod := range pods.Items {
+		hasController := false
+		for _, ownerRef := range pod.OwnerReferences {
+			if ownerRef.Controller != nil && *ownerRef.Controller {
+				hasController = true
+				switch ownerRef.Kind {
+				case "ReplicaSet":
+					// Find the deployment
+					rs, err := ws.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ws.app.ctx, ownerRef.Name, metav1.GetOptions{})
+					if err == nil {
+						for _, rsOwner := range rs.OwnerReferences {
+							if rsOwner.Kind == "Deployment" {
+								key := fmt.Sprintf("%s/%s", pod.Namespace, rsOwner.Name)
+								deploymentPods[key]++
+							}
+						}
+					}
+				case "StatefulSet":
+					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
+					statefulsetPods[key]++
+				case "DaemonSet":
+					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
+					daemonsetPods[key]++
+				}
+				break
+			}
+		}
+		if !hasController {
+			standalonePods = append(standalonePods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+		}
+	}
+
+	// Add deployment impacts
+	for key, count := range deploymentPods {
+		parts := strings.Split(key, "/")
+		node := &ImpactNode{
+			Type:       "Deployment",
+			Name:       parts[1],
+			Namespace:  parts[0],
+			Severity:   "medium",
+			Impact:     fmt.Sprintf("%d pod(s) will be rescheduled to other nodes", count),
+			Dependents: count,
+		}
+		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+		analysis.MediumCount++
+	}
+
+	// Add statefulset impacts
+	for key, count := range statefulsetPods {
+		parts := strings.Split(key, "/")
+		node := &ImpactNode{
+			Type:       "StatefulSet",
+			Name:       parts[1],
+			Namespace:  parts[0],
+			Severity:   "high",
+			Impact:     fmt.Sprintf("%d pod(s) will need rescheduling - may require manual intervention for PVs", count),
+			Dependents: count,
+		}
+		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+		analysis.HighCount++
+	}
+
+	// Add daemonset impacts
+	for key := range daemonsetPods {
+		parts := strings.Split(key, "/")
+		node := &ImpactNode{
+			Type:      "DaemonSet",
+			Name:      parts[1],
+			Namespace: parts[0],
+			Severity:  "low",
+			Impact:    "DaemonSet pod will not run on this node while unavailable",
+		}
+		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+		analysis.LowCount++
+	}
+
+	// Add standalone pod impacts
+	if len(standalonePods) > 0 {
+		node := &ImpactNode{
+			Type:       "Pod (standalone)",
+			Name:       fmt.Sprintf("%d pods", len(standalonePods)),
+			Namespace:  "various",
+			Severity:   "critical",
+			Impact:     "Standalone pods will be lost permanently - no controller to reschedule",
+			Dependents: len(standalonePods),
+		}
+		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+		analysis.CriticalCount++
+	}
+
+	analysis.TotalImpacted = len(pods.Items)
+	analysis.Summary = fmt.Sprintf("Node '%s' hosts %d pod(s) from %d workload(s)",
+		nodeName, len(pods.Items), len(analysis.ImpactedNodes))
+
+	if len(standalonePods) > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Migrate standalone pods to Deployments before draining node")
+	}
+	if len(statefulsetPods) > 0 {
+		analysis.Recommendations = append(analysis.Recommendations, "Verify PersistentVolumes are accessible from other nodes")
+	}
+	analysis.Recommendations = append(analysis.Recommendations, "Use 'kubectl drain' for graceful workload migration")
+
+	return analysis, nil
+}
+
+// getClusterMetrics collects cluster metrics
+func (ws *WebServer) getClusterMetrics() map[string]interface{} {
+	metrics := map[string]interface{}{
+		"timestamp":   time.Now().Unix(),
+		"cpu":         45.0 + float64(time.Now().Unix()%20),
+		"memory":      62.0 + float64(time.Now().Unix()%15),
+		"pods":        12,
+		"nodes":       5,
+		"clusterName": ws.app.cluster,
+		"namespace":   ws.app.namespace,
+	}
+
+	// Wait for clientset to be initialized
+	if ws.app.clientset == nil {
+		return metrics
+	}
+
+	// Get actual node count
+	nodes, err := ws.app.clientset.CoreV1().Nodes().List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		metrics["nodes"] = len(nodes.Items)
+	}
+
+	// Get actual pod count
+	pods, err := ws.app.clientset.CoreV1().Pods(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		metrics["pods"] = len(pods.Items)
+	}
+
+	return metrics
+}
+
+// buildTopologyData builds topology data for D3.js visualization
+func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} {
+	nodes := []map[string]interface{}{}
+	links := []map[string]interface{}{}
+
+	// Use empty string for all namespaces
+	ns := namespace
+	if ns == "" {
+		ns = "" // Empty string lists from all namespaces in Kubernetes API
+	}
+
+	// Get deployments
+	deployments, err := ws.app.clientset.AppsV1().Deployments(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, dep := range deployments.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+				"name":      dep.Name,
+				"type":      "deployment",
+				"namespace": dep.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get statefulsets
+	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, sts := range statefulsets.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("statefulset-%s-%s", sts.Namespace, sts.Name),
+				"name":      sts.Name,
+				"type":      "statefulset",
+				"namespace": sts.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get daemonsets
+	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, ds := range daemonsets.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("daemonset-%s-%s", ds.Namespace, ds.Name),
+				"name":      ds.Name,
+				"type":      "daemonset",
+				"namespace": ds.Namespace,
+				"group":     1,
+			})
+		}
+	}
+
+	// Get services
+	services, err := ws.app.clientset.CoreV1().Services(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, svc := range services.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+				"name":      svc.Name,
+				"type":      "service",
+				"namespace": svc.Namespace,
+				"group":     2,
+			})
+
+			// Link services to deployments
+			if deployments != nil {
+				for _, dep := range deployments.Items {
+					if dep.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("deployment-%s-%s", dep.Namespace, dep.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+
+			// Link services to statefulsets
+			if statefulsets != nil {
+				for _, sts := range statefulsets.Items {
+					if sts.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, sts.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("statefulset-%s-%s", sts.Namespace, sts.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+
+			// Link services to daemonsets
+			if daemonsets != nil {
+				for _, ds := range daemonsets.Items {
+					if ds.Namespace == svc.Namespace && matchesSelector(svc.Spec.Selector, ds.Spec.Template.Labels) {
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("service-%s-%s", svc.Namespace, svc.Name),
+							"target": fmt.Sprintf("daemonset-%s-%s", ds.Namespace, ds.Name),
+							"value":  1,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Get ingresses
+	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, ing := range ingresses.Items {
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("ingress-%s-%s", ing.Namespace, ing.Name),
+				"name":      ing.Name,
+				"type":      "ingress",
+				"namespace": ing.Namespace,
+				"group":     3,
+			})
+
+			// Link ingresses to services
+			for _, rule := range ing.Spec.Rules {
+				if rule.HTTP != nil {
+					for _, path := range rule.HTTP.Paths {
+						svcName := path.Backend.Service.Name
+						links = append(links, map[string]interface{}{
+							"source": fmt.Sprintf("ingress-%s-%s", ing.Namespace, ing.Name),
+							"target": fmt.Sprintf("service-%s-%s", ing.Namespace, svcName),
+							"value":  1,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Get configmaps (limit to avoid clutter)
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(ns).List(ws.app.ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, cm := range configmaps.Items {
+			// Skip kube-system configmaps to reduce clutter
+			if cm.Namespace == "kube-system" {
+				continue
+			}
+			nodes = append(nodes, map[string]interface{}{
+				"id":        fmt.Sprintf("configmap-%s-%s", cm.Namespace, cm.Name),
+				"name":      cm.Name,
+				"type":      "configmap",
+				"namespace": cm.Namespace,
+				"group":     4,
+			})
+		}
+	}
+
+	return map[string]interface{}{
+		"nodes": nodes,
+		"links": links,
+	}
+}
+
+// matchesSelector checks if labels match selector
+func matchesSelector(selector, labels map[string]string) bool {
+	if len(selector) == 0 {
+		return false
+	}
+	for k, v := range selector {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+
+// handleConfigMaps returns configmap list
+func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	cmList := []map[string]interface{}{}
+	for _, cm := range configmaps.Items {
+		cmList = append(cmList, map[string]interface{}{
+			"name":      cm.Name,
+			"data":      len(cm.Data),
+			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
+			"namespace": cm.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(cmList)
+}
+
+// handleSecrets returns secrets list
+func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	secretList := []map[string]interface{}{}
+	for _, secret := range secrets.Items {
+		secretList = append(secretList, map[string]interface{}{
+			"name":      secret.Name,
+			"type":      string(secret.Type),
+			"data":      len(secret.Data),
+			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
+			"namespace": secret.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(secretList)
+}
+
+// handleResourceMap returns enhanced topology data
+
+// handlePodDetails returns detailed information about a specific pod
+func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Pod name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	// Get pod
+	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Build containers info
+	containers := []map[string]interface{}{}
+	for _, c := range pod.Spec.Containers {
+		containerInfo := map[string]interface{}{
+			"name":  c.Name,
+			"image": c.Image,
+		}
+
+		// Find container status
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Name == c.Name {
+				containerInfo["ready"] = cs.Ready
+				containerInfo["restartCount"] = cs.RestartCount
+				containerInfo["containerID"] = cs.ContainerID
+
+				// State information
+				if cs.State.Running != nil {
+					containerInfo["state"] = "Running"
+					containerInfo["startedAt"] = cs.State.Running.StartedAt.String()
+				} else if cs.State.Waiting != nil {
+					containerInfo["state"] = "Waiting"
+					containerInfo["reason"] = cs.State.Waiting.Reason
+					containerInfo["message"] = cs.State.Waiting.Message
+				} else if cs.State.Terminated != nil {
+					containerInfo["state"] = "Terminated"
+					containerInfo["reason"] = cs.State.Terminated.Reason
+					containerInfo["exitCode"] = cs.State.Terminated.ExitCode
+				}
+				break
+			}
+		}
+
+		containers = append(containers, containerInfo)
+	}
+
+	// Build volumes info
+	volumes := []map[string]interface{}{}
+	for _, v := range pod.Spec.Volumes {
+		volumeInfo := map[string]interface{}{
+			"name": v.Name,
+		}
+		if v.ConfigMap != nil {
+			volumeInfo["type"] = "ConfigMap"
+			volumeInfo["source"] = v.ConfigMap.Name
+		} else if v.Secret != nil {
+			volumeInfo["type"] = "Secret"
+			volumeInfo["source"] = v.Secret.SecretName
+		} else if v.PersistentVolumeClaim != nil {
+			volumeInfo["type"] = "PVC"
+			volumeInfo["source"] = v.PersistentVolumeClaim.ClaimName
+		} else if v.EmptyDir != nil {
+			volumeInfo["type"] = "EmptyDir"
+		} else {
+			volumeInfo["type"] = "Other"
+		}
+		volumes = append(volumes, volumeInfo)
+	}
+
+	// Build conditions
+	conditions := []map[string]interface{}{}
+	for _, c := range pod.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    string(c.Type),
+			"status":  string(c.Status),
+			"reason":  c.Reason,
+			"message": c.Message,
+		})
+	}
+
+	// Get events
+	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.name=%s", name),
+	})
+
+	eventList := []map[string]interface{}{}
+	for _, e := range events.Items {
+		eventList = append(eventList, map[string]interface{}{
+			"type":    e.Type,
+			"reason":  e.Reason,
+			"message": e.Message,
+			"count":   e.Count,
+			"age":     formatAge(time.Since(e.LastTimestamp.Time)),
+		})
+	}
+
+	// Generate YAML (using kubectl-style format)
+	pod.ManagedFields = nil
+	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
+
+	// Get real-time metrics if available
+	var podMetrics map[string]interface{}
+	if ws.app.metricsClient != nil {
+		if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{}); err == nil {
+			// Calculate total CPU and memory
+			var totalCPU, totalMemory int64
+			containerMetrics := []map[string]interface{}{}
+
+			for _, cm := range metrics.Containers {
+				cpuMillis := cm.Usage.Cpu().MilliValue()
+				memoryBytes := cm.Usage.Memory().Value()
+				totalCPU += cpuMillis
+				totalMemory += memoryBytes
+
+				containerMetrics = append(containerMetrics, map[string]interface{}{
+					"name":        cm.Name,
+					"cpuMillis":   cpuMillis,
+					"cpu":         fmt.Sprintf("%dm", cpuMillis),
+					"memoryBytes": memoryBytes,
+					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
+				})
+			}
+
+			podMetrics = map[string]interface{}{
+				"totalCPU":         fmt.Sprintf("%dm", totalCPU),
+				"totalCPUMillis":   totalCPU,
+				"totalMemory":      fmt.Sprintf("%.2fMi", float64(totalMemory)/(1024*1024)),
+				"totalMemoryBytes": totalMemory,
+				"containers":       containerMetrics,
+				"timestamp":        metrics.Timestamp.String(),
+			}
+		}
+	}
+
+	// Build response
+	details := map[string]interface{}{
+		"success":    true,
+		"name":       pod.Name,
+		"namespace":  pod.Namespace,
+		"status":     string(pod.Status.Phase),
+		"ip":         pod.Status.PodIP,
+		"node":       pod.Spec.NodeName,
+		"qos":        string(pod.Status.QOSClass),
+		"created":    pod.CreationTimestamp.String(),
+		"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
+		"labels":     pod.Labels,
+		"containers": containers,
+		"volumes":    volumes,
+		"conditions": conditions,
+		"events":     eventList,
+		"yaml":       string(yamlData),
+		"metrics":    podMetrics,
+	}
+
+	json.NewEncoder(w).Encode(details)
+}
+
+// handlePodExec handles pod exec - serves web terminal for GET, executes commands for POST
+func (ws *WebServer) handlePodExec(w http.ResponseWriter, r *http.Request) {
+	// For GET requests, serve the web terminal HTML page
+	if r.Method == "GET" {
+		name := r.URL.Query().Get("name")
+		namespace := r.URL.Query().Get("namespace")
+		container := r.URL.Query().Get("container")
+		if namespace == "" {
+			namespace = ws.app.namespace
+		}
+
+		// Serve web terminal HTML
+		terminalHTML := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal - %s</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #161b22;
+            padding: 12px 16px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1 {
+            color: #58a6ff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .header .pod-info {
+            color: #8b949e;
+            font-size: 12px;
+        }
+        .header .status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .header .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%%;
+            background: #f85149;
+        }
+        .header .status-dot.connected {
+            background: #3fb950;
+        }
+        #terminal {
+            flex: 1;
+            padding: 8px;
+        }
+        .xterm { height: 100%%; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2">
+            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <h1>Terminal</h1>
+        <span class="pod-info">%s/%s</span>
+        <div class="status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </div>
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    <script>
+        const podName = %q;
+        const namespace = %q;
+        const container = %q;
+
+        const term = new Terminal({
+            theme: {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+                cursor: '#58a6ff',
+                cursorAccent: '#0d1117',
+                selection: 'rgba(88, 166, 255, 0.3)',
+                black: '#484f58',
+                red: '#ff7b72',
+                green: '#3fb950',
+                yellow: '#d29922',
+                blue: '#58a6ff',
+                magenta: '#bc8cff',
+                cyan: '#39c5cf',
+                white: '#b1bac4',
+            },
+            fontFamily: '"SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace',
+            fontSize: 13,
+            cursorBlink: true,
+            cursorStyle: 'bar',
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        // Connect via WebSocket
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(wsProtocol + '//' + location.host + '/api/pod/terminal?name=' + podName + '&namespace=' + namespace + '&container=' + container);
+
+        ws.onopen = () => {
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Connected';
+            term.write('\r\n\x1b[32mConnected to ' + podName + '\x1b[0m\r\n\r\n');
+
+            // Send initial resize
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        };
+
+        ws.onmessage = (event) => {
+            term.write(event.data);
+        };
+
+        ws.onclose = () => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Disconnected';
+            term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+        };
+
+        ws.onerror = (error) => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Error';
+            term.write('\r\n\x1b[31mConnection error\x1b[0m\r\n');
+        };
+
+        // Send input to server
+        term.onData((data) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: data }));
+            }
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+        });
+    </script>
+</body>
+</html>`, name, namespace, name, name, namespace, container)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(terminalHTML))
+		return
+	}
+
+	// POST: Execute a single command and return output
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		Pod       string `json:"pod"`
+		Container string `json:"container"`
+		Command   string `json:"command"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	// Parse command into shell arguments
+	cmdArgs := []string{"/bin/sh", "-c", req.Command}
+
+	// Create exec request
+	execReq := ws.app.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(req.Pod).
+		Namespace(ws.app.namespace).
+		SubResource("exec").
+		VersionedParams(&v1.PodExecOptions{
+			Container: req.Container,
+			Command:   cmdArgs,
+			Stdin:     false,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       false,
+		}, scheme.ParameterCodec)
+
+	// Execute command
+	exec, err := remotecommand.NewSPDYExecutor(ws.app.config, "POST", execReq.URL())
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to create executor: " + err.Error(),
+		})
+		return
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.StreamWithContext(ws.app.ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+
+	output := strings.TrimSpace(stdout.String())
+	if stderr.Len() > 0 {
+		output += "\n" + strings.TrimSpace(stderr.String())
+	}
+
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+			"output":  output,
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"output":  output,
+	})
+}
+
+// handlePodTerminalWS handles WebSocket connections for interactive terminal
+func (ws *WebServer) handlePodTerminalWS(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	container := r.URL.Query().Get("container")
+
+	if name == "" {
+		http.Error(w, "Pod name is required", http.StatusBadRequest)
+		return
+	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Upgrade to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Create exec request for interactive shell
+	execReq := ws.app.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(name).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&v1.PodExecOptions{
+			Container: container,
+			Command:   []string{"/bin/sh"},
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       true,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(ws.app.config, "POST", execReq.URL())
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create executor: %v\r\n", err)))
+		return
+	}
+
+	// Create pipes for stdin/stdout
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	// Terminal size handler
+	termSize := &TerminalSize{width: 80, height: 24}
+
+	// Start the exec stream in a goroutine
+	go func() {
+		err := exec.StreamWithContext(ws.app.ctx, remotecommand.StreamOptions{
+			Stdin:             stdinReader,
+			Stdout:            stdoutWriter,
+			Stderr:            stdoutWriter,
+			Tty:               true,
+			TerminalSizeQueue: termSize,
+		})
+		if err != nil {
+			stdoutWriter.CloseWithError(err)
+		} else {
+			stdoutWriter.Close()
+		}
+	}()
+
+	// Read from stdout and send to WebSocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if err != nil {
+				// Shell exited, close the WebSocket connection
+				conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33mShell exited\x1b[0m\r\n"))
+				conn.Close()
+				return
+			}
+			if n > 0 {
+				conn.WriteMessage(websocket.TextMessage, buf[:n])
+			}
+		}
+	}()
+
+	// Read from WebSocket and write to stdin
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		// Parse message
+		var msg struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+			Cols uint16 `json:"cols"`
+			Rows uint16 `json:"rows"`
+		}
+		if err := json.Unmarshal(message, &msg); err != nil {
+			// Treat as raw input
+			stdinWriter.Write(message)
+			continue
+		}
+
+		switch msg.Type {
+		case "input":
+			stdinWriter.Write([]byte(msg.Data))
+		case "resize":
+			termSize.SetSize(msg.Cols, msg.Rows)
+		}
+	}
+
+	stdinWriter.Close()
+}
+
+// handleLocalTerminalPage serves the local terminal HTML page (similar to pod terminal)
+func (ws *WebServer) handleLocalTerminalPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	terminalHTML := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #161b22;
+            padding: 12px 16px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1 {
+            color: #58a6ff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .header .status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .header .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%%;
+            background: #f85149;
+        }
+        .header .status-dot.connected {
+            background: #3fb950;
+        }
+        #terminal {
+            flex: 1;
+            padding: 8px;
+        }
+        .xterm { height: 100%%; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2">
+            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <h1>Local Terminal</h1>
+        <div class="status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </div>
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    <script>
+        const term = new Terminal({
+            theme: {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+                cursor: '#58a6ff',
+                cursorAccent: '#0d1117',
+                selection: 'rgba(88, 166, 255, 0.3)',
+                black: '#484f58',
+                red: '#ff7b72',
+                green: '#3fb950',
+                yellow: '#d29922',
+                blue: '#58a6ff',
+                magenta: '#bc8cff',
+                cyan: '#39c5cf',
+                white: '#b1bac4',
+            },
+            fontFamily: '"SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace',
+            fontSize: 13,
+            cursorBlink: true,
+            cursorStyle: 'bar',
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        // Connect via WebSocket
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(wsProtocol + '//' + location.host + '/api/local/terminal');
+
+        ws.onopen = () => {
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Connected';
+            term.write('\r\n\x1b[32mConnected to local terminal\x1b[0m\r\n\r\n');
+
+            // Send initial resize
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        };
+
+        ws.onmessage = (event) => {
+            term.write(event.data);
+        };
+
+        ws.onclose = () => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Disconnected';
+            term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+        };
+
+        ws.onerror = (error) => {
+            statusDot.classList.remove('connected');
+            statusText.textContent = 'Error';
+            term.write('\r\n\x1b[31mConnection error\x1b[0m\r\n');
+        };
+
+        // Send input to server
+        term.onData((data) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: data }));
+            }
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+        });
+    </script>
+</body>
+</html>`)
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(terminalHTML))
+}
+
+// handleLocalTerminalWS handles WebSocket connections for local system terminal
+func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Request) {
+	// Upgrade to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Determine shell to use - prefer zsh on macOS, then bash, then sh
+	shell := "/bin/zsh"
+	shellArgs := []string{"-i"} // Interactive mode
+
+	// Check if zsh exists, if not try bash
+	if _, err := exec.LookPath("zsh"); err != nil {
+		if _, err := exec.LookPath("bash"); err == nil {
+			shell = "/bin/bash"
+			shellArgs = []string{"-i"}
+		} else {
+			shell = "/bin/sh"
+			shellArgs = []string{} // sh doesn't support -i the same way
+		}
+	}
+
+	// Create local shell command
+	cmd := exec.Command(shell, shellArgs...)
+	cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+	)
+	cmd.Dir = os.Getenv("HOME") // Start in home directory
+
+	// Create PTY (pseudo-terminal) - this is crucial for interactive shells
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to start PTY: %v\r\n", err)))
+		return
+	}
+	defer func() {
+		ptmx.Close()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		cmd.Wait()
+	}()
+
+	// Set initial terminal size
+	pty.Setsize(ptmx, &pty.Winsize{
+		Rows: 24,
+		Cols: 80,
+	})
+
+	// Use a channel to signal when the connection should close
+	done := make(chan bool, 1)
+
+	// Read from PTY and send to WebSocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			// Check if we should stop
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			n, err := ptmx.Read(buf)
+			if err != nil {
+				if err == io.EOF {
+					// EOF doesn't necessarily mean the shell exited
+					// Check if the process is still running
+					if cmd.Process != nil {
+						// Process might still be alive, wait a bit and check
+						time.Sleep(100 * time.Millisecond)
+						// Try to read again - if process is dead, cmd.Wait() will handle it
+						continue
+					}
+					// Process is nil, shell definitely exited
+					return
+				}
+				// Non-EOF error - log it but don't necessarily close
+				select {
+				case <-done:
+					return
+				default:
+					// Try to write error, but don't block if connection is closed
+					conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31m[PTY read error: %v]\x1b[0m\r\n", err)))
+					// For non-EOF errors, we should probably close
+					return
+				}
+			}
+			if n > 0 {
+				if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+					// Connection closed by client
+					done <- true
+					return
+				}
+			}
+		}
+	}()
+
+	// Wait for command to finish in a goroutine
+	go func() {
+		err := cmd.Wait()
+		select {
+		case <-done:
+			return
+		default:
+			if err != nil {
+				conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[33m[Shell exited: %v]\x1b[0m\r\n", err)))
+			} else {
+				conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m[Shell exited]\x1b[0m\r\n"))
+			}
+			done <- true
+			conn.Close()
+		}
+	}()
+
+	// Read from WebSocket and write to PTY
+	for {
+		select {
+		case <-done:
+			// Connection is closing
+			return
+		default:
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("WebSocket read error: %v", err)
+				done <- true
+				break
+			}
+
+			// Parse message
+			var msg struct {
+				Type string `json:"type"`
+				Data string `json:"data"`
+				Cols uint16 `json:"cols"`
+				Rows uint16 `json:"rows"`
+			}
+			if err := json.Unmarshal(message, &msg); err != nil {
+				// Treat as raw input - write directly to PTY
+				if _, err := ptmx.Write(message); err != nil {
+					log.Printf("Error writing to PTY: %v (process may have exited)", err)
+					// Don't close immediately - let cmd.Wait() handle it
+					// Just break the read loop
+					break
+				}
+				continue
+			}
+
+			switch msg.Type {
+			case "input":
+				// Write input data to PTY
+				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
+					log.Printf("Error writing to PTY: %v (process may have exited)", err)
+					// Don't close immediately - let cmd.Wait() handle it
+					// Just break the read loop
+					break
+				}
+			case "resize":
+				// Resize PTY terminal
+				if err := pty.Setsize(ptmx, &pty.Winsize{
+					Rows: msg.Rows,
+					Cols: msg.Cols,
+				}); err != nil {
+					log.Printf("Error resizing PTY: %v", err)
+				}
+			}
+		}
+	}
+}
+
+// TerminalSize implements remotecommand.TerminalSizeQueue
+type TerminalSize struct {
+	width, height uint16
+	resizeChan    chan remotecommand.TerminalSize
+	once          sync.Once
+}
+
+func (t *TerminalSize) Next() *remotecommand.TerminalSize {
+	t.once.Do(func() {
+		t.resizeChan = make(chan remotecommand.TerminalSize, 1)
+		// Send initial size
+		t.resizeChan <- remotecommand.TerminalSize{Width: t.width, Height: t.height}
+	})
+	size, ok := <-t.resizeChan
+	if !ok {
+		return nil
+	}
+	return &size
+}
+
+func (t *TerminalSize) SetSize(width, height uint16) {
+	t.width = width
+	t.height = height
+	if t.resizeChan != nil {
+		select {
+		case t.resizeChan <- remotecommand.TerminalSize{Width: width, Height: height}:
+		default:
+		}
+	}
+}
+
+// handlePodLogs returns logs from a pod container (with optional streaming)
+func (ws *WebServer) handlePodLogs(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	container := r.URL.Query().Get("container")
+	tailStr := r.URL.Query().Get("tail")
+	follow := r.URL.Query().Get("follow") == "true"
+
+	if name == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Pod name is required",
+		})
+		return
+	}
+
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Parse tail lines
+	tailLines := int64(100)
+	if tailStr != "" {
+		if parsed, err := strconv.ParseInt(tailStr, 10, 64); err == nil {
+			tailLines = parsed
+		}
+	}
+
+	// Get pod logs
+	opts := &v1.PodLogOptions{
+		TailLines: &tailLines,
+		Follow:    follow,
+	}
+	if container != "" {
+		opts.Container = container
+	}
+
+	req := ws.app.clientset.CoreV1().Pods(namespace).GetLogs(name, opts)
+	podLogs, err := req.Stream(ws.app.ctx)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Failed to get logs: " + err.Error(),
+		})
+		return
+	}
+	defer podLogs.Close()
+
+	if follow {
+		// Stream logs using Server-Sent Events
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		reader := bufio.NewReader(podLogs)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					// Wait a bit and continue for follow mode
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				break
+			}
+			// Send as SSE event
+			fmt.Fprintf(w, "data: %s\n\n", strings.TrimRight(line, "\n"))
+			flusher.Flush()
+		}
+	} else {
+		// Return all logs at once as JSON
+		w.Header().Set("Content-Type", "application/json")
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, podLogs)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": "Failed to read logs: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs": buf.String(),
+		})
+	}
+}
+
+// handlePodRestart restarts a pod by deleting it
+func (ws *WebServer) handlePodRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Pod name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().Pods(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Pod %s restarted successfully (will be recreated by controller)", name),
+	})
+}
+
+// handlePodDelete deletes a pod
+func (ws *WebServer) handlePodDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Pod name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().Pods(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Pod %s deleted successfully", name),
+	})
+}
+
+// handleDeploymentRestart restarts a deployment by adding restart annotation using Patch
+func (ws *WebServer) handleDeploymentRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Get deployment first to check current annotations
+	dep, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Prepare annotations map - merge with existing annotations
+	annotations := make(map[string]string)
+	if dep.Spec.Template.Annotations != nil {
+		for k, v := range dep.Spec.Template.Annotations {
+			annotations[k] = v
+		}
+	}
+	// Add restart annotation
+	annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	// Create patch with proper JSON encoding
+	patchData := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": annotations,
+				},
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patchData)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to create patch: %v", err),
+		})
+		return
+	}
+
+	_, err = ws.app.clientset.AppsV1().Deployments(namespace).Patch(
+		ws.app.ctx,
+		name,
+		types.StrategicMergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment %s restarted successfully - pods will restart shortly", name),
+	})
+}
+
+// handleDeploymentScale scales a deployment to the specified number of replicas
+func (ws *WebServer) handleDeploymentScale(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	replicasStr := r.URL.Query().Get("replicas")
+	if replicasStr == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Replicas parameter is required",
+		})
+		return
+	}
+
+	replicas, err := strconv.Atoi(replicasStr)
+	if err != nil || replicas < 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid replicas value (must be a non-negative integer)",
+		})
+		return
+	}
+
+	// Get deployment
+	dep, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Update replicas
+	dep.Spec.Replicas = func() *int32 {
+		r := int32(replicas)
+		return &r
+	}()
+
+	_, err = ws.app.clientset.AppsV1().Deployments(namespace).Update(ws.app.ctx, dep, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment %s scaled to %d replicas", name, replicas),
+	})
+}
+
+// handleDeploymentDelete deletes a deployment
+func (ws *WebServer) handleDeploymentDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
+		return
+	}
+
+	err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment %s deleted successfully", name),
+	})
+}
+
+// handleServiceDelete deletes a service
+func (ws *WebServer) handleServiceDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Service name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().Services(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Service %s deleted successfully", name),
+	})
+}
+
+// handleIngressDelete deletes an ingress
+func (ws *WebServer) handleIngressDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" && r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Ingress name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Ingress %s deleted successfully", name),
+	})
+}
+
+// handleConfigMapDelete deletes a ConfigMap
+func (ws *WebServer) handleConfigMapDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" && r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ConfigMap name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("ConfigMap %s deleted successfully", name),
+	})
+}
+
+// handleSecretDescribe returns kubectl describe output for a secret
+func (ws *WebServer) handleSecretDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Secret name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("secret", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleSecretDelete deletes a secret
+func (ws *WebServer) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" && r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Secret name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.CoreV1().Secrets(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Secret %s deleted successfully", name),
+	})
+}
+
+// handleDeploymentDetails returns detailed information about a deployment
+func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
+		return
+	}
+
+	dep, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format selector as string
+	selector := metav1.FormatLabelSelector(dep.Spec.Selector)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"name":      dep.Name,
+		"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
+		"available": fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, *dep.Spec.Replicas),
+		"strategy":  string(dep.Spec.Strategy.Type),
+		"selector":  selector,
+		"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
+	})
+}
+
+// handleServiceDetails returns detailed information about a service
+func (ws *WebServer) handleServiceDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Service name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	svc, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format ports as string
+	portsList := []string{}
+	for _, port := range svc.Spec.Ports {
+		portStr := fmt.Sprintf("%d/%s", port.Port, port.Protocol)
+		if port.NodePort != 0 {
+			portStr += fmt.Sprintf(":%d", port.NodePort)
+		}
+		portsList = append(portsList, portStr)
+	}
+	portsStr := strings.Join(portsList, ", ")
+	if portsStr == "" {
+		portsStr = "-"
+	}
+
+	// Format selector as string
+	selector := ""
+	if len(svc.Spec.Selector) > 0 {
+		selectors := []string{}
+		for k, v := range svc.Spec.Selector {
+			selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
+		}
+		selector = strings.Join(selectors, ",")
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"name":      svc.Name,
+		"type":      string(svc.Spec.Type),
+		"clusterIP": svc.Spec.ClusterIP,
+		"ports":     portsStr,
+		"selector":  selector,
+		"age":       formatAge(time.Since(svc.CreationTimestamp.Time)),
+	})
+}
+
+// handleIngressDetails returns detailed information about an ingress
+func (ws *WebServer) handleIngressDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Ingress name is required",
+		})
+		return
+	}
+
+	ing, err := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format hosts as string
+	hosts := []string{}
+	for _, rule := range ing.Spec.Rules {
+		if rule.Host != "" {
+			hosts = append(hosts, rule.Host)
+		}
+	}
+	hostsStr := strings.Join(hosts, ", ")
+	if hostsStr == "" {
+		hostsStr = "*"
+	}
+
+	className := ""
+	if ing.Spec.IngressClassName != nil {
+		className = *ing.Spec.IngressClassName
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"name":    ing.Name,
+		"hosts":   hostsStr,
+		"class":   className,
+		"age":     formatAge(time.Since(ing.CreationTimestamp.Time)),
+	})
+}
+
+// handleConfigMapDetails returns detailed information about a configmap
+func (ws *WebServer) handleConfigMapDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ConfigMap name is required",
+		})
+		return
+	}
+
+	cm, err := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format keys as string
+	keys := []string{}
+	for key := range cm.Data {
+		keys = append(keys, key)
+	}
+	for key := range cm.BinaryData {
+		keys = append(keys, key+" (binary)")
+	}
+	keysStr := strings.Join(keys, ", ")
+	if keysStr == "" {
+		keysStr = "-"
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"name":    cm.Name,
+		"keys":    keysStr,
+		"age":     formatAge(time.Since(cm.CreationTimestamp.Time)),
+	})
+}
+
+// handlePodYAML returns the YAML definition of a pod
+func (ws *WebServer) handlePodYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Pod name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	pod.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to marshal YAML: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleResourceUpdate is a generic handler for updating resources from YAML
+func (ws *WebServer) handleResourceUpdate(w http.ResponseWriter, r *http.Request, resourceType string, updateFunc func(yamlData []byte, namespace string) error) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("%s name is required", resourceType),
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Read YAML from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+		})
+		return
+	}
+	defer r.Body.Close()
+
+	// Update the resource
+	if err := updateFunc(body, namespace); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("%s %s updated successfully", resourceType, name),
+	})
+}
+
+// handlePodUpdate updates a pod from YAML
+func (ws *WebServer) handlePodUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "pod", func(yamlData []byte, namespace string) error {
+		var pod v1.Pod
+		if err := yaml.Unmarshal(yamlData, &pod); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().Pods(namespace).Update(ws.app.ctx, &pod, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handlePodDescribe returns the describe output for a pod using kubectl describe
+func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Pod name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("pod", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleDeploymentYAML returns the YAML representation of a deployment
+func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "deployment name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	deployment.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(deployment, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleDeploymentUpdate updates a deployment from YAML
+func (ws *WebServer) handleDeploymentUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "deployment", func(yamlData []byte, namespace string) error {
+		var dep appsv1.Deployment
+		if err := yaml.Unmarshal(yamlData, &dep); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.AppsV1().Deployments(namespace).Update(ws.app.ctx, &dep, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleDeploymentDescribe returns kubectl describe output for a deployment
+func (ws *WebServer) handleDeploymentDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Deployment name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("deployment", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleServiceYAML returns the YAML representation of a service
+func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	service.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(service, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleServiceUpdate updates a service from YAML
+func (ws *WebServer) handleServiceUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "service", func(yamlData []byte, namespace string) error {
+		var svc corev1.Service
+		if err := yaml.Unmarshal(yamlData, &svc); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().Services(namespace).Update(ws.app.ctx, &svc, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleServiceDescribe returns kubectl describe output for a service
+func (ws *WebServer) handleServiceDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Service name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("service", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleIngressYAML returns the YAML representation of an ingress
+func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "ingress name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	ingress, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	ingress.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(ingress, schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleIngressUpdate updates an ingress from YAML
+func (ws *WebServer) handleIngressUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "ingress", func(yamlData []byte, namespace string) error {
+		var ing networkingv1.Ingress
+		if err := yaml.Unmarshal(yamlData, &ing); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Update(ws.app.ctx, &ing, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleIngressDescribe returns kubectl describe output for an ingress
+func (ws *WebServer) handleIngressDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Ingress name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("ingress", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleConfigMapYAML returns the YAML representation of a configmap
+func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "configmap name required", http.StatusBadRequest)
+		return
+	}
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	configMap, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	configMap.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(configMap, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleSecretYAML returns the YAML representation of a secret
+func (ws *WebServer) handleSecretYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "secret name required", http.StatusBadRequest)
+		return
+	}
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	secret, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	secret.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(secret, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleSecretUpdate updates a secret from YAML
+func (ws *WebServer) handleSecretUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "secret", func(yamlData []byte, namespace string) error {
+		var secret v1.Secret
+		if err := yaml.Unmarshal(yamlData, &secret); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().Secrets(namespace).Update(ws.app.ctx, &secret, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleConfigMapUpdate updates a configmap from YAML
+func (ws *WebServer) handleConfigMapUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "configmap", func(yamlData []byte, namespace string) error {
+		var cm v1.ConfigMap
+		if err := yaml.Unmarshal(yamlData, &cm); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Update(ws.app.ctx, &cm, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleConfigMapDescribe returns kubectl describe output for a configmap
+func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ConfigMap name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("configmap", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleCertificates returns certificate list (cert-manager CRD)
+func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+
+	// Handle "_all" namespace
+	queryNs := namespace
+	if namespace == "_all" {
+		queryNs = ""
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
+
+	if err != nil {
+		// cert-manager may not be installed
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+
+	certs := []map[string]interface{}{}
+	for _, cert := range certList.Items {
+		metadata := cert.Object["metadata"].(map[string]interface{})
+		spec := cert.Object["spec"].(map[string]interface{})
+
+		name := metadata["name"].(string)
+		ns := metadata["namespace"].(string)
+
+		// Get creation time for age
+		creationTimeStr, _ := metadata["creationTimestamp"].(string)
+		var age string
+		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
+			age = formatAge(time.Since(creationTime))
+		}
+
+		// Get secret name
+		secretName, _ := spec["secretName"].(string)
+
+		// Get issuer ref
+		var issuer string
+		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
+			issuerName, _ := issuerRef["name"].(string)
+			issuerKind, _ := issuerRef["kind"].(string)
+			if issuerKind == "" {
+				issuerKind = "Issuer"
+			}
+			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
+		}
+
+		// Get DNS names
+		var dnsNames []string
+		if dns, ok := spec["dnsNames"].([]interface{}); ok {
+			for _, d := range dns {
+				if s, ok := d.(string); ok {
+					dnsNames = append(dnsNames, s)
+				}
+			}
+		}
+
+		// Get status
+		status := "Unknown"
+		var notBefore, notAfter, renewalTime string
+		if statusObj, ok := cert.Object["status"].(map[string]interface{}); ok {
+			if conditions, ok := statusObj["conditions"].([]interface{}); ok {
+				for _, cond := range conditions {
+					if c, ok := cond.(map[string]interface{}); ok {
+						if c["type"] == "Ready" {
+							if c["status"] == "True" {
+								status = "Ready"
+							} else if c["status"] == "False" {
+								status = "Failed"
+							} else {
+								status = "Pending"
+							}
+							break
+						}
+					}
+				}
+			}
+			if nb, ok := statusObj["notBefore"].(string); ok {
+				notBefore = nb
+			}
+			if na, ok := statusObj["notAfter"].(string); ok {
+				notAfter = na
+			}
+			if rt, ok := statusObj["renewalTime"].(string); ok {
+				renewalTime = rt
+			}
+		}
+
+		certs = append(certs, map[string]interface{}{
+			"name":        name,
+			"namespace":   ns,
+			"secretName":  secretName,
+			"issuer":      issuer,
+			"status":      status,
+			"notBefore":   notBefore,
+			"notAfter":    notAfter,
+			"renewalTime": renewalTime,
+			"dnsNames":    dnsNames,
+			"age":         age,
+		})
+	}
+
+	json.NewEncoder(w).Encode(certs)
+}
+
+// handleCertificateYAML returns the YAML representation of a certificate
+func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
+
+	yamlData, err := yaml.Marshal(cert.Object)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleCertificateUpdate updates a certificate from YAML
+func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Read YAML from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+		})
+		return
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	// Unmarshal YAML to unstructured object
+	var cert unstructured.Unstructured
+	if err := yaml.Unmarshal(body, &cert); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
+		})
+		return
+	}
+
+	// Update the certificate
+	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Certificate %s updated successfully", name),
+	})
+}
+
+// handleCertificateDescribe returns kubectl describe output for a certificate
+func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleCertificateDelete deletes a certificate
+func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Certificate name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Create dynamic client for CRD access
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+
+	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
+	})
+}
+
+// handleCronJobs returns cronjob list
+func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	cjList := []map[string]interface{}{}
+	for _, cj := range cronjobs.Items {
+		// Get last schedule time
+		lastSchedule := "Never"
+		if cj.Status.LastScheduleTime != nil {
+			lastSchedule = formatAge(time.Since(cj.Status.LastScheduleTime.Time)) + " ago"
+		}
+
+		// Get active jobs count
+		activeJobs := len(cj.Status.Active)
+
+		cjList = append(cjList, map[string]interface{}{
+			"name":         cj.Name,
+			"schedule":     cj.Spec.Schedule,
+			"suspend":      cj.Spec.Suspend != nil && *cj.Spec.Suspend,
+			"active":       activeJobs,
+			"lastSchedule": lastSchedule,
+			"age":          formatAge(time.Since(cj.CreationTimestamp.Time)),
+			"namespace":    cj.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(cjList)
+}
+
+// handleJobs returns job list
+func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") {
+		namespace = ws.app.namespace
+	}
+	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jobList := []map[string]interface{}{}
+	for _, job := range jobs.Items {
+		// Determine status
+		status := "Running"
+		if job.Status.Succeeded > 0 {
+			status = "Complete"
+		} else if job.Status.Failed > 0 {
+			status = "Failed"
+		}
+
+		// Get completions
+		completions := "?"
+		if job.Spec.Completions != nil {
+			completions = fmt.Sprintf("%d", *job.Spec.Completions)
+		}
+
+		// Get duration
+		duration := "-"
+		if job.Status.CompletionTime != nil {
+			duration = formatAge(job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time))
+		} else if job.Status.StartTime != nil {
+			duration = formatAge(time.Since(job.Status.StartTime.Time))
+		}
+
+		jobList = append(jobList, map[string]interface{}{
+			"name":        job.Name,
+			"status":      status,
+			"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
+			"duration":    duration,
+			"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
+			"namespace":   job.Namespace,
+		})
+	}
+
+	json.NewEncoder(w).Encode(jobList)
+}
+
+// handleStatefulSetDetails returns detailed information about a statefulset
+func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
+		return
+	}
+
+	ss, err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format selector as string
+	selector := metav1.FormatLabelSelector(ss.Spec.Selector)
+
+	// Format service name
+	serviceName := ss.Spec.ServiceName
+	if serviceName == "" {
+		serviceName = "-"
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"name":        ss.Name,
+		"ready":       fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
+		"available":   fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
+		"serviceName": serviceName,
+		"selector":    selector,
+		"age":         formatAge(time.Since(ss.CreationTimestamp.Time)),
+	})
+}
+
+// handleStatefulSetYAML returns the YAML representation of a statefulset
+func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "statefulset name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	statefulSet, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	statefulSet.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(statefulSet, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleStatefulSetUpdate updates a statefulset from YAML
+func (ws *WebServer) handleStatefulSetUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "statefulset", func(yamlData []byte, namespace string) error {
+		var ss appsv1.StatefulSet
+		if err := yaml.Unmarshal(yamlData, &ss); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Update(ws.app.ctx, &ss, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleStatefulSetDescribe returns kubectl describe-style output for a statefulset
+func (ws *WebServer) handleStatefulSetDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("statefulset", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleStatefulSetRestart restarts a statefulset by adding restart annotation using Patch
+func (ws *WebServer) handleStatefulSetRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// For StatefulSets, delete pods directly (they'll be recreated by StatefulSet controller)
+	// This is more reliable than the annotation method for StatefulSets
+	pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Find pods belonging to this StatefulSet by checking owner references and name prefix
+	var podsToDelete []string
+	for _, pod := range pods.Items {
+		// Check if pod belongs to this StatefulSet
+		belongsToStatefulSet := false
+
+		// Method 1: Check owner references
+		for _, ownerRef := range pod.OwnerReferences {
+			if ownerRef.Kind == "StatefulSet" && ownerRef.Name == name {
+				belongsToStatefulSet = true
+				break
+			}
+		}
+
+		// Method 2: Check name prefix (StatefulSet pods follow pattern: <statefulset-name>-<ordinal>)
+		if !belongsToStatefulSet && strings.HasPrefix(pod.Name, name+"-") {
+			belongsToStatefulSet = true
+		}
+
+		if belongsToStatefulSet {
+			podsToDelete = append(podsToDelete, pod.Name)
+		}
+	}
+
+	if len(podsToDelete) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("No pods found for StatefulSet %s", name),
+		})
+		return
+	}
+
+	// Delete pods (they'll be recreated by StatefulSet controller in order)
+	var deleteErrors []string
+	for _, podName := range podsToDelete {
+		err = ws.app.clientset.CoreV1().Pods(namespace).Delete(ws.app.ctx, podName, metav1.DeleteOptions{})
+		if err != nil {
+			deleteErrors = append(deleteErrors, fmt.Sprintf("pod %s: %v", podName, err))
+			log.Printf("Warning: Failed to delete pod %s: %v", podName, err)
+		}
+	}
+
+	if len(deleteErrors) > 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Some pods failed to delete: %s", strings.Join(deleteErrors, "; ")),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("StatefulSet %s restart initiated - %d pod(s) deleted, will be recreated by StatefulSet controller", name, len(podsToDelete)),
+	})
+}
+
+// handleStatefulSetScale scales a statefulset to the specified number of replicas
+func (ws *WebServer) handleStatefulSetScale(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	replicasStr := r.URL.Query().Get("replicas")
+	if replicasStr == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Replicas parameter is required",
+		})
+		return
+	}
+
+	replicas, err := strconv.Atoi(replicasStr)
+	if err != nil || replicas < 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid replicas value (must be a non-negative integer)",
+		})
+		return
+	}
+
+	// Get statefulset
+	ss, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Update replicas
+	ss.Spec.Replicas = func() *int32 {
+		r := int32(replicas)
+		return &r
+	}()
+
+	_, err = ws.app.clientset.AppsV1().StatefulSets(namespace).Update(ws.app.ctx, ss, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("StatefulSet %s scaled to %d replicas", name, replicas),
+	})
+}
+
+// handleStatefulSetDelete deletes a statefulset
+func (ws *WebServer) handleStatefulSetDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "StatefulSet name is required",
+		})
+		return
+	}
+
+	err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("StatefulSet %s deleted successfully", name),
+	})
+}
+
+// handleDaemonSetDetails returns detailed information about a daemonset
+func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "DaemonSet name is required",
+		})
+		return
+	}
+
+	ds, err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format selector as string
+	selector := metav1.FormatLabelSelector(ds.Spec.Selector)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"name":      ds.Name,
+		"desired":   ds.Status.DesiredNumberScheduled,
+		"current":   ds.Status.CurrentNumberScheduled,
+		"ready":     fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled),
+		"available": ds.Status.NumberAvailable,
+		"selector":  selector,
+		"age":       formatAge(time.Since(ds.CreationTimestamp.Time)),
+	})
+}
+
+// handleDaemonSetYAML returns the YAML representation of a daemonset
+func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "daemonset name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	daemonSet, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	daemonSet.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(daemonSet, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleDaemonSetUpdate updates a daemonset from YAML
+func (ws *WebServer) handleDaemonSetUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "daemonset", func(yamlData []byte, namespace string) error {
+		var ds appsv1.DaemonSet
+		if err := yaml.Unmarshal(yamlData, &ds); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Update(ws.app.ctx, &ds, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleDaemonSetDescribe returns kubectl describe-style output for a daemonset
+func (ws *WebServer) handleDaemonSetDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "DaemonSet name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("daemonset", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleDaemonSetRestart restarts a daemonset by updating a restart annotation
+func (ws *WebServer) handleDaemonSetRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "DaemonSet name is required",
+		})
+		return
+	}
+
+	// Get daemonset
+	ds, err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Add restart annotation to trigger pod restart
+	if ds.Spec.Template.Annotations == nil {
+		ds.Spec.Template.Annotations = make(map[string]string)
+	}
+	ds.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	_, err = ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Update(ws.app.ctx, ds, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("DaemonSet %s restarted successfully", name),
+	})
+}
+
+// handleDaemonSetDelete deletes a daemonset
+func (ws *WebServer) handleDaemonSetDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "DaemonSet name is required",
+		})
+		return
+	}
+
+	err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("DaemonSet %s deleted successfully", name),
+	})
+}
+
+// handleCronJobDetails returns detailed information about a cronjob
+func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "CronJob name is required",
+		})
+		return
+	}
+
+	cj, err := ws.app.clientset.BatchV1().CronJobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Get last schedule time
+	lastSchedule := "Never"
+	if cj.Status.LastScheduleTime != nil {
+		lastSchedule = cj.Status.LastScheduleTime.Time.Format(time.RFC3339)
+	}
+
+	// Get next schedule time (approximate)
+	nextSchedule := "Unknown"
+	if cj.Status.LastScheduleTime != nil {
+		// This is a simplified calculation
+		nextSchedule = time.Now().Format(time.RFC3339) + " (approximate)"
+	}
+
+	// Get suspend status
+	suspended := false
+	if cj.Spec.Suspend != nil {
+		suspended = *cj.Spec.Suspend
+	}
+
+	// Get active jobs
+	activeJobs := []string{}
+	for _, job := range cj.Status.Active {
+		activeJobs = append(activeJobs, job.Name)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"name":              cj.Name,
+		"schedule":          cj.Spec.Schedule,
+		"suspend":           suspended,
+		"active":            len(cj.Status.Active),
+		"activeJobs":        strings.Join(activeJobs, ", "),
+		"lastSchedule":      lastSchedule,
+		"nextSchedule":      nextSchedule,
+		"concurrencyPolicy": string(cj.Spec.ConcurrencyPolicy),
+		"age":               formatAge(time.Since(cj.CreationTimestamp.Time)),
+	})
+}
+
+// handleCronJobYAML returns the YAML representation of a cronjob
+func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "cronjob name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	cronJob, err := ws.app.clientset.BatchV1().CronJobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	cronJob.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(cronJob, schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "CronJob"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleCronJobUpdate updates a cronjob from YAML
+func (ws *WebServer) handleCronJobUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "cronjob", func(yamlData []byte, namespace string) error {
+		var cj batchv1.CronJob
+		if err := yaml.Unmarshal(yamlData, &cj); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.BatchV1().CronJobs(namespace).Update(ws.app.ctx, &cj, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleCronJobDescribe returns kubectl describe output for a cronjob
+func (ws *WebServer) handleCronJobDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "CronJob name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("cronjob", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleCronJobDelete deletes a cronjob
+func (ws *WebServer) handleCronJobDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "CronJob name is required",
+		})
+		return
+	}
+
+	err := ws.app.clientset.BatchV1().CronJobs(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("CronJob %s deleted successfully", name),
+	})
+}
+
+// handleJobDetails returns detailed information about a job
+func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Job name is required",
+		})
+		return
+	}
+
+	job, err := ws.app.clientset.BatchV1().Jobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Determine status
+	status := "Running"
+	if job.Status.Succeeded > 0 {
+		status = "Complete"
+	} else if job.Status.Failed > 0 {
+		status = "Failed"
+	}
+
+	// Get completions
+	completions := "?"
+	if job.Spec.Completions != nil {
+		completions = fmt.Sprintf("%d", *job.Spec.Completions)
+	}
+
+	// Get parallelism
+	parallelism := int32(1)
+	if job.Spec.Parallelism != nil {
+		parallelism = *job.Spec.Parallelism
+	}
+
+	// Get duration
+	duration := "-"
+	if job.Status.CompletionTime != nil {
+		duration = formatAge(job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time))
+	} else if job.Status.StartTime != nil {
+		duration = formatAge(time.Since(job.Status.StartTime.Time))
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"name":        job.Name,
+		"status":      status,
+		"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
+		"parallelism": parallelism,
+		"duration":    duration,
+		"active":      job.Status.Active,
+		"succeeded":   job.Status.Succeeded,
+		"failed":      job.Status.Failed,
+		"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
+	})
+}
+
+// handleJobYAML returns the YAML representation of a job
+func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "job name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	job, err := ws.app.clientset.BatchV1().Jobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	job.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(job, schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleJobUpdate updates a job from YAML
+func (ws *WebServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "job", func(yamlData []byte, namespace string) error {
+		var job batchv1.Job
+		if err := yaml.Unmarshal(yamlData, &job); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.BatchV1().Jobs(namespace).Update(ws.app.ctx, &job, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// handleJobDescribe returns kubectl describe output for a job
+func (ws *WebServer) handleJobDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Job name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("job", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleJobDelete deletes a job
+func (ws *WebServer) handleJobDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Job name is required",
+		})
+		return
+	}
+
+	// Delete with propagation policy to clean up pods
+	propagationPolicy := metav1.DeletePropagationBackground
+	err := ws.app.clientset.BatchV1().Jobs(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Job %s deleted successfully", name),
+	})
+}
+
+// handleNodeDetails returns detailed information about a node
+func (ws *WebServer) handleNodeDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Node name is required",
+		})
+		return
+	}
+
+	node, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Get node status
+	status := "Unknown"
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == v1.NodeReady {
+			if condition.Status == v1.ConditionTrue {
+				status = "Ready"
+			} else {
+				status = "NotReady"
+			}
+			break
+		}
+	}
+
+	// Get node roles
+	roles := []string{}
+	for label := range node.Labels {
+		if strings.Contains(label, "node-role.kubernetes.io/") {
+			role := strings.TrimPrefix(label, "node-role.kubernetes.io/")
+			roles = append(roles, role)
+		}
+	}
+	if len(roles) == 0 {
+		roles = append(roles, "worker")
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":          true,
+		"name":             node.Name,
+		"status":           status,
+		"roles":            strings.Join(roles, ","),
+		"version":          node.Status.NodeInfo.KubeletVersion,
+		"osImage":          node.Status.NodeInfo.OSImage,
+		"kernelVersion":    node.Status.NodeInfo.KernelVersion,
+		"containerRuntime": node.Status.NodeInfo.ContainerRuntimeVersion,
+		"cpu":              node.Status.Capacity.Cpu().String(),
+		"memory":           node.Status.Capacity.Memory().String(),
+		"pods":             node.Status.Capacity.Pods().String(),
+		"conditions":       node.Status.Conditions,
+		"addresses":        node.Status.Addresses,
+		"labels":           node.Labels,
+		"annotations":      node.Annotations,
+	})
+}
+
+// handleNodeYAML returns the YAML representation of a node
+func (ws *WebServer) handleNodeYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Node name is required",
+		})
+		return
+	}
+
+	node, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	node.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(node, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Node"})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleNodeDescribe returns kubectl describe output for a node
+func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Node name is required",
+		})
+		return
+	}
+
+	// Nodes are cluster-scoped, no namespace needed
+	describe, err := runKubectlDescribe("node", name, "")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleNamespaces returns list of all namespaces
+
+// handleContexts returns list of all available kubeconfig contexts
+
+// findAvailablePort finds an available port starting from the given port
+
+// SecurityFinding represents a security recommendation

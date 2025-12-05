@@ -1,7 +1,6 @@
 import { Component, For, Show, createSignal, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, type View } from '../stores/ui';
-import LocalTerminalModal from './LocalTerminalModal';
+import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, type View } from '../stores/ui';
 
 interface NavSection {
   title: string;
@@ -81,6 +80,7 @@ const navSections: NavSection[] = [
           items: [
             { id: 'connectors', label: 'Connectors', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
             { id: 'aiagents', label: 'AI Agents', icon: 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.57.393A9.065 9.065 0 0021.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.065 9.065 0 003.464 3.693M19.8 15.3l-1.464-1.464M5 14.5l-1.464-1.464' },
+            { id: 'sreagent', label: 'SRE Agent', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
           ],
         },
   {
@@ -88,12 +88,13 @@ const navSections: NavSection[] = [
     items: [
       { id: 'plugins', label: 'Plugins', icon: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z' },
       { id: 'terminal', label: 'Terminal', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+      { id: 'uidemo', label: 'UI Demo', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z' },
     ],
   },
 ];
 
 // Collapsible Section Component
-const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean }> = (props) => {
+const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean; onTerminalClick?: () => void }> = (props) => {
   const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? true);
 
   // Check if any item in this section is currently active
@@ -134,7 +135,7 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
                     e.stopPropagation();
                     // Special handling for terminal
                     if (item.id === 'terminal') {
-                      handleTerminalClick();
+                      props.onTerminalClick?.();
                     } else {
                       setCurrentView(item.id);
                     }
@@ -191,12 +192,13 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
 };
 
 const Sidebar: Component = () => {
-  const [terminalOpen, setTerminalOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal('');
-  
-  // Handle terminal view
+
+  // Handle terminal view - toggle docked terminal at bottom
   const handleTerminalClick = () => {
-    setTerminalOpen(true);
+    console.log('[Sidebar] Terminal icon clicked - calling toggleTerminal()');
+    toggleTerminal();
+    console.log('[Sidebar] toggleTerminal() called');
   };
 
   // Filter sections based on search query
@@ -327,6 +329,7 @@ const Sidebar: Component = () => {
               <CollapsibleSection
                 section={section}
                 defaultExpanded={index() < 3 || section.title === 'Integrations'}
+                onTerminalClick={handleTerminalClick}
               />
             );
           }}
@@ -363,9 +366,6 @@ const Sidebar: Component = () => {
           </div>
         </Show>
       </div>
-
-      {/* Local Terminal Modal */}
-      <LocalTerminalModal isOpen={terminalOpen()} onClose={() => setTerminalOpen(false)} />
     </aside>
   );
 };

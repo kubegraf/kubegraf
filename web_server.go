@@ -28,7 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"sort"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,14 +44,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
-	"k8s.io/client-go/transport/spdy"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 )
 
@@ -182,6 +178,53 @@ func NewWebServer(app *App) *WebServer {
 	}
 	// Initialize MCP server for AI agents
 	ws.mcpServer = NewMCPServer(app)
+	
+	// Initialize database, cache, and IAM for production upgrades
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to current directory
+		homeDir = "."
+	}
+	
+	// Create .kubegraf directory if it doesn't exist
+	kubegrafDir := filepath.Join(homeDir, ".kubegraf")
+	if err := os.MkdirAll(kubegrafDir, 0755); err != nil {
+		fmt.Printf("⚠️  Failed to create .kubegraf directory: %v\n", err)
+	}
+	
+	// Initialize database
+	dbPath := filepath.Join(kubegrafDir, "db.sqlite")
+	encryptionKey := os.Getenv("KUBEGRAF_ENCRYPTION_KEY")
+	if encryptionKey == "" {
+		// Use a default key (not secure for production, but okay for development)
+		encryptionKey = "default-encryption-key-change-in-production"
+		fmt.Println("⚠️  Using default encryption key. Set KUBEGRAF_ENCRYPTION_KEY environment variable for production.")
+	}
+	
+	db, err := NewDatabase(dbPath, encryptionKey)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize database: %v\n", err)
+	} else {
+		ws.db = db
+		fmt.Printf("✅ Database initialized at %s\n", dbPath)
+	}
+	
+	// Initialize cache (use LRU backend by default)
+	cache, err := NewCache(CacheBackendLRU, "")
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize cache: %v\n", err)
+	} else {
+		ws.cache = cache
+		fmt.Println("✅ Cache initialized (LRU backend)")
+	}
+	
+	// Initialize IAM (enabled by default)
+	iamEnabled := true
+	if ws.db != nil {
+		ws.iam = NewIAM(ws.db, iamEnabled)
+		fmt.Println("✅ IAM initialized")
+	}
+	
 	return ws
 }
 
@@ -296,10 +339,10 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/secret/describe", ws.handleSecretDescribe)
 	http.HandleFunc("/api/secret/delete", ws.handleSecretDelete)
 	http.HandleFunc("/api/certificates", ws.handleCertificates)
-	http.HandleFunc("/api/certificate/yaml", ws.handleCertificateYAML)
-	http.HandleFunc("/api/certificate/update", ws.handleCertificateUpdate)
-	http.HandleFunc("/api/certificate/describe", ws.handleCertificateDescribe)
-	http.HandleFunc("/api/certificate/delete", ws.handleCertificateDelete)
+	// http.HandleFunc("/api/certificate/yaml", ws.handleCertificateYAML) // TODO: implement
+	// http.HandleFunc("/api/certificate/update", ws.handleCertificateUpdate) // TODO: implement
+	// http.HandleFunc("/api/certificate/describe", ws.handleCertificateDescribe) // TODO: implement
+	// http.HandleFunc("/api/certificate/delete", ws.handleCertificateDelete) // TODO: implement
 	http.HandleFunc("/api/node/details", ws.handleNodeDetails)
 	http.HandleFunc("/api/node/yaml", ws.handleNodeYAML)
 	http.HandleFunc("/api/node/describe", ws.handleNodeDescribe)
@@ -308,6 +351,12 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/portforward/start", ws.handlePortForwardStart)
 	http.HandleFunc("/api/portforward/stop", ws.handlePortForwardStop)
 	http.HandleFunc("/api/portforward/list", ws.handlePortForwardList)
+
+	// Authentication endpoints
+	http.HandleFunc("/api/auth/login", ws.handleLogin)
+	http.HandleFunc("/api/auth/logout", ws.handleLogout)
+	http.HandleFunc("/api/auth/register", ws.handleRegister)
+	http.HandleFunc("/api/auth/me", ws.handleGetCurrentUser)
 
 	// Security analysis endpoint
 	http.HandleFunc("/api/security", ws.handleSecurityAnalysis)
@@ -343,6 +392,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Connectors
 	ws.RegisterConnectorHandlers()
+
+	// SRE Agent
+	ws.RegisterSREAgentHandlers()
 
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
@@ -458,439 +510,17 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 }
 
 // handleConnectionStatus returns the cluster connection status
-func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// Actually test the connection by trying to list namespaces
-	connected := false
-	errorMsg := ws.app.connectionError
-
-	if ws.app.clientset != nil {
-		_, err := ws.app.clientset.CoreV1().Namespaces().List(ws.app.ctx, metav1.ListOptions{Limit: 1})
-		if err != nil {
-			connected = false
-			errorMsg = err.Error()
-			ws.app.connected = false
-			ws.app.connectionError = errorMsg
-		} else {
-			connected = true
-			errorMsg = ""
-			ws.app.connected = true
-			ws.app.connectionError = ""
-		}
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"connected": connected,
-		"error":     errorMsg,
-		"cluster":   ws.app.cluster,
-		"version":   GetVersion(),
-	})
-}
 
 // handleCheckUpdates checks for available updates
-func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	updateInfo, err := CheckForUpdates()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"currentVersion":  GetVersion(),
-			"updateAvailable": false,
-			"error":           err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(updateInfo)
-}
 
 // handleInstallUpdate downloads and installs the latest version
-func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		DownloadURL string `json:"downloadUrl"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body",
-		})
-		return
-	}
-
-	if req.DownloadURL == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Download URL is required",
-		})
-		return
-	}
-
-	// Perform update in background
-	go func() {
-		if err := PerformUpdate(req.DownloadURL); err != nil {
-			fmt.Printf("❌ Update failed: %v\n", err)
-			return
-		}
-
-		fmt.Printf("✓ Update installed successfully. Restarting...\n")
-
-		// Give the HTTP response time to be sent
-		time.Sleep(1 * time.Second)
-
-		// Restart the application
-		if err := RestartApplication(); err != nil {
-			fmt.Printf("❌ Failed to restart: %v\n", err)
-		}
-	}()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Update started. The application will restart automatically when complete.",
-	})
-}
 
 // handleMetrics returns cluster metrics
-func (ws *WebServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	metrics := ws.getClusterMetrics()
-	json.NewEncoder(w).Encode(metrics)
-}
 
-// handlePods returns pod list
-func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	// Empty namespace means "all namespaces" in Kubernetes
-	// Only default to app.namespace if namespace param is not provided at all
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 
-	// Batch fetch all pod metrics at once (much faster than individual calls)
-	metricsMap := make(map[string]struct {
-		cpu    string
-		memory string
-	})
-	if ws.app.metricsClient != nil {
-		if metricsList, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
-			for _, pm := range metricsList.Items {
-				var totalCPU, totalMemory int64
-				for _, cm := range pm.Containers {
-					totalCPU += cm.Usage.Cpu().MilliValue()
-					totalMemory += cm.Usage.Memory().Value()
-				}
-				key := pm.Namespace + "/" + pm.Name
-				metricsMap[key] = struct {
-					cpu    string
-					memory string
-				}{
-					cpu:    fmt.Sprintf("%dm", totalCPU),
-					memory: fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024)),
-				}
-			}
-		}
-	}
 
-	podList := []map[string]interface{}{}
-	for _, pod := range pods.Items {
-		// Calculate ready count from container statuses
-		ready := 0
-		total := len(pod.Spec.Containers)
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.Ready {
-				ready++
-			}
-		}
-
-		// Calculate total restarts
-		restarts := int32(0)
-		for _, cs := range pod.Status.ContainerStatuses {
-			restarts += cs.RestartCount
-		}
-
-		// Determine actual status
-		status := string(pod.Status.Phase)
-		if pod.DeletionTimestamp != nil {
-			status = "Terminating"
-		} else if pod.Status.Phase == "Pending" {
-			// Check container statuses for more detail
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.State.Waiting != nil {
-					status = cs.State.Waiting.Reason
-					break
-				}
-			}
-		} else if pod.Status.Phase == "Running" {
-			// Check if all containers are actually ready
-			allReady := true
-			for _, cs := range pod.Status.ContainerStatuses {
-				if !cs.Ready {
-					allReady = false
-					if cs.State.Waiting != nil {
-						status = cs.State.Waiting.Reason
-					}
-					break
-				}
-			}
-			if allReady && ready == total {
-				status = "Running"
-			}
-		}
-
-		// Get metrics from pre-fetched map
-		cpu := "-"
-		memory := "-"
-		if m, ok := metricsMap[pod.Namespace+"/"+pod.Name]; ok {
-			cpu = m.cpu
-			memory = m.memory
-		}
-
-		podList = append(podList, map[string]interface{}{
-			"name":      pod.Name,
-			"status":    status,
-			"ready":     fmt.Sprintf("%d/%d", ready, total),
-			"restarts":  restarts,
-			"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-			"createdAt": pod.CreationTimestamp.Time.Format(time.RFC3339),
-			"ip":        pod.Status.PodIP,
-			"node":      pod.Spec.NodeName,
-			"namespace": pod.Namespace,
-			"cpu":       cpu,
-			"memory":    memory,
-		})
-	}
-
-	json.NewEncoder(w).Encode(podList)
-}
-
-// handlePodMetrics returns only CPU/memory metrics for pods (lightweight, for live updates)
-func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-
-	metricsMap := make(map[string]map[string]string)
-	if ws.app.metricsClient != nil {
-		if metricsList, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
-			for _, pm := range metricsList.Items {
-				var totalCPU, totalMemory int64
-				for _, cm := range pm.Containers {
-					totalCPU += cm.Usage.Cpu().MilliValue()
-					totalMemory += cm.Usage.Memory().Value()
-				}
-				key := pm.Namespace + "/" + pm.Name
-				metricsMap[key] = map[string]string{
-					"cpu":    fmt.Sprintf("%dm", totalCPU),
-					"memory": fmt.Sprintf("%.0fMi", float64(totalMemory)/(1024*1024)),
-				}
-			}
-		}
-	}
-
-	json.NewEncoder(w).Encode(metricsMap)
-}
-
-// handleDeployments returns deployment list
-func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	depList := []map[string]interface{}{}
-	for _, dep := range deployments.Items {
-		depList = append(depList, map[string]interface{}{
-			"name":      dep.Name,
-			"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
-			"available": dep.Status.AvailableReplicas,
-			"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
-			"namespace": dep.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(depList)
-}
-
-// handleStatefulSets returns statefulset list
-func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	ssList := []map[string]interface{}{}
-	for _, ss := range statefulsets.Items {
-		ssList = append(ssList, map[string]interface{}{
-			"name":      ss.Name,
-			"ready":     fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
-			"available": ss.Status.ReadyReplicas,
-			"age":       formatAge(time.Since(ss.CreationTimestamp.Time)),
-			"namespace": ss.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(ssList)
-}
-
-// handleDaemonSets returns daemonset list
-func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	dsList := []map[string]interface{}{}
-	for _, ds := range daemonsets.Items {
-		dsList = append(dsList, map[string]interface{}{
-			"name":      ds.Name,
-			"desired":   ds.Status.DesiredNumberScheduled,
-			"current":   ds.Status.CurrentNumberScheduled,
-			"ready":     fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled),
-			"available": ds.Status.NumberAvailable,
-			"age":       formatAge(time.Since(ds.CreationTimestamp.Time)),
-			"namespace": ds.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(dsList)
-}
-
-// handleServices returns service list
-func (ws *WebServer) handleServices(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	services, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	svcList := []map[string]interface{}{}
-	for _, svc := range services.Items {
-		svcList = append(svcList, map[string]interface{}{
-			"name":      svc.Name,
-			"type":      string(svc.Spec.Type),
-			"clusterIP": svc.Spec.ClusterIP,
-			"ports":     len(svc.Spec.Ports),
-			"age":       formatAge(time.Since(svc.CreationTimestamp.Time)),
-			"namespace": svc.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(svcList)
-}
-
-// handleNodes returns node list
-func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
-	nodes, err := ws.app.clientset.CoreV1().Nodes().List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	nodeList := []map[string]interface{}{}
-	for _, node := range nodes.Items {
-		// Determine node status
-		status := "Unknown"
-		for _, condition := range node.Status.Conditions {
-			if condition.Type == v1.NodeReady {
-				if condition.Status == v1.ConditionTrue {
-					status = "Ready"
-				} else {
-					status = "NotReady"
-				}
-				break
-			}
-		}
-
-		// Get node roles
-		roles := "worker"
-		for label := range node.Labels {
-			if strings.Contains(label, "node-role.kubernetes.io/control-plane") || strings.Contains(label, "node-role.kubernetes.io/master") {
-				roles = "control-plane"
-				break
-			}
-		}
-
-		// Get CPU and Memory capacity
-		cpu := node.Status.Capacity.Cpu().String()
-
-		// Convert memory to a readable format
-		memoryBytes := node.Status.Capacity.Memory().Value()
-		memoryGi := float64(memoryBytes) / (1024 * 1024 * 1024)
-		memory := fmt.Sprintf("%.1fGi", memoryGi)
-
-		// Get metrics for this node if available
-		cpuUsage := "-"
-		memoryUsage := "-"
-		if ws.app.metricsClient != nil {
-			if metrics, err := ws.app.metricsClient.MetricsV1beta1().NodeMetricses().Get(ws.app.ctx, node.Name, metav1.GetOptions{}); err == nil {
-				cpuMillis := metrics.Usage.Cpu().MilliValue()
-				memUsed := metrics.Usage.Memory().Value()
-				memUsedMi := float64(memUsed) / (1024 * 1024)
-				cpuUsage = fmt.Sprintf("%dm", cpuMillis)
-				memoryUsage = fmt.Sprintf("%.0fMi", memUsedMi)
-			}
-		}
-
-		nodeList = append(nodeList, map[string]interface{}{
-			"name":        node.Name,
-			"status":      status,
-			"roles":       roles,
-			"version":     node.Status.NodeInfo.KubeletVersion,
-			"cpu":         cpu,
-			"cpuUsage":    cpuUsage,
-			"memory":      memory,
-			"memoryUsage": memoryUsage,
-			"age":         formatAge(time.Since(node.CreationTimestamp.Time)),
-		})
-	}
-
-	json.NewEncoder(w).Encode(nodeList)
-}
 
 // handleTopology returns topology data for visualization
-func (ws *WebServer) handleTopology(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	// Empty namespace means all namespaces
-	topology := ws.buildTopologyData(namespace)
-	json.NewEncoder(w).Encode(topology)
-}
 
 // handleWebSocket handles WebSocket connections for real-time updates
 func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -953,124 +583,8 @@ func (ws *WebServer) broadcastUpdates() {
 }
 
 // handleEvents returns historical events via REST API
-func (ws *WebServer) handleEvents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	namespace := r.URL.Query().Get("namespace")
-	limitStr := r.URL.Query().Get("limit")
-	limit := 100
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
-	}
-
-	ws.eventsMu.RLock()
-	events := make([]WebEvent, 0, limit)
-	for i := len(ws.events) - 1; i >= 0 && len(events) < limit; i-- {
-		ev := ws.events[i]
-		if namespace == "" || namespace == "All Namespaces" || ev.Namespace == namespace {
-			events = append(events, ev)
-		}
-	}
-	ws.eventsMu.RUnlock()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"events": events,
-		"total":  len(events),
-	})
-}
 
 // watchKubernetesEvents watches for Kubernetes events and broadcasts them to WebSocket clients
-func (ws *WebServer) watchKubernetesEvents() {
-	// Wait for cluster connection before starting event watcher
-	for i := 0; i < 60; i++ {
-		if ws.app.clientset != nil && ws.app.connected {
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	if ws.app.clientset == nil || !ws.app.connected {
-		log.Printf("⚠️ Skipping Kubernetes event watcher: cluster not connected")
-		return
-	}
-	var lastError string
-	backoff := 5 * time.Second
-	maxBackoff := 5 * time.Minute
-
-	for {
-		select {
-		case <-ws.stopCh:
-			return
-		default:
-			// Check if clientset is available
-			if ws.app.clientset == nil {
-				time.Sleep(2 * time.Second)
-				continue
-			}
-
-			// Watch all namespaces for events
-			watcher, err := ws.app.clientset.CoreV1().Events("").Watch(ws.app.ctx, metav1.ListOptions{})
-			if err != nil {
-				errStr := err.Error()
-				// Only log if error message changed (suppress repeated errors)
-				if errStr != lastError {
-					log.Printf("Event watcher error: %v (will retry with backoff)", err)
-					lastError = errStr
-				}
-				time.Sleep(backoff)
-				// Exponential backoff up to max
-				backoff = backoff * 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
-				continue
-			}
-			// Reset backoff on successful connection
-			backoff = 5 * time.Second
-			lastError = ""
-
-			for watchEvent := range watcher.ResultChan() {
-				if watchEvent.Type == "ADDED" || watchEvent.Type == "MODIFIED" {
-					if ev, ok := watchEvent.Object.(*v1.Event); ok {
-						webEvent := WebEvent{
-							Time:      ev.LastTimestamp.Time,
-							Type:      ev.Type,
-							Reason:    ev.Reason,
-							Object:    ev.InvolvedObject.Name,
-							Kind:      ev.InvolvedObject.Kind,
-							Message:   ev.Message,
-							Namespace: ev.Namespace,
-							Count:     ev.Count,
-							Source:    ev.Source.Component,
-						}
-
-						// Handle zero timestamp (use event time if LastTimestamp is zero)
-						if webEvent.Time.IsZero() {
-							webEvent.Time = ev.EventTime.Time
-						}
-						if webEvent.Time.IsZero() {
-							webEvent.Time = time.Now()
-						}
-
-						// Store event
-						ws.eventsMu.Lock()
-						ws.events = append(ws.events, webEvent)
-						if len(ws.events) > 500 {
-							ws.events = ws.events[len(ws.events)-500:]
-						}
-						ws.eventsMu.Unlock()
-
-						// Broadcast to all connected WebSocket clients
-						ws.broadcastEvent(webEvent)
-					}
-				}
-			}
-		}
-	}
-}
 
 // broadcastEvent sends an event to all connected WebSocket clients
 func (ws *WebServer) broadcastEvent(event WebEvent) {
@@ -1135,641 +649,641 @@ type ImpactAnalysis struct {
 }
 
 // handleImpactAnalysis analyzes the impact of deleting or modifying a resource
-func (ws *WebServer) handleImpactAnalysis(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	resourceType := r.URL.Query().Get("type")
-	resourceName := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if namespace == "" || namespace == "All Namespaces" {
-		namespace = ws.app.namespace
-	}
-
-	if resourceType == "" || resourceName == "" {
-		http.Error(w, "Missing required parameters: type and name", http.StatusBadRequest)
-		return
-	}
-
-	var analysis *ImpactAnalysis
-	var err error
-
-	switch strings.ToLower(resourceType) {
-	case "service":
-		analysis, err = ws.analyzeServiceImpact(resourceName, namespace)
-	case "configmap":
-		analysis, err = ws.analyzeConfigMapImpact(resourceName, namespace)
-	case "secret":
-		analysis, err = ws.analyzeSecretImpact(resourceName, namespace)
-	case "deployment":
-		analysis, err = ws.analyzeDeploymentImpact(resourceName, namespace)
-	case "pod":
-		analysis, err = ws.analyzePodImpact(resourceName, namespace)
-	case "node":
-		analysis, err = ws.analyzeNodeImpact(resourceName)
-	default:
-		http.Error(w, fmt.Sprintf("Impact analysis not supported for resource type: %s", resourceType), http.StatusBadRequest)
-		return
-	}
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(analysis)
-}
-
+// func (ws *WebServer) handleImpactAnalysis(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 	w.Header().Set("Access-Control-Allow-Origin", "*")
+// 
+// 	resourceType := r.URL.Query().Get("type")
+// 	resourceName := r.URL.Query().Get("name")
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	if resourceType == "" || resourceName == "" {
+// 		http.Error(w, "Missing required parameters: type and name", http.StatusBadRequest)
+// 		return
+// 	}
+// 
+// 	var analysis *ImpactAnalysis
+// 	var err error
+// 
+// 	switch strings.ToLower(resourceType) {
+// 	case "service":
+// 		analysis, err = ws.analyzeServiceImpact(resourceName, namespace)
+// 	case "configmap":
+// 		analysis, err = ws.analyzeConfigMapImpact(resourceName, namespace)
+// 	case "secret":
+// 		analysis, err = ws.analyzeSecretImpact(resourceName, namespace)
+// 	case "deployment":
+// 		analysis, err = ws.analyzeDeploymentImpact(resourceName, namespace)
+// 	case "pod":
+// 		analysis, err = ws.analyzePodImpact(resourceName, namespace)
+// 	case "node":
+// 		analysis, err = ws.analyzeNodeImpact(resourceName)
+// 	default:
+// 		http.Error(w, fmt.Sprintf("Impact analysis not supported for resource type: %s", resourceType), http.StatusBadRequest)
+// 		return
+// 	}
+// 
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(analysis)
+// }
+// 
 // analyzeServiceImpact analyzes what depends on a Service
-func (ws *WebServer) analyzeServiceImpact(name, namespace string) (*ImpactAnalysis, error) {
-	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Service",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Ingresses that route to this service
-	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, ing := range ingresses.Items {
-		for _, rule := range ing.Spec.Rules {
-			if rule.HTTP != nil {
-				for _, path := range rule.HTTP.Paths {
-					if path.Backend.Service != nil && path.Backend.Service.Name == name {
-						node := &ImpactNode{
-							Type:      "Ingress",
-							Name:      ing.Name,
-							Namespace: ing.Namespace,
-							Severity:  "critical",
-							Impact:    fmt.Sprintf("Ingress %s routes traffic to this service via path %s", ing.Name, path.Path),
-						}
-						analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-						analysis.CriticalCount++
-					}
-				}
-			}
-		}
-	}
-
-	// Find Pods that this service selects (would lose endpoint)
-	if len(service.Spec.Selector) > 0 {
-		pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-			LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: service.Spec.Selector}),
-		})
-		for _, pod := range pods.Items {
-			node := &ImpactNode{
-				Type:      "Pod",
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-				Severity:  "medium",
-				Impact:    "Pod will lose service endpoint and external access",
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.MediumCount++
-		}
-	}
-
-	// Calculate totals
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Service '%s' will affect %d resource(s): %d critical, %d high, %d medium, %d low",
-		name, analysis.TotalImpacted, analysis.CriticalCount, analysis.HighCount, analysis.MediumCount, analysis.LowCount)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Update Ingress configurations before deleting this Service")
-	}
-	if analysis.MediumCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Ensure pods have alternative network access or are not required")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeServiceImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Service",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Ingresses that route to this service
+// 	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, ing := range ingresses.Items {
+// 		for _, rule := range ing.Spec.Rules {
+// 			if rule.HTTP != nil {
+// 				for _, path := range rule.HTTP.Paths {
+// 					if path.Backend.Service != nil && path.Backend.Service.Name == name {
+// 						node := &ImpactNode{
+// 							Type:      "Ingress",
+// 							Name:      ing.Name,
+// 							Namespace: ing.Namespace,
+// 							Severity:  "critical",
+// 							Impact:    fmt.Sprintf("Ingress %s routes traffic to this service via path %s", ing.Name, path.Path),
+// 						}
+// 						analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 						analysis.CriticalCount++
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// Find Pods that this service selects (would lose endpoint)
+// 	if len(service.Spec.Selector) > 0 {
+// 		pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+// 			LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: service.Spec.Selector}),
+// 		})
+// 		for _, pod := range pods.Items {
+// 			node := &ImpactNode{
+// 				Type:      "Pod",
+// 				Name:      pod.Name,
+// 				Namespace: pod.Namespace,
+// 				Severity:  "medium",
+// 				Impact:    "Pod will lose service endpoint and external access",
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.MediumCount++
+// 		}
+// 	}
+// 
+// 	// Calculate totals
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Service '%s' will affect %d resource(s): %d critical, %d high, %d medium, %d low",
+// 		name, analysis.TotalImpacted, analysis.CriticalCount, analysis.HighCount, analysis.MediumCount, analysis.LowCount)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Update Ingress configurations before deleting this Service")
+// 	}
+// 	if analysis.MediumCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Ensure pods have alternative network access or are not required")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeConfigMapImpact analyzes what depends on a ConfigMap
-func (ws *WebServer) analyzeConfigMapImpact(name, namespace string) (*ImpactAnalysis, error) {
-	_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "ConfigMap",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Deployments that use this ConfigMap
-	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, dep := range deployments.Items {
-		usesConfigMap := false
-		var usageType string
-
-		// Check volume mounts
-		for _, vol := range dep.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
-				usesConfigMap = true
-				usageType = "volume mount"
-				break
-			}
-		}
-
-		// Check env references
-		if !usesConfigMap {
-			for _, container := range dep.Spec.Template.Spec.Containers {
-				for _, env := range container.EnvFrom {
-					if env.ConfigMapRef != nil && env.ConfigMapRef.Name == name {
-						usesConfigMap = true
-						usageType = "environment variables"
-						break
-					}
-				}
-				if usesConfigMap {
-					break
-				}
-			}
-		}
-
-		if usesConfigMap {
-			node := &ImpactNode{
-				Type:      "Deployment",
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Severity:  "critical",
-				Impact:    fmt.Sprintf("Deployment uses this ConfigMap as %s - pods may fail to start", usageType),
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.CriticalCount++
-		}
-	}
-
-	// Check StatefulSets
-	statefulsets, _ := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, sts := range statefulsets.Items {
-		for _, vol := range sts.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
-				node := &ImpactNode{
-					Type:      "StatefulSet",
-					Name:      sts.Name,
-					Namespace: sts.Namespace,
-					Severity:  "critical",
-					Impact:    "StatefulSet uses this ConfigMap - pods may fail to start",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.CriticalCount++
-				break
-			}
-		}
-	}
-
-	// Check DaemonSets
-	daemonsets, _ := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, ds := range daemonsets.Items {
-		for _, vol := range ds.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
-				node := &ImpactNode{
-					Type:      "DaemonSet",
-					Name:      ds.Name,
-					Namespace: ds.Namespace,
-					Severity:  "critical",
-					Impact:    "DaemonSet uses this ConfigMap - pods may fail to start on all nodes",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.CriticalCount++
-				break
-			}
-		}
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting ConfigMap '%s' will affect %d workload(s)", name, analysis.TotalImpacted)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Update workloads to remove ConfigMap references before deletion")
-		analysis.Recommendations = append(analysis.Recommendations, "Consider creating a replacement ConfigMap with updated values first")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeConfigMapImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "ConfigMap",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Deployments that use this ConfigMap
+// 	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, dep := range deployments.Items {
+// 		usesConfigMap := false
+// 		var usageType string
+// 
+// 		// Check volume mounts
+// 		for _, vol := range dep.Spec.Template.Spec.Volumes {
+// 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+// 				usesConfigMap = true
+// 				usageType = "volume mount"
+// 				break
+// 			}
+// 		}
+// 
+// 		// Check env references
+// 		if !usesConfigMap {
+// 			for _, container := range dep.Spec.Template.Spec.Containers {
+// 				for _, env := range container.EnvFrom {
+// 					if env.ConfigMapRef != nil && env.ConfigMapRef.Name == name {
+// 						usesConfigMap = true
+// 						usageType = "environment variables"
+// 						break
+// 					}
+// 				}
+// 				if usesConfigMap {
+// 					break
+// 				}
+// 			}
+// 		}
+// 
+// 		if usesConfigMap {
+// 			node := &ImpactNode{
+// 				Type:      "Deployment",
+// 				Name:      dep.Name,
+// 				Namespace: dep.Namespace,
+// 				Severity:  "critical",
+// 				Impact:    fmt.Sprintf("Deployment uses this ConfigMap as %s - pods may fail to start", usageType),
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.CriticalCount++
+// 		}
+// 	}
+// 
+// 	// Check StatefulSets
+// 	statefulsets, _ := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, sts := range statefulsets.Items {
+// 		for _, vol := range sts.Spec.Template.Spec.Volumes {
+// 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "StatefulSet",
+// 					Name:      sts.Name,
+// 					Namespace: sts.Namespace,
+// 					Severity:  "critical",
+// 					Impact:    "StatefulSet uses this ConfigMap - pods may fail to start",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.CriticalCount++
+// 				break
+// 			}
+// 		}
+// 	}
+// 
+// 	// Check DaemonSets
+// 	daemonsets, _ := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, ds := range daemonsets.Items {
+// 		for _, vol := range ds.Spec.Template.Spec.Volumes {
+// 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "DaemonSet",
+// 					Name:      ds.Name,
+// 					Namespace: ds.Namespace,
+// 					Severity:  "critical",
+// 					Impact:    "DaemonSet uses this ConfigMap - pods may fail to start on all nodes",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.CriticalCount++
+// 				break
+// 			}
+// 		}
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting ConfigMap '%s' will affect %d workload(s)", name, analysis.TotalImpacted)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Update workloads to remove ConfigMap references before deletion")
+// 		analysis.Recommendations = append(analysis.Recommendations, "Consider creating a replacement ConfigMap with updated values first")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeSecretImpact analyzes what depends on a Secret
-func (ws *WebServer) analyzeSecretImpact(name, namespace string) (*ImpactAnalysis, error) {
-	_, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Secret",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Deployments that use this Secret
-	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, dep := range deployments.Items {
-		usesSecret := false
-		var usageType string
-
-		for _, vol := range dep.Spec.Template.Spec.Volumes {
-			if vol.Secret != nil && vol.Secret.SecretName == name {
-				usesSecret = true
-				usageType = "volume mount"
-				break
-			}
-		}
-
-		if !usesSecret {
-			for _, container := range dep.Spec.Template.Spec.Containers {
-				for _, env := range container.EnvFrom {
-					if env.SecretRef != nil && env.SecretRef.Name == name {
-						usesSecret = true
-						usageType = "environment variables"
-						break
-					}
-				}
-				// Check individual env vars
-				for _, env := range container.Env {
-					if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == name {
-						usesSecret = true
-						usageType = "environment variable"
-						break
-					}
-				}
-				if usesSecret {
-					break
-				}
-			}
-		}
-
-		// Check imagePullSecrets
-		if !usesSecret {
-			for _, ips := range dep.Spec.Template.Spec.ImagePullSecrets {
-				if ips.Name == name {
-					usesSecret = true
-					usageType = "image pull secret"
-					break
-				}
-			}
-		}
-
-		if usesSecret {
-			node := &ImpactNode{
-				Type:      "Deployment",
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Severity:  "critical",
-				Impact:    fmt.Sprintf("Deployment uses this Secret as %s - pods may fail to start or authenticate", usageType),
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.CriticalCount++
-		}
-	}
-
-	// Find ServiceAccounts that reference this secret
-	serviceAccounts, _ := ws.app.clientset.CoreV1().ServiceAccounts(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, sa := range serviceAccounts.Items {
-		for _, secretRef := range sa.Secrets {
-			if secretRef.Name == name {
-				node := &ImpactNode{
-					Type:      "ServiceAccount",
-					Name:      sa.Name,
-					Namespace: sa.Namespace,
-					Severity:  "high",
-					Impact:    "ServiceAccount references this Secret - authentication may fail",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.HighCount++
-				break
-			}
-		}
-		for _, ips := range sa.ImagePullSecrets {
-			if ips.Name == name {
-				node := &ImpactNode{
-					Type:      "ServiceAccount",
-					Name:      sa.Name,
-					Namespace: sa.Namespace,
-					Severity:  "high",
-					Impact:    "ServiceAccount uses this Secret for image pulls - containers may fail to pull images",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.HighCount++
-				break
-			}
-		}
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Secret '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
-
-	if analysis.CriticalCount > 0 || analysis.HighCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Ensure no workloads require this Secret before deletion")
-		analysis.Recommendations = append(analysis.Recommendations, "Consider rotating Secret with a new one before deleting the old")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeSecretImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	_, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Secret",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Deployments that use this Secret
+// 	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, dep := range deployments.Items {
+// 		usesSecret := false
+// 		var usageType string
+// 
+// 		for _, vol := range dep.Spec.Template.Spec.Volumes {
+// 			if vol.Secret != nil && vol.Secret.SecretName == name {
+// 				usesSecret = true
+// 				usageType = "volume mount"
+// 				break
+// 			}
+// 		}
+// 
+// 		if !usesSecret {
+// 			for _, container := range dep.Spec.Template.Spec.Containers {
+// 				for _, env := range container.EnvFrom {
+// 					if env.SecretRef != nil && env.SecretRef.Name == name {
+// 						usesSecret = true
+// 						usageType = "environment variables"
+// 						break
+// 					}
+// 				}
+// 				// Check individual env vars
+// 				for _, env := range container.Env {
+// 					if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == name {
+// 						usesSecret = true
+// 						usageType = "environment variable"
+// 						break
+// 					}
+// 				}
+// 				if usesSecret {
+// 					break
+// 				}
+// 			}
+// 		}
+// 
+// 		// Check imagePullSecrets
+// 		if !usesSecret {
+// 			for _, ips := range dep.Spec.Template.Spec.ImagePullSecrets {
+// 				if ips.Name == name {
+// 					usesSecret = true
+// 					usageType = "image pull secret"
+// 					break
+// 				}
+// 			}
+// 		}
+// 
+// 		if usesSecret {
+// 			node := &ImpactNode{
+// 				Type:      "Deployment",
+// 				Name:      dep.Name,
+// 				Namespace: dep.Namespace,
+// 				Severity:  "critical",
+// 				Impact:    fmt.Sprintf("Deployment uses this Secret as %s - pods may fail to start or authenticate", usageType),
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.CriticalCount++
+// 		}
+// 	}
+// 
+// 	// Find ServiceAccounts that reference this secret
+// 	serviceAccounts, _ := ws.app.clientset.CoreV1().ServiceAccounts(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, sa := range serviceAccounts.Items {
+// 		for _, secretRef := range sa.Secrets {
+// 			if secretRef.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "ServiceAccount",
+// 					Name:      sa.Name,
+// 					Namespace: sa.Namespace,
+// 					Severity:  "high",
+// 					Impact:    "ServiceAccount references this Secret - authentication may fail",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.HighCount++
+// 				break
+// 			}
+// 		}
+// 		for _, ips := range sa.ImagePullSecrets {
+// 			if ips.Name == name {
+// 				node := &ImpactNode{
+// 					Type:      "ServiceAccount",
+// 					Name:      sa.Name,
+// 					Namespace: sa.Namespace,
+// 					Severity:  "high",
+// 					Impact:    "ServiceAccount uses this Secret for image pulls - containers may fail to pull images",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.HighCount++
+// 				break
+// 			}
+// 		}
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Secret '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
+// 
+// 	if analysis.CriticalCount > 0 || analysis.HighCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Ensure no workloads require this Secret before deletion")
+// 		analysis.Recommendations = append(analysis.Recommendations, "Consider rotating Secret with a new one before deleting the old")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeDeploymentImpact analyzes what depends on a Deployment
-func (ws *WebServer) analyzeDeploymentImpact(name, namespace string) (*ImpactAnalysis, error) {
-	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Deployment",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Services that select this Deployment's pods
-	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, svc := range services.Items {
-		if len(svc.Spec.Selector) > 0 {
-			if matchesSelector(svc.Spec.Selector, deployment.Spec.Template.Labels) {
-				node := &ImpactNode{
-					Type:      "Service",
-					Name:      svc.Name,
-					Namespace: svc.Namespace,
-					Severity:  "critical",
-					Impact:    "Service selects this Deployment's pods - endpoints will be removed",
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				analysis.CriticalCount++
-			}
-		}
-	}
-
-	// Find HPA targeting this deployment
-	hpas, _ := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, hpa := range hpas.Items {
-		if hpa.Spec.ScaleTargetRef.Kind == "Deployment" && hpa.Spec.ScaleTargetRef.Name == name {
-			node := &ImpactNode{
-				Type:      "HorizontalPodAutoscaler",
-				Name:      hpa.Name,
-				Namespace: hpa.Namespace,
-				Severity:  "medium",
-				Impact:    "HPA targets this Deployment - autoscaling will be orphaned",
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.MediumCount++
-		}
-	}
-
-	// Add running pods info
-	pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
-	})
-	runningPods := 0
-	for _, pod := range pods.Items {
-		if pod.Status.Phase == v1.PodRunning {
-			runningPods++
-		}
-	}
-	if runningPods > 0 {
-		node := &ImpactNode{
-			Type:       "Pod",
-			Name:       fmt.Sprintf("%d running pods", runningPods),
-			Namespace:  namespace,
-			Severity:   "high",
-			Impact:     "All running pods will be terminated",
-			Dependents: runningPods,
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.HighCount++
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Deployment '%s' will affect %d resource(s) including %d running pods",
-		name, analysis.TotalImpacted, runningPods)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Update Service selectors before deleting this Deployment")
-	}
-	if runningPods > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Consider scaling down to 0 replicas first to gracefully terminate pods")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzeDeploymentImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Deployment",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Services that select this Deployment's pods
+// 	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, svc := range services.Items {
+// 		if len(svc.Spec.Selector) > 0 {
+// 			if matchesSelector(svc.Spec.Selector, deployment.Spec.Template.Labels) {
+// 				node := &ImpactNode{
+// 					Type:      "Service",
+// 					Name:      svc.Name,
+// 					Namespace: svc.Namespace,
+// 					Severity:  "critical",
+// 					Impact:    "Service selects this Deployment's pods - endpoints will be removed",
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				analysis.CriticalCount++
+// 			}
+// 		}
+// 	}
+// 
+// 	// Find HPA targeting this deployment
+// 	hpas, _ := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, hpa := range hpas.Items {
+// 		if hpa.Spec.ScaleTargetRef.Kind == "Deployment" && hpa.Spec.ScaleTargetRef.Name == name {
+// 			node := &ImpactNode{
+// 				Type:      "HorizontalPodAutoscaler",
+// 				Name:      hpa.Name,
+// 				Namespace: hpa.Namespace,
+// 				Severity:  "medium",
+// 				Impact:    "HPA targets this Deployment - autoscaling will be orphaned",
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.MediumCount++
+// 		}
+// 	}
+// 
+// 	// Add running pods info
+// 	pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+// 		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
+// 	})
+// 	runningPods := 0
+// 	for _, pod := range pods.Items {
+// 		if pod.Status.Phase == v1.PodRunning {
+// 			runningPods++
+// 		}
+// 	}
+// 	if runningPods > 0 {
+// 		node := &ImpactNode{
+// 			Type:       "Pod",
+// 			Name:       fmt.Sprintf("%d running pods", runningPods),
+// 			Namespace:  namespace,
+// 			Severity:   "high",
+// 			Impact:     "All running pods will be terminated",
+// 			Dependents: runningPods,
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.HighCount++
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Deployment '%s' will affect %d resource(s) including %d running pods",
+// 		name, analysis.TotalImpacted, runningPods)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Update Service selectors before deleting this Deployment")
+// 	}
+// 	if runningPods > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Consider scaling down to 0 replicas first to gracefully terminate pods")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzePodImpact analyzes what depends on a Pod
-func (ws *WebServer) analyzePodImpact(name, namespace string) (*ImpactAnalysis, error) {
-	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        name,
-		ResourceType:    "Pod",
-		Namespace:       namespace,
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find Services that select this Pod
-	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	for _, svc := range services.Items {
-		if len(svc.Spec.Selector) > 0 {
-			if matchesSelector(svc.Spec.Selector, pod.Labels) {
-				// Check if this is the only pod for this service
-				pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-					LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector}),
-				})
-				severity := "low"
-				impact := "Pod is one of multiple endpoints for this Service"
-				if len(pods.Items) <= 1 {
-					severity = "critical"
-					impact = "This is the only pod for this Service - service will have no endpoints"
-				}
-
-				node := &ImpactNode{
-					Type:      "Service",
-					Name:      svc.Name,
-					Namespace: svc.Namespace,
-					Severity:  severity,
-					Impact:    impact,
-				}
-				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-				if severity == "critical" {
-					analysis.CriticalCount++
-				} else {
-					analysis.LowCount++
-				}
-			}
-		}
-	}
-
-	// Check if pod is managed by a controller
-	for _, ownerRef := range pod.OwnerReferences {
-		if ownerRef.Controller != nil && *ownerRef.Controller {
-			node := &ImpactNode{
-				Type:      ownerRef.Kind,
-				Name:      ownerRef.Name,
-				Namespace: namespace,
-				Severity:  "low",
-				Impact:    fmt.Sprintf("Pod will be recreated by %s controller", ownerRef.Kind),
-			}
-			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-			analysis.LowCount++
-		}
-	}
-
-	analysis.TotalImpacted = len(analysis.ImpactedNodes)
-	analysis.Summary = fmt.Sprintf("Deleting Pod '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
-
-	if analysis.CriticalCount > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Ensure other pods are available for the Service before deleting")
-	}
-	if len(pod.OwnerReferences) == 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "This is an orphan pod - it will not be recreated after deletion")
-	}
-
-	return analysis, nil
-}
-
+// func (ws *WebServer) analyzePodImpact(name, namespace string) (*ImpactAnalysis, error) {
+// 	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        name,
+// 		ResourceType:    "Pod",
+// 		Namespace:       namespace,
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find Services that select this Pod
+// 	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	for _, svc := range services.Items {
+// 		if len(svc.Spec.Selector) > 0 {
+// 			if matchesSelector(svc.Spec.Selector, pod.Labels) {
+// 				// Check if this is the only pod for this service
+// 				pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
+// 					LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector}),
+// 				})
+// 				severity := "low"
+// 				impact := "Pod is one of multiple endpoints for this Service"
+// 				if len(pods.Items) <= 1 {
+// 					severity = "critical"
+// 					impact = "This is the only pod for this Service - service will have no endpoints"
+// 				}
+// 
+// 				node := &ImpactNode{
+// 					Type:      "Service",
+// 					Name:      svc.Name,
+// 					Namespace: svc.Namespace,
+// 					Severity:  severity,
+// 					Impact:    impact,
+// 				}
+// 				analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 				if severity == "critical" {
+// 					analysis.CriticalCount++
+// 				} else {
+// 					analysis.LowCount++
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// Check if pod is managed by a controller
+// 	for _, ownerRef := range pod.OwnerReferences {
+// 		if ownerRef.Controller != nil && *ownerRef.Controller {
+// 			node := &ImpactNode{
+// 				Type:      ownerRef.Kind,
+// 				Name:      ownerRef.Name,
+// 				Namespace: namespace,
+// 				Severity:  "low",
+// 				Impact:    fmt.Sprintf("Pod will be recreated by %s controller", ownerRef.Kind),
+// 			}
+// 			analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 			analysis.LowCount++
+// 		}
+// 	}
+// 
+// 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
+// 	analysis.Summary = fmt.Sprintf("Deleting Pod '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
+// 
+// 	if analysis.CriticalCount > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Ensure other pods are available for the Service before deleting")
+// 	}
+// 	if len(pod.OwnerReferences) == 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "This is an orphan pod - it will not be recreated after deletion")
+// 	}
+// 
+// 	return analysis, nil
+// }
+// 
 // analyzeNodeImpact analyzes what would be affected by a Node being unavailable
-func (ws *WebServer) analyzeNodeImpact(nodeName string) (*ImpactAnalysis, error) {
-	_, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	analysis := &ImpactAnalysis{
-		Resource:        nodeName,
-		ResourceType:    "Node",
-		Namespace:       "cluster-wide",
-		ImpactedNodes:   []*ImpactNode{},
-		Recommendations: []string{},
-	}
-
-	// Find all pods running on this node
-	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
-	})
-
-	deploymentPods := make(map[string]int)
-	statefulsetPods := make(map[string]int)
-	daemonsetPods := make(map[string]int)
-	standalonePods := []string{}
-
-	for _, pod := range pods.Items {
-		hasController := false
-		for _, ownerRef := range pod.OwnerReferences {
-			if ownerRef.Controller != nil && *ownerRef.Controller {
-				hasController = true
-				switch ownerRef.Kind {
-				case "ReplicaSet":
-					// Find the deployment
-					rs, err := ws.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ws.app.ctx, ownerRef.Name, metav1.GetOptions{})
-					if err == nil {
-						for _, rsOwner := range rs.OwnerReferences {
-							if rsOwner.Kind == "Deployment" {
-								key := fmt.Sprintf("%s/%s", pod.Namespace, rsOwner.Name)
-								deploymentPods[key]++
-							}
-						}
-					}
-				case "StatefulSet":
-					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
-					statefulsetPods[key]++
-				case "DaemonSet":
-					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
-					daemonsetPods[key]++
-				}
-				break
-			}
-		}
-		if !hasController {
-			standalonePods = append(standalonePods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
-		}
-	}
-
-	// Add deployment impacts
-	for key, count := range deploymentPods {
-		parts := strings.Split(key, "/")
-		node := &ImpactNode{
-			Type:       "Deployment",
-			Name:       parts[1],
-			Namespace:  parts[0],
-			Severity:   "medium",
-			Impact:     fmt.Sprintf("%d pod(s) will be rescheduled to other nodes", count),
-			Dependents: count,
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.MediumCount++
-	}
-
-	// Add statefulset impacts
-	for key, count := range statefulsetPods {
-		parts := strings.Split(key, "/")
-		node := &ImpactNode{
-			Type:       "StatefulSet",
-			Name:       parts[1],
-			Namespace:  parts[0],
-			Severity:   "high",
-			Impact:     fmt.Sprintf("%d pod(s) will need rescheduling - may require manual intervention for PVs", count),
-			Dependents: count,
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.HighCount++
-	}
-
-	// Add daemonset impacts
-	for key := range daemonsetPods {
-		parts := strings.Split(key, "/")
-		node := &ImpactNode{
-			Type:      "DaemonSet",
-			Name:      parts[1],
-			Namespace: parts[0],
-			Severity:  "low",
-			Impact:    "DaemonSet pod will not run on this node while unavailable",
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.LowCount++
-	}
-
-	// Add standalone pod impacts
-	if len(standalonePods) > 0 {
-		node := &ImpactNode{
-			Type:       "Pod (standalone)",
-			Name:       fmt.Sprintf("%d pods", len(standalonePods)),
-			Namespace:  "various",
-			Severity:   "critical",
-			Impact:     "Standalone pods will be lost permanently - no controller to reschedule",
-			Dependents: len(standalonePods),
-		}
-		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
-		analysis.CriticalCount++
-	}
-
-	analysis.TotalImpacted = len(pods.Items)
-	analysis.Summary = fmt.Sprintf("Node '%s' hosts %d pod(s) from %d workload(s)",
-		nodeName, len(pods.Items), len(analysis.ImpactedNodes))
-
-	if len(standalonePods) > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Migrate standalone pods to Deployments before draining node")
-	}
-	if len(statefulsetPods) > 0 {
-		analysis.Recommendations = append(analysis.Recommendations, "Verify PersistentVolumes are accessible from other nodes")
-	}
-	analysis.Recommendations = append(analysis.Recommendations, "Use 'kubectl drain' for graceful workload migration")
-
-	return analysis, nil
-}
+// func (ws *WebServer) analyzeNodeImpact(nodeName string) (*ImpactAnalysis, error) {
+// 	_, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, nodeName, metav1.GetOptions{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 
+// 	analysis := &ImpactAnalysis{
+// 		Resource:        nodeName,
+// 		ResourceType:    "Node",
+// 		Namespace:       "cluster-wide",
+// 		ImpactedNodes:   []*ImpactNode{},
+// 		Recommendations: []string{},
+// 	}
+// 
+// 	// Find all pods running on this node
+// 	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
+// 		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+// 	})
+// 
+// 	deploymentPods := make(map[string]int)
+// 	statefulsetPods := make(map[string]int)
+// 	daemonsetPods := make(map[string]int)
+// 	standalonePods := []string{}
+// 
+// 	for _, pod := range pods.Items {
+// 		hasController := false
+// 		for _, ownerRef := range pod.OwnerReferences {
+// 			if ownerRef.Controller != nil && *ownerRef.Controller {
+// 				hasController = true
+// 				switch ownerRef.Kind {
+// 				case "ReplicaSet":
+// 					// Find the deployment
+// 					rs, err := ws.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ws.app.ctx, ownerRef.Name, metav1.GetOptions{})
+// 					if err == nil {
+// 						for _, rsOwner := range rs.OwnerReferences {
+// 							if rsOwner.Kind == "Deployment" {
+// 								key := fmt.Sprintf("%s/%s", pod.Namespace, rsOwner.Name)
+// 								deploymentPods[key]++
+// 							}
+// 						}
+// 					}
+// 				case "StatefulSet":
+// 					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
+// 					statefulsetPods[key]++
+// 				case "DaemonSet":
+// 					key := fmt.Sprintf("%s/%s", pod.Namespace, ownerRef.Name)
+// 					daemonsetPods[key]++
+// 				}
+// 				break
+// 			}
+// 		}
+// 		if !hasController {
+// 			standalonePods = append(standalonePods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+// 		}
+// 	}
+// 
+// 	// Add deployment impacts
+// 	for key, count := range deploymentPods {
+// 		parts := strings.Split(key, "/")
+// 		node := &ImpactNode{
+// 			Type:       "Deployment",
+// 			Name:       parts[1],
+// 			Namespace:  parts[0],
+// 			Severity:   "medium",
+// 			Impact:     fmt.Sprintf("%d pod(s) will be rescheduled to other nodes", count),
+// 			Dependents: count,
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.MediumCount++
+// 	}
+// 
+// 	// Add statefulset impacts
+// 	for key, count := range statefulsetPods {
+// 		parts := strings.Split(key, "/")
+// 		node := &ImpactNode{
+// 			Type:       "StatefulSet",
+// 			Name:       parts[1],
+// 			Namespace:  parts[0],
+// 			Severity:   "high",
+// 			Impact:     fmt.Sprintf("%d pod(s) will need rescheduling - may require manual intervention for PVs", count),
+// 			Dependents: count,
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.HighCount++
+// 	}
+// 
+// 	// Add daemonset impacts
+// 	for key := range daemonsetPods {
+// 		parts := strings.Split(key, "/")
+// 		node := &ImpactNode{
+// 			Type:      "DaemonSet",
+// 			Name:      parts[1],
+// 			Namespace: parts[0],
+// 			Severity:  "low",
+// 			Impact:    "DaemonSet pod will not run on this node while unavailable",
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.LowCount++
+// 	}
+// 
+// 	// Add standalone pod impacts
+// 	if len(standalonePods) > 0 {
+// 		node := &ImpactNode{
+// 			Type:       "Pod (standalone)",
+// 			Name:       fmt.Sprintf("%d pods", len(standalonePods)),
+// 			Namespace:  "various",
+// 			Severity:   "critical",
+// 			Impact:     "Standalone pods will be lost permanently - no controller to reschedule",
+// 			Dependents: len(standalonePods),
+// 		}
+// 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
+// 		analysis.CriticalCount++
+// 	}
+// 
+// 	analysis.TotalImpacted = len(pods.Items)
+// 	analysis.Summary = fmt.Sprintf("Node '%s' hosts %d pod(s) from %d workload(s)",
+// 		nodeName, len(pods.Items), len(analysis.ImpactedNodes))
+// 
+// 	if len(standalonePods) > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Migrate standalone pods to Deployments before draining node")
+// 	}
+// 	if len(statefulsetPods) > 0 {
+// 		analysis.Recommendations = append(analysis.Recommendations, "Verify PersistentVolumes are accessible from other nodes")
+// 	}
+// 	analysis.Recommendations = append(analysis.Recommendations, "Use 'kubectl drain' for graceful workload migration")
+// 
+// 	return analysis, nil
+// }
 
 // getClusterMetrics collects cluster metrics
 func (ws *WebServer) getClusterMetrics() map[string]interface{} {
@@ -1962,444 +1476,245 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 }
 
 // matchesSelector checks if labels match selector
-func matchesSelector(selector, labels map[string]string) bool {
-	if len(selector) == 0 {
-		return false
-	}
-	for k, v := range selector {
-		if labels[k] != v {
-			return false
-		}
-	}
-	return true
-}
+// func matchesSelector(selector, labels map[string]string) bool {
+// 	if len(selector) == 0 {
+// 		return false
+// 	}
+// 	for k, v := range selector {
+// 		if labels[k] != v {
+// 			return false
+// 		}
+// 	}
+// 	return true
+// }
 
-// handleIngresses returns ingress list
-func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	// Handle "_all" namespace - query all namespaces
-	if namespace == "_all" {
-		namespace = ""
-	}
-	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	ingList := []map[string]interface{}{}
-	for _, ing := range ingresses.Items {
-		hosts := []string{}
-		for _, rule := range ing.Spec.Rules {
-			hosts = append(hosts, rule.Host)
-		}
-
-		// Get ingress class
-		ingressClass := ""
-		if ing.Spec.IngressClassName != nil {
-			ingressClass = *ing.Spec.IngressClassName
-		}
-
-		// Get load balancer address
-		address := ""
-		if len(ing.Status.LoadBalancer.Ingress) > 0 {
-			if ing.Status.LoadBalancer.Ingress[0].IP != "" {
-				address = ing.Status.LoadBalancer.Ingress[0].IP
-			} else if ing.Status.LoadBalancer.Ingress[0].Hostname != "" {
-				address = ing.Status.LoadBalancer.Ingress[0].Hostname
-			}
-		}
-
-		// Get ports
-		ports := "80"
-		if ing.Spec.TLS != nil && len(ing.Spec.TLS) > 0 {
-			ports = "80, 443"
-		}
-
-		ingList = append(ingList, map[string]interface{}{
-			"name":      ing.Name,
-			"hosts":     hosts,
-			"age":       formatAge(time.Since(ing.CreationTimestamp.Time)),
-			"namespace": ing.Namespace,
-			"class":     ingressClass,
-			"address":   address,
-			"ports":     ports,
-		})
-	}
-
-	json.NewEncoder(w).Encode(ingList)
-}
 
 // handleConfigMaps returns configmap list
-func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+// func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	cmList := []map[string]interface{}{}
+// 	for _, cm := range configmaps.Items {
+// 		cmList = append(cmList, map[string]interface{}{
+// 			"name":      cm.Name,
+// 			"data":      len(cm.Data),
+// 			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
+// 			"namespace": cm.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(cmList)
+// }
 
-	cmList := []map[string]interface{}{}
-	for _, cm := range configmaps.Items {
-		cmList = append(cmList, map[string]interface{}{
-			"name":      cm.Name,
-			"data":      len(cm.Data),
-			"age":       formatAge(time.Since(cm.CreationTimestamp.Time)),
-			"namespace": cm.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(cmList)
-}
-
-// handleSecrets returns secrets list
-func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	secretList := []map[string]interface{}{}
-	for _, secret := range secrets.Items {
-		secretList = append(secretList, map[string]interface{}{
-			"name":      secret.Name,
-			"type":      string(secret.Type),
-			"data":      len(secret.Data),
-			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
-			"namespace": secret.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(secretList)
-}
+// // handleSecrets returns secrets list
+// func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	secretList := []map[string]interface{}{}
+// 	for _, secret := range secrets.Items {
+// 		secretList = append(secretList, map[string]interface{}{
+// 			"name":      secret.Name,
+// 			"type":      string(secret.Type),
+// 			"data":      len(secret.Data),
+// 			"age":       formatAge(time.Since(secret.CreationTimestamp.Time)),
+// 			"namespace": secret.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(secretList)
+// }
 
 // handleResourceMap returns enhanced topology data
-func (ws *WebServer) handleResourceMap(w http.ResponseWriter, r *http.Request) {
-	nodes := []map[string]interface{}{}
-	links := []map[string]interface{}{}
-
-	// Get all resources
-	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	services, _ := ws.app.clientset.CoreV1().Services(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	deployments, _ := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	pods, _ := ws.app.clientset.CoreV1().Pods(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-	configmaps, _ := ws.app.clientset.CoreV1().ConfigMaps(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{})
-
-	// Add ingresses
-	for _, ing := range ingresses.Items {
-		nodes = append(nodes, map[string]interface{}{
-			"id":     fmt.Sprintf("ingress-%s", ing.Name),
-			"name":   ing.Name,
-			"type":   "ingress",
-			"group":  1,
-			"icon":   "🚪",
-			"status": "active",
-		})
-
-		// Link to services
-		for _, rule := range ing.Spec.Rules {
-			for _, path := range rule.HTTP.Paths {
-				links = append(links, map[string]interface{}{
-					"source": fmt.Sprintf("ingress-%s", ing.Name),
-					"target": fmt.Sprintf("service-%s", path.Backend.Service.Name),
-					"value":  1,
-				})
-			}
-		}
-	}
-
-	// Add services
-	for _, svc := range services.Items {
-		nodes = append(nodes, map[string]interface{}{
-			"id":     fmt.Sprintf("service-%s", svc.Name),
-			"name":   svc.Name,
-			"type":   "service",
-			"group":  2,
-			"icon":   "🌐",
-			"status": "active",
-		})
-	}
-
-	// Add deployments
-	for _, dep := range deployments.Items {
-		ready := dep.Status.ReadyReplicas == *dep.Spec.Replicas
-		status := "ready"
-		if !ready {
-			status = "degraded"
-		}
-
-		nodes = append(nodes, map[string]interface{}{
-			"id":       fmt.Sprintf("deployment-%s", dep.Name),
-			"name":     dep.Name,
-			"type":     "deployment",
-			"group":    3,
-			"icon":     "🚀",
-			"status":   status,
-			"replicas": fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
-		})
-
-		// Link services to deployments
-		for _, svc := range services.Items {
-			if matchesSelector(svc.Spec.Selector, dep.Spec.Template.Labels) {
-				links = append(links, map[string]interface{}{
-					"source": fmt.Sprintf("service-%s", svc.Name),
-					"target": fmt.Sprintf("deployment-%s", dep.Name),
-					"value":  1,
-				})
-			}
-		}
-
-		// Link deployments to configmaps
-		for _, vol := range dep.Spec.Template.Spec.Volumes {
-			if vol.ConfigMap != nil {
-				links = append(links, map[string]interface{}{
-					"source": fmt.Sprintf("deployment-%s", dep.Name),
-					"target": fmt.Sprintf("configmap-%s", vol.ConfigMap.Name),
-					"value":  1,
-				})
-			}
-		}
-	}
-
-	// Add pods (sample, not all)
-	podCount := 0
-	for _, pod := range pods.Items {
-		if podCount >= 10 { // Limit to avoid clutter
-			break
-		}
-		status := "running"
-		if pod.Status.Phase != "Running" {
-			status = "pending"
-		}
-
-		nodes = append(nodes, map[string]interface{}{
-			"id":     fmt.Sprintf("pod-%s", pod.Name),
-			"name":   pod.Name,
-			"type":   "pod",
-			"group":  4,
-			"icon":   "🎯",
-			"status": status,
-		})
-
-		// Link pods to deployments
-		if owner := pod.OwnerReferences; len(owner) > 0 && owner[0].Kind == "ReplicaSet" {
-			for _, dep := range deployments.Items {
-				// Simplified: check if pod name contains deployment name
-				if len(pod.Name) > len(dep.Name) && pod.Name[:len(dep.Name)] == dep.Name {
-					links = append(links, map[string]interface{}{
-						"source": fmt.Sprintf("deployment-%s", dep.Name),
-						"target": fmt.Sprintf("pod-%s", pod.Name),
-						"value":  1,
-					})
-					break
-				}
-			}
-		}
-		podCount++
-	}
-
-	// Add configmaps
-	for _, cm := range configmaps.Items {
-		nodes = append(nodes, map[string]interface{}{
-			"id":     fmt.Sprintf("configmap-%s", cm.Name),
-			"name":   cm.Name,
-			"type":   "configmap",
-			"group":  5,
-			"icon":   "⚙️",
-			"status": "active",
-		})
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"nodes": nodes,
-		"links": links,
-	})
-}
 
 // handlePodDetails returns detailed information about a specific pod
-func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Pod name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-
-	// Get pod
-	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Build containers info
-	containers := []map[string]interface{}{}
-	for _, c := range pod.Spec.Containers {
-		containerInfo := map[string]interface{}{
-			"name":  c.Name,
-			"image": c.Image,
-		}
-
-		// Find container status
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.Name == c.Name {
-				containerInfo["ready"] = cs.Ready
-				containerInfo["restartCount"] = cs.RestartCount
-				containerInfo["containerID"] = cs.ContainerID
-
-				// State information
-				if cs.State.Running != nil {
-					containerInfo["state"] = "Running"
-					containerInfo["startedAt"] = cs.State.Running.StartedAt.String()
-				} else if cs.State.Waiting != nil {
-					containerInfo["state"] = "Waiting"
-					containerInfo["reason"] = cs.State.Waiting.Reason
-					containerInfo["message"] = cs.State.Waiting.Message
-				} else if cs.State.Terminated != nil {
-					containerInfo["state"] = "Terminated"
-					containerInfo["reason"] = cs.State.Terminated.Reason
-					containerInfo["exitCode"] = cs.State.Terminated.ExitCode
-				}
-				break
-			}
-		}
-
-		containers = append(containers, containerInfo)
-	}
-
-	// Build volumes info
-	volumes := []map[string]interface{}{}
-	for _, v := range pod.Spec.Volumes {
-		volumeInfo := map[string]interface{}{
-			"name": v.Name,
-		}
-		if v.ConfigMap != nil {
-			volumeInfo["type"] = "ConfigMap"
-			volumeInfo["source"] = v.ConfigMap.Name
-		} else if v.Secret != nil {
-			volumeInfo["type"] = "Secret"
-			volumeInfo["source"] = v.Secret.SecretName
-		} else if v.PersistentVolumeClaim != nil {
-			volumeInfo["type"] = "PVC"
-			volumeInfo["source"] = v.PersistentVolumeClaim.ClaimName
-		} else if v.EmptyDir != nil {
-			volumeInfo["type"] = "EmptyDir"
-		} else {
-			volumeInfo["type"] = "Other"
-		}
-		volumes = append(volumes, volumeInfo)
-	}
-
-	// Build conditions
-	conditions := []map[string]interface{}{}
-	for _, c := range pod.Status.Conditions {
-		conditions = append(conditions, map[string]interface{}{
-			"type":    string(c.Type),
-			"status":  string(c.Status),
-			"reason":  c.Reason,
-			"message": c.Message,
-		})
-	}
-
-	// Get events
-	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s", name),
-	})
-
-	eventList := []map[string]interface{}{}
-	for _, e := range events.Items {
-		eventList = append(eventList, map[string]interface{}{
-			"type":    e.Type,
-			"reason":  e.Reason,
-			"message": e.Message,
-			"count":   e.Count,
-			"age":     formatAge(time.Since(e.LastTimestamp.Time)),
-		})
-	}
-
-	// Generate YAML (using kubectl-style format)
-	pod.ManagedFields = nil
-	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
-
-	// Get real-time metrics if available
-	var podMetrics map[string]interface{}
-	if ws.app.metricsClient != nil {
-		if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{}); err == nil {
-			// Calculate total CPU and memory
-			var totalCPU, totalMemory int64
-			containerMetrics := []map[string]interface{}{}
-
-			for _, cm := range metrics.Containers {
-				cpuMillis := cm.Usage.Cpu().MilliValue()
-				memoryBytes := cm.Usage.Memory().Value()
-				totalCPU += cpuMillis
-				totalMemory += memoryBytes
-
-				containerMetrics = append(containerMetrics, map[string]interface{}{
-					"name":        cm.Name,
-					"cpuMillis":   cpuMillis,
-					"cpu":         fmt.Sprintf("%dm", cpuMillis),
-					"memoryBytes": memoryBytes,
-					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
-				})
-			}
-
-			podMetrics = map[string]interface{}{
-				"totalCPU":         fmt.Sprintf("%dm", totalCPU),
-				"totalCPUMillis":   totalCPU,
-				"totalMemory":      fmt.Sprintf("%.2fMi", float64(totalMemory)/(1024*1024)),
-				"totalMemoryBytes": totalMemory,
-				"containers":       containerMetrics,
-				"timestamp":        metrics.Timestamp.String(),
-			}
-		}
-	}
-
-	// Build response
-	details := map[string]interface{}{
-		"success":    true,
-		"name":       pod.Name,
-		"namespace":  pod.Namespace,
-		"status":     string(pod.Status.Phase),
-		"ip":         pod.Status.PodIP,
-		"node":       pod.Spec.NodeName,
-		"qos":        string(pod.Status.QOSClass),
-		"created":    pod.CreationTimestamp.String(),
-		"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
-		"labels":     pod.Labels,
-		"containers": containers,
-		"volumes":    volumes,
-		"conditions": conditions,
-		"events":     eventList,
-		"yaml":       string(yamlData),
-		"metrics":    podMetrics,
-	}
-
-	json.NewEncoder(w).Encode(details)
-}
+// func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Pod name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Get pod
+// 	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Build containers info
+// 	containers := []map[string]interface{}{}
+// 	for _, c := range pod.Spec.Containers {
+// 		containerInfo := map[string]interface{}{
+// 			"name":  c.Name,
+// 			"image": c.Image,
+// 		}
+// 
+// 		// Find container status
+// 		for _, cs := range pod.Status.ContainerStatuses {
+// 			if cs.Name == c.Name {
+// 				containerInfo["ready"] = cs.Ready
+// 				containerInfo["restartCount"] = cs.RestartCount
+// 				containerInfo["containerID"] = cs.ContainerID
+// 
+// 				// State information
+// 				if cs.State.Running != nil {
+// 					containerInfo["state"] = "Running"
+// 					containerInfo["startedAt"] = cs.State.Running.StartedAt.String()
+// 				} else if cs.State.Waiting != nil {
+// 					containerInfo["state"] = "Waiting"
+// 					containerInfo["reason"] = cs.State.Waiting.Reason
+// 					containerInfo["message"] = cs.State.Waiting.Message
+// 				} else if cs.State.Terminated != nil {
+// 					containerInfo["state"] = "Terminated"
+// 					containerInfo["reason"] = cs.State.Terminated.Reason
+// 					containerInfo["exitCode"] = cs.State.Terminated.ExitCode
+// 				}
+// 				break
+// 			}
+// 		}
+// 
+// 		containers = append(containers, containerInfo)
+// 	}
+// 
+// 	// Build volumes info
+// 	volumes := []map[string]interface{}{}
+// 	for _, v := range pod.Spec.Volumes {
+// 		volumeInfo := map[string]interface{}{
+// 			"name": v.Name,
+// 		}
+// 		if v.ConfigMap != nil {
+// 			volumeInfo["type"] = "ConfigMap"
+// 			volumeInfo["source"] = v.ConfigMap.Name
+// 		} else if v.Secret != nil {
+// 			volumeInfo["type"] = "Secret"
+// 			volumeInfo["source"] = v.Secret.SecretName
+// 		} else if v.PersistentVolumeClaim != nil {
+// 			volumeInfo["type"] = "PVC"
+// 			volumeInfo["source"] = v.PersistentVolumeClaim.ClaimName
+// 		} else if v.EmptyDir != nil {
+// 			volumeInfo["type"] = "EmptyDir"
+// 		} else {
+// 			volumeInfo["type"] = "Other"
+// 		}
+// 		volumes = append(volumes, volumeInfo)
+// 	}
+// 
+// 	// Build conditions
+// 	conditions := []map[string]interface{}{}
+// 	for _, c := range pod.Status.Conditions {
+// 		conditions = append(conditions, map[string]interface{}{
+// 			"type":    string(c.Type),
+// 			"status":  string(c.Status),
+// 			"reason":  c.Reason,
+// 			"message": c.Message,
+// 		})
+// 	}
+// 
+// 	// Get events
+// 	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
+// 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", name),
+// 	})
+// 
+// 	eventList := []map[string]interface{}{}
+// 	for _, e := range events.Items {
+// 		eventList = append(eventList, map[string]interface{}{
+// 			"type":    e.Type,
+// 			"reason":  e.Reason,
+// 			"message": e.Message,
+// 			"count":   e.Count,
+// 			"age":     formatAge(time.Since(e.LastTimestamp.Time)),
+// 		})
+// 	}
+// 
+// 	// Generate YAML (using kubectl-style format)
+// 	pod.ManagedFields = nil
+// 	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
+// 
+// 	// Get real-time metrics if available
+// 	var podMetrics map[string]interface{}
+// 	if ws.app.metricsClient != nil {
+// 		if metrics, err := ws.app.metricsClient.MetricsV1beta1().PodMetricses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{}); err == nil {
+// 			// Calculate total CPU and memory
+// 			var totalCPU, totalMemory int64
+// 			containerMetrics := []map[string]interface{}{}
+// 
+// 			for _, cm := range metrics.Containers {
+// 				cpuMillis := cm.Usage.Cpu().MilliValue()
+// 				memoryBytes := cm.Usage.Memory().Value()
+// 				totalCPU += cpuMillis
+// 				totalMemory += memoryBytes
+// 
+// 				containerMetrics = append(containerMetrics, map[string]interface{}{
+// 					"name":        cm.Name,
+// 					"cpuMillis":   cpuMillis,
+// 					"cpu":         fmt.Sprintf("%dm", cpuMillis),
+// 					"memoryBytes": memoryBytes,
+// 					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
+// 				})
+// 			}
+// 
+// 			podMetrics = map[string]interface{}{
+// 				"totalCPU":         fmt.Sprintf("%dm", totalCPU),
+// 				"totalCPUMillis":   totalCPU,
+// 				"totalMemory":      fmt.Sprintf("%.2fMi", float64(totalMemory)/(1024*1024)),
+// 				"totalMemoryBytes": totalMemory,
+// 				"containers":       containerMetrics,
+// 				"timestamp":        metrics.Timestamp.String(),
+// 			}
+// 		}
+// 	}
+// 
+// 	// Build response
+// 	details := map[string]interface{}{
+// 		"success":    true,
+// 		"name":       pod.Name,
+// 		"namespace":  pod.Namespace,
+// 		"status":     string(pod.Status.Phase),
+// 		"ip":         pod.Status.PodIP,
+// 		"node":       pod.Spec.NodeName,
+// 		"qos":        string(pod.Status.QOSClass),
+// 		"created":    pod.CreationTimestamp.String(),
+// 		"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
+// 		"labels":     pod.Labels,
+// 		"containers": containers,
+// 		"volumes":    volumes,
+// 		"conditions": conditions,
+// 		"events":     eventList,
+// 		"yaml":       string(yamlData),
+// 		"metrics":    podMetrics,
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(details)
+// }
 
 // handlePodExec handles pod exec - serves web terminal for GET, executes commands for POST
 func (ws *WebServer) handlePodExec(w http.ResponseWriter, r *http.Request) {
@@ -4389,442 +3704,442 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 }
 
 // handleCertificates returns certificate list (cert-manager CRD)
-func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-
-	// Handle "_all" namespace
-	queryNs := namespace
-	if namespace == "_all" {
-		queryNs = ""
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
-
-	if err != nil {
-		// cert-manager may not be installed
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
-		return
-	}
-
-	certs := []map[string]interface{}{}
-	for _, cert := range certList.Items {
-		metadata := cert.Object["metadata"].(map[string]interface{})
-		spec := cert.Object["spec"].(map[string]interface{})
-
-		name := metadata["name"].(string)
-		ns := metadata["namespace"].(string)
-
-		// Get creation time for age
-		creationTimeStr, _ := metadata["creationTimestamp"].(string)
-		var age string
-		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
-			age = formatAge(time.Since(creationTime))
-		}
-
-		// Get secret name
-		secretName, _ := spec["secretName"].(string)
-
-		// Get issuer ref
-		var issuer string
-		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
-			issuerName, _ := issuerRef["name"].(string)
-			issuerKind, _ := issuerRef["kind"].(string)
-			if issuerKind == "" {
-				issuerKind = "Issuer"
-			}
-			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
-		}
-
-		// Get DNS names
-		var dnsNames []string
-		if dns, ok := spec["dnsNames"].([]interface{}); ok {
-			for _, d := range dns {
-				if s, ok := d.(string); ok {
-					dnsNames = append(dnsNames, s)
-				}
-			}
-		}
-
-		// Get status
-		status := "Unknown"
-		var notBefore, notAfter, renewalTime string
-		if statusObj, ok := cert.Object["status"].(map[string]interface{}); ok {
-			if conditions, ok := statusObj["conditions"].([]interface{}); ok {
-				for _, cond := range conditions {
-					if c, ok := cond.(map[string]interface{}); ok {
-						if c["type"] == "Ready" {
-							if c["status"] == "True" {
-								status = "Ready"
-							} else if c["status"] == "False" {
-								status = "Failed"
-							} else {
-								status = "Pending"
-							}
-							break
-						}
-					}
-				}
-			}
-			if nb, ok := statusObj["notBefore"].(string); ok {
-				notBefore = nb
-			}
-			if na, ok := statusObj["notAfter"].(string); ok {
-				notAfter = na
-			}
-			if rt, ok := statusObj["renewalTime"].(string); ok {
-				renewalTime = rt
-			}
-		}
-
-		certs = append(certs, map[string]interface{}{
-			"name":        name,
-			"namespace":   ns,
-			"secretName":  secretName,
-			"issuer":      issuer,
-			"status":      status,
-			"notBefore":   notBefore,
-			"notAfter":    notAfter,
-			"renewalTime": renewalTime,
-			"dnsNames":    dnsNames,
-			"age":         age,
-		})
-	}
-
-	json.NewEncoder(w).Encode(certs)
-}
-
-// handleCertificateYAML returns the YAML representation of a certificate
-func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Remove managed fields for cleaner YAML
-	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
-
-	yamlData, err := yaml.Marshal(cert.Object)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"yaml":    string(yamlData),
-	})
-}
-
-// handleCertificateUpdate updates a certificate from YAML
-func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "POST" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Read YAML from request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to read request body: %v", err),
-		})
-		return
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	// Unmarshal YAML to unstructured object
-	var cert unstructured.Unstructured
-	if err := yaml.Unmarshal(body, &cert); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
-		})
-		return
-	}
-
-	// Update the certificate
-	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Certificate %s updated successfully", name),
-	})
-}
-
-// handleCertificateDescribe returns kubectl describe output for a certificate
-func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"describe": describe,
-	})
-}
-
-// handleCertificateDelete deletes a certificate
-func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "DELETE" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Certificate name is required",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-
-	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
-	})
-}
+// func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Handle "_all" namespace
+// 	queryNs := namespace
+// 	if namespace == "_all" {
+// 		queryNs = ""
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode([]map[string]interface{}{})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
+// 
+// 	if err != nil {
+// 		// cert-manager may not be installed
+// 		json.NewEncoder(w).Encode([]map[string]interface{}{})
+// 		return
+// 	}
+// 
+// 	certs := []map[string]interface{}{}
+// 	for _, cert := range certList.Items {
+// 		metadata := cert.Object["metadata"].(map[string]interface{})
+// 		spec := cert.Object["spec"].(map[string]interface{})
+// 
+// 		name := metadata["name"].(string)
+// 		ns := metadata["namespace"].(string)
+// 
+// 		// Get creation time for age
+// 		creationTimeStr, _ := metadata["creationTimestamp"].(string)
+// 		var age string
+// 		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
+// 			age = formatAge(time.Since(creationTime))
+// 		}
+// 
+// 		// Get secret name
+// 		secretName, _ := spec["secretName"].(string)
+// 
+// 		// Get issuer ref
+// 		var issuer string
+// 		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
+// 			issuerName, _ := issuerRef["name"].(string)
+// 			issuerKind, _ := issuerRef["kind"].(string)
+// 			if issuerKind == "" {
+// 				issuerKind = "Issuer"
+// 			}
+// 			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
+// 		}
+// 
+// 		// Get DNS names
+// 		var dnsNames []string
+// 		if dns, ok := spec["dnsNames"].([]interface{}); ok {
+// 			for _, d := range dns {
+// 				if s, ok := d.(string); ok {
+// 					dnsNames = append(dnsNames, s)
+// 				}
+// 			}
+// 		}
+// 
+// 		// Get status
+// 		status := "Unknown"
+// 		var notBefore, notAfter, renewalTime string
+// 		if statusObj, ok := cert.Object["status"].(map[string]interface{}); ok {
+// 			if conditions, ok := statusObj["conditions"].([]interface{}); ok {
+// 				for _, cond := range conditions {
+// 					if c, ok := cond.(map[string]interface{}); ok {
+// 						if c["type"] == "Ready" {
+// 							if c["status"] == "True" {
+// 								status = "Ready"
+// 							} else if c["status"] == "False" {
+// 								status = "Failed"
+// 							} else {
+// 								status = "Pending"
+// 							}
+// 							break
+// 						}
+// 					}
+// 				}
+// 			}
+// 			if nb, ok := statusObj["notBefore"].(string); ok {
+// 				notBefore = nb
+// 			}
+// 			if na, ok := statusObj["notAfter"].(string); ok {
+// 				notAfter = na
+// 			}
+// 			if rt, ok := statusObj["renewalTime"].(string); ok {
+// 				renewalTime = rt
+// 			}
+// 		}
+// 
+// 		certs = append(certs, map[string]interface{}{
+// 			"name":        name,
+// 			"namespace":   ns,
+// 			"secretName":  secretName,
+// 			"issuer":      issuer,
+// 			"status":      status,
+// 			"notBefore":   notBefore,
+// 			"notAfter":    notAfter,
+// 			"renewalTime": renewalTime,
+// 			"dnsNames":    dnsNames,
+// 			"age":         age,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(certs)
+// }
+// 
+// // handleCertificateYAML returns the YAML representation of a certificate
+// func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Remove managed fields for cleaner YAML
+// 	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
+// 
+// 	yamlData, err := yaml.Marshal(cert.Object)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"yaml":    string(yamlData),
+// 	})
+// }
+// 
+// // handleCertificateUpdate updates a certificate from YAML
+// func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "POST" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Read YAML from request body
+// 	body, err := io.ReadAll(r.Body)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	// Unmarshal YAML to unstructured object
+// 	var cert unstructured.Unstructured
+// 	if err := yaml.Unmarshal(body, &cert); err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Update the certificate
+// 	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"message": fmt.Sprintf("Certificate %s updated successfully", name),
+// 	})
+// }
+// 
+// // handleCertificateDescribe returns kubectl describe output for a certificate
+// func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":  true,
+// 		"describe": describe,
+// 	})
+// }
+// 
+// // handleCertificateDelete deletes a certificate
+// func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "DELETE" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Certificate name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	certGVR := schema.GroupVersionResource{
+// 		Group:    "cert-manager.io",
+// 		Version:  "v1",
+// 		Resource: "certificates",
+// 	}
+// 
+// 	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
+// 	})
+// }
 
 // handleCronJobs returns cronjob list
-func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	cjList := []map[string]interface{}{}
-	for _, cj := range cronjobs.Items {
-		// Get last schedule time
-		lastSchedule := "Never"
-		if cj.Status.LastScheduleTime != nil {
-			lastSchedule = formatAge(time.Since(cj.Status.LastScheduleTime.Time)) + " ago"
-		}
-
-		// Get active jobs count
-		activeJobs := len(cj.Status.Active)
-
-		cjList = append(cjList, map[string]interface{}{
-			"name":         cj.Name,
-			"schedule":     cj.Spec.Schedule,
-			"suspend":      cj.Spec.Suspend != nil && *cj.Spec.Suspend,
-			"active":       activeJobs,
-			"lastSchedule": lastSchedule,
-			"age":          formatAge(time.Since(cj.CreationTimestamp.Time)),
-			"namespace":    cj.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(cjList)
-}
+// func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	cjList := []map[string]interface{}{}
+// 	for _, cj := range cronjobs.Items {
+// 		// Get last schedule time
+// 		lastSchedule := "Never"
+// 		if cj.Status.LastScheduleTime != nil {
+// 			lastSchedule = formatAge(time.Since(cj.Status.LastScheduleTime.Time)) + " ago"
+// 		}
+// 
+// 		// Get active jobs count
+// 		activeJobs := len(cj.Status.Active)
+// 
+// 		cjList = append(cjList, map[string]interface{}{
+// 			"name":         cj.Name,
+// 			"schedule":     cj.Spec.Schedule,
+// 			"suspend":      cj.Spec.Suspend != nil && *cj.Spec.Suspend,
+// 			"active":       activeJobs,
+// 			"lastSchedule": lastSchedule,
+// 			"age":          formatAge(time.Since(cj.CreationTimestamp.Time)),
+// 			"namespace":    cj.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(cjList)
+// }
 
 // handleJobs returns job list
-func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	jobList := []map[string]interface{}{}
-	for _, job := range jobs.Items {
-		// Determine status
-		status := "Running"
-		if job.Status.Succeeded > 0 {
-			status = "Complete"
-		} else if job.Status.Failed > 0 {
-			status = "Failed"
-		}
-
-		// Get completions
-		completions := "?"
-		if job.Spec.Completions != nil {
-			completions = fmt.Sprintf("%d", *job.Spec.Completions)
-		}
-
-		// Get duration
-		duration := "-"
-		if job.Status.CompletionTime != nil {
-			duration = formatAge(job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time))
-		} else if job.Status.StartTime != nil {
-			duration = formatAge(time.Since(job.Status.StartTime.Time))
-		}
-
-		jobList = append(jobList, map[string]interface{}{
-			"name":        job.Name,
-			"status":      status,
-			"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
-			"duration":    duration,
-			"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
-			"namespace":   job.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(jobList)
-}
+// func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if !r.URL.Query().Has("namespace") {
+// 		namespace = ws.app.namespace
+// 	}
+// 	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 
+// 	jobList := []map[string]interface{}{}
+// 	for _, job := range jobs.Items {
+// 		// Determine status
+// 		status := "Running"
+// 		if job.Status.Succeeded > 0 {
+// 			status = "Complete"
+// 		} else if job.Status.Failed > 0 {
+// 			status = "Failed"
+// 		}
+// 
+// 		// Get completions
+// 		completions := "?"
+// 		if job.Spec.Completions != nil {
+// 			completions = fmt.Sprintf("%d", *job.Spec.Completions)
+// 		}
+// 
+// 		// Get duration
+// 		duration := "-"
+// 		if job.Status.CompletionTime != nil {
+// 			duration = formatAge(job.Status.CompletionTime.Time.Sub(job.Status.StartTime.Time))
+// 		} else if job.Status.StartTime != nil {
+// 			duration = formatAge(time.Since(job.Status.StartTime.Time))
+// 		}
+// 
+// 		jobList = append(jobList, map[string]interface{}{
+// 			"name":        job.Name,
+// 			"status":      status,
+// 			"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
+// 			"duration":    duration,
+// 			"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
+// 			"namespace":   job.Namespace,
+// 		})
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(jobList)
+// }
 
 // handleStatefulSetDetails returns detailed information about a statefulset
 func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Request) {
@@ -5850,1836 +5165,1431 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleNamespaces returns list of all namespaces
-func (ws *WebServer) handleNamespaces(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	namespaces, err := ws.app.clientset.CoreV1().Namespaces().List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	nsList := []string{}
-	for _, ns := range namespaces.Items {
-		nsList = append(nsList, ns.Name)
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":    true,
-		"namespaces": nsList,
-	})
-}
 
 // handleContexts returns list of all available kubeconfig contexts
-func (ws *WebServer) handleContexts(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.contextManager == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":  false,
-			"error":    "Context manager not initialized",
-			"contexts": []interface{}{},
-		})
-		return
-	}
-
-	type ContextInfo struct {
-		Name          string `json:"name"`
-		Connected     bool   `json:"connected"`
-		Error         string `json:"error,omitempty"`
-		ServerVersion string `json:"serverVersion,omitempty"`
-		IsCurrent     bool   `json:"isCurrent"`
-	}
-
-	contexts := []ContextInfo{}
-	currentCtx := ws.app.GetCurrentContext()
-
-	for _, ctxName := range ws.app.GetContexts() {
-		ctx := ws.app.GetContextInfo(ctxName)
-		if ctx != nil {
-			contexts = append(contexts, ContextInfo{
-				Name:          ctx.Name,
-				Connected:     ctx.Connected,
-				Error:         ctx.Error,
-				ServerVersion: ctx.ServerVersion,
-				IsCurrent:     ctxName == currentCtx,
-			})
-		}
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":        true,
-		"contexts":       contexts,
-		"currentContext": currentCtx,
-	})
-}
-
-// handleCurrentContext returns the current active context
-func (ws *WebServer) handleCurrentContext(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	currentCtx := ws.app.GetCurrentContext()
-	ctxInfo := ws.app.GetContextInfo(currentCtx)
-
-	response := map[string]interface{}{
-		"success": true,
-		"context": currentCtx,
-	}
-
-	if ctxInfo != nil {
-		response["connected"] = ctxInfo.Connected
-		response["serverVersion"] = ctxInfo.ServerVersion
-		if ctxInfo.Error != "" {
-			response["error"] = ctxInfo.Error
-		}
-	}
-
-	json.NewEncoder(w).Encode(response)
-}
-
-// handleSwitchContext switches to a different kubeconfig context
-func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Context string `json:"context"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body",
-		})
-		return
-	}
-
-	if req.Context == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Context name is required",
-		})
-		return
-	}
-
-	if err := ws.app.SwitchContext(req.Context); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Clear cost cache when switching contexts (cost is cluster-specific)
-	ws.costCacheMu.Lock()
-	// Clear all cached costs to ensure fresh data for new cluster
-	ws.costCache = make(map[string]*ClusterCost)
-	ws.costCacheTime = make(map[string]time.Time)
-	ws.costCacheMu.Unlock()
-
-	// Broadcast context change to all WebSocket clients
-	contextMsg := map[string]interface{}{
-		"type":    "contextSwitch",
-		"context": req.Context,
-	}
-	for client := range ws.clients {
-		if err := client.WriteJSON(contextMsg); err != nil {
-			client.Close()
-			delete(ws.clients, client)
-		}
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"context": req.Context,
-		"message": "Successfully switched to context: " + req.Context,
-	})
-}
 
 // findAvailablePort finds an available port starting from the given port
-func findAvailablePort(startPort int) (int, error) {
-	for port := startPort; port < startPort+100; port++ {
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		if err == nil {
-			listener.Close()
-			return port, nil
-		}
-	}
-	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+100)
-}
-
-// handlePortForwardStart starts a port-forward session
-func (ws *WebServer) handlePortForwardStart(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	var resourceType, name, namespace string
-	var remotePort, localPort int
-	var err error
-
-	// Support both POST JSON body and GET query params
-	if r.Method == "POST" {
-		var req struct {
-			Type       string `json:"type"`
-			Name       string `json:"name"`
-			Namespace  string `json:"namespace"`
-			LocalPort  int    `json:"localPort"`
-			RemotePort int    `json:"remotePort"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"error":   "Invalid request body: " + err.Error(),
-			})
-			return
-		}
-		resourceType = req.Type
-		name = req.Name
-		namespace = req.Namespace
-		localPort = req.LocalPort
-		remotePort = req.RemotePort
-	} else {
-		resourceType = r.URL.Query().Get("type")
-		name = r.URL.Query().Get("name")
-		namespace = r.URL.Query().Get("namespace")
-		remotePortStr := r.URL.Query().Get("remotePort")
-		localPortStr := r.URL.Query().Get("localPort")
-
-		if remotePortStr != "" {
-			remotePort, _ = strconv.Atoi(remotePortStr)
-		}
-		if localPortStr != "" {
-			localPort, _ = strconv.Atoi(localPortStr)
-		}
-	}
-
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	if name == "" || remotePort == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name and remotePort are required",
-		})
-		return
-	}
-
-	if localPort == 0 {
-		// Find an available port
-		localPort, err = findAvailablePort(remotePort)
-		if err != nil {
-			localPort, _ = findAvailablePort(8080)
-		}
-	}
-
-	// Generate session ID
-	sessionID := fmt.Sprintf("%s-%s-%s-%d", resourceType, namespace, name, remotePort)
-
-	// Check if already forwarding
-	ws.pfMu.Lock()
-	if _, exists := ws.portForwards[sessionID]; exists {
-		ws.pfMu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Port forward already active for this resource",
-		})
-		return
-	}
-	ws.pfMu.Unlock()
-
-	// For services, we need to find a pod behind the service
-	targetPodName := name
-	targetNamespace := namespace
-	if resourceType == "service" {
-		svc, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Service not found: %v", err), http.StatusNotFound)
-			return
-		}
-
-		// Get pods matching the service selector
-		labelSelector := ""
-		for k, v := range svc.Spec.Selector {
-			if labelSelector != "" {
-				labelSelector += ","
-			}
-			labelSelector += fmt.Sprintf("%s=%s", k, v)
-		}
-
-		pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil || len(pods.Items) == 0 {
-			http.Error(w, "No pods found for service", http.StatusNotFound)
-			return
-		}
-
-		// Use the first running pod
-		for _, pod := range pods.Items {
-			if pod.Status.Phase == v1.PodRunning {
-				targetPodName = pod.Name
-				break
-			}
-		}
-	}
-
-	// Create the port-forward request
-	req := ws.app.clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Namespace(targetNamespace).
-		Name(targetPodName).
-		SubResource("portforward")
-
-	transport, upgrader, err := spdy.RoundTripperFor(ws.app.config)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create transport: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, req.URL())
-
-	stopChan := make(chan struct{}, 1)
-	readyChan := make(chan struct{})
-	errChan := make(chan error, 1)
-
-	ports := []string{fmt.Sprintf("%d:%d", localPort, remotePort)}
-
-	// Create port forwarder
-	pf, err := portforward.New(dialer, ports, stopChan, readyChan, nil, nil)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create port forwarder: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Start port forwarding in background
-	go func() {
-		if err := pf.ForwardPorts(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	// Wait for ready or error
-	select {
-	case <-readyChan:
-		// Port forward is ready
-	case err := <-errChan:
-		http.Error(w, fmt.Sprintf("Port forward failed: %v", err), http.StatusInternalServerError)
-		return
-	case <-time.After(10 * time.Second):
-		close(stopChan)
-		http.Error(w, "Port forward timeout", http.StatusGatewayTimeout)
-		return
-	}
-
-	// Store the session
-	session := &PortForwardSession{
-		ID:         sessionID,
-		Type:       resourceType,
-		Name:       name,
-		Namespace:  namespace,
-		LocalPort:  localPort,
-		RemotePort: remotePort,
-		StartedAt:  time.Now(),
-		stopChan:   stopChan,
-		readyChan:  readyChan,
-	}
-
-	ws.pfMu.Lock()
-	ws.portForwards[sessionID] = session
-	ws.pfMu.Unlock()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":    true,
-		"id":         sessionID,
-		"localPort":  localPort,
-		"remotePort": remotePort,
-		"url":        fmt.Sprintf("http://localhost:%d", localPort),
-	})
-}
-
-// handlePortForwardStop stops a port-forward session
-func (ws *WebServer) handlePortForwardStop(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	sessionID := r.URL.Query().Get("id")
-	if sessionID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
-		return
-	}
-
-	ws.pfMu.Lock()
-	session, exists := ws.portForwards[sessionID]
-	if !exists {
-		ws.pfMu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Port forward session not found",
-		})
-		return
-	}
-
-	// Stop the port forward
-	close(session.stopChan)
-	delete(ws.portForwards, sessionID)
-	ws.pfMu.Unlock()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Port forward stopped",
-	})
-}
-
-// handlePortForwardList lists all active port-forward sessions
-func (ws *WebServer) handlePortForwardList(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	ws.pfMu.Lock()
-	sessions := make([]map[string]interface{}, 0)
-	for _, session := range ws.portForwards {
-		sessions = append(sessions, map[string]interface{}{
-			"id":         session.ID,
-			"type":       session.Type,
-			"name":       session.Name,
-			"namespace":  session.Namespace,
-			"localPort":  session.LocalPort,
-			"remotePort": session.RemotePort,
-			"startedAt":  session.StartedAt.Format(time.RFC3339),
-			"duration":   formatAge(time.Since(session.StartedAt)),
-			"url":        fmt.Sprintf("http://localhost:%d", session.LocalPort),
-		})
-	}
-	ws.pfMu.Unlock()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"sessions": sessions,
-	})
-}
 
 // SecurityFinding represents a security recommendation
-type SecurityFinding struct {
-	Severity    string `json:"severity"`    // critical, high, medium, low
-	Category    string `json:"category"`    // security-context, network-policy, ingress-ports, etc.
-	Resource    string `json:"resource"`    // resource type (Pod, Deployment, Ingress, etc.)
-	Name        string `json:"name"`        // resource name
-	Namespace   string `json:"namespace"`   // namespace
-	Title       string `json:"title"`       // short description
-	Description string `json:"description"` // detailed description
-	Remediation string `json:"remediation"` // how to fix
-}
-
-// handleSecurityAnalysis performs security best practices analysis
-func (ws *WebServer) handleSecurityAnalysis(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	findings := []SecurityFinding{}
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		namespace = ws.app.namespace
-	}
-
-	// Use empty string for all namespaces
-	listNamespace := namespace
-	if namespace == "_all" {
-		listNamespace = ""
-	}
-
-	// 1. Check Pods for missing SecurityContext
-	pods, err := ws.app.clientset.CoreV1().Pods(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, pod := range pods.Items {
-			// Skip completed/failed pods
-			if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
-				continue
-			}
-
-			hasSecurityContext := false
-			runAsNonRoot := false
-			readOnlyRootFS := false
-			privileged := false
-			allowPrivilegeEscalation := true // default is true
-
-			// Check pod-level security context
-			if pod.Spec.SecurityContext != nil {
-				hasSecurityContext = true
-				if pod.Spec.SecurityContext.RunAsNonRoot != nil && *pod.Spec.SecurityContext.RunAsNonRoot {
-					runAsNonRoot = true
-				}
-			}
-
-			// Check container-level security contexts
-			for _, container := range pod.Spec.Containers {
-				if container.SecurityContext != nil {
-					hasSecurityContext = true
-					if container.SecurityContext.RunAsNonRoot != nil && *container.SecurityContext.RunAsNonRoot {
-						runAsNonRoot = true
-					}
-					if container.SecurityContext.ReadOnlyRootFilesystem != nil && *container.SecurityContext.ReadOnlyRootFilesystem {
-						readOnlyRootFS = true
-					}
-					if container.SecurityContext.Privileged != nil && *container.SecurityContext.Privileged {
-						privileged = true
-					}
-					if container.SecurityContext.AllowPrivilegeEscalation != nil && !*container.SecurityContext.AllowPrivilegeEscalation {
-						allowPrivilegeEscalation = false
-					}
-				}
-			}
-
-			// Finding: No SecurityContext at all
-			if !hasSecurityContext {
-				findings = append(findings, SecurityFinding{
-					Severity:    "critical",
-					Category:    "security-context",
-					Resource:    "Pod",
-					Name:        pod.Name,
-					Namespace:   pod.Namespace,
-					Title:       "Missing SecurityContext",
-					Description: "Pod has no SecurityContext defined. This is a critical security risk as containers run with default privileges.",
-					Remediation: "Add a SecurityContext to the pod or container spec with runAsNonRoot: true, readOnlyRootFilesystem: true, and allowPrivilegeEscalation: false",
-				})
-			} else {
-				// Check individual security settings
-				if !runAsNonRoot {
-					findings = append(findings, SecurityFinding{
-						Severity:    "high",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Container may run as root",
-						Description: "Pod does not enforce runAsNonRoot. Containers could run as root user, increasing attack surface.",
-						Remediation: "Set securityContext.runAsNonRoot: true in the pod or container spec",
-					})
-				}
-
-				if privileged {
-					findings = append(findings, SecurityFinding{
-						Severity:    "critical",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Privileged container detected",
-						Description: "Container is running in privileged mode. This grants full access to the host system.",
-						Remediation: "Remove privileged: true from the container securityContext unless absolutely necessary",
-					})
-				}
-
-				if allowPrivilegeEscalation {
-					findings = append(findings, SecurityFinding{
-						Severity:    "medium",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Privilege escalation allowed",
-						Description: "Container allows privilege escalation. Processes could gain more privileges than their parent.",
-						Remediation: "Set securityContext.allowPrivilegeEscalation: false",
-					})
-				}
-
-				if !readOnlyRootFS {
-					findings = append(findings, SecurityFinding{
-						Severity:    "low",
-						Category:    "security-context",
-						Resource:    "Pod",
-						Name:        pod.Name,
-						Namespace:   pod.Namespace,
-						Title:       "Root filesystem is writable",
-						Description: "Container filesystem is writable. Attackers could modify files if container is compromised.",
-						Remediation: "Set securityContext.readOnlyRootFilesystem: true and use emptyDir volumes for writable paths",
-					})
-				}
-			}
-		}
-	}
-
-	// 2. Check for missing NetworkPolicies
-	// Get all namespaces that have pods
-	namespacesWithPods := make(map[string]bool)
-	if pods != nil {
-		for _, pod := range pods.Items {
-			namespacesWithPods[pod.Namespace] = true
-		}
-	}
-
-	// Check which namespaces have NetworkPolicies
-	networkPolicies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	namespacesWithNetPol := make(map[string]bool)
-	if err == nil {
-		for _, np := range networkPolicies.Items {
-			namespacesWithNetPol[np.Namespace] = true
-		}
-	}
-
-	// Report namespaces without NetworkPolicies
-	for ns := range namespacesWithPods {
-		if !namespacesWithNetPol[ns] {
-			// Skip system namespaces
-			if ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease" {
-				continue
-			}
-			findings = append(findings, SecurityFinding{
-				Severity:    "high",
-				Category:    "network-policy",
-				Resource:    "Namespace",
-				Name:        ns,
-				Namespace:   ns,
-				Title:       "No NetworkPolicy defined",
-				Description: "Namespace has no NetworkPolicy. All pods can communicate with any other pod in the cluster by default.",
-				Remediation: "Create NetworkPolicies to restrict ingress and egress traffic. Start with a default-deny policy.",
-			})
-		}
-	}
-
-	// 3. Check Ingresses for insecure ports
-	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err == nil {
-		insecurePorts := map[int32]string{
-			80:   "HTTP (unencrypted)",
-			8080: "Common HTTP alternative (unencrypted)",
-			8000: "Common development port",
-			3000: "Common development port",
-		}
-
-		for _, ing := range ingresses.Items {
-			// Check if TLS is configured
-			hasTLS := len(ing.Spec.TLS) > 0
-
-			for _, rule := range ing.Spec.Rules {
-				if rule.HTTP != nil {
-					for _, path := range rule.HTTP.Paths {
-						port := path.Backend.Service.Port.Number
-						if portDesc, isInsecure := insecurePorts[port]; isInsecure {
-							severity := "medium"
-							if port == 80 || port == 8080 {
-								severity = "high"
-							}
-							findings = append(findings, SecurityFinding{
-								Severity:    severity,
-								Category:    "ingress-ports",
-								Resource:    "Ingress",
-								Name:        ing.Name,
-								Namespace:   ing.Namespace,
-								Title:       fmt.Sprintf("Using port %d (%s)", port, portDesc),
-								Description: fmt.Sprintf("Ingress routes traffic to port %d. Using default or well-known ports can be a security risk.", port),
-								Remediation: "Consider using non-standard ports and ensure TLS termination is configured",
-							})
-						}
-					}
-				}
-			}
-
-			// Check for missing TLS
-			if !hasTLS {
-				findings = append(findings, SecurityFinding{
-					Severity:    "high",
-					Category:    "ingress-tls",
-					Resource:    "Ingress",
-					Name:        ing.Name,
-					Namespace:   ing.Namespace,
-					Title:       "No TLS configured",
-					Description: "Ingress does not have TLS configured. Traffic may be transmitted unencrypted.",
-					Remediation: "Configure TLS in the Ingress spec with a valid certificate",
-				})
-			}
-		}
-	}
-
-	// 4. Check Services for NodePort exposure
-	services, err := ws.app.clientset.CoreV1().Services(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, svc := range services.Items {
-			if svc.Spec.Type == v1.ServiceTypeNodePort {
-				findings = append(findings, SecurityFinding{
-					Severity:    "medium",
-					Category:    "service-exposure",
-					Resource:    "Service",
-					Name:        svc.Name,
-					Namespace:   svc.Namespace,
-					Title:       "NodePort service exposed",
-					Description: "Service is exposed via NodePort, making it accessible on all cluster nodes.",
-					Remediation: "Consider using LoadBalancer or Ingress with proper access controls instead of NodePort",
-				})
-			}
-
-			if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
-				// Check if external traffic policy is set to Local
-				if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
-					findings = append(findings, SecurityFinding{
-						Severity:    "low",
-						Category:    "service-exposure",
-						Resource:    "Service",
-						Name:        svc.Name,
-						Namespace:   svc.Namespace,
-						Title:       "External traffic policy not optimized",
-						Description: "LoadBalancer service uses Cluster external traffic policy. Client source IP is not preserved.",
-						Remediation: "Set externalTrafficPolicy: Local to preserve client source IP for security logging",
-					})
-				}
-			}
-		}
-	}
-
-	// Calculate summary statistics
-	summary := map[string]int{
-		"critical": 0,
-		"high":     0,
-		"medium":   0,
-		"low":      0,
-		"total":    len(findings),
-	}
-
-	for _, f := range findings {
-		summary[f.Severity]++
-	}
-
-	// Calculate security score (0-100)
-	// Weight: critical=40, high=25, medium=10, low=5
-	totalWeight := summary["critical"]*40 + summary["high"]*25 + summary["medium"]*10 + summary["low"]*5
-	maxScore := 100
-	score := maxScore - totalWeight
-	if score < 0 {
-		score = 0
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"findings": findings,
-		"summary":  summary,
-		"score":    score,
-	})
-}
+// type SecurityFinding struct {
+// 	Severity    string `json:"severity"`    // critical, high, medium, low
+// 	Category    string `json:"category"`    // security-context, network-policy, ingress-ports, etc.
+// 	Resource    string `json:"resource"`    // resource type (Pod, Deployment, Ingress, etc.)
+// 	Name        string `json:"name"`        // resource name
+// 	Namespace   string `json:"namespace"`   // namespace
+// 	Title       string `json:"title"`       // short description
+// 	Description string `json:"description"` // detailed description
+// 	Remediation string `json:"remediation"` // how to fix
+// }
+// 
+// // handleSecurityAnalysis performs security best practices analysis
+// func (ws *WebServer) handleSecurityAnalysis(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	findings := []SecurityFinding{}
+// 	namespace := r.URL.Query().Get("namespace")
+// 	if namespace == "" {
+// 		namespace = ws.app.namespace
+// 	}
+// 
+// 	// Use empty string for all namespaces
+// 	listNamespace := namespace
+// 	if namespace == "_all" {
+// 		listNamespace = ""
+// 	}
+// 
+// 	// 1. Check Pods for missing SecurityContext
+// 	pods, err := ws.app.clientset.CoreV1().Pods(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err == nil {
+// 		for _, pod := range pods.Items {
+// 			// Skip completed/failed pods
+// 			if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
+// 				continue
+// 			}
+// 
+// 			hasSecurityContext := false
+// 			runAsNonRoot := false
+// 			readOnlyRootFS := false
+// 			privileged := false
+// 			allowPrivilegeEscalation := true // default is true
+// 
+// 			// Check pod-level security context
+// 			if pod.Spec.SecurityContext != nil {
+// 				hasSecurityContext = true
+// 				if pod.Spec.SecurityContext.RunAsNonRoot != nil && *pod.Spec.SecurityContext.RunAsNonRoot {
+// 					runAsNonRoot = true
+// 				}
+// 			}
+// 
+// 			// Check container-level security contexts
+// 			for _, container := range pod.Spec.Containers {
+// 				if container.SecurityContext != nil {
+// 					hasSecurityContext = true
+// 					if container.SecurityContext.RunAsNonRoot != nil && *container.SecurityContext.RunAsNonRoot {
+// 						runAsNonRoot = true
+// 					}
+// 					if container.SecurityContext.ReadOnlyRootFilesystem != nil && *container.SecurityContext.ReadOnlyRootFilesystem {
+// 						readOnlyRootFS = true
+// 					}
+// 					if container.SecurityContext.Privileged != nil && *container.SecurityContext.Privileged {
+// 						privileged = true
+// 					}
+// 					if container.SecurityContext.AllowPrivilegeEscalation != nil && !*container.SecurityContext.AllowPrivilegeEscalation {
+// 						allowPrivilegeEscalation = false
+// 					}
+// 				}
+// 			}
+// 
+// 			// Finding: No SecurityContext at all
+// 			if !hasSecurityContext {
+// 				findings = append(findings, SecurityFinding{
+// 					Severity:    "critical",
+// 					Category:    "security-context",
+// 					Resource:    "Pod",
+// 					Name:        pod.Name,
+// 					Namespace:   pod.Namespace,
+// 					Title:       "Missing SecurityContext",
+// 					Description: "Pod has no SecurityContext defined. This is a critical security risk as containers run with default privileges.",
+// 					Remediation: "Add a SecurityContext to the pod or container spec with runAsNonRoot: true, readOnlyRootFilesystem: true, and allowPrivilegeEscalation: false",
+// 				})
+// 			} else {
+// 				// Check individual security settings
+// 				if !runAsNonRoot {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "high",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Container may run as root",
+// 						Description: "Pod does not enforce runAsNonRoot. Containers could run as root user, increasing attack surface.",
+// 						Remediation: "Set securityContext.runAsNonRoot: true in the pod or container spec",
+// 					})
+// 				}
+// 
+// 				if privileged {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "critical",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Privileged container detected",
+// 						Description: "Container is running in privileged mode. This grants full access to the host system.",
+// 						Remediation: "Remove privileged: true from the container securityContext unless absolutely necessary",
+// 					})
+// 				}
+// 
+// 				if allowPrivilegeEscalation {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "medium",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Privilege escalation allowed",
+// 						Description: "Container allows privilege escalation. Processes could gain more privileges than their parent.",
+// 						Remediation: "Set securityContext.allowPrivilegeEscalation: false",
+// 					})
+// 				}
+// 
+// 				if !readOnlyRootFS {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "low",
+// 						Category:    "security-context",
+// 						Resource:    "Pod",
+// 						Name:        pod.Name,
+// 						Namespace:   pod.Namespace,
+// 						Title:       "Root filesystem is writable",
+// 						Description: "Container filesystem is writable. Attackers could modify files if container is compromised.",
+// 						Remediation: "Set securityContext.readOnlyRootFilesystem: true and use emptyDir volumes for writable paths",
+// 					})
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// 2. Check for missing NetworkPolicies
+// 	// Get all namespaces that have pods
+// 	namespacesWithPods := make(map[string]bool)
+// 	if pods != nil {
+// 		for _, pod := range pods.Items {
+// 			namespacesWithPods[pod.Namespace] = true
+// 		}
+// 	}
+// 
+// 	// Check which namespaces have NetworkPolicies
+// 	networkPolicies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	namespacesWithNetPol := make(map[string]bool)
+// 	if err == nil {
+// 		for _, np := range networkPolicies.Items {
+// 			namespacesWithNetPol[np.Namespace] = true
+// 		}
+// 	}
+// 
+// 	// Report namespaces without NetworkPolicies
+// 	for ns := range namespacesWithPods {
+// 		if !namespacesWithNetPol[ns] {
+// 			// Skip system namespaces
+// 			if ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease" {
+// 				continue
+// 			}
+// 			findings = append(findings, SecurityFinding{
+// 				Severity:    "high",
+// 				Category:    "network-policy",
+// 				Resource:    "Namespace",
+// 				Name:        ns,
+// 				Namespace:   ns,
+// 				Title:       "No NetworkPolicy defined",
+// 				Description: "Namespace has no NetworkPolicy. All pods can communicate with any other pod in the cluster by default.",
+// 				Remediation: "Create NetworkPolicies to restrict ingress and egress traffic. Start with a default-deny policy.",
+// 			})
+// 		}
+// 	}
+// 
+// 	// 3. Check Ingresses for insecure ports
+// 	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err == nil {
+// 		insecurePorts := map[int32]string{
+// 			80:   "HTTP (unencrypted)",
+// 			8080: "Common HTTP alternative (unencrypted)",
+// 			8000: "Common development port",
+// 			3000: "Common development port",
+// 		}
+// 
+// 		for _, ing := range ingresses.Items {
+// 			// Check if TLS is configured
+// 			hasTLS := len(ing.Spec.TLS) > 0
+// 
+// 			for _, rule := range ing.Spec.Rules {
+// 				if rule.HTTP != nil {
+// 					for _, path := range rule.HTTP.Paths {
+// 						port := path.Backend.Service.Port.Number
+// 						if portDesc, isInsecure := insecurePorts[port]; isInsecure {
+// 							severity := "medium"
+// 							if port == 80 || port == 8080 {
+// 								severity = "high"
+// 							}
+// 							findings = append(findings, SecurityFinding{
+// 								Severity:    severity,
+// 								Category:    "ingress-ports",
+// 								Resource:    "Ingress",
+// 								Name:        ing.Name,
+// 								Namespace:   ing.Namespace,
+// 								Title:       fmt.Sprintf("Using port %d (%s)", port, portDesc),
+// 								Description: fmt.Sprintf("Ingress routes traffic to port %d. Using default or well-known ports can be a security risk.", port),
+// 								Remediation: "Consider using non-standard ports and ensure TLS termination is configured",
+// 							})
+// 						}
+// 					}
+// 				}
+// 			}
+// 
+// 			// Check for missing TLS
+// 			if !hasTLS {
+// 				findings = append(findings, SecurityFinding{
+// 					Severity:    "high",
+// 					Category:    "ingress-tls",
+// 					Resource:    "Ingress",
+// 					Name:        ing.Name,
+// 					Namespace:   ing.Namespace,
+// 					Title:       "No TLS configured",
+// 					Description: "Ingress does not have TLS configured. Traffic may be transmitted unencrypted.",
+// 					Remediation: "Configure TLS in the Ingress spec with a valid certificate",
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// 4. Check Services for NodePort exposure
+// 	services, err := ws.app.clientset.CoreV1().Services(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	if err == nil {
+// 		for _, svc := range services.Items {
+// 			if svc.Spec.Type == v1.ServiceTypeNodePort {
+// 				findings = append(findings, SecurityFinding{
+// 					Severity:    "medium",
+// 					Category:    "service-exposure",
+// 					Resource:    "Service",
+// 					Name:        svc.Name,
+// 					Namespace:   svc.Namespace,
+// 					Title:       "NodePort service exposed",
+// 					Description: "Service is exposed via NodePort, making it accessible on all cluster nodes.",
+// 					Remediation: "Consider using LoadBalancer or Ingress with proper access controls instead of NodePort",
+// 				})
+// 			}
+// 
+// 			if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
+// 				// Check if external traffic policy is set to Local
+// 				if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
+// 					findings = append(findings, SecurityFinding{
+// 						Severity:    "low",
+// 						Category:    "service-exposure",
+// 						Resource:    "Service",
+// 						Name:        svc.Name,
+// 						Namespace:   svc.Namespace,
+// 						Title:       "External traffic policy not optimized",
+// 						Description: "LoadBalancer service uses Cluster external traffic policy. Client source IP is not preserved.",
+// 						Remediation: "Set externalTrafficPolicy: Local to preserve client source IP for security logging",
+// 					})
+// 				}
+// 			}
+// 		}
+// 	}
+// 
+// 	// Calculate summary statistics
+// 	summary := map[string]int{
+// 		"critical": 0,
+// 		"high":     0,
+// 		"medium":   0,
+// 		"low":      0,
+// 		"total":    len(findings),
+// 	}
+// 
+// 	for _, f := range findings {
+// 		summary[f.Severity]++
+// 	}
+// 
+// 	// Calculate security score (0-100)
+// 	// Weight: critical=40, high=25, medium=10, low=5
+// 	totalWeight := summary["critical"]*40 + summary["high"]*25 + summary["medium"]*10 + summary["low"]*5
+// 	maxScore := 100
+// 	score := maxScore - totalWeight
+// 	if score < 0 {
+// 		score = 0
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":  true,
+// 		"findings": findings,
+// 		"summary":  summary,
+// 		"score":    score,
+// 	})
+// }
 
 // HelmRelease represents a Helm release
-type HelmRelease struct {
-	Name       string `json:"name"`
-	Namespace  string `json:"namespace"`
-	Revision   int    `json:"revision"`
-	Status     string `json:"status"`
-	Chart      string `json:"chart"`
-	AppVersion string `json:"appVersion"`
-	Updated    string `json:"updated"`
-}
-
-// handleHelmReleases returns all Helm releases in the cluster
-func (ws *WebServer) handleHelmReleases(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-
-	var releases []HelmRelease
-
-	// Helm stores releases as secrets with owner=helm label
-	listOptions := metav1.ListOptions{
-		LabelSelector: "owner=helm",
-	}
-
-	var secrets *v1.SecretList
-	var err error
-
-	if namespace == "" || namespace == "All Namespaces" {
-		secrets, err = ws.app.clientset.CoreV1().Secrets("").List(ws.app.ctx, listOptions)
-	} else {
-		secrets, err = ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
-	}
-
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Parse Helm secrets to extract release information
-	releaseMap := make(map[string]*HelmRelease)
-
-	for _, secret := range secrets.Items {
-		// Get release name from label
-		releaseName := secret.Labels["name"]
-		if releaseName == "" {
-			continue
-		}
-
-		// Get status from label
-		status := secret.Labels["status"]
-		if status == "" {
-			status = "unknown"
-		}
-
-		// Get version/revision
-		versionStr := secret.Labels["version"]
-		version := 1
-		if versionStr != "" {
-			if v, err := strconv.Atoi(versionStr); err == nil {
-				version = v
-			}
-		}
-
-		key := fmt.Sprintf("%s/%s", secret.Namespace, releaseName)
-
-		// Keep only the latest revision
-		if existing, ok := releaseMap[key]; ok {
-			if version > existing.Revision {
-				releaseMap[key] = &HelmRelease{
-					Name:      releaseName,
-					Namespace: secret.Namespace,
-					Revision:  version,
-					Status:    status,
-					Chart:     extractChartName(secret.Data),
-					Updated:   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
-				}
-			}
-		} else {
-			releaseMap[key] = &HelmRelease{
-				Name:      releaseName,
-				Namespace: secret.Namespace,
-				Revision:  version,
-				Status:    status,
-				Chart:     extractChartName(secret.Data),
-				Updated:   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
-			}
-		}
-	}
-
-	// Convert map to slice
-	for _, release := range releaseMap {
-		releases = append(releases, *release)
-	}
-
-	// Sort by namespace then name
-	sort.Slice(releases, func(i, j int) bool {
-		if releases[i].Namespace != releases[j].Namespace {
-			return releases[i].Namespace < releases[j].Namespace
-		}
-		return releases[i].Name < releases[j].Name
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"releases": releases,
-		"count":    len(releases),
-	})
-}
-
-// extractChartName tries to extract chart name from Helm secret data
-func extractChartName(data map[string][]byte) string {
-	// Helm 3 stores release data in a "release" key, gzip compressed and base64 encoded
-	// For simplicity, we'll just return a placeholder
-	// Full implementation would decode and decompress the data
-	return "chart"
-}
-
-// handleHelmReleaseDetails returns details for a specific Helm release
-func (ws *WebServer) handleHelmReleaseDetails(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if name == "" || namespace == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name and namespace are required",
-		})
-		return
-	}
-
-	// Get all secrets for this release
-	listOptions := metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
-	}
-
-	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	var history []map[string]interface{}
-	for _, secret := range secrets.Items {
-		versionStr := secret.Labels["version"]
-		version := 1
-		if versionStr != "" {
-			if v, err := strconv.Atoi(versionStr); err == nil {
-				version = v
-			}
-		}
-
-		history = append(history, map[string]interface{}{
-			"revision":  version,
-			"status":    secret.Labels["status"],
-			"updated":   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
-			"createdAt": secret.CreationTimestamp,
-		})
-	}
-
-	// Sort by revision descending
-	sort.Slice(history, func(i, j int) bool {
-		return history[i]["revision"].(int) > history[j]["revision"].(int)
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"name":      name,
-		"namespace": namespace,
-		"history":   history,
-	})
-}
-
-// handleHelmReleaseHistory returns the full history for a Helm release
-func (ws *WebServer) handleHelmReleaseHistory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if name == "" || namespace == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name and namespace are required",
-		})
-		return
-	}
-
-	// Get all secrets for this release
-	listOptions := metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
-	}
-
-	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	var history []map[string]interface{}
-	for _, secret := range secrets.Items {
-		versionStr := secret.Labels["version"]
-		version := 1
-		if versionStr != "" {
-			if v, err := strconv.Atoi(versionStr); err == nil {
-				version = v
-			}
-		}
-
-		// Get chart info from secret data
-		chart := "unknown"
-		appVersion := ""
-		description := ""
-
-		// Try to decode the release data
-		if releaseData, ok := secret.Data["release"]; ok {
-			// Helm stores release data as base64 + gzip + protobuf
-			// For simplicity, we'll just get what we can from labels
-			_ = releaseData
-		}
-
-		history = append(history, map[string]interface{}{
-			"revision":    version,
-			"status":      secret.Labels["status"],
-			"chart":       chart,
-			"appVersion":  appVersion,
-			"description": description,
-			"updated":     secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
-			"createdAt":   secret.CreationTimestamp,
-		})
-	}
-
-	// Sort by revision descending
-	sort.Slice(history, func(i, j int) bool {
-		return history[i]["revision"].(int) > history[j]["revision"].(int)
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"name":      name,
-		"namespace": namespace,
-		"history":   history,
-		"total":     len(history),
-	})
-}
-
-// handleHelmRollback rolls back a Helm release to a specific revision
-func (ws *WebServer) handleHelmRollback(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "POST" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	// Parse request body
-	var req struct {
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
-		Revision  int    `json:"revision"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body: " + err.Error(),
-		})
-		return
-	}
-
-	if req.Name == "" || req.Namespace == "" || req.Revision == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name, namespace, and revision are required",
-		})
-		return
-	}
-
-	// Execute helm rollback command
-	cmd := exec.Command("helm", "rollback", req.Name, strconv.Itoa(req.Revision), "-n", req.Namespace)
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Rollback failed: %s - %s", err.Error(), string(output)),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"message":  fmt.Sprintf("Successfully rolled back %s to revision %d", req.Name, req.Revision),
-		"output":   string(output),
-		"name":     req.Name,
-		"revision": req.Revision,
-	})
-}
-
-// KustomizeResource represents a resource managed by Kustomize
-type KustomizeResource struct {
-	Kind      string            `json:"kind"`
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	Age       string            `json:"age"`
-	Labels    map[string]string `json:"labels"`
-}
-
-// handleKustomizeResources returns resources managed by Kustomize
-func (ws *WebServer) handleKustomizeResources(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.clientset == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-
-	var resources []KustomizeResource
-
-	// Query deployments with kustomize managed-by label
-	deploymentListOptions := metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=kustomize",
-	}
-
-	var deployments interface{}
-	var err error
-
-	if namespace == "" || namespace == "All Namespaces" {
-		deployments, err = ws.app.clientset.AppsV1().Deployments("").List(ws.app.ctx, deploymentListOptions)
-	} else {
-		deployments, err = ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, deploymentListOptions)
-	}
-
-	if err == nil {
-		if depList, ok := deployments.(*appsv1.DeploymentList); ok {
-			for _, dep := range depList.Items {
-				resources = append(resources, KustomizeResource{
-					Kind:      "Deployment",
-					Name:      dep.Name,
-					Namespace: dep.Namespace,
-					Age:       formatAge(time.Since(dep.CreationTimestamp.Time)),
-					Labels:    dep.Labels,
-				})
-			}
-		}
-	}
-
-	// Query services with kustomize managed-by label
-	if namespace == "" || namespace == "All Namespaces" {
-		svcList, err := ws.app.clientset.CoreV1().Services("").List(ws.app.ctx, deploymentListOptions)
-		if err == nil {
-			for _, svc := range svcList.Items {
-				resources = append(resources, KustomizeResource{
-					Kind:      "Service",
-					Name:      svc.Name,
-					Namespace: svc.Namespace,
-					Age:       formatAge(time.Since(svc.CreationTimestamp.Time)),
-					Labels:    svc.Labels,
-				})
-			}
-		}
-	} else {
-		svcList, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, deploymentListOptions)
-		if err == nil {
-			for _, svc := range svcList.Items {
-				resources = append(resources, KustomizeResource{
-					Kind:      "Service",
-					Name:      svc.Name,
-					Namespace: svc.Namespace,
-					Age:       formatAge(time.Since(svc.CreationTimestamp.Time)),
-					Labels:    svc.Labels,
-				})
-			}
-		}
-	}
-
-	// Query ConfigMaps with kustomize managed-by label
-	if namespace == "" || namespace == "All Namespaces" {
-		cmList, err := ws.app.clientset.CoreV1().ConfigMaps("").List(ws.app.ctx, deploymentListOptions)
-		if err == nil {
-			for _, cm := range cmList.Items {
-				resources = append(resources, KustomizeResource{
-					Kind:      "ConfigMap",
-					Name:      cm.Name,
-					Namespace: cm.Namespace,
-					Age:       formatAge(time.Since(cm.CreationTimestamp.Time)),
-					Labels:    cm.Labels,
-				})
-			}
-		}
-	} else {
-		cmList, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, deploymentListOptions)
-		if err == nil {
-			for _, cm := range cmList.Items {
-				resources = append(resources, KustomizeResource{
-					Kind:      "ConfigMap",
-					Name:      cm.Name,
-					Namespace: cm.Namespace,
-					Age:       formatAge(time.Since(cm.CreationTimestamp.Time)),
-					Labels:    cm.Labels,
-				})
-			}
-		}
-	}
-
-	// Sort by namespace then kind then name
-	sort.Slice(resources, func(i, j int) bool {
-		if resources[i].Namespace != resources[j].Namespace {
-			return resources[i].Namespace < resources[j].Namespace
-		}
-		if resources[i].Kind != resources[j].Kind {
-			return resources[i].Kind < resources[j].Kind
-		}
-		return resources[i].Name < resources[j].Name
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"resources": resources,
-		"count":     len(resources),
-	})
-}
-
-// ArgoCDApp represents an ArgoCD Application
-type ArgoCDApp struct {
-	Name       string `json:"name"`
-	Namespace  string `json:"namespace"`
-	Project    string `json:"project"`
-	SyncStatus string `json:"syncStatus"`
-	Health     string `json:"health"`
-	RepoURL    string `json:"repoURL"`
-	Path       string `json:"path"`
-	Revision   string `json:"revision"`
-	Cluster    string `json:"cluster"`
-	Age        string `json:"age"`
-}
-
-// handleArgoCDApps returns ArgoCD Applications
-func (ws *WebServer) handleArgoCDApps(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.config == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   false,
-			"error":     "Not connected to cluster",
-			"installed": false,
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   false,
-			"error":     err.Error(),
-			"installed": false,
-		})
-		return
-	}
-
-	// ArgoCD Application GVR
-	appGVR := schema.GroupVersionResource{
-		Group:    "argoproj.io",
-		Version:  "v1alpha1",
-		Resource: "applications",
-	}
-
-	var apps []ArgoCDApp
-	var appList *unstructured.UnstructuredList
-
-	if namespace == "" || namespace == "All Namespaces" {
-		appList, err = dynamicClient.Resource(appGVR).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
-	} else {
-		appList, err = dynamicClient.Resource(appGVR).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	}
-
-	if err != nil {
-		// Check if ArgoCD is not installed
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no matches") {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":   true,
-				"apps":      []ArgoCDApp{},
-				"count":     0,
-				"installed": false,
-				"message":   "ArgoCD is not installed in this cluster",
-			})
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   false,
-			"error":     err.Error(),
-			"installed": false,
-		})
-		return
-	}
-
-	for _, item := range appList.Items {
-		spec, _, _ := unstructured.NestedMap(item.Object, "spec")
-		status, _, _ := unstructured.NestedMap(item.Object, "status")
-
-		syncStatus := "Unknown"
-		health := "Unknown"
-
-		if syncStatusMap, ok := status["sync"].(map[string]interface{}); ok {
-			if s, ok := syncStatusMap["status"].(string); ok {
-				syncStatus = s
-			}
-		}
-
-		if healthMap, ok := status["health"].(map[string]interface{}); ok {
-			if h, ok := healthMap["status"].(string); ok {
-				health = h
-			}
-		}
-
-		project := "default"
-		if p, ok := spec["project"].(string); ok {
-			project = p
-		}
-
-		repoURL := ""
-		path := ""
-		revision := ""
-		if source, ok := spec["source"].(map[string]interface{}); ok {
-			if r, ok := source["repoURL"].(string); ok {
-				repoURL = r
-			}
-			if p, ok := source["path"].(string); ok {
-				path = p
-			}
-			if rev, ok := source["targetRevision"].(string); ok {
-				revision = rev
-			}
-		}
-
-		cluster := ""
-		if dest, ok := spec["destination"].(map[string]interface{}); ok {
-			if s, ok := dest["server"].(string); ok {
-				cluster = s
-			} else if n, ok := dest["name"].(string); ok {
-				cluster = n
-			}
-		}
-
-		creationTime := item.GetCreationTimestamp()
-
-		apps = append(apps, ArgoCDApp{
-			Name:       item.GetName(),
-			Namespace:  item.GetNamespace(),
-			Project:    project,
-			SyncStatus: syncStatus,
-			Health:     health,
-			RepoURL:    repoURL,
-			Path:       path,
-			Revision:   revision,
-			Cluster:    cluster,
-			Age:        formatAge(time.Since(creationTime.Time)),
-		})
-	}
-
-	// Sort by namespace then name
-	sort.Slice(apps, func(i, j int) bool {
-		if apps[i].Namespace != apps[j].Namespace {
-			return apps[i].Namespace < apps[j].Namespace
-		}
-		return apps[i].Name < apps[j].Name
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"apps":      apps,
-		"count":     len(apps),
-		"installed": true,
-	})
-}
-
-// handleArgoCDAppDetails returns details for a specific ArgoCD Application
-func (ws *WebServer) handleArgoCDAppDetails(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.config == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name is required",
-		})
-		return
-	}
-
-	// Default to argocd namespace if not specified
-	if namespace == "" {
-		namespace = "argocd"
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	appGVR := schema.GroupVersionResource{
-		Group:    "argoproj.io",
-		Version:  "v1alpha1",
-		Resource: "applications",
-	}
-
-	app, err := dynamicClient.Resource(appGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Get detailed info
-	spec, _, _ := unstructured.NestedMap(app.Object, "spec")
-	status, _, _ := unstructured.NestedMap(app.Object, "status")
-
-	// Extract sync history
-	var syncHistory []map[string]interface{}
-	if history, found, _ := unstructured.NestedSlice(status, "history"); found {
-		for _, h := range history {
-			if hMap, ok := h.(map[string]interface{}); ok {
-				syncHistory = append(syncHistory, map[string]interface{}{
-					"id":         hMap["id"],
-					"revision":   hMap["revision"],
-					"deployedAt": hMap["deployedAt"],
-					"source":     hMap["source"],
-				})
-			}
-		}
-	}
-
-	// Extract resource status
-	var resources []map[string]interface{}
-	if res, found, _ := unstructured.NestedSlice(status, "resources"); found {
-		for _, r := range res {
-			if rMap, ok := r.(map[string]interface{}); ok {
-				resources = append(resources, map[string]interface{}{
-					"kind":      rMap["kind"],
-					"name":      rMap["name"],
-					"namespace": rMap["namespace"],
-					"status":    rMap["status"],
-					"health":    rMap["health"],
-				})
-			}
-		}
-	}
-
-	// Get conditions
-	var conditions []map[string]interface{}
-	if conds, found, _ := unstructured.NestedSlice(status, "conditions"); found {
-		for _, c := range conds {
-			if cMap, ok := c.(map[string]interface{}); ok {
-				conditions = append(conditions, map[string]interface{}{
-					"type":    cMap["type"],
-					"status":  cMap["status"],
-					"message": cMap["message"],
-				})
-			}
-		}
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"name":         app.GetName(),
-		"namespace":    app.GetNamespace(),
-		"spec":         spec,
-		"status":       status,
-		"history":      syncHistory,
-		"resources":    resources,
-		"conditions":   conditions,
-		"historyCount": len(syncHistory),
-	})
-}
-
-// handleArgoCDSync triggers a sync for an ArgoCD Application
-func (ws *WebServer) handleArgoCDSync(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "POST" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	if ws.app.config == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	// Parse request body
-	var req struct {
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
-		Prune     bool   `json:"prune"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body: " + err.Error(),
-		})
-		return
-	}
-
-	if req.Name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name is required",
-		})
-		return
-	}
-
-	// Default to argocd namespace if not specified
-	if req.Namespace == "" {
-		req.Namespace = "argocd"
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	appGVR := schema.GroupVersionResource{
-		Group:    "argoproj.io",
-		Version:  "v1alpha1",
-		Resource: "applications",
-	}
-
-	// Get current app
-	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Failed to get application: " + err.Error(),
-		})
-		return
-	}
-
-	// Set operation to trigger sync
-	operation := map[string]interface{}{
-		"sync": map[string]interface{}{
-			"prune": req.Prune,
-		},
-	}
-	unstructured.SetNestedMap(app.Object, operation, "operation")
-
-	// Update the application to trigger sync
-	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Failed to trigger sync: " + err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Sync triggered for %s", req.Name),
-		"name":    req.Name,
-	})
-}
-
-// handleArgoCDRefresh triggers a refresh for an ArgoCD Application
-func (ws *WebServer) handleArgoCDRefresh(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "POST" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Method not allowed",
-		})
-		return
-	}
-
-	if ws.app.config == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Not connected to cluster",
-		})
-		return
-	}
-
-	// Parse request body
-	var req struct {
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
-		Hard      bool   `json:"hard"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body: " + err.Error(),
-		})
-		return
-	}
-
-	if req.Name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "name is required",
-		})
-		return
-	}
-
-	// Default to argocd namespace if not specified
-	if req.Namespace == "" {
-		req.Namespace = "argocd"
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	appGVR := schema.GroupVersionResource{
-		Group:    "argoproj.io",
-		Version:  "v1alpha1",
-		Resource: "applications",
-	}
-
-	// Get current app
-	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Failed to get application: " + err.Error(),
-		})
-		return
-	}
-
-	// Update refresh annotation to trigger refresh
-	annotations := app.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-
-	if req.Hard {
-		annotations["argocd.argoproj.io/refresh"] = "hard"
-	} else {
-		annotations["argocd.argoproj.io/refresh"] = "normal"
-	}
-	app.SetAnnotations(annotations)
-
-	// Update the application to trigger refresh
-	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Failed to trigger refresh: " + err.Error(),
-		})
-		return
-	}
-
-	refreshType := "normal"
-	if req.Hard {
-		refreshType = "hard"
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":     true,
-		"message":     fmt.Sprintf("Refresh (%s) triggered for %s", refreshType, req.Name),
-		"name":        req.Name,
-		"refreshType": refreshType,
-	})
-}
-
-// FluxResource represents a Flux resource (Kustomization, HelmRelease, GitRepository, etc.)
-type FluxResource struct {
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Ready     string `json:"ready"`
-	Status    string `json:"status"`
-	Age       string `json:"age"`
-	SourceRef string `json:"sourceRef,omitempty"`
-	Revision  string `json:"revision,omitempty"`
-}
-
-// handleFluxResources returns Flux resources
-func (ws *WebServer) handleFluxResources(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.config == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   false,
-			"error":     "Not connected to cluster",
-			"installed": false,
-		})
-		return
-	}
-
-	namespace := r.URL.Query().Get("namespace")
-
-	// Create dynamic client for CRD access
-	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   false,
-			"error":     err.Error(),
-			"installed": false,
-		})
-		return
-	}
-
-	var resources []FluxResource
-	fluxInstalled := false
-
-	// Flux CRD definitions
-	fluxCRDs := []struct {
-		group    string
-		version  string
-		resource string
-		kind     string
-	}{
-		{"kustomize.toolkit.fluxcd.io", "v1", "kustomizations", "Kustomization"},
-		{"helm.toolkit.fluxcd.io", "v2", "helmreleases", "HelmRelease"},
-		{"source.toolkit.fluxcd.io", "v1", "gitrepositories", "GitRepository"},
-		{"source.toolkit.fluxcd.io", "v1", "helmrepositories", "HelmRepository"},
-		{"source.toolkit.fluxcd.io", "v1", "ocirepositories", "OCIRepository"},
-	}
-
-	for _, crd := range fluxCRDs {
-		gvr := schema.GroupVersionResource{
-			Group:    crd.group,
-			Version:  crd.version,
-			Resource: crd.resource,
-		}
-
-		var list *unstructured.UnstructuredList
-		if namespace == "" || namespace == "All Namespaces" {
-			list, err = dynamicClient.Resource(gvr).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
-		} else {
-			list, err = dynamicClient.Resource(gvr).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
-		}
-
-		if err != nil {
-			// CRD not found, skip
-			continue
-		}
-
-		fluxInstalled = true
-
-		for _, item := range list.Items {
-			ready := "Unknown"
-			statusMsg := ""
-			revision := ""
-			sourceRef := ""
-
-			// Get status conditions
-			if status, ok := item.Object["status"].(map[string]interface{}); ok {
-				if conditions, ok := status["conditions"].([]interface{}); ok {
-					for _, cond := range conditions {
-						if condMap, ok := cond.(map[string]interface{}); ok {
-							if condType, _ := condMap["type"].(string); condType == "Ready" {
-								if condStatus, _ := condMap["status"].(string); condStatus == "True" {
-									ready = "True"
-								} else {
-									ready = "False"
-								}
-								if msg, _ := condMap["message"].(string); msg != "" {
-									statusMsg = msg
-									// Truncate long messages
-									if len(statusMsg) > 50 {
-										statusMsg = statusMsg[:47] + "..."
-									}
-								}
-								break
-							}
-						}
-					}
-				}
-
-				// Get last applied revision
-				if rev, ok := status["lastAppliedRevision"].(string); ok {
-					revision = rev
-				} else if rev, ok := status["artifact"].(map[string]interface{}); ok {
-					if r, ok := rev["revision"].(string); ok {
-						revision = r
-					}
-				}
-			}
-
-			// Get source reference for Kustomizations and HelmReleases
-			if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
-				if sr, ok := spec["sourceRef"].(map[string]interface{}); ok {
-					kind, _ := sr["kind"].(string)
-					name, _ := sr["name"].(string)
-					sourceRef = fmt.Sprintf("%s/%s", kind, name)
-				}
-			}
-
-			creationTime := item.GetCreationTimestamp()
-
-			resources = append(resources, FluxResource{
-				Kind:      crd.kind,
-				Name:      item.GetName(),
-				Namespace: item.GetNamespace(),
-				Ready:     ready,
-				Status:    statusMsg,
-				Age:       formatAge(time.Since(creationTime.Time)),
-				SourceRef: sourceRef,
-				Revision:  revision,
-			})
-		}
-	}
-
-	if !fluxInstalled {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   true,
-			"resources": []FluxResource{},
-			"count":     0,
-			"installed": false,
-			"message":   "Flux is not installed in this cluster",
-		})
-		return
-	}
-
-	// Sort by kind then namespace then name
-	sort.Slice(resources, func(i, j int) bool {
-		if resources[i].Kind != resources[j].Kind {
-			return resources[i].Kind < resources[j].Kind
-		}
-		if resources[i].Namespace != resources[j].Namespace {
-			return resources[i].Namespace < resources[j].Namespace
-		}
-		return resources[i].Name < resources[j].Name
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"resources": resources,
-		"count":     len(resources),
-		"installed": true,
-	})
-}
+// type HelmRelease struct {
+// 	Name       string `json:"name"`
+// 	Namespace  string `json:"namespace"`
+// 	Revision   int    `json:"revision"`
+// 	Status     string `json:"status"`
+// 	Chart      string `json:"chart"`
+// 	AppVersion string `json:"appVersion"`
+// 	Updated    string `json:"updated"`
+// }
+// 
+// // handleHelmReleases returns all Helm releases in the cluster
+// func (ws *WebServer) handleHelmReleases(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	var releases []HelmRelease
+// 
+// 	// Helm stores releases as secrets with owner=helm label
+// 	listOptions := metav1.ListOptions{
+// 		LabelSelector: "owner=helm",
+// 	}
+// 
+// 	var secrets *v1.SecretList
+// 	var err error
+// 
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		secrets, err = ws.app.clientset.CoreV1().Secrets("").List(ws.app.ctx, listOptions)
+// 	} else {
+// 		secrets, err = ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
+// 	}
+// 
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Parse Helm secrets to extract release information
+// 	releaseMap := make(map[string]*HelmRelease)
+// 
+// 	for _, secret := range secrets.Items {
+// 		// Get release name from label
+// 		releaseName := secret.Labels["name"]
+// 		if releaseName == "" {
+// 			continue
+// 		}
+// 
+// 		// Get status from label
+// 		status := secret.Labels["status"]
+// 		if status == "" {
+// 			status = "unknown"
+// 		}
+// 
+// 		// Get version/revision
+// 		versionStr := secret.Labels["version"]
+// 		version := 1
+// 		if versionStr != "" {
+// 			if v, err := strconv.Atoi(versionStr); err == nil {
+// 				version = v
+// 			}
+// 		}
+// 
+// 		key := fmt.Sprintf("%s/%s", secret.Namespace, releaseName)
+// 
+// 		// Keep only the latest revision
+// 		if existing, ok := releaseMap[key]; ok {
+// 			if version > existing.Revision {
+// 				releaseMap[key] = &HelmRelease{
+// 					Name:      releaseName,
+// 					Namespace: secret.Namespace,
+// 					Revision:  version,
+// 					Status:    status,
+// 					Chart:     extractChartName(secret.Data),
+// 					Updated:   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+// 				}
+// 			}
+// 		} else {
+// 			releaseMap[key] = &HelmRelease{
+// 				Name:      releaseName,
+// 				Namespace: secret.Namespace,
+// 				Revision:  version,
+// 				Status:    status,
+// 				Chart:     extractChartName(secret.Data),
+// 				Updated:   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+// 			}
+// 		}
+// 	}
+// 
+// 	// Convert map to slice
+// 	for _, release := range releaseMap {
+// 		releases = append(releases, *release)
+// 	}
+// 
+// 	// Sort by namespace then name
+// 	sort.Slice(releases, func(i, j int) bool {
+// 		if releases[i].Namespace != releases[j].Namespace {
+// 			return releases[i].Namespace < releases[j].Namespace
+// 		}
+// 		return releases[i].Name < releases[j].Name
+// 	})
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":  true,
+// 		"releases": releases,
+// 		"count":    len(releases),
+// 	})
+// }
+// 
+// // extractChartName tries to extract chart name from Helm secret data
+// func extractChartName(data map[string][]byte) string {
+// 	// Helm 3 stores release data in a "release" key, gzip compressed and base64 encoded
+// 	// For simplicity, we'll just return a placeholder
+// 	// Full implementation would decode and decompress the data
+// 	return "chart"
+// }
+// 
+// // handleHelmReleaseDetails returns details for a specific Helm release
+// func (ws *WebServer) handleHelmReleaseDetails(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	if name == "" || namespace == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "name and namespace are required",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Get all secrets for this release
+// 	listOptions := metav1.ListOptions{
+// 		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
+// 	}
+// 
+// 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	var history []map[string]interface{}
+// 	for _, secret := range secrets.Items {
+// 		versionStr := secret.Labels["version"]
+// 		version := 1
+// 		if versionStr != "" {
+// 			if v, err := strconv.Atoi(versionStr); err == nil {
+// 				version = v
+// 			}
+// 		}
+// 
+// 		history = append(history, map[string]interface{}{
+// 			"revision":  version,
+// 			"status":    secret.Labels["status"],
+// 			"updated":   secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+// 			"createdAt": secret.CreationTimestamp,
+// 		})
+// 	}
+// 
+// 	// Sort by revision descending
+// 	sort.Slice(history, func(i, j int) bool {
+// 		return history[i]["revision"].(int) > history[j]["revision"].(int)
+// 	})
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":   true,
+// 		"name":      name,
+// 		"namespace": namespace,
+// 		"history":   history,
+// 	})
+// }
+// 
+// // handleHelmReleaseHistory returns the full history for a Helm release
+// func (ws *WebServer) handleHelmReleaseHistory(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	if name == "" || namespace == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "name and namespace are required",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Get all secrets for this release
+// 	listOptions := metav1.ListOptions{
+// 		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
+// 	}
+// 
+// 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	var history []map[string]interface{}
+// 	for _, secret := range secrets.Items {
+// 		versionStr := secret.Labels["version"]
+// 		version := 1
+// 		if versionStr != "" {
+// 			if v, err := strconv.Atoi(versionStr); err == nil {
+// 				version = v
+// 			}
+// 		}
+// 
+// 		// Get chart info from secret data
+// 		chart := "unknown"
+// 		appVersion := ""
+// 		description := ""
+// 
+// 		// Try to decode the release data
+// 		if releaseData, ok := secret.Data["release"]; ok {
+// 			// Helm stores release data as base64 + gzip + protobuf
+// 			// For simplicity, we'll just get what we can from labels
+// 			_ = releaseData
+// 		}
+// 
+// 		history = append(history, map[string]interface{}{
+// 			"revision":    version,
+// 			"status":      secret.Labels["status"],
+// 			"chart":       chart,
+// 			"appVersion":  appVersion,
+// 			"description": description,
+// 			"updated":     secret.CreationTimestamp.Format("2006-01-02 15:04:05"),
+// 			"createdAt":   secret.CreationTimestamp,
+// 		})
+// 	}
+// 
+// 	// Sort by revision descending
+// 	sort.Slice(history, func(i, j int) bool {
+// 		return history[i]["revision"].(int) > history[j]["revision"].(int)
+// 	})
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":   true,
+// 		"name":      name,
+// 		"namespace": namespace,
+// 		"history":   history,
+// 		"total":     len(history),
+// 	})
+// }
+// 
+// // handleHelmRollback rolls back a Helm release to a specific revision
+// func (ws *WebServer) handleHelmRollback(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "POST" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Parse request body
+// 	var req struct {
+// 		Name      string `json:"name"`
+// 		Namespace string `json:"namespace"`
+// 		Revision  int    `json:"revision"`
+// 	}
+// 
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Invalid request body: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	if req.Name == "" || req.Namespace == "" || req.Revision == 0 {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "name, namespace, and revision are required",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Execute helm rollback command
+// 	cmd := exec.Command("helm", "rollback", req.Name, strconv.Itoa(req.Revision), "-n", req.Namespace)
+// 	output, err := cmd.CombinedOutput()
+// 
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   fmt.Sprintf("Rollback failed: %s - %s", err.Error(), string(output)),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":  true,
+// 		"message":  fmt.Sprintf("Successfully rolled back %s to revision %d", req.Name, req.Revision),
+// 		"output":   string(output),
+// 		"name":     req.Name,
+// 		"revision": req.Revision,
+// 	})
+// }
+// 
+// // KustomizeResource represents a resource managed by Kustomize
+// type KustomizeResource struct {
+// 	Kind      string            `json:"kind"`
+// 	Name      string            `json:"name"`
+// 	Namespace string            `json:"namespace"`
+// 	Age       string            `json:"age"`
+// 	Labels    map[string]string `json:"labels"`
+// }
+// 
+// // handleKustomizeResources returns resources managed by Kustomize
+// func (ws *WebServer) handleKustomizeResources(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.clientset == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	var resources []KustomizeResource
+// 
+// 	// Query deployments with kustomize managed-by label
+// 	deploymentListOptions := metav1.ListOptions{
+// 		LabelSelector: "app.kubernetes.io/managed-by=kustomize",
+// 	}
+// 
+// 	var deployments interface{}
+// 	var err error
+// 
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		deployments, err = ws.app.clientset.AppsV1().Deployments("").List(ws.app.ctx, deploymentListOptions)
+// 	} else {
+// 		deployments, err = ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, deploymentListOptions)
+// 	}
+// 
+// 	if err == nil {
+// 		if depList, ok := deployments.(*appsv1.DeploymentList); ok {
+// 			for _, dep := range depList.Items {
+// 				resources = append(resources, KustomizeResource{
+// 					Kind:      "Deployment",
+// 					Name:      dep.Name,
+// 					Namespace: dep.Namespace,
+// 					Age:       formatAge(time.Since(dep.CreationTimestamp.Time)),
+// 					Labels:    dep.Labels,
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// Query services with kustomize managed-by label
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		svcList, err := ws.app.clientset.CoreV1().Services("").List(ws.app.ctx, deploymentListOptions)
+// 		if err == nil {
+// 			for _, svc := range svcList.Items {
+// 				resources = append(resources, KustomizeResource{
+// 					Kind:      "Service",
+// 					Name:      svc.Name,
+// 					Namespace: svc.Namespace,
+// 					Age:       formatAge(time.Since(svc.CreationTimestamp.Time)),
+// 					Labels:    svc.Labels,
+// 				})
+// 			}
+// 		}
+// 	} else {
+// 		svcList, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, deploymentListOptions)
+// 		if err == nil {
+// 			for _, svc := range svcList.Items {
+// 				resources = append(resources, KustomizeResource{
+// 					Kind:      "Service",
+// 					Name:      svc.Name,
+// 					Namespace: svc.Namespace,
+// 					Age:       formatAge(time.Since(svc.CreationTimestamp.Time)),
+// 					Labels:    svc.Labels,
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// Query ConfigMaps with kustomize managed-by label
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		cmList, err := ws.app.clientset.CoreV1().ConfigMaps("").List(ws.app.ctx, deploymentListOptions)
+// 		if err == nil {
+// 			for _, cm := range cmList.Items {
+// 				resources = append(resources, KustomizeResource{
+// 					Kind:      "ConfigMap",
+// 					Name:      cm.Name,
+// 					Namespace: cm.Namespace,
+// 					Age:       formatAge(time.Since(cm.CreationTimestamp.Time)),
+// 					Labels:    cm.Labels,
+// 				})
+// 			}
+// 		}
+// 	} else {
+// 		cmList, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, deploymentListOptions)
+// 		if err == nil {
+// 			for _, cm := range cmList.Items {
+// 				resources = append(resources, KustomizeResource{
+// 					Kind:      "ConfigMap",
+// 					Name:      cm.Name,
+// 					Namespace: cm.Namespace,
+// 					Age:       formatAge(time.Since(cm.CreationTimestamp.Time)),
+// 					Labels:    cm.Labels,
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// Sort by namespace then kind then name
+// 	sort.Slice(resources, func(i, j int) bool {
+// 		if resources[i].Namespace != resources[j].Namespace {
+// 			return resources[i].Namespace < resources[j].Namespace
+// 		}
+// 		if resources[i].Kind != resources[j].Kind {
+// 			return resources[i].Kind < resources[j].Kind
+// 		}
+// 		return resources[i].Name < resources[j].Name
+// 	})
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":   true,
+// 		"resources": resources,
+// 		"count":     len(resources),
+// 	})
+// }
+// 
+// // ArgoCDApp represents an ArgoCD Application
+// type ArgoCDApp struct {
+// 	Name       string `json:"name"`
+// 	Namespace  string `json:"namespace"`
+// 	Project    string `json:"project"`
+// 	SyncStatus string `json:"syncStatus"`
+// 	Health     string `json:"health"`
+// 	RepoURL    string `json:"repoURL"`
+// 	Path       string `json:"path"`
+// 	Revision   string `json:"revision"`
+// 	Cluster    string `json:"cluster"`
+// 	Age        string `json:"age"`
+// }
+// 
+// // handleArgoCDApps returns ArgoCD Applications
+// func (ws *WebServer) handleArgoCDApps(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.config == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success":   false,
+// 			"error":     "Not connected to cluster",
+// 			"installed": false,
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success":   false,
+// 			"error":     err.Error(),
+// 			"installed": false,
+// 		})
+// 		return
+// 	}
+// 
+// 	// ArgoCD Application GVR
+// 	appGVR := schema.GroupVersionResource{
+// 		Group:    "argoproj.io",
+// 		Version:  "v1alpha1",
+// 		Resource: "applications",
+// 	}
+// 
+// 	var apps []ArgoCDApp
+// 	var appList *unstructured.UnstructuredList
+// 
+// 	if namespace == "" || namespace == "All Namespaces" {
+// 		appList, err = dynamicClient.Resource(appGVR).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
+// 	} else {
+// 		appList, err = dynamicClient.Resource(appGVR).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 	}
+// 
+// 	if err != nil {
+// 		// Check if ArgoCD is not installed
+// 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no matches") {
+// 			json.NewEncoder(w).Encode(map[string]interface{}{
+// 				"success":   true,
+// 				"apps":      []ArgoCDApp{},
+// 				"count":     0,
+// 				"installed": false,
+// 				"message":   "ArgoCD is not installed in this cluster",
+// 			})
+// 			return
+// 		}
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success":   false,
+// 			"error":     err.Error(),
+// 			"installed": false,
+// 		})
+// 		return
+// 	}
+// 
+// 	for _, item := range appList.Items {
+// 		spec, _, _ := unstructured.NestedMap(item.Object, "spec")
+// 		status, _, _ := unstructured.NestedMap(item.Object, "status")
+// 
+// 		syncStatus := "Unknown"
+// 		health := "Unknown"
+// 
+// 		if syncStatusMap, ok := status["sync"].(map[string]interface{}); ok {
+// 			if s, ok := syncStatusMap["status"].(string); ok {
+// 				syncStatus = s
+// 			}
+// 		}
+// 
+// 		if healthMap, ok := status["health"].(map[string]interface{}); ok {
+// 			if h, ok := healthMap["status"].(string); ok {
+// 				health = h
+// 			}
+// 		}
+// 
+// 		project := "default"
+// 		if p, ok := spec["project"].(string); ok {
+// 			project = p
+// 		}
+// 
+// 		repoURL := ""
+// 		path := ""
+// 		revision := ""
+// 		if source, ok := spec["source"].(map[string]interface{}); ok {
+// 			if r, ok := source["repoURL"].(string); ok {
+// 				repoURL = r
+// 			}
+// 			if p, ok := source["path"].(string); ok {
+// 				path = p
+// 			}
+// 			if rev, ok := source["targetRevision"].(string); ok {
+// 				revision = rev
+// 			}
+// 		}
+// 
+// 		cluster := ""
+// 		if dest, ok := spec["destination"].(map[string]interface{}); ok {
+// 			if s, ok := dest["server"].(string); ok {
+// 				cluster = s
+// 			} else if n, ok := dest["name"].(string); ok {
+// 				cluster = n
+// 			}
+// 		}
+// 
+// 		creationTime := item.GetCreationTimestamp()
+// 
+// 		apps = append(apps, ArgoCDApp{
+// 			Name:       item.GetName(),
+// 			Namespace:  item.GetNamespace(),
+// 			Project:    project,
+// 			SyncStatus: syncStatus,
+// 			Health:     health,
+// 			RepoURL:    repoURL,
+// 			Path:       path,
+// 			Revision:   revision,
+// 			Cluster:    cluster,
+// 			Age:        formatAge(time.Since(creationTime.Time)),
+// 		})
+// 	}
+// 
+// 	// Sort by namespace then name
+// 	sort.Slice(apps, func(i, j int) bool {
+// 		if apps[i].Namespace != apps[j].Namespace {
+// 			return apps[i].Namespace < apps[j].Namespace
+// 		}
+// 		return apps[i].Name < apps[j].Name
+// 	})
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":   true,
+// 		"apps":      apps,
+// 		"count":     len(apps),
+// 		"installed": true,
+// 	})
+// }
+// 
+// // handleArgoCDAppDetails returns details for a specific ArgoCD Application
+// func (ws *WebServer) handleArgoCDAppDetails(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.config == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	name := r.URL.Query().Get("name")
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	if name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Default to argocd namespace if not specified
+// 	if namespace == "" {
+// 		namespace = "argocd"
+// 	}
+// 
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	appGVR := schema.GroupVersionResource{
+// 		Group:    "argoproj.io",
+// 		Version:  "v1alpha1",
+// 		Resource: "applications",
+// 	}
+// 
+// 	app, err := dynamicClient.Resource(appGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Get detailed info
+// 	spec, _, _ := unstructured.NestedMap(app.Object, "spec")
+// 	status, _, _ := unstructured.NestedMap(app.Object, "status")
+// 
+// 	// Extract sync history
+// 	var syncHistory []map[string]interface{}
+// 	if history, found, _ := unstructured.NestedSlice(status, "history"); found {
+// 		for _, h := range history {
+// 			if hMap, ok := h.(map[string]interface{}); ok {
+// 				syncHistory = append(syncHistory, map[string]interface{}{
+// 					"id":         hMap["id"],
+// 					"revision":   hMap["revision"],
+// 					"deployedAt": hMap["deployedAt"],
+// 					"source":     hMap["source"],
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// Extract resource status
+// 	var resources []map[string]interface{}
+// 	if res, found, _ := unstructured.NestedSlice(status, "resources"); found {
+// 		for _, r := range res {
+// 			if rMap, ok := r.(map[string]interface{}); ok {
+// 				resources = append(resources, map[string]interface{}{
+// 					"kind":      rMap["kind"],
+// 					"name":      rMap["name"],
+// 					"namespace": rMap["namespace"],
+// 					"status":    rMap["status"],
+// 					"health":    rMap["health"],
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	// Get conditions
+// 	var conditions []map[string]interface{}
+// 	if conds, found, _ := unstructured.NestedSlice(status, "conditions"); found {
+// 		for _, c := range conds {
+// 			if cMap, ok := c.(map[string]interface{}); ok {
+// 				conditions = append(conditions, map[string]interface{}{
+// 					"type":    cMap["type"],
+// 					"status":  cMap["status"],
+// 					"message": cMap["message"],
+// 				})
+// 			}
+// 		}
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":      true,
+// 		"name":         app.GetName(),
+// 		"namespace":    app.GetNamespace(),
+// 		"spec":         spec,
+// 		"status":       status,
+// 		"history":      syncHistory,
+// 		"resources":    resources,
+// 		"conditions":   conditions,
+// 		"historyCount": len(syncHistory),
+// 	})
+// }
+// 
+// // handleArgoCDSync triggers a sync for an ArgoCD Application
+// func (ws *WebServer) handleArgoCDSync(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "POST" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	if ws.app.config == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Parse request body
+// 	var req struct {
+// 		Name      string `json:"name"`
+// 		Namespace string `json:"namespace"`
+// 		Prune     bool   `json:"prune"`
+// 	}
+// 
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Invalid request body: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	if req.Name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Default to argocd namespace if not specified
+// 	if req.Namespace == "" {
+// 		req.Namespace = "argocd"
+// 	}
+// 
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	appGVR := schema.GroupVersionResource{
+// 		Group:    "argoproj.io",
+// 		Version:  "v1alpha1",
+// 		Resource: "applications",
+// 	}
+// 
+// 	// Get current app
+// 	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Failed to get application: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Set operation to trigger sync
+// 	operation := map[string]interface{}{
+// 		"sync": map[string]interface{}{
+// 			"prune": req.Prune,
+// 		},
+// 	}
+// 	unstructured.SetNestedMap(app.Object, operation, "operation")
+// 
+// 	// Update the application to trigger sync
+// 	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Failed to trigger sync: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success": true,
+// 		"message": fmt.Sprintf("Sync triggered for %s", req.Name),
+// 		"name":    req.Name,
+// 	})
+// }
+// 
+// // handleArgoCDRefresh triggers a refresh for an ArgoCD Application
+// func (ws *WebServer) handleArgoCDRefresh(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if r.Method != "POST" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Method not allowed",
+// 		})
+// 		return
+// 	}
+// 
+// 	if ws.app.config == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Not connected to cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Parse request body
+// 	var req struct {
+// 		Name      string `json:"name"`
+// 		Namespace string `json:"namespace"`
+// 		Hard      bool   `json:"hard"`
+// 	}
+// 
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Invalid request body: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	if req.Name == "" {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "name is required",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Default to argocd namespace if not specified
+// 	if req.Namespace == "" {
+// 		req.Namespace = "argocd"
+// 	}
+// 
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	appGVR := schema.GroupVersionResource{
+// 		Group:    "argoproj.io",
+// 		Version:  "v1alpha1",
+// 		Resource: "applications",
+// 	}
+// 
+// 	// Get current app
+// 	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Failed to get application: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	// Update refresh annotation to trigger refresh
+// 	annotations := app.GetAnnotations()
+// 	if annotations == nil {
+// 		annotations = make(map[string]string)
+// 	}
+// 
+// 	if req.Hard {
+// 		annotations["argocd.argoproj.io/refresh"] = "hard"
+// 	} else {
+// 		annotations["argocd.argoproj.io/refresh"] = "normal"
+// 	}
+// 	app.SetAnnotations(annotations)
+// 
+// 	// Update the application to trigger refresh
+// 	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success": false,
+// 			"error":   "Failed to trigger refresh: " + err.Error(),
+// 		})
+// 		return
+// 	}
+// 
+// 	refreshType := "normal"
+// 	if req.Hard {
+// 		refreshType = "hard"
+// 	}
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":     true,
+// 		"message":     fmt.Sprintf("Refresh (%s) triggered for %s", refreshType, req.Name),
+// 		"name":        req.Name,
+// 		"refreshType": refreshType,
+// 	})
+// }
+// 
+// // FluxResource represents a Flux resource (Kustomization, HelmRelease, GitRepository, etc.)
+// type FluxResource struct {
+// 	Kind      string `json:"kind"`
+// 	Name      string `json:"name"`
+// 	Namespace string `json:"namespace"`
+// 	Ready     string `json:"ready"`
+// 	Status    string `json:"status"`
+// 	Age       string `json:"age"`
+// 	SourceRef string `json:"sourceRef,omitempty"`
+// 	Revision  string `json:"revision,omitempty"`
+// }
+// 
+// // handleFluxResources returns Flux resources
+// func (ws *WebServer) handleFluxResources(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 
+// 	if ws.app.config == nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success":   false,
+// 			"error":     "Not connected to cluster",
+// 			"installed": false,
+// 		})
+// 		return
+// 	}
+// 
+// 	namespace := r.URL.Query().Get("namespace")
+// 
+// 	// Create dynamic client for CRD access
+// 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+// 	if err != nil {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success":   false,
+// 			"error":     err.Error(),
+// 			"installed": false,
+// 		})
+// 		return
+// 	}
+// 
+// 	var resources []FluxResource
+// 	fluxInstalled := false
+// 
+// 	// Flux CRD definitions
+// 	fluxCRDs := []struct {
+// 		group    string
+// 		version  string
+// 		resource string
+// 		kind     string
+// 	}{
+// 		{"kustomize.toolkit.fluxcd.io", "v1", "kustomizations", "Kustomization"},
+// 		{"helm.toolkit.fluxcd.io", "v2", "helmreleases", "HelmRelease"},
+// 		{"source.toolkit.fluxcd.io", "v1", "gitrepositories", "GitRepository"},
+// 		{"source.toolkit.fluxcd.io", "v1", "helmrepositories", "HelmRepository"},
+// 		{"source.toolkit.fluxcd.io", "v1", "ocirepositories", "OCIRepository"},
+// 	}
+// 
+// 	for _, crd := range fluxCRDs {
+// 		gvr := schema.GroupVersionResource{
+// 			Group:    crd.group,
+// 			Version:  crd.version,
+// 			Resource: crd.resource,
+// 		}
+// 
+// 		var list *unstructured.UnstructuredList
+// 		if namespace == "" || namespace == "All Namespaces" {
+// 			list, err = dynamicClient.Resource(gvr).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
+// 		} else {
+// 			list, err = dynamicClient.Resource(gvr).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
+// 		}
+// 
+// 		if err != nil {
+// 			// CRD not found, skip
+// 			continue
+// 		}
+// 
+// 		fluxInstalled = true
+// 
+// 		for _, item := range list.Items {
+// 			ready := "Unknown"
+// 			statusMsg := ""
+// 			revision := ""
+// 			sourceRef := ""
+// 
+// 			// Get status conditions
+// 			if status, ok := item.Object["status"].(map[string]interface{}); ok {
+// 				if conditions, ok := status["conditions"].([]interface{}); ok {
+// 					for _, cond := range conditions {
+// 						if condMap, ok := cond.(map[string]interface{}); ok {
+// 							if condType, _ := condMap["type"].(string); condType == "Ready" {
+// 								if condStatus, _ := condMap["status"].(string); condStatus == "True" {
+// 									ready = "True"
+// 								} else {
+// 									ready = "False"
+// 								}
+// 								if msg, _ := condMap["message"].(string); msg != "" {
+// 									statusMsg = msg
+// 									// Truncate long messages
+// 									if len(statusMsg) > 50 {
+// 										statusMsg = statusMsg[:47] + "..."
+// 									}
+// 								}
+// 								break
+// 							}
+// 						}
+// 					}
+// 				}
+// 
+// 				// Get last applied revision
+// 				if rev, ok := status["lastAppliedRevision"].(string); ok {
+// 					revision = rev
+// 				} else if rev, ok := status["artifact"].(map[string]interface{}); ok {
+// 					if r, ok := rev["revision"].(string); ok {
+// 						revision = r
+// 					}
+// 				}
+// 			}
+// 
+// 			// Get source reference for Kustomizations and HelmReleases
+// 			if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
+// 				if sr, ok := spec["sourceRef"].(map[string]interface{}); ok {
+// 					kind, _ := sr["kind"].(string)
+// 					name, _ := sr["name"].(string)
+// 					sourceRef = fmt.Sprintf("%s/%s", kind, name)
+// 				}
+// 			}
+// 
+// 			creationTime := item.GetCreationTimestamp()
+// 
+// 			resources = append(resources, FluxResource{
+// 				Kind:      crd.kind,
+// 				Name:      item.GetName(),
+// 				Namespace: item.GetNamespace(),
+// 				Ready:     ready,
+// 				Status:    statusMsg,
+// 				Age:       formatAge(time.Since(creationTime.Time)),
+// 				SourceRef: sourceRef,
+// 				Revision:  revision,
+// 			})
+// 		}
+// 	}
+// 
+// 	if !fluxInstalled {
+// 		json.NewEncoder(w).Encode(map[string]interface{}{
+// 			"success":   true,
+// 			"resources": []FluxResource{},
+// 			"count":     0,
+// 			"installed": false,
+// 			"message":   "Flux is not installed in this cluster",
+// 		})
+// 		return
+// 	}
+// 
+// 	// Sort by kind then namespace then name
+// 	sort.Slice(resources, func(i, j int) bool {
+// 		if resources[i].Kind != resources[j].Kind {
+// 			return resources[i].Kind < resources[j].Kind
+// 		}
+// 		if resources[i].Namespace != resources[j].Namespace {
+// 			return resources[i].Namespace < resources[j].Namespace
+// 		}
+// 		return resources[i].Name < resources[j].Name
+// 	})
+// 
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"success":   true,
+// 		"resources": resources,
+// 		"count":     len(resources),
+// 		"installed": true,
+// 	})
+// }

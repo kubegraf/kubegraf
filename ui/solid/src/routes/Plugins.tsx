@@ -144,6 +144,18 @@ const Plugins: Component = () => {
     setActionLoading(false);
   };
 
+  // Handle Helm uninstall
+  const handleUninstallHelm = async (release: HelmRelease) => {
+    if (!confirm(`Are you sure you want to uninstall ${release.name} from ${release.namespace}?`)) return;
+
+    try {
+      await api.uninstallApp(release.name, release.namespace);
+      refetchHelm();
+    } catch (e: any) {
+      alert(`Failed to uninstall ${release.name}: ${e.message || 'Unknown error'}`);
+    }
+  };
+
   // Open helm details and fetch history
   const openHelmDetails = (release: HelmRelease) => {
     setSelectedRelease(release);
@@ -405,11 +417,23 @@ const Plugins: Component = () => {
                       <td><span class={`badge ${release.status === 'deployed' ? 'badge-success' : 'badge-warning'}`}>{release.status}</span></td>
                       <td>{release.updated}</td>
                       <td>
-                        <button onClick={(e) => { e.stopPropagation(); openHelmDetails(release); }} class="action-btn" title="Details & History">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </button>
+                        <div class="flex gap-1">
+                          <button onClick={(e) => { e.stopPropagation(); openHelmDetails(release); }} class="action-btn" title="Details & History">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleUninstallHelm(release); }}
+                            class="action-btn"
+                            style={{ color: 'var(--error-color)' }}
+                            title="Uninstall release"
+                          >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )}

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enable KubeGraf Features</title>
+    <style>
+        body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+        button { background: #22c55e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        .success { color: #22c55e; }
+        .error { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <h1>Enable KubeGraf Features</h1>
+    <div id="status"></div>
+    <button onclick="enableFeatures()">Enable Diagnostics & CVE Features</button>
+    <button onclick="resetSettings()">Reset All Settings to Defaults</button>
+    <script>
+        const status = document.getElementById('status');
+        
+        function enableFeatures() {
+            try {
+                const settings = localStorage.getItem('kubegraf-settings');
+                let parsed = settings ? JSON.parse(settings) : {};
+                
+                // Enable the features
+                parsed.enableDiagnostics = true;
+                parsed.enableCVEVulnerabilities = true;
+                parsed.enableSecurityChecks = true;
+                
+                // Save back
+                localStorage.setItem('kubegraf-settings', JSON.stringify(parsed));
+                localStorage.setItem('kubegraf-settings-version', '3');
+                
+                status.innerHTML = `<p class="success">✅ Features enabled! Please refresh the KubeGraf Security page.</p>`;
+                status.innerHTML += `<p>Current settings:</p><pre>${JSON.stringify(parsed, null, 2)}</pre>`;
+            } catch (e) {
+                status.innerHTML = `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+        
+        function resetSettings() {
+            try {
+                localStorage.removeItem('kubegraf-settings');
+                localStorage.removeItem('kubegraf-settings-version');
+                status.innerHTML = `<p class="success">✅ Settings reset to defaults! Please refresh the KubeGraf Security page.</p>`;
+            } catch (e) {
+                status.innerHTML = `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+        
+        // Show current settings
+        const settings = localStorage.getItem('kubegraf-settings');
+        if (settings) {
+            try {
+                const parsed = JSON.parse(settings);
+                status.innerHTML = `<p>Current settings:</p><pre>${JSON.stringify(parsed, null, 2)}</pre>`;
+                status.innerHTML += `<p>enableDiagnostics: ${parsed.enableDiagnostics ? '✅ Enabled' : '❌ Disabled'}</p>`;
+                status.innerHTML += `<p>enableCVEVulnerabilities: ${parsed.enableCVEVulnerabilities ? '✅ Enabled' : '❌ Disabled'}</p>`;
+            } catch (e) {
+                status.innerHTML = `<p class="error">Error parsing settings: ${e.message}</p>`;
+            }
+        } else {
+            status.innerHTML = `<p>No settings found. Using defaults (both features should be enabled).</p>`;
+        }
+    </script>
+</body>
+</html>

@@ -13,6 +13,7 @@ interface ActionItem {
 
 interface ActionMenuProps {
   actions: ActionItem[];
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 const icons: Record<string, string> = {
@@ -35,18 +36,21 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
 
   const handleClick = (e: MouseEvent) => {
     e.stopPropagation();
-    if (buttonRef) {
+    const newState = !isOpen();
+    if (buttonRef && newState) {
       const rect = buttonRef.getBoundingClientRect();
       setMenuPosition({
         top: rect.bottom + 4,
         left: rect.right - 180, // Menu width approximately 180px
       });
     }
-    setIsOpen(!isOpen());
+    setIsOpen(newState);
+    props.onOpenChange?.(newState);
   };
 
   const handleActionClick = (action: ActionItem) => {
     setIsOpen(false);
+    props.onOpenChange?.(false);
     action.onClick();
   };
 
@@ -54,6 +58,7 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
   const handleClickOutside = (e: MouseEvent) => {
     if (isOpen() && buttonRef && !buttonRef.contains(e.target as Node)) {
       setIsOpen(false);
+      props.onOpenChange?.(false);
     }
   };
 

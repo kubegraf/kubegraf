@@ -149,10 +149,26 @@ func (d *Database) initSchema() error {
 		updated_at DATETIME NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS app_installations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		app_name TEXT NOT NULL,
+		display_name TEXT NOT NULL,
+		version TEXT NOT NULL,
+		namespace TEXT NOT NULL,
+		status TEXT NOT NULL, -- 'pending', 'in_progress', 'success', 'failed'
+		progress INTEGER DEFAULT 0, -- 0-100
+		error_message TEXT,
+		started_at DATETIME NOT NULL,
+		completed_at DATETIME,
+		created_at DATETIME NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_cloud_credentials_provider ON cloud_credentials(provider);
+	CREATE INDEX IF NOT EXISTS idx_app_installations_status ON app_installations(status);
+	CREATE INDEX IF NOT EXISTS idx_app_installations_app_name ON app_installations(app_name);
 	`
 
 	_, err := d.db.Exec(schema)
@@ -224,6 +240,12 @@ func (d *Database) GetUser(username string) (*User, error) {
 		return nil, fmt.Errorf("user not found")
 	}
 	return &user, err
+}
+
+func (d *Database) CountUsers() (int, error) {
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
 }
 
 func (d *Database) UpdateLastLogin(userID int) error {
@@ -360,6 +382,119 @@ func (d *Database) SetSetting(key, value string) error {
 // Close closes the database connection
 func (d *Database) Close() error {
 	return d.db.Close()
+}
+
+// AppInstallation represents an app installation record
+type AppInstallation struct {
+	ID           int       `json:"id"`
+	AppName      string    `json:"app_name"`
+	DisplayName  string    `json:"display_name"`
+	Version      string    `json:"version"`
+	Namespace    string    `json:"namespace"`
+	Status       string    `json:"status"` // 'pending', 'in_progress', 'success', 'failed'
+	Progress     int       `json:"progress"` // 0-100
+	ErrorMessage string    `json:"error_message,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	CompletedAt  time.Time `json:"completed_at,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// App installation operations
+func (d *Database) CreateAppInstallation(appName, displayName, version, namespace string) (*AppInstallation, error) {
+	now := time.Now()
+	result, err := d.db.Exec(
+		"INSERT INTO app_installations (app_name, display_name, version, namespace, status, progress, started_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		appName, displayName, version, namespace, "pending", 0, now, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	id, _ := result.LastInsertId()
+	return &AppInstallation{
+		ID:          int(id),
+		AppName:     appName,
+		DisplayName: displayName,
+		Version:     version,
+		Namespace:   namespace,
+		Status:      "pending",
+		Progress:    0,
+		StartedAt:   now,
+		CreatedAt:   now,
+	}, nil
+}
+
+func (d *Database) UpdateAppInstallation(id int, status string, progress int, errorMessage string) error {
+	var query string
+	var args []interface{}
+
+	if status == "success" || status == "failed" {
+		// Update with completion time
+		query = "UPDATE app_installations SET status = ?, progress = ?, error_message = ?, completed_at = ? WHERE id = ?"
+		args = []interface{}{status, progress, errorMessage, time.Now(), id}
+	} else {
+		// Update without completion time
+		query = "UPDATE app_installations SET status = ?, progress = ?, error_message = ? WHERE id = ?"
+		args = []interface{}{status, progress, errorMessage, id}
+	}
+
+	_, err := d.db.Exec(query, args...)
+	return err
+}
+
+func (d *Database) GetAppInstallation(id int) (*AppInstallation, error) {
+	var installation AppInstallation
+	var completedAt sql.NullTime
+
+	err := d.db.QueryRow(
+		"SELECT id, app_name, display_name, version, namespace, status, progress, error_message, started_at, completed_at, created_at FROM app_installations WHERE id = ?",
+		id,
+	).Scan(&installation.ID, &installation.AppName, &installation.DisplayName, &installation.Version, &installation.Namespace, &installation.Status, &installation.Progress, &installation.ErrorMessage, &installation.StartedAt, &completedAt, &installation.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("installation not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if completedAt.Valid {
+		installation.CompletedAt = completedAt.Time
+	}
+
+	return &installation, nil
+}
+
+func (d *Database) GetAppInstallations(limit int) ([]AppInstallation, error) {
+	query := "SELECT id, app_name, display_name, version, namespace, status, progress, error_message, started_at, completed_at, created_at FROM app_installations ORDER BY created_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	rows, err := d.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var installations []AppInstallation
+	for rows.Next() {
+		var installation AppInstallation
+		var completedAt sql.NullTime
+
+		err := rows.Scan(&installation.ID, &installation.AppName, &installation.DisplayName, &installation.Version, &installation.Namespace, &installation.Status, &installation.Progress, &installation.ErrorMessage, &installation.StartedAt, &completedAt, &installation.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		if completedAt.Valid {
+			installation.CompletedAt = completedAt.Time
+		}
+
+		installations = append(installations, installation)
+	}
+
+	return installations, nil
 }
 
 // Helper function to generate session ID

@@ -36,7 +36,9 @@ export type View =
   | 'rollouts'
   | 'terminal'
   | 'connectors'
-  | 'mcpagents';
+  | 'aiagents'
+  | 'usermanagement'
+  | 'uidemo';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
@@ -45,6 +47,7 @@ const [selectedResource, setSelectedResource] = createSignal<any>(null);
 const [detailPanelOpen, setDetailPanelOpen] = createSignal(false);
 const [searchQuery, setSearchQuery] = createSignal('');
 const [notifications, setNotifications] = createSignal<Notification[]>([]);
+const [terminalOpen, setTerminalOpen] = createSignal(false);
 
 interface Notification {
   id: string;
@@ -119,6 +122,13 @@ function toggleAIPanel() {
   setAIPanelOpen(!aiPanelOpen());
 }
 
+function toggleTerminal() {
+  const current = terminalOpen();
+  console.log('[ui.ts] toggleTerminal called - current:', current, '-> new:', !current);
+  setTerminalOpen(!current);
+  console.log('[ui.ts] terminalOpen after setState:', terminalOpen());
+}
+
 function openResourceDetail(resource: any) {
   setSelectedResource(resource);
   setDetailPanelOpen(true);
@@ -138,6 +148,9 @@ export {
   aiPanelOpen,
   setAIPanelOpen,
   toggleAIPanel,
+  terminalOpen,
+  setTerminalOpen,
+  toggleTerminal,
   selectedResource,
   setSelectedResource,
   detailPanelOpen,

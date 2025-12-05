@@ -33,6 +33,43 @@ const StatefulSets: Component = () => {
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
   const [restarting, setRestarting] = createSignal<string | null>(null); // Track which statefulset is restarting
 
+  // Font size selector with localStorage persistence
+  const getInitialFontSize = (): number => {
+    const saved = localStorage.getItem('statefulsets-font-size');
+    return saved ? parseInt(saved) : 14;
+  };
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('statefulsets-font-size', size.toString());
+  };
+
+  // Font family selector with localStorage persistence
+  const getInitialFontFamily = (): string => {
+    const saved = localStorage.getItem('statefulsets-font-family');
+    return saved || 'Monaco';
+  };
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('statefulsets-font-family', family);
+  };
+
+  // Map font family option to actual font-family CSS value
+  const getFontFamilyCSS = (): string => {
+    const family = fontFamily();
+    switch (family) {
+      case 'Monospace': return '"Courier New", Monaco, monospace';
+      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
+      case 'Consolas': return 'Consolas, "Courier New", monospace';
+      case 'Courier': return 'Courier, "Courier New", monospace';
+      default: return '"Courier New", Monaco, monospace';
+    }
+  };
+
   const [statefulsets, { refetch }] = createResource(namespace, api.getStatefulSets);
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
@@ -262,6 +299,36 @@ const StatefulSets: Component = () => {
 
         <div class="flex-1" />
 
+        {/* Font Size Selector */}
+        <select
+          value={fontSize()}
+          onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+          class="px-3 py-2 rounded-lg text-sm"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          title="Font Size"
+        >
+          <option value="12">12px</option>
+          <option value="14">14px</option>
+          <option value="16">16px</option>
+          <option value="18">18px</option>
+          <option value="20">20px</option>
+        </select>
+
+        {/* Font Family Selector */}
+        <select
+          value={fontFamily()}
+          onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+          class="px-3 py-2 rounded-lg text-sm"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          title="Font Family"
+        >
+          <option value="Monospace">Monospace</option>
+          <option value="System-ui">System-ui</option>
+          <option value="Monaco">Monaco</option>
+          <option value="Consolas">Consolas</option>
+          <option value="Courier">Courier</option>
+        </select>
+
         <input
           type="text"
           placeholder="Search..."
@@ -284,7 +351,7 @@ const StatefulSets: Component = () => {
       </div>
 
       {/* StatefulSets table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
           when={!statefulsets.loading}
           fallback={
@@ -295,7 +362,18 @@ const StatefulSets: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{
+              fontSize: `${fontSize()}px`,
+              fontFamily: getFontFamilyCSS(),
+              color: '#0ea5e9',
+              fontWeight: 900
+            }}>
+              <style>{`
+                table { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
+                table thead { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
+                table tbody { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
+                table tr { height: ${Math.max(24, fontSize() * 1.7)}px; }
+              `}</style>
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
@@ -318,9 +396,20 @@ const StatefulSets: Component = () => {
                 <For each={paginatedStatefulSets()} fallback={
                   <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No StatefulSets found</td></tr>
                 }>
-                  {(sts: StatefulSet) => (
+                  {(sts: StatefulSet) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(sts); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -329,23 +418,65 @@ const StatefulSets: Component = () => {
                           {sts.name.length > 40 ? sts.name.slice(0, 37) + '...' : sts.name}
                         </button>
                       </td>
-                      <td>{sts.namespace}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{sts.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${
                           sts.ready.split('/')[0] === sts.ready.split('/')[1] ? 'badge-success' : 'badge-warning'
                         }`}>
                           {sts.ready}
                         </span>
                       </td>
-                      <td>{sts.replicas}</td>
-                      <td>{sts.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{sts.replicas}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{sts.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Scale', icon: 'scale', onClick: () => openScale(sts) },
-                            { 
-                              label: 'Restart', 
-                              icon: 'restart', 
+                            {
+                              label: 'Restart',
+                              icon: 'restart',
                               onClick: () => restart(sts),
                               loading: restarting() === `${sts.namespace}/${sts.name}`
                             },
@@ -356,7 +487,8 @@ const StatefulSets: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>

@@ -1,24 +1,27 @@
+/* UI/UX Improvements */
+@import './improvements.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Default theme variables (Dark) */
+/* Default theme variables (Professional Dark) */
 :root {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --bg-card: rgba(30, 41, 59, 0.8);
-  --bg-navbar: rgba(15, 23, 42, 0.95);
-  --bg-input: rgba(30, 41, 59, 0.8);
-  --text-primary: #ffffff;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border-color: rgba(100, 116, 139, 0.3);
-  --border-light: rgba(100, 116, 139, 0.5);
-  --accent-primary: #06b6d4;
-  --accent-secondary: #3b82f6;
-  --accent-gradient: linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #8b5cf6 100%);
-  --success-color: #22c55e;
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #2a2a2a;
+  --bg-card: rgba(26, 26, 26, 0.95);
+  --bg-navbar: rgba(10, 10, 10, 0.98);
+  --bg-input: rgba(26, 26, 26, 0.9);
+  --text-primary: #ededed;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+  --border-color: rgba(64, 64, 64, 0.4);
+  --border-light: rgba(115, 115, 115, 0.3);
+  --accent-primary: #3b82f6;
+  --accent-secondary: #6366f1;
+  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  --success-color: #10b981;
   --warning-color: #f59e0b;
   --error-color: #ef4444;
 }
