@@ -306,13 +306,60 @@ const Storage: Component = () => {
                 </thead>
                 <tbody>
                   <For each={pvs()}>
-                    {(pv: any) => (
+                    {(pv: any) => {
+                      const textColor = '#0ea5e9';
+                      return (
                       <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{pv.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pv.capacity || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{Array.isArray(pv.accessModes) ? pv.accessModes.join(', ') : pv.accessModes || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pv.reclaimPolicy || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm">
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pv.name}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pv.capacity || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{Array.isArray(pv.accessModes) ? pv.accessModes.join(', ') : pv.accessModes || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pv.reclaimPolicy || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">
                           <span
                             class="px-2 py-1 rounded text-xs font-medium"
                             style={{
@@ -323,9 +370,33 @@ const Storage: Component = () => {
                             {pv.status || 'Unknown'}
                           </span>
                         </td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pv.storageClass || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pv.claim || '-'}</td>
-                        <td class="px-4 py-3 text-sm">
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pv.storageClass || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pv.claim || '-'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">
                           <ActionMenu
                             actions={[
                               { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedPV(pv); loadYAML('pv', pv.name); setShowYaml(true); } },
@@ -335,7 +406,8 @@ const Storage: Component = () => {
                           />
                         </td>
                       </tr>
-                    )}
+                      );
+                    }}
                   </For>
                 </tbody>
               </table>
@@ -374,11 +446,40 @@ const Storage: Component = () => {
                 </thead>
                 <tbody>
                   <For each={pvcs()}>
-                    {(pvc: any) => (
+                    {(pvc: any) => {
+                      const textColor = '#0ea5e9';
+                      return (
                       <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{pvc.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pvc.namespace || 'default'}</td>
-                        <td class="px-4 py-3 text-sm">
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pvc.name}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pvc.namespace || 'default'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">
                           <span
                             class="px-2 py-1 rounded text-xs font-medium"
                             style={{
@@ -389,11 +490,53 @@ const Storage: Component = () => {
                             {pvc.status || 'Unknown'}
                           </span>
                         </td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pvc.volume || '-'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pvc.capacity || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{Array.isArray(pvc.accessModes) ? pvc.accessModes.join(', ') : pvc.accessModes || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{pvc.storageClass || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm">
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pvc.volume || '-'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pvc.capacity || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{Array.isArray(pvc.accessModes) ? pvc.accessModes.join(', ') : pvc.accessModes || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{pvc.storageClass || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">
                           <ActionMenu
                             actions={[
                               { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedPVC(pvc); loadYAML('pvc', pvc.name, pvc.namespace); setShowYaml(true); } },
@@ -403,7 +546,8 @@ const Storage: Component = () => {
                           />
                         </td>
                       </tr>
-                    )}
+                      );
+                    }}
                   </For>
                 </tbody>
               </table>
@@ -440,20 +584,73 @@ const Storage: Component = () => {
                 </thead>
                 <tbody>
                   <For each={storageClasses()}>
-                    {(sc: any) => (
+                    {(sc: any) => {
+                      const textColor = '#0ea5e9';
+                      return (
                       <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{sc.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{sc.provisioner || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{sc.reclaimPolicy || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{sc.volumeBindingMode || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{sc.name}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{sc.provisioner || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{sc.reclaimPolicy || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">{sc.volumeBindingMode || 'N/A'}</td>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          color: textColor,
+                          'font-weight': '900',
+                          'font-size': `${fontSize()}px`,
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">
                           {sc.allowVolumeExpansion ? (
                             <span class="text-green-500">Yes</span>
                           ) : (
                             <span class="text-gray-500">No</span>
                           )}
                         </td>
-                        <td class="px-4 py-3 text-sm">
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'left',
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }} class="text-sm">
                           <ActionMenu
                             actions={[
                               { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedSC(sc); loadYAML('sc', sc.name); setShowYaml(true); } },
@@ -463,7 +660,8 @@ const Storage: Component = () => {
                           />
                         </td>
                       </tr>
-                    )}
+                      );
+                    }}
                   </For>
                 </tbody>
               </table>

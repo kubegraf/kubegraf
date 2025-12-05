@@ -399,9 +399,20 @@ const Deployments: Component = () => {
                 <For each={paginatedDeployments()} fallback={
                   <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No deployments found</td></tr>
                 }>
-                  {(dep: Deployment) => (
+                  {(dep: Deployment) => {
+                    const textColor = '#0ea5e9';
+                    return (
                     <tr>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(dep); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -410,24 +421,75 @@ const Deployments: Component = () => {
                           {dep.name.length > 40 ? dep.name.slice(0, 37) + '...' : dep.name}
                         </button>
                       </td>
-                      <td>{dep.namespace}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{dep.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class={`badge ${
                           dep.ready.split('/')[0] === dep.ready.split('/')[1] ? 'badge-success' : 'badge-warning'
                         }`}>
                           {dep.ready}
                         </span>
                       </td>
-                      <td>{dep.upToDate}</td>
-                      <td>{dep.available}</td>
-                      <td>{dep.age}</td>
-                      <td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{dep.upToDate}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{dep.available}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{dep.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'Scale', icon: 'scale', onClick: () => openScale(dep) },
-                            { 
-                              label: 'Restart', 
-                              icon: 'restart', 
+                            {
+                              label: 'Restart',
+                              icon: 'restart',
                               onClick: () => restart(dep),
                               loading: restarting() === `${dep.namespace}/${dep.name}`
                             },
@@ -438,7 +500,8 @@ const Deployments: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
