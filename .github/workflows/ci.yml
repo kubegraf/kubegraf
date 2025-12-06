@@ -34,6 +34,11 @@ jobs:
           cd ui/solid
           npm run build
 
+      - name: Verify UI dist was built
+        run: |
+          echo "Contents of ui/solid/dist:"
+          ls -laR ui/solid/dist || echo "ui/solid/dist does not exist"
+
       - name: Upload UI dist artifact
         uses: actions/upload-artifact@v4
         with:
