@@ -103,7 +103,8 @@ const Storage: Component = () => {
     () => namespace(),
     async (ns) => {
       try {
-        const nsParam = ns === '_all' ? undefined : ns;
+        // Handle "All Namespaces" - send empty namespace param
+        const nsParam = (ns === '_all' || ns === 'All Namespaces' || !ns) ? '' : ns;
         const response = await fetch(`/api/storage/persistentvolumeclaims${nsParam ? `?namespace=${nsParam}` : ''}`);
         if (!response.ok) throw new Error('Failed to fetch PVCs');
         const data = await response.json();

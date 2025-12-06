@@ -178,7 +178,9 @@ export const api = {
 
   // Deployments
   getDeployments: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    // Use namespace= (empty) for all namespaces, namespace=X for specific
+    // "All Namespaces" label should be treated as empty (all namespaces)
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/deployments?namespace=${namespace}`
       : '/deployments?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -211,7 +213,7 @@ export const api = {
 
   // StatefulSets
   getStatefulSets: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/statefulsets?namespace=${namespace}`
       : '/statefulsets?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -230,7 +232,7 @@ export const api = {
 
   // DaemonSets
   getDaemonSets: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/daemonsets?namespace=${namespace}`
       : '/daemonsets?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -251,7 +253,7 @@ export const api = {
 
   // CronJobs
   getCronJobs: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/cronjobs?namespace=${namespace}`
       : '/cronjobs?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -270,7 +272,7 @@ export const api = {
 
   // Jobs
   getJobs: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/jobs?namespace=${namespace}`
       : '/jobs?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -290,7 +292,7 @@ export const api = {
   // ============ Network ============
   // Services
   getServices: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/services?namespace=${namespace}`
       : '/services?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -311,7 +313,7 @@ export const api = {
 
   // Ingresses
   getIngresses: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/ingresses?namespace=${namespace}`
       : '/ingresses?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -333,7 +335,7 @@ export const api = {
   // ============ Config ============
   // ConfigMaps
   getConfigMaps: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/configmaps?namespace=${namespace}`
       : '/configmaps?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -348,7 +350,7 @@ export const api = {
 
   // Secrets
   getSecrets: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/secrets?namespace=${namespace}`
       : '/secrets?namespace=';
     const data = await fetchAPI<any[]>(endpoint);
@@ -375,7 +377,7 @@ export const api = {
 
   // Certificates (cert-manager)
   getCertificates: async (namespace?: string) => {
-    const endpoint = namespace && namespace !== '_all'
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/certificates?namespace=${namespace}`
       : '/certificates?namespace=';
     const data = await fetchAPI<any[]>(endpoint);

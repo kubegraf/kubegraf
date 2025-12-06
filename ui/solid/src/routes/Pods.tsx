@@ -582,6 +582,34 @@ const Pods: Component = () => {
         </div>
         <div class="flex items-center gap-3">
           <button
+            onClick={() => {
+              window.open(window.location.href, '_blank');
+            }}
+            class="icon-btn"
+            style={{ background: 'var(--bg-secondary)' }}
+            title="Open in New Tab"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </button>
+          <button
+            onClick={() => {
+              if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+              } else {
+                document.exitFullscreen();
+              }
+            }}
+            class="icon-btn"
+            style={{ background: 'var(--bg-secondary)' }}
+            title="Maximize to Fullscreen"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+          </button>
+          <button
             onClick={() => setTerminalView(!terminalView())}
             class="icon-btn"
             style={{ background: terminalView() ? 'var(--accent-primary)' : 'var(--bg-secondary)' }}

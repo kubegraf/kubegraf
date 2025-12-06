@@ -30,7 +30,7 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: 'Deployments',
+    title: 'CD',
     items: [
       { id: 'apps', label: 'Deploy', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
       { id: 'rollouts', label: 'Rollouts', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
@@ -78,7 +78,6 @@ const navSections: NavSection[] = [
         {
           title: 'Integrations',
           items: [
-            { id: 'clustermanager', label: 'Cluster Manager', icon: 'M12 6v12m6-6H6' },
             { id: 'connectors', label: 'Connectors', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
             { id: 'aiagents', label: 'AI Agents', icon: 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.57.393A9.065 9.065 0 0021.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.065 9.065 0 003.464 3.693M19.8 15.3l-1.464-1.464M5 14.5l-1.464-1.464' },
             { id: 'sreagent', label: 'SRE Agent', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
@@ -134,12 +133,8 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    // Special handling for terminal
-                    if (item.id === 'terminal') {
-                      props.onTerminalClick?.();
-                    } else {
-                      setCurrentView(item.id);
-                    }
+                    // Special handling for terminal - open as view instead of docked terminal
+                    setCurrentView(item.id);
                   }}
                   onMouseEnter={(e) => {
                     if (sidebarCollapsed()) {
@@ -221,7 +216,7 @@ const Sidebar: Component = () => {
       {/* Logo */}
       <div class="h-14 flex items-center justify-between px-3 border-b" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
         <button onClick={() => setCurrentView('dashboard')} class="flex items-center gap-2.5 hover:opacity-80 transition-opacity" title="Go to Dashboard">
-          <svg viewBox="0 0 100 100" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+          <svg class="floating-logo" viewBox="0 0 100 100" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stop-color="#22d3ee"/>
@@ -267,7 +262,7 @@ const Sidebar: Component = () => {
             </g>
           </svg>
           <Show when={!sidebarCollapsed()}>
-            <span class="font-bold text-lg gradient-text">KubeGraf</span>
+            <span class="font-bold text-lg gradient-text floating-text">KubeGraf</span>
           </Show>
         </button>
         <button
