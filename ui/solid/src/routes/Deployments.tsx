@@ -381,7 +381,7 @@ const Deployments: Component = () => {
       </div>
 
       {/* Deployments table */}
-      <div class="w-full" style={{ background: '#000000', margin: '0', padding: '0', border: '1px solid #333333', 'border-radius': '4px' }}>
+      <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
         <Show
           when={!deploymentsCache.loading() || deploymentsCache.data() !== undefined}
           fallback={
@@ -398,7 +398,7 @@ const Deployments: Component = () => {
                 width: '100%',
                 'table-layout': 'auto',
                 'font-family': getFontFamilyCSS(),
-                background: '#000000',
+                background: 'var(--bg-primary)',
                 'border-collapse': 'collapse',
                 margin: '0',
                 padding: '0'
@@ -593,8 +593,8 @@ const Deployments: Component = () => {
 
           {/* Pagination */}
           <Show when={totalPages() > 1 || filteredAndSorted().length > 0}>
-            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#000000', borderTop: '1px solid #333333' }}>
-              <div style={{ color: '#8b949e' }}>
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ color: 'var(--text-secondary)' }}>
                 Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} deployments
               </div>
               <div class="flex items-center gap-2">
@@ -602,7 +602,7 @@ const Deployments: Component = () => {
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   First
                 </button>
@@ -610,18 +610,18 @@ const Deployments: Component = () => {
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   ← Prev
                 </button>
-                <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
+                <span class="px-3 py-1" style={{ color: 'var(--text-primary)' }}>
                   Page {currentPage()} of {totalPages()}
                 </span>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages(), p + 1))}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Next →
                 </button>
@@ -629,7 +629,7 @@ const Deployments: Component = () => {
                   onClick={() => setCurrentPage(totalPages())}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Last
                 </button>
@@ -637,7 +637,7 @@ const Deployments: Component = () => {
                   value={pageSize()}
                   onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
                   class="px-3 py-1 rounded-lg text-sm ml-4"
-                  style={{ background: '#21262d', color: '#c9d1d9', border: '1px solid var(--border-color)' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 >
                   <option value="20">20 per page</option>
                   <option value="50">50 per page</option>

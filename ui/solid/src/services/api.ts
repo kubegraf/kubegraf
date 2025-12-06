@@ -62,6 +62,49 @@ export interface ClusterStatus {
   error?: string;
 }
 
+export interface ClusterManagerStatus {
+  connected: boolean;
+  cluster?: string;
+  error?: string;
+}
+
+export interface ClusterEntry {
+  name: string;
+  provider: string;
+  kubeconfigPath: string;
+  connected: boolean;
+  error?: string;
+}
+
+export interface DiscoveredKubeconfig {
+  path: string;
+  clusters?: string[];
+  valid: boolean;
+  error?: string;
+}
+
+export interface RuntimeClusterContext {
+  name: string;
+  cluster: string;
+  connected: boolean;
+  reachable: boolean;
+  error?: string;
+}
+
+export interface ClusterConnectPayload {
+  name?: string;
+  provider: string;
+  kubeconfigPath: string;
+  makeDefault?: boolean;
+}
+
+export interface ClusterManagerResponse {
+  clusters: ClusterEntry[];
+  discovered: DiscoveredKubeconfig[];
+  contexts: RuntimeClusterContext[];
+  status: ClusterManagerStatus;
+}
+
 export interface Metrics {
   cpu: { usage: number; capacity: number; percentage: number };
   memory: { usage: number; capacity: number; percentage: number };
@@ -843,6 +886,21 @@ export const api = {
     const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
     return data.incidents || [];
   },
+
+  // ============ Cluster Manager ============
+  getClusters: () =>
+    fetchAPI<ClusterManagerResponse>('/clusters'),
+  getClusterManagerStatus: () =>
+    fetchAPI<ClusterManagerStatus>('/clusters/status'),
+  connectCluster: (payload: ClusterConnectPayload) =>
+    fetchAPI<{ success: boolean; cluster?: ClusterEntry; status: ClusterManagerStatus }>('/clusters/connect', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  disconnectCluster: () =>
+    fetchAPI<{ success: boolean; status: ClusterManagerStatus }>('/clusters/disconnect', {
+      method: 'POST',
+    }),
 };
 
 interface Connector {
