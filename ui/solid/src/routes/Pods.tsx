@@ -2,6 +2,15 @@ import { Component, For, Show, createMemo, createSignal, createResource, onMount
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedCluster,
+  selectedNamespaces,
+  searchQuery,
+  setSearchQuery,
+  globalLoading,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -27,7 +36,7 @@ type SortField = 'name' | 'namespace' | 'status' | 'cpu' | 'memory' | 'restarts'
 type SortDirection = 'asc' | 'desc';
 
 const Pods: Component = () => {
-  const [search, setSearch] = createSignal('');
+  // Use global search query instead of local search
   const [statusFilter, setStatusFilter] = createSignal('all');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
@@ -137,7 +146,8 @@ const Pods: Component = () => {
   const fetchMetrics = async () => {
     try {
       const currentMetrics = podMetrics();
-      const metrics = await api.getPodMetrics(namespace());
+      const namespaceParam = getNamespaceParam();
+      const metrics = await api.getPodMetrics(namespaceParam);
       if (Object.keys(currentMetrics).length > 0) {
         setPrevMetrics(currentMetrics);
       }
@@ -199,7 +209,7 @@ const Pods: Component = () => {
     podsRefreshTimer = setInterval(() => {
       // Only refresh if no action menu is open
       if (!actionMenuOpen()) {
-        refetch().catch(err => console.error('Background refresh error:', err));
+        podsCache.refetch().catch(err => console.error('Background refresh error:', err));
         fetchMetrics();
       }
     }, 2000);
@@ -266,7 +276,37 @@ const Pods: Component = () => {
 
   // Resources
   const [namespaces] = createResource(api.getNamespaces);
-  const [pods, { refetch }] = createResource(namespace, api.getPods);
+  
+  // Determine namespace parameter from global store
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache
+  const podsCache = createCachedResource<Pod[]>(
+    'pods',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const pods = await api.getPods(namespaceParam);
+        return pods;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  const pods = createMemo(() => podsCache.data() || []);
   
   // Track initial load separately to avoid showing loading on refetch
   const [initialLoad, setInitialLoad] = createSignal(true);
@@ -291,8 +331,8 @@ const Pods: Component = () => {
       await api.updatePod(pod.name, pod.namespace, yaml);
       addNotification(`✅ Pod ${pod.name} updated successfully`, 'success');
       setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
+      setTimeout(() => podsCache.refetch(), 500);
+      setTimeout(() => podsCache.refetch(), 2000);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       addNotification(`❌ Failed to update pod: ${errorMsg}`, 'error');
@@ -334,7 +374,7 @@ const Pods: Component = () => {
 
   const filteredAndSortedPods = createMemo(() => {
     let allPods = pods() || [];
-    const query = search().toLowerCase();
+    const query = searchQuery().toLowerCase();
     const status = statusFilter();
 
     // Filter by search
@@ -562,7 +602,7 @@ const Pods: Component = () => {
       await api.deletePod(pod.name, pod.namespace);
       addNotification(`Pod ${pod.name} deleted successfully`, 'success');
       // Small delay to let cluster update before refetching
-      setTimeout(() => refetch(), 500);
+      setTimeout(() => podsCache.refetch(), 500);
     } catch (error) {
       console.error('Failed to delete pod:', error);
       addNotification(`Failed to delete pod: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
@@ -624,7 +664,7 @@ const Pods: Component = () => {
               const btn = e.currentTarget;
               btn.classList.add('refreshing');
               setTimeout(() => btn.classList.remove('refreshing'), 500);
-              refetch();
+              podsCache.refetch();
               fetchMetrics();
             }}
             class="icon-btn"
@@ -705,8 +745,8 @@ const Pods: Component = () => {
         <input
           type="text"
           placeholder="Search..."
-          value={search()}
-          onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
+          value={searchQuery()}
+          onInput={(e) => { setSearchQuery(e.currentTarget.value); setCurrentPage(1); }}
           class="px-3 py-2 rounded-lg text-sm w-48"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         />
@@ -747,7 +787,7 @@ const Pods: Component = () => {
       {/* Pods table */}
       <div class="w-full" style={{ background: '#000000', margin: '0', padding: '0', border: '1px solid #333333', 'border-radius': '4px' }}>
         <Show
-          when={!initialLoad() || pods() !== undefined}
+          when={!podsCache.loading() || podsCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
