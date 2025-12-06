@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -128,18 +129,25 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			memory = m.memory
 		}
 
+		// Extract container names
+		containerNames := make([]string, 0, len(pod.Spec.Containers))
+		for _, c := range pod.Spec.Containers {
+			containerNames = append(containerNames, c.Name)
+		}
+
 		podList = append(podList, map[string]interface{}{
-			"name":      pod.Name,
-			"status":    status,
-			"ready":     fmt.Sprintf("%d/%d", ready, total),
-			"restarts":  restarts,
-			"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-			"createdAt": pod.CreationTimestamp.Time.Format(time.RFC3339),
-			"ip":        pod.Status.PodIP,
-			"node":      pod.Spec.NodeName,
-			"namespace": pod.Namespace,
-			"cpu":       cpu,
-			"memory":    memory,
+			"name":       pod.Name,
+			"status":     status,
+			"ready":      fmt.Sprintf("%d/%d", ready, total),
+			"restarts":   restarts,
+			"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
+			"createdAt":  pod.CreationTimestamp.Time.Format(time.RFC3339),
+			"ip":         pod.Status.PodIP,
+			"node":       pod.Spec.NodeName,
+			"namespace":  pod.Namespace,
+			"cpu":        cpu,
+			"memory":     memory,
+			"containers": containerNames,
 		})
 	}
 
@@ -184,47 +192,105 @@ func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
 
 // handleDeployments returns deployment list
 func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+	
 	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	// Only default to app.namespace if namespace param is not provided at all
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
-	deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
+	allDeployments := []map[string]interface{}{}
+	var continueToken string
+	for {
+		opts := metav1.ListOptions{}
+		if continueToken != "" {
+			opts.Continue = continueToken
+		}
+
+		deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, opts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		for _, dep := range deployments.Items {
+			replicas := int32(1)
+			if dep.Spec.Replicas != nil {
+				replicas = *dep.Spec.Replicas
+			}
+			allDeployments = append(allDeployments, map[string]interface{}{
+				"name":      dep.Name,
+				"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, replicas),
+				"upToDate":  dep.Status.UpdatedReplicas,
+				"available": dep.Status.AvailableReplicas,
+				"replicas":  replicas,
+				"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
+				"namespace": dep.Namespace,
+			})
+		}
+
+		if deployments.Continue == "" {
+			break
+		}
+		continueToken = deployments.Continue
 	}
 
-	depList := []map[string]interface{}{}
-	for _, dep := range deployments.Items {
-		depList = append(depList, map[string]interface{}{
-			"name":      dep.Name,
-			"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
-			"available": dep.Status.AvailableReplicas,
-			"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
-			"namespace": dep.Namespace,
-		})
-	}
-
-	json.NewEncoder(w).Encode(depList)
+	json.NewEncoder(w).Encode(allDeployments)
 }
 
 // handleStatefulSets returns statefulset list
 func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
 
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" {
+		namespace = "" // Set to empty string for all namespaces
+	}
+
+	allStatefulSets := []appsv1.StatefulSet{}
+	var continueToken string
+	for {
+		opts := metav1.ListOptions{}
+		if continueToken != "" {
+			opts.Continue = continueToken
+		}
+
+		statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, opts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		allStatefulSets = append(allStatefulSets, statefulsets.Items...)
+
+		if statefulsets.Continue == "" {
+			break
+		}
+		continueToken = statefulsets.Continue
+	}
+
 	ssList := []map[string]interface{}{}
-	for _, ss := range statefulsets.Items {
+	for _, ss := range allStatefulSets {
+		replicas := int32(1)
+		if ss.Spec.Replicas != nil {
+			replicas = *ss.Spec.Replicas
+		}
 		ssList = append(ssList, map[string]interface{}{
 			"name":      ss.Name,
-			"ready":     fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
+			"ready":     fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
 			"available": ss.Status.ReadyReplicas,
 			"age":       formatAge(time.Since(ss.CreationTimestamp.Time)),
 			"namespace": ss.Namespace,
@@ -236,18 +302,43 @@ func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) 
 
 // handleDaemonSets returns daemonset list
 func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
 
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" {
+		namespace = "" // Set to empty string for all namespaces
+	}
+
+	allDaemonSets := []appsv1.DaemonSet{}
+	var continueToken string
+	for {
+		opts := metav1.ListOptions{}
+		if continueToken != "" {
+			opts.Continue = continueToken
+		}
+
+		daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, opts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		allDaemonSets = append(allDaemonSets, daemonsets.Items...)
+
+		if daemonsets.Continue == "" {
+			break
+		}
+		continueToken = daemonsets.Continue
+	}
+
 	dsList := []map[string]interface{}{}
-	for _, ds := range daemonsets.Items {
+	for _, ds := range allDaemonSets {
 		dsList = append(dsList, map[string]interface{}{
 			"name":      ds.Name,
 			"desired":   ds.Status.DesiredNumberScheduled,
@@ -264,18 +355,43 @@ func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
 
 // handleServices returns service list
 func (ws *WebServer) handleServices(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
-	}
-	services, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
 
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" {
+		namespace = "" // Set to empty string for all namespaces
+	}
+
+	allServices := []corev1.Service{}
+	var continueToken string
+	for {
+		opts := metav1.ListOptions{}
+		if continueToken != "" {
+			opts.Continue = continueToken
+		}
+
+		services, err := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, opts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		allServices = append(allServices, services.Items...)
+
+		if services.Continue == "" {
+			break
+		}
+		continueToken = services.Continue
+	}
+
 	svcList := []map[string]interface{}{}
-	for _, svc := range services.Items {
+	for _, svc := range allServices {
 		// Format ports string (e.g., "80:8080/TCP,443:8443/TCP")
 		var ports []string
 		for _, p := range svc.Spec.Ports {
@@ -591,15 +707,11 @@ func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 
 	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
+		namespace = "" // Set to empty string for all namespaces
 	}
-
-	// Handle "_all" namespace
 	queryNs := namespace
-	if namespace == "_all" {
-		queryNs = ""
-	}
 
 	// Create dynamic client for CRD access
 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)

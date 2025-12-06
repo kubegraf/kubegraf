@@ -1015,21 +1015,44 @@ func (ws *WebServer) handlePersistentVolumeClaims(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Empty namespace means "all namespaces" in Kubernetes
-	// When namespace param is not provided, use empty string to list all namespaces
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = "" // List all namespaces
-	}
+	w.Header().Set("Content-Type", "application/json")
 
-	pvcs, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).List(ws.app.ctx, metav1.ListOptions{})
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
 
+	// Empty namespace means "all namespaces" in Kubernetes
+	// When namespace param is not provided, use empty string to list all namespaces
+	namespace := r.URL.Query().Get("namespace")
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" {
+		namespace = "" // List all namespaces
+	}
+
+	allPVCs := []corev1.PersistentVolumeClaim{}
+	var continueToken string
+	for {
+		opts := metav1.ListOptions{}
+		if continueToken != "" {
+			opts.Continue = continueToken
+		}
+
+		pvcs, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).List(ws.app.ctx, opts)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		allPVCs = append(allPVCs, pvcs.Items...)
+
+		if pvcs.Continue == "" {
+			break
+		}
+		continueToken = pvcs.Continue
+	}
+
 	pvcList := []map[string]interface{}{}
-	for _, pvc := range pvcs.Items {
+	for _, pvc := range allPVCs {
 		accessModes := []string{}
 		for _, mode := range pvc.Spec.AccessModes {
 			accessModes = append(accessModes, string(mode))

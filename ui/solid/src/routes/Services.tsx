@@ -44,7 +44,10 @@ const Services: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showPortForward, setShowPortForward] = createSignal(false);
-  const [localPort, setLocalPort] = createSignal(8080);
+  const [localPort, setLocalPort] = createSignal(() => {
+    // Generate random port between 8000-9000
+    return Math.floor(Math.random() * 1000) + 8000;
+  });
   const [remotePort, setRemotePort] = createSignal(80);
 
   // Font size selector with localStorage persistence
@@ -231,6 +234,8 @@ const Services: Component = () => {
 
   const openPortForward = (svc: Service) => {
     setSelected(svc);
+    // Generate new random local port each time
+    setLocalPort(Math.floor(Math.random() * 1000) + 8000);
     // Safely parse port from ports string
     const portsStr = svc.ports;
     if (typeof portsStr === 'string' && portsStr.trim() !== '' && portsStr !== '-') {

@@ -34,6 +34,7 @@ import Storage from './routes/Storage';
 import RBAC from './routes/RBAC';
 import NetworkPolicies from './routes/NetworkPolicies';
 import UserManagement from './routes/UserManagement';
+import Terminal from './routes/Terminal';
 import DeploymentProgress from './components/DeploymentProgress';
 import DockedTerminal from './components/DockedTerminal';
 import UIDemo from './components/UIDemo';
@@ -157,6 +158,7 @@ const views: Record<string, Component> = {
   rbac: RBAC,
   networkpolicies: NetworkPolicies,
   usermanagement: UserManagement,
+  terminal: Terminal,
   // UI Demo
   uidemo: UIDemo,
 };

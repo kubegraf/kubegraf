@@ -339,21 +339,10 @@ const Deployments: Component = () => {
           class="px-3 py-2 rounded-lg text-sm w-48"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         />
-
-        <select
-          value={pageSize()}
-          onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
-          class="px-3 py-2 rounded-lg text-sm"
-          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-        >
-          <option value="20">20</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
       </div>
 
       {/* Deployments table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
+      <div class="w-full" style={{ background: '#000000', margin: '0', padding: '0', border: '1px solid #333333', 'border-radius': '4px' }}>
         <Show
           when={!deployments.loading}
           fallback={
@@ -363,36 +352,92 @@ const Deployments: Component = () => {
             </div>
           }
         >
-          <div class="overflow-x-auto">
-            <table class="data-table terminal-table" style={{
-              fontSize: `${fontSize()}px`,
-              fontFamily: getFontFamilyCSS(),
-              color: '#0ea5e9',
-              fontWeight: 900
-            }}>
-              <style>{`
-                table { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table thead { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table tbody { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table tr { height: ${Math.max(24, fontSize() * 1.7)}px; }
-              `}</style>
+          <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+            <table
+              class="w-full"
+              style={{
+                width: '100%',
+                'table-layout': 'auto',
+                'font-family': getFontFamilyCSS(),
+                background: '#000000',
+                'border-collapse': 'collapse',
+                margin: '0',
+                padding: '0'
+              }}
+            >
               <thead>
-                <tr>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                <tr style={{
+                  height: `${Math.max(24, fontSize() * 1.7)}px`,
+                  'font-family': getFontFamilyCSS(),
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                }}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('ready')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('ready')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Ready <SortIcon field="ready" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Up-to-date</th>
-                  <th class="whitespace-nowrap">Available</th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Up-to-date</th>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Available</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Actions</th>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -508,8 +553,8 @@ const Deployments: Component = () => {
           </div>
 
           {/* Pagination */}
-          <Show when={totalPages() > 1}>
-            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#161b22' }}>
+          <Show when={totalPages() > 1 || filteredAndSorted().length > 0}>
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#000000', borderTop: '1px solid #333333' }}>
               <div style={{ color: '#8b949e' }}>
                 Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} deployments
               </div>
@@ -549,6 +594,17 @@ const Deployments: Component = () => {
                 >
                   Last
                 </button>
+                <select
+                  value={pageSize()}
+                  onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
+                  class="px-3 py-1 rounded-lg text-sm ml-4"
+                  style={{ background: '#21262d', color: '#c9d1d9', border: '1px solid var(--border-color)' }}
+                >
+                  <option value="20">20 per page</option>
+                  <option value="50">50 per page</option>
+                  <option value="100">100 per page</option>
+                  <option value="200">200 per page</option>
+                </select>
               </div>
             </div>
           </Show>
