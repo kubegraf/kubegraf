@@ -49,6 +49,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
+
+	"github.com/kubegraf/kubegraf/mcp/server"
 )
 
 var upgrader = websocket.Upgrader{
@@ -158,7 +160,7 @@ type WebServer struct {
 	// Event monitor integration
 	eventMonitorStarted bool
 	// MCP Server for AI agents
-	mcpServer *MCPServer
+	mcpServer *server.MCPServer
 	// Production upgrades
 	cache *Cache
 	db    *Database
@@ -177,7 +179,11 @@ func NewWebServer(app *App) *WebServer {
 		costCacheTime: make(map[string]time.Time),
 	}
 	// Initialize MCP server for AI agents
-	ws.mcpServer = NewMCPServer(app)
+	ws.mcpServer = server.NewMCPServer(app)
+	// Register default tools with the MCP server
+	if err := ws.mcpServer.RegisterDefaultTools(); err != nil {
+		fmt.Printf("⚠️  Failed to register MCP tools: %v\n", err)
+	}
 	
 	// Initialize database, cache, and IAM for production upgrades
 	homeDir, err := os.UserHomeDir()
@@ -465,6 +471,7 @@ func (ws *WebServer) showStartupBanner(port int) {
 	fmt.Println("║                    KubeGraf Web Dashboard                    ║")
 	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
 	fmt.Printf("║  Web UI: http://localhost:%d                                  ║\n", port)
+	fmt.Printf("║  MCP Server: http://localhost:%d/api/mcp                     ║\n", port)
 	fmt.Println("║                                                              ║")
 	fmt.Println("║  Features:                                                   ║")
 	fmt.Println("║  • Real-time cluster monitoring                              ║")
@@ -472,6 +479,7 @@ func (ws *WebServer) showStartupBanner(port int) {
 	fmt.Println("║  • Security analysis                                         ║")
 	fmt.Println("║  • Cost estimation                                           ║")
 	fmt.Println("║  • AI-powered recommendations                                ║")
+	fmt.Println("║  • MCP (Model Context Protocol) for AI agents               ║")
 	fmt.Println("║                                                              ║")
 	fmt.Println("║  Press Ctrl+C to stop the server                             ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════╝")

@@ -84,7 +84,7 @@ interface MetricCardProps {
 
 const MetricCard: Component<MetricCardProps> = (props) => (
   <div
-    class="card p-5 cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg"
+    class="metric-card card-hover cursor-pointer p-6"
     onClick={props.onClick}
     style={{ 'border-left': `4px solid ${props.color}` }}
   >

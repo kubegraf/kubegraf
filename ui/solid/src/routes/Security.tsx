@@ -2,6 +2,7 @@ import { Component, For, Show, createResource, createSignal, createEffect, onMou
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { settings } from '../stores/settings';
+import { LoadingSpinner } from '../components/Loading';
 
 interface Finding {
   rule: string;
@@ -410,10 +411,7 @@ const Security: Component = () => {
 
         <Show when={diagnostics.loading}>
           <div class="text-center py-8">
-            <div class="spinner mx-auto mb-4" />
-            <p style={{ color: 'var(--text-muted)' }}>
-              {diagnosticsProgress() || 'Running diagnostics in parallel...'}
-            </p>
+            <LoadingSpinner size="lg" showText={true} text={diagnosticsProgress() || 'Running diagnostics in parallel...'} />
             <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
               Optimized with parallel execution and caching
             </p>
@@ -794,8 +792,7 @@ const Security: Component = () => {
         {/* Vulnerability List with Pagination */}
         <Show when={vulnerabilities.loading}>
           <div class="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
-            <div class="spinner mx-auto mb-4" />
-            <p>Scanning cluster for vulnerabilities...</p>
+            <LoadingSpinner size="lg" showText={true} text="Scanning cluster for vulnerabilities..." />
             <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>This may take a few moments</p>
           </div>
         </Show>

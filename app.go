@@ -331,3 +331,13 @@ func (a *App) Shutdown() {
 	}
 	a.app.Stop()
 }
+
+// GetClientset returns the Kubernetes clientset for MCP tools
+func (a *App) GetClientset() interface{} {
+	return a.clientset
+}
+
+// IsConnected returns whether the app is connected to a Kubernetes cluster
+func (a *App) IsConnected() bool {
+	return a.connected && a.clientset != nil
+}
