@@ -7,6 +7,7 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { LoadingSpinner } from '../components/Loading';
 
 interface Service {
   name: string;
@@ -417,8 +418,7 @@ const Services: Component = () => {
           when={!services.loading}
           fallback={
             <div class="p-8 text-center">
-              <div class="spinner mx-auto mb-2" />
-              <span style={{ color: 'var(--text-muted)' }}>Loading services...</span>
+              <LoadingSpinner size="lg" showText={true} text="Loading services..." />
             </div>
           }
         >
@@ -619,14 +619,14 @@ const Services: Component = () => {
 
       {/* YAML Modal */}
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+        <Show when={!yamlContent.loading} fallback={<div class="flex items-center justify-center p-8"><LoadingSpinner size="md" /></div>}>
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
         </Show>
       </Modal>
 
       {/* Edit YAML Modal */}
       <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+        <Show when={!yamlContent.loading} fallback={<div class="flex items-center justify-center p-8"><LoadingSpinner size="md" /></div>}>
           <div style={{ height: '70vh' }}>
             <YAMLEditor
               yaml={yamlContent() || ''}

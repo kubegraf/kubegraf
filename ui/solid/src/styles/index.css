@@ -5,25 +5,52 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Default theme variables (Professional Dark) */
+/* Design System Variables (Strict - per project rules) */
 :root {
-  --bg-primary: #0a0a0a;
-  --bg-secondary: #1a1a1a;
-  --bg-tertiary: #2a2a2a;
-  --bg-card: rgba(26, 26, 26, 0.95);
-  --bg-navbar: rgba(10, 10, 10, 0.98);
-  --bg-input: rgba(26, 26, 26, 0.9);
-  --text-primary: #ededed;
-  --text-secondary: #a3a3a3;
-  --text-muted: #737373;
-  --border-color: rgba(64, 64, 64, 0.4);
-  --border-light: rgba(115, 115, 115, 0.3);
-  --accent-primary: #3b82f6;
-  --accent-secondary: #6366f1;
-  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  /* Neutral dark theme */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-card: rgba(30, 41, 59, 0.95);
+  --bg-navbar: rgba(15, 23, 42, 0.98);
+  --bg-input: rgba(30, 41, 59, 0.9);
+  --bg-glass: rgba(30, 41, 59, 0.7);
+  
+  /* Text colors */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  
+  /* Border colors */
+  --border-color: rgba(100, 116, 139, 0.4);
+  --border-light: rgba(148, 163, 184, 0.3);
+  
+  /* Kubernetes-blue accents */
+  --accent-primary: #326ce5;
+  --accent-secondary: #3b82f6;
+  --accent-tertiary: #06b6d4;
+  
+  /* Neon gradients for highlights */
+  --accent-gradient: linear-gradient(90deg, #06b6d4, #3b82f6, #8b5cf6, #d946ef);
+  --k8s-gradient: linear-gradient(90deg, #326ce5, #3b82f6);
+  --glass-gradient: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(59, 130, 246, 0.1));
+  
+  /* Status colors */
   --success-color: #10b981;
   --warning-color: #f59e0b;
   --error-color: #ef4444;
+  --info-color: #3b82f6;
+  
+  /* Soft shadows */
+  --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-medium: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-hard: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.3);
+  --shadow-inner-glow: inset 0 0 20px rgba(59, 130, 246, 0.1);
+  
+  /* Frosted glass effect */
+  --glass-blur: blur(20px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 * {
@@ -108,19 +135,84 @@ code, pre, .font-mono {
 .status-succeeded { color: var(--accent-secondary); }
 .status-unknown { color: var(--text-muted); }
 
-/* Card styles */
+/* Card styles with hover lift + glow (per project rules) */
 .card {
   background: var(--bg-card);
   backdrop-filter: blur(10px);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.05),
+    transparent
+  );
+  transition: left 0.6s ease;
+}
+
+.card:hover::before {
+  left: 100%;
 }
 
 .card-hover:hover {
   border-color: var(--accent-primary);
-  box-shadow: 0 10px 40px -10px color-mix(in srgb, var(--accent-primary) 30%, transparent);
-  transform: translateY(-2px);
+  box-shadow: 
+    0 20px 40px -15px color-mix(in srgb, var(--accent-primary) 20%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent-primary) 30%, transparent),
+    var(--shadow-glow);
+  transform: translateY(-4px);
+}
+
+/* Metric card specific styles */
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.05),
+    transparent
+  );
+  transition: left 0.6s ease;
+}
+
+.metric-card:hover::before {
+  left: 100%;
+}
+
+.metric-card:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 
+    0 20px 40px -15px color-mix(in srgb, var(--accent-primary) 20%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent-primary) 30%, transparent),
+    var(--shadow-glow);
+  transform: translateY(-4px);
 }
 
 /* Glass morphism sidebar */
@@ -330,10 +422,33 @@ input::placeholder, textarea::placeholder {
   color: var(--text-muted) !important;
 }
 
-/* Table styles */
+/* Table styles with sticky headers (per project rules) */
 table {
   border-collapse: separate;
   border-spacing: 0;
+  width: 100%;
+}
+
+.table-container {
+  position: relative;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.table-container thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  backdrop-filter: blur(10px);
 }
 
 th {
@@ -358,6 +473,37 @@ td {
 
 tr:hover td {
   background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
+}
+
+/* Sticky header for resource lists */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-color);
+  padding: 1rem 1.5rem;
+  margin: -1rem -1.5rem 1rem;
+}
+
+.sticky-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sticky-header-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sticky-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* Terminal-style table */
@@ -540,9 +686,10 @@ th:hover .resize-handle:hover {
   border-bottom-color: var(--accent-primary);
 }
 
-/* Tooltip */
+/* Enhanced Tooltips (per project rules - "Tooltips everywhere") */
 .tooltip {
   position: relative;
+  cursor: help;
 }
 
 .tooltip::after {
@@ -550,7 +697,7 @@ th:hover .resize-handle:hover {
   position: absolute;
   bottom: 100%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(-4px);
   padding: 0.5rem 0.75rem;
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -559,11 +706,122 @@ th:hover .resize-handle:hover {
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  max-width: 300px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.4;
 }
 
 .tooltip:hover::after {
   opacity: 1;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+.tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  border: 5px solid transparent;
+  border-top-color: var(--border-color);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  z-index: 1001;
+}
+
+.tooltip:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Tooltip positioning variants */
+.tooltip-top::after {
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.tooltip-top:hover::after {
+  transform: translateX(-50%) translateY(-8px);
+}
+
+.tooltip-bottom::after {
+  top: 100%;
+  bottom: auto;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+}
+
+.tooltip-bottom:hover::after {
+  transform: translateX(-50%) translateY(8px);
+}
+
+.tooltip-bottom::before {
+  top: 100%;
+  bottom: auto;
+  border-top-color: transparent;
+  border-bottom-color: var(--border-color);
+  transform: translateX(-50%) translateY(4px);
+}
+
+.tooltip-bottom:hover::before {
+  transform: translateX(-50%) translateY(0);
+}
+
+.tooltip-left::after {
+  right: 100%;
+  bottom: 50%;
+  left: auto;
+  transform: translateX(4px) translateY(50%);
+}
+
+.tooltip-left:hover::after {
+  transform: translateX(8px) translateY(50%);
+}
+
+.tooltip-right::after {
+  left: 100%;
+  bottom: 50%;
+  transform: translateX(-4px) translateY(50%);
+}
+
+.tooltip-right:hover::after {
+  transform: translateX(-8px) translateY(50%);
+}
+
+/* Tooltip for icons and buttons */
+.icon-tooltip::after {
+  font-size: 0.7rem;
+  padding: 0.375rem 0.625rem;
+}
+
+.button-tooltip::after {
+  font-size: 0.7rem;
+  padding: 0.375rem 0.625rem;
+  white-space: nowrap;
+}
+
+/* Tooltip for table headers */
+.table-header-tooltip::after {
+  font-size: 0.7rem;
+  padding: 0.375rem 0.625rem;
+  white-space: normal;
+  max-width: 250px;
+  text-align: left;
+}
+
+/* Tooltip for status indicators */
+.status-tooltip::after {
+  font-size: 0.7rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
 }
 
 /* Code block */
@@ -800,7 +1058,7 @@ th:hover .resize-handle:hover {
   max-width: 400px;
 }
 
-/* Skeleton loading */
+/* Skeleton loading with shimmer (per project rules) */
 .skeleton {
   background: linear-gradient(
     90deg,
@@ -809,11 +1067,103 @@ th:hover .resize-handle:hover {
     var(--bg-tertiary) 75%
   );
   background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
 }
 
-@keyframes skeleton-loading {
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.05),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes skeleton-pulse {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@keyframes shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+/* Skeleton variants */
+.skeleton-text {
+  height: 1em;
+  margin-bottom: 0.5em;
+}
+
+.skeleton-text:last-child {
+  margin-bottom: 0;
+}
+
+.skeleton-text-sm {
+  height: 0.875em;
+  width: 60%;
+}
+
+.skeleton-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.skeleton-rect {
+  height: 100px;
+  border-radius: 8px;
+}
+
+/* Pre-configured skeletons for common UI patterns */
+.table-row-skeleton {
+  display: flex;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.table-row-skeleton .skeleton-text {
+  flex: 1;
+}
+
+.dashboard-card-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-card-skeleton .card {
+  padding: 1.5rem;
+}
+
+.sidebar-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.sidebar-skeleton .skeleton-text {
+  width: 80%;
+}
+
+.sidebar-skeleton .skeleton-text-sm {
+  width: 60%;
 }
