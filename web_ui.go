@@ -19,7 +19,7 @@ import (
 	"io/fs"
 )
 
-//go:embed web/dist/*
+//go:embed web/dist
 var webDistFS embed.FS
 
 // GetWebFS returns the embedded web UI filesystem, stripped of the "web/dist" prefix
