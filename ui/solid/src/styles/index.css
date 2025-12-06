@@ -540,19 +540,19 @@ tr:hover td {
 }
 
 .terminal-table th {
-  background: #161b22;
-  color: #8b949e;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   border: none;
 }
 
 .terminal-table td {
-  background: #0d1117;
-  color: #c9d1d9;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   border: none;
 }
 
 .terminal-table tr:hover td {
-  background: #161b22;
+  background: var(--bg-secondary);
 }
 
 /* Column resize handle */

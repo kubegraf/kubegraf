@@ -1,6 +1,6 @@
 import { createSignal, createEffect } from 'solid-js';
 
-export type ThemeName = 'dark' | 'light' | 'midnight' | 'dracula' | 'nord' | 'ocean' | 'terminal' | 'github-dark';
+export type ThemeName = 'dark' | 'light' | 'midnight' | 'nord' | 'ocean' | 'terminal' | 'github-dark';
 
 export interface Theme {
   name: ThemeName;
@@ -98,30 +98,6 @@ export const themes: Record<ThemeName, Theme> = {
       successColor: '#10b981',
       warningColor: '#f59e0b',
       errorColor: '#f43f5e',
-    },
-  },
-  dracula: {
-    name: 'dracula',
-    label: 'Dracula',
-    icon: 'skull',
-    colors: {
-      bgPrimary: '#282a36',
-      bgSecondary: '#21222c',
-      bgTertiary: '#44475a',
-      bgCard: 'rgba(40, 42, 54, 0.9)',
-      bgNavbar: 'rgba(40, 42, 54, 0.98)',
-      bgInput: 'rgba(40, 42, 54, 0.9)',
-      textPrimary: '#f8f8f2',
-      textSecondary: '#6272a4',
-      textMuted: '#44475a',
-      borderColor: 'rgba(98, 114, 164, 0.3)',
-      borderLight: 'rgba(98, 114, 164, 0.5)',
-      accentPrimary: '#bd93f9',
-      accentSecondary: '#ff79c6',
-      accentGradient: 'linear-gradient(135deg, #bd93f9 0%, #ff79c6 100%)',
-      successColor: '#50fa7b',
-      warningColor: '#f1fa8c',
-      errorColor: '#ff5555',
     },
   },
   nord: {
@@ -261,7 +237,7 @@ export function setTheme(themeName: ThemeName) {
 
 // Cycle through themes
 export function cycleTheme() {
-  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'dracula', 'nord', 'ocean', 'terminal', 'github-dark'];
+  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'nord', 'ocean', 'terminal', 'github-dark'];
   const currentIndex = themeOrder.indexOf(currentTheme());
   const nextIndex = (currentIndex + 1) % themeOrder.length;
   setTheme(themeOrder[nextIndex]);

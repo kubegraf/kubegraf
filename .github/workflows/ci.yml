@@ -34,6 +34,11 @@ jobs:
           cd ui/solid
           npm run build
 
+      - name: Verify UI dist was built
+        run: |
+          echo "Contents of ui/solid/dist:"
+          ls -laR ui/solid/dist || echo "ui/solid/dist does not exist"
+
       - name: Upload UI dist artifact
         uses: actions/upload-artifact@v4
         with:
@@ -53,7 +58,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web/dist
+          path: web
+
+      - name: Verify web contents
+        run: |
+          echo "Contents of web:"
+          ls -laR web || echo "web does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -81,7 +91,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web/dist
+          path: web
+
+      - name: Verify web contents
+        run: |
+          echo "Contents of web:"
+          ls -laR web || echo "web does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -108,7 +123,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web/dist
+          path: web
+
+      - name: Verify web contents
+        run: |
+          echo "Contents of web:"
+          ls -laR web || echo "web does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5

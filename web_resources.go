@@ -547,7 +547,7 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 
 		// Get ports
 		ports := "80"
-		if ing.Spec.TLS != nil && len(ing.Spec.TLS) > 0 {
+		if len(ing.Spec.TLS) > 0 {
 			ports = "80, 443"
 		}
 

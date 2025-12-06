@@ -49,13 +49,6 @@ const ThemeToggle: Component = () => {
         <line x1="12" y1="19" x2="20" y2="19" />
       </svg>
     ),
-    dracula: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
-        <path d="M12 2c-4 0-8 2-8 6v6c0 2 1 4 2 5.5V20c0 .5.5 1 1 1h10c.5 0 1-.5 1-1v-.5c1-1.5 2-3.5 2-5.5V8c0-4-4-6-8-6z" />
-        <circle cx="9" cy="10" r="1" fill="currentColor" />
-        <circle cx="15" cy="10" r="1" fill="currentColor" />
-      </svg>
-    ),
     nord: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
         <path d="M12 2l3 7h7l-5.5 4.5 2 6.5L12 17l-5.5 3.5 2-6.5L2 9h7l3-7z" />
@@ -118,7 +111,7 @@ const ThemeToggle: Component = () => {
                 }}
                 class={`w-full flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--bg-tertiary)] ${
                   currentTheme() === themeName ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]'
-                } ${themeName === 'dark' ? 'rounded-t-lg' : ''} ${themeName === 'terminal' ? 'rounded-b-lg' : ''}`}
+                } ${themeName === 'dark' ? 'rounded-t-lg' : ''} ${themeName === 'github-dark' ? 'rounded-b-lg' : ''}`}
               >
                 {themeIcons[themeName]}
                 <span class="font-medium">{themes[themeName].label}</span>

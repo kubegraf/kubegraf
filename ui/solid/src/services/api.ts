@@ -62,6 +62,49 @@ export interface ClusterStatus {
   error?: string;
 }
 
+export interface ClusterManagerStatus {
+  connected: boolean;
+  cluster?: string;
+  error?: string;
+}
+
+export interface ClusterEntry {
+  name: string;
+  provider: string;
+  kubeconfigPath: string;
+  connected: boolean;
+  error?: string;
+}
+
+export interface DiscoveredKubeconfig {
+  path: string;
+  clusters?: string[];
+  valid: boolean;
+  error?: string;
+}
+
+export interface RuntimeClusterContext {
+  name: string;
+  cluster: string;
+  connected: boolean;
+  reachable: boolean;
+  error?: string;
+}
+
+export interface ClusterConnectPayload {
+  name?: string;
+  provider: string;
+  kubeconfigPath: string;
+  makeDefault?: boolean;
+}
+
+export interface ClusterManagerResponse {
+  clusters: ClusterEntry[];
+  discovered: DiscoveredKubeconfig[];
+  contexts: RuntimeClusterContext[];
+  status: ClusterManagerStatus;
+}
+
 export interface Metrics {
   cpu: { usage: number; capacity: number; percentage: number };
   memory: { usage: number; capacity: number; percentage: number };
@@ -831,6 +874,33 @@ export const api = {
     fetchAPI<{ success: boolean; message?: string; error?: string }>(`/connectors/${id}/test`, {
       method: 'POST',
     }),
+
+  // ============ Incidents ============
+  getIncidents: async (namespace?: string, type?: string, severity?: string) => {
+    const params = new URLSearchParams();
+    if (namespace) params.append('namespace', namespace);
+    if (type) params.append('type', type);
+    if (severity) params.append('severity', severity);
+    const query = params.toString();
+    const endpoint = query ? `/incidents?${query}` : '/incidents';
+    const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
+    return data.incidents || [];
+  },
+
+  // ============ Cluster Manager ============
+  getClusters: () =>
+    fetchAPI<ClusterManagerResponse>('/clusters'),
+  getClusterManagerStatus: () =>
+    fetchAPI<ClusterManagerStatus>('/clusters/status'),
+  connectCluster: (payload: ClusterConnectPayload) =>
+    fetchAPI<{ success: boolean; cluster?: ClusterEntry; status: ClusterManagerStatus }>('/clusters/connect', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  disconnectCluster: () =>
+    fetchAPI<{ success: boolean; status: ClusterManagerStatus }>('/clusters/disconnect', {
+      method: 'POST',
+    }),
 };
 
 interface Connector {
@@ -843,6 +913,19 @@ interface Connector {
   lastTest?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Incident {
+  id: string;
+  type: string;
+  severity: 'warning' | 'critical';
+  resourceKind: string;
+  resourceName: string;
+  namespace: string;
+  firstSeen: string;
+  lastSeen: string;
+  count: number;
+  message?: string;
 }
 
 export default api;

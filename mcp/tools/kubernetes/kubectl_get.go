@@ -30,7 +30,7 @@ func NewKubectlGetTool(app interface{}) *KubectlGetTool {
 	if a, ok := app.(AppInterface); ok {
 		appInterface = a
 	}
-	
+
 	tool := &KubectlGetTool{
 		BaseTool: types.NewBaseTool(
 			"kubectl_get",
@@ -114,11 +114,11 @@ func (t *KubectlGetTool) Validate(ctx context.Context) error {
 	if t.app == nil {
 		return fmt.Errorf("app instance not available")
 	}
-	
+
 	// Check if connected to cluster
 	if !t.app.IsConnected() {
 		return fmt.Errorf("not connected to Kubernetes cluster")
 	}
-	
+
 	return nil
 }

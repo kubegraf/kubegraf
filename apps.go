@@ -455,7 +455,7 @@ func (ws *WebServer) installK3d(ctx context.Context, clusterName string, install
 		"--port", "8080:80@loadbalancer",
 		"--port", "8443:443@loadbalancer",
 		"--wait")
-	
+
 	if err := createCmd.Run(); err != nil {
 		fmt.Printf("Failed to create k3d cluster: %v\n", err)
 		if installationID > 0 {
@@ -709,7 +709,7 @@ func (ws *WebServer) installHelmApp(app *AppDefinition, namespace string, values
 	installArgs := []string{"install", app.Name, repoName + "/" + app.ChartName, "--namespace", namespace, "--create-namespace", "--wait", "--timeout", "10m"}
 
 	// Add custom values if provided
-	if values != nil && len(values) > 0 {
+	if len(values) > 0 {
 		valuesJSON, _ := json.Marshal(values)
 		installArgs = append(installArgs, "--set-json", string(valuesJSON))
 	}
