@@ -2,6 +2,15 @@ import { Component, For, Show, createMemo, createSignal, createResource } from '
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedCluster,
+  selectedNamespaces,
+  searchQuery,
+  setSearchQuery,
+  globalLoading,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -33,7 +42,7 @@ type SortField = 'name' | 'namespace' | 'type' | 'age';
 type SortDirection = 'asc' | 'desc';
 
 const Services: Component = () => {
-  const [search, setSearch] = createSignal('');
+  // Use global search query instead of local search
   const [typeFilter, setTypeFilter] = createSignal('all');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
@@ -87,7 +96,37 @@ const Services: Component = () => {
     }
   };
 
-  const [services, { refetch }] = createResource(namespace, api.getServices);
+  // Determine namespace parameter from global store
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache
+  const servicesCache = createCachedResource<Service[]>(
+    'services',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const services = await api.getServices(namespaceParam);
+        return services;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  // Get services from cache
+  const services = createMemo(() => servicesCache.data() || []);
   const [portForwards, { refetch: refetchPF }] = createResource(api.listPortForwards);
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
@@ -105,8 +144,8 @@ const Services: Component = () => {
       await api.updateService(svc.name, svc.namespace, yaml);
       addNotification(`✅ Service ${svc.name} updated successfully`, 'success');
       setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
+      setTimeout(() => servicesCache.refetch(), 500);
+      setTimeout(() => servicesCache.refetch(), 2000);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       addNotification(`❌ Failed to update service: ${errorMsg}`, 'error');
@@ -129,7 +168,7 @@ const Services: Component = () => {
 
   const filteredAndSorted = createMemo(() => {
     let all = services() || [];
-    const query = search().toLowerCase();
+    const query = searchQuery().toLowerCase();
     const type = typeFilter();
 
     // Filter by type
@@ -252,7 +291,7 @@ const Services: Component = () => {
     try {
       await api.deleteService(svc.name, svc.namespace);
       addNotification(`Service ${svc.name} deleted successfully`, 'success');
-      refetch();
+      servicesCache.refetch();
     } catch (error) {
       console.error('Failed to delete service:', error);
       addNotification(`Failed to delete service: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
@@ -273,7 +312,7 @@ const Services: Component = () => {
               const btn = e.currentTarget;
               btn.classList.add('refreshing');
               setTimeout(() => btn.classList.remove('refreshing'), 500);
-              refetch();
+              servicesCache.refetch();
             }}
             class="icon-btn"
             style={{ background: 'var(--bg-secondary)' }}
@@ -368,8 +407,8 @@ const Services: Component = () => {
         <input
           type="text"
           placeholder="Search..."
-          value={search()}
-          onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
+          value={searchQuery()}
+          onInput={(e) => { setSearchQuery(e.currentTarget.value); setCurrentPage(1); }}
           class="px-3 py-2 rounded-lg text-sm w-48"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         />
@@ -420,7 +459,7 @@ const Services: Component = () => {
       {/* Services table */}
       <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
-          when={!services.loading}
+          when={!servicesCache.loading() || servicesCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <LoadingSpinner size="lg" showText={true} text="Loading services..." />

@@ -28,7 +28,7 @@ func NewAnalyzePodTool(app interface{}) *AnalyzePodTool {
 	if a, ok := app.(AppInterface); ok {
 		appInterface = a
 	}
-	
+
 	tool := &AnalyzePodTool{
 		BaseTool: types.NewBaseTool(
 			"analyze_pod",
@@ -77,7 +77,7 @@ func (t *AnalyzePodTool) Execute(ctx context.Context, args json.RawMessage) (*ty
 
 	// For now, return a simple response
 	// In a real implementation, we would use AI to analyze the pod
-	result := fmt.Sprintf("AI analysis would be performed on pod '%s' in namespace '%s'", 
+	result := fmt.Sprintf("AI analysis would be performed on pod '%s' in namespace '%s'",
 		params.Pod, params.Namespace)
 	result += "\n\nPotential analysis would include:"
 	result += "\n- Pod status and health check"
@@ -98,11 +98,11 @@ func (t *AnalyzePodTool) Validate(ctx context.Context) error {
 	if t.app == nil {
 		return fmt.Errorf("app instance not available")
 	}
-	
+
 	// Check if connected to cluster
 	if !t.app.IsConnected() {
 		return fmt.Errorf("not connected to Kubernetes cluster")
 	}
-	
+
 	return nil
 }

@@ -170,7 +170,7 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	// Run analyses in parallel with individual timeouts
+	// Run analyzes in parallel with individual timeouts
 	runAnalysis := func(analysisFunc func(context.Context) ([]MLRecommendation, error), name string) {
 		defer wg.Done()
 		recs, err := analysisFunc(ctxWithTimeout)
@@ -190,7 +190,7 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 	go runAnalysis(mlr.analyzePredictiveScaling, "Predictive scaling")
 	go runAnalysis(mlr.analyzeCostOptimization, "Cost optimization")
 
-	// Wait for all analyses or timeout
+	// Wait for all analyzes or timeout
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -199,7 +199,7 @@ func (mlr *MLRecommender) GenerateRecommendations(ctx context.Context) ([]MLReco
 
 	select {
 	case <-done:
-		// All analyses completed
+		// All analyzes completed
 	case <-ctxWithTimeout.Done():
 		// Timeout - return what we have so far
 		fmt.Printf("ML recommendations timeout - returning %d recommendations\n", len(recommendations))

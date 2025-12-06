@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,19 +25,19 @@ import (
 
 // EventCluster represents a group of related events that occurred around the same time
 type EventCluster struct {
-	ID              string                 `json:"id"`
-	TimeWindow      TimeWindow             `json:"time_window"`
-	Events          []MonitoredEvent       `json:"events"`
-	LogErrors       []LogError             `json:"log_errors"`
-	Correlations    []EventCorrelation     `json:"correlations"`
-	Summary         string                 `json:"summary"`
-	Severity        EventSeverity          `json:"severity"`
-	RootCause       string                 `json:"root_cause"`
-	AffectedPods    []string               `json:"affected_pods"`
-	AffectedNodes   []string               `json:"affected_nodes"`
-	HTTPErrorCodes  map[int]int            `json:"http_error_codes"` // status code -> count
-	TotalEvents     int                    `json:"total_events"`
-	TotalHTTPErrors int                    `json:"total_http_errors"`
+	ID              string             `json:"id"`
+	TimeWindow      TimeWindow         `json:"time_window"`
+	Events          []MonitoredEvent   `json:"events"`
+	LogErrors       []LogError         `json:"log_errors"`
+	Correlations    []EventCorrelation `json:"correlations"`
+	Summary         string             `json:"summary"`
+	Severity        EventSeverity      `json:"severity"`
+	RootCause       string             `json:"root_cause"`
+	AffectedPods    []string           `json:"affected_pods"`
+	AffectedNodes   []string           `json:"affected_nodes"`
+	HTTPErrorCodes  map[int]int        `json:"http_error_codes"` // status code -> count
+	TotalEvents     int                `json:"total_events"`
+	TotalHTTPErrors int                `json:"total_http_errors"`
 }
 
 // TimeWindow represents a time range
@@ -49,17 +48,16 @@ type TimeWindow struct {
 
 // EventCorrelation represents a detected correlation between events
 type EventCorrelation struct {
-	Type        string    `json:"type"`        // "hpa_max_errors", "oom_restarts", "node_scale_errors", etc.
+	Type        string    `json:"type"` // "hpa_max_errors", "oom_restarts", "node_scale_errors", etc.
 	Description string    `json:"description"`
-	Confidence  float64   `json:"confidence"`  // 0.0 to 1.0
-	Events      []string  `json:"events"`      // Event IDs involved
+	Confidence  float64   `json:"confidence"` // 0.0 to 1.0
+	Events      []string  `json:"events"`     // Event IDs involved
 	Timestamp   time.Time `json:"timestamp"`
 }
 
 // EventCorrelator analyzes events for correlations and patterns
 type EventCorrelator struct {
 	app *App
-	mu  sync.RWMutex
 }
 
 // NewEventCorrelator creates a new event correlator
@@ -124,12 +122,12 @@ func (ec *EventCorrelator) groupByTimeWindow(events []MonitoredEvent, logErrors 
 	}
 
 	currentCluster := EventCluster{
-		ID:           fmt.Sprintf("cluster-%d", time.Now().Unix()),
-		TimeWindow:   currentWindow,
-		Events:       make([]MonitoredEvent, 0),
-		LogErrors:    make([]LogError, 0),
-		AffectedPods: make([]string, 0),
-		AffectedNodes: make([]string, 0),
+		ID:             fmt.Sprintf("cluster-%d", time.Now().Unix()),
+		TimeWindow:     currentWindow,
+		Events:         make([]MonitoredEvent, 0),
+		LogErrors:      make([]LogError, 0),
+		AffectedPods:   make([]string, 0),
+		AffectedNodes:  make([]string, 0),
 		HTTPErrorCodes: make(map[int]int),
 	}
 
@@ -149,12 +147,12 @@ func (ec *EventCorrelator) groupByTimeWindow(events []MonitoredEvent, logErrors 
 				End:   event.Timestamp.Truncate(windowSize).Add(windowSize),
 			}
 			currentCluster = EventCluster{
-				ID:            fmt.Sprintf("cluster-%d", currentWindow.Start.Unix()),
-				TimeWindow:    currentWindow,
-				Events:        make([]MonitoredEvent, 0),
-				LogErrors:     make([]LogError, 0),
-				AffectedPods:  make([]string, 0),
-				AffectedNodes: make([]string, 0),
+				ID:             fmt.Sprintf("cluster-%d", currentWindow.Start.Unix()),
+				TimeWindow:     currentWindow,
+				Events:         make([]MonitoredEvent, 0),
+				LogErrors:      make([]LogError, 0),
+				AffectedPods:   make([]string, 0),
+				AffectedNodes:  make([]string, 0),
 				HTTPErrorCodes: make(map[int]int),
 			}
 		}
@@ -179,12 +177,12 @@ func (ec *EventCorrelator) groupByTimeWindow(events []MonitoredEvent, logErrors 
 				End:   logError.Timestamp.Truncate(windowSize).Add(windowSize),
 			}
 			currentCluster = EventCluster{
-				ID:            fmt.Sprintf("cluster-%d", currentWindow.Start.Unix()),
-				TimeWindow:    currentWindow,
-				Events:        make([]MonitoredEvent, 0),
-				LogErrors:     make([]LogError, 0),
-				AffectedPods:  make([]string, 0),
-				AffectedNodes: make([]string, 0),
+				ID:             fmt.Sprintf("cluster-%d", currentWindow.Start.Unix()),
+				TimeWindow:     currentWindow,
+				Events:         make([]MonitoredEvent, 0),
+				LogErrors:      make([]LogError, 0),
+				AffectedPods:   make([]string, 0),
+				AffectedNodes:  make([]string, 0),
 				HTTPErrorCodes: make(map[int]int),
 			}
 		}
@@ -585,4 +583,3 @@ func (ec *EventCorrelator) CheckHPAStatus(ctx context.Context, namespace, name s
 
 	return currentReplicas >= maxReplicas, currentReplicas, maxReplicas, nil
 }
-

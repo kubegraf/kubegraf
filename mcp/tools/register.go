@@ -5,9 +5,9 @@ package tools
 
 import (
 	"github.com/kubegraf/kubegraf/mcp/registry"
-	"github.com/kubegraf/kubegraf/mcp/types"
 	"github.com/kubegraf/kubegraf/mcp/tools/ai"
 	"github.com/kubegraf/kubegraf/mcp/tools/kubernetes"
+	"github.com/kubegraf/kubegraf/mcp/types"
 )
 
 // RegisterAllTools registers all available MCP tools

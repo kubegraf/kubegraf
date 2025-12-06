@@ -412,6 +412,9 @@ func (ws *WebServer) Start(port int) error {
 	// SRE Agent
 	ws.RegisterSREAgentHandlers()
 
+	// Incidents endpoint
+	http.HandleFunc("/api/incidents", ws.handleIncidents)
+
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 

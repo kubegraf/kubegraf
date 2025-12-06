@@ -2,6 +2,15 @@ import { Component, For, Show, createMemo, createSignal, createResource } from '
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedCluster,
+  selectedNamespaces,
+  searchQuery,
+  setSearchQuery,
+  globalLoading,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -22,7 +31,7 @@ type SortField = 'name' | 'namespace' | 'ready' | 'age';
 type SortDirection = 'asc' | 'desc';
 
 const Deployments: Component = () => {
-  const [search, setSearch] = createSignal('');
+  // Use global search query instead of local search
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
   const [currentPage, setCurrentPage] = createSignal(1);
@@ -72,7 +81,37 @@ const Deployments: Component = () => {
     }
   };
 
-  const [deployments, { refetch }] = createResource(namespace, api.getDeployments);
+  // Determine namespace parameter from global store
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache
+  const deploymentsCache = createCachedResource<Deployment[]>(
+    'deployments',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const deployments = await api.getDeployments(namespaceParam);
+        return deployments;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  // Get deployments from cache
+  const deployments = createMemo(() => deploymentsCache.data() || []);
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
@@ -89,8 +128,8 @@ const Deployments: Component = () => {
       await api.updateDeployment(dep.name, dep.namespace, yaml);
       addNotification(`✅ Deployment ${dep.name} updated successfully`, 'success');
       setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
+      setTimeout(() => deploymentsCache.refetch(), 500);
+      setTimeout(() => deploymentsCache.refetch(), 2000);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       addNotification(`❌ Failed to update deployment: ${errorMsg}`, 'error');
@@ -113,7 +152,7 @@ const Deployments: Component = () => {
 
   const filteredAndSorted = createMemo(() => {
     let all = deployments() || [];
-    const query = search().toLowerCase();
+    const query = searchQuery().toLowerCase();
 
     // Filter by search
     if (query) {
@@ -202,9 +241,9 @@ const Deployments: Component = () => {
         addNotification(`⚠️ Restart initiated but may not have completed: ${result?.message || 'Unknown status'}`, 'warning');
       }
       // Refetch multiple times to see the restart progress
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-      setTimeout(() => refetch(), 5000);
+      setTimeout(() => deploymentsCache.refetch(), 500);
+      setTimeout(() => deploymentsCache.refetch(), 2000);
+      setTimeout(() => deploymentsCache.refetch(), 5000);
     } catch (error) {
       console.error('Failed to restart deployment:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -225,8 +264,8 @@ const Deployments: Component = () => {
         addNotification(`⚠️ Scale may not have completed: ${result?.message || 'Unknown status'}`, 'warning');
       }
       setShowScale(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
+      setTimeout(() => deploymentsCache.refetch(), 500);
+      setTimeout(() => deploymentsCache.refetch(), 2000);
     } catch (error) {
       console.error('Failed to scale deployment:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -267,7 +306,7 @@ const Deployments: Component = () => {
               const btn = e.currentTarget;
               btn.classList.add('refreshing');
               setTimeout(() => btn.classList.remove('refreshing'), 500);
-              refetch();
+              deploymentsCache.refetch();
             }}
             class="icon-btn"
             style={{ background: 'var(--bg-secondary)' }}
@@ -334,17 +373,17 @@ const Deployments: Component = () => {
         <input
           type="text"
           placeholder="Search..."
-          value={search()}
-          onInput={(e) => { setSearch(e.currentTarget.value); setCurrentPage(1); }}
+          value={searchQuery()}
+          onInput={(e) => { setSearchQuery(e.currentTarget.value); setCurrentPage(1); }}
           class="px-3 py-2 rounded-lg text-sm w-48"
           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
         />
       </div>
 
       {/* Deployments table */}
-      <div class="w-full" style={{ background: '#000000', margin: '0', padding: '0', border: '1px solid #333333', 'border-radius': '4px' }}>
+      <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
         <Show
-          when={!deployments.loading}
+          when={!deploymentsCache.loading() || deploymentsCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -359,7 +398,7 @@ const Deployments: Component = () => {
                 width: '100%',
                 'table-layout': 'auto',
                 'font-family': getFontFamilyCSS(),
-                background: '#000000',
+                background: 'var(--bg-primary)',
                 'border-collapse': 'collapse',
                 margin: '0',
                 padding: '0'
@@ -554,8 +593,8 @@ const Deployments: Component = () => {
 
           {/* Pagination */}
           <Show when={totalPages() > 1 || filteredAndSorted().length > 0}>
-            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#000000', borderTop: '1px solid #333333' }}>
-              <div style={{ color: '#8b949e' }}>
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ color: 'var(--text-secondary)' }}>
                 Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} deployments
               </div>
               <div class="flex items-center gap-2">
@@ -563,7 +602,7 @@ const Deployments: Component = () => {
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   First
                 </button>
@@ -571,18 +610,18 @@ const Deployments: Component = () => {
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   ← Prev
                 </button>
-                <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
+                <span class="px-3 py-1" style={{ color: 'var(--text-primary)' }}>
                   Page {currentPage()} of {totalPages()}
                 </span>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages(), p + 1))}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Next →
                 </button>
@@ -590,7 +629,7 @@ const Deployments: Component = () => {
                   onClick={() => setCurrentPage(totalPages())}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Last
                 </button>
@@ -598,7 +637,7 @@ const Deployments: Component = () => {
                   value={pageSize()}
                   onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
                   class="px-3 py-1 rounded-lg text-sm ml-4"
-                  style={{ background: '#21262d', color: '#c9d1d9', border: '1px solid var(--border-color)' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 >
                   <option value="20">20 per page</option>
                   <option value="50">50 per page</option>

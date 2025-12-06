@@ -1,4 +1,5 @@
-import { Component, For, Show, createResource, createSignal } from 'solid-js';
+import { Component, For, Show, createResource, createSignal, createMemo } from 'solid-js';
+import { api } from '../services/api';
 
 interface SREMetrics {
   incidentsDetected: number;
@@ -69,6 +70,22 @@ const SREAgent: Component = () => {
     const response = await fetch('/api/sre/actions');
     if (!response.ok) throw new Error('Failed to fetch actions');
     return response.json();
+  });
+
+  // Fetch Kubernetes incidents for overview
+  const [kubernetesIncidents] = createResource(async () => {
+    try {
+      return await api.getIncidents();
+    } catch (err) {
+      console.error('Failed to fetch Kubernetes incidents:', err);
+      return [];
+    }
+  });
+
+  const openIncidentsCount = createMemo(() => {
+    const incidents = kubernetesIncidents();
+    if (!incidents) return 0;
+    return incidents.length;
   });
 
   const [activeTab, setActiveTab] = createSignal<'overview' | 'incidents' | 'actions' | 'config'>('overview');
@@ -243,6 +260,11 @@ const SREAgent: Component = () => {
               <div class="text-gray-400 text-sm mb-2">Actions This Hour</div>
               <div class="text-3xl font-bold text-purple-400">{status().metrics.actionsThisHour}</div>
               <div class="text-xs text-gray-500 mt-1">/ {status().maxAutoActionsPerHour} max</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <div class="text-gray-400 text-sm mb-2">Open Incidents</div>
+              <div class="text-3xl font-bold text-red-400">{openIncidentsCount()}</div>
+              <div class="text-xs text-gray-500 mt-1">From cluster resources</div>
             </div>
           </div>
         )}

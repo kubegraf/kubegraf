@@ -27,6 +27,7 @@ import AIAgents from './routes/AIAgents';
 import SREAgent from './routes/SREAgent';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
+import Incidents from './routes/Incidents';
 import Apps from './routes/Apps';
 import ClusterManager from './routes/ClusterManager';
 import Placeholder from './routes/Placeholder';
@@ -143,6 +144,7 @@ const views: Record<string, Component> = {
   monitoredevents: MonitoredEvents,
   logs: Logs,
   anomalies: Anomalies,
+  incidents: Incidents,
   connectors: Connectors,
   aiagents: AIAgents,
   sreagent: SREAgent,

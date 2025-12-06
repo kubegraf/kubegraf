@@ -13,16 +13,16 @@ import (
 type ToolHandler interface {
 	// Name returns the unique name of the tool
 	Name() string
-	
+
 	// Description returns a human-readable description of the tool
 	Description() string
-	
+
 	// InputSchema returns the JSON schema for the tool's input parameters
 	InputSchema() map[string]interface{}
-	
+
 	// Execute runs the tool with the given arguments and returns the result
 	Execute(ctx context.Context, args json.RawMessage) (*MCPToolResult, error)
-	
+
 	// Validate checks if the tool can be executed in the current context
 	Validate(ctx context.Context) error
 }
@@ -41,23 +41,23 @@ type ToolMetadata struct {
 type ToolCategory string
 
 const (
-	CategoryKubernetes ToolCategory = "kubernetes"
-	CategoryAI         ToolCategory = "ai"
-	CategorySecurity   ToolCategory = "security"
-	CategoryCost       ToolCategory = "cost"
+	CategoryKubernetes  ToolCategory = "kubernetes"
+	CategoryAI          ToolCategory = "ai"
+	CategorySecurity    ToolCategory = "security"
+	CategoryCost        ToolCategory = "cost"
 	CategoryDiagnostics ToolCategory = "diagnostics"
 	CategoryRemediation ToolCategory = "remediation"
-	CategoryMonitoring ToolCategory = "monitoring"
+	CategoryMonitoring  ToolCategory = "monitoring"
 )
 
 // ToolContext provides context for tool execution
 type ToolContext struct {
-	App        interface{} // *App from main package
-	RequestID  string
-	UserID     string
-	SessionID  string
-	Cluster    string
-	Namespace  string
+	App       interface{} // *App from main package
+	RequestID string
+	UserID    string
+	SessionID string
+	Cluster   string
+	Namespace string
 }
 
 // BaseTool provides a base implementation for tools
