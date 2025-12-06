@@ -831,6 +831,18 @@ export const api = {
     fetchAPI<{ success: boolean; message?: string; error?: string }>(`/connectors/${id}/test`, {
       method: 'POST',
     }),
+
+  // ============ Incidents ============
+  getIncidents: async (namespace?: string, type?: string, severity?: string) => {
+    const params = new URLSearchParams();
+    if (namespace) params.append('namespace', namespace);
+    if (type) params.append('type', type);
+    if (severity) params.append('severity', severity);
+    const query = params.toString();
+    const endpoint = query ? `/incidents?${query}` : '/incidents';
+    const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
+    return data.incidents || [];
+  },
 };
 
 interface Connector {
@@ -843,6 +855,19 @@ interface Connector {
   lastTest?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Incident {
+  id: string;
+  type: string;
+  severity: 'warning' | 'critical';
+  resourceKind: string;
+  resourceName: string;
+  namespace: string;
+  firstSeen: string;
+  lastSeen: string;
+  count: number;
+  message?: string;
 }
 
 export default api;
