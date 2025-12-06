@@ -163,12 +163,36 @@ func (d *Database) initSchema() error {
 		created_at DATETIME NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS clusters (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		provider TEXT,
+		kubeconfig_path TEXT NOT NULL,
+		connected BOOLEAN NOT NULL DEFAULT 0,
+		last_used DATETIME,
+		error TEXT,
+		is_default BOOLEAN NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS workspace_context (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		payload TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_cloud_credentials_provider ON cloud_credentials(provider);
 	CREATE INDEX IF NOT EXISTS idx_app_installations_status ON app_installations(status);
 	CREATE INDEX IF NOT EXISTS idx_app_installations_app_name ON app_installations(app_name);
+	CREATE INDEX IF NOT EXISTS idx_clusters_connected ON clusters(connected);
+	CREATE INDEX IF NOT EXISTS idx_clusters_last_used ON clusters(last_used);
+
+	INSERT OR IGNORE INTO workspace_context (id, payload, updated_at)
+	VALUES (1, '{"selectedNamespaces":[],"selectedCluster":"","filters":{}}', CURRENT_TIMESTAMP);
 	`
 
 	_, err := d.db.Exec(schema)
@@ -391,7 +415,7 @@ type AppInstallation struct {
 	DisplayName  string    `json:"display_name"`
 	Version      string    `json:"version"`
 	Namespace    string    `json:"namespace"`
-	Status       string    `json:"status"` // 'pending', 'in_progress', 'success', 'failed'
+	Status       string    `json:"status"`   // 'pending', 'in_progress', 'success', 'failed'
 	Progress     int       `json:"progress"` // 0-100
 	ErrorMessage string    `json:"error_message,omitempty"`
 	StartedAt    time.Time `json:"started_at"`

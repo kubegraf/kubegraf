@@ -139,7 +139,8 @@ export const api = {
   // Pods
   getPods: async (namespace?: string) => {
     // Use namespace= (empty) for all namespaces, namespace=X for specific
-    const endpoint = namespace && namespace !== '_all'
+    // "All Namespaces" label should be treated as empty (all namespaces)
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
       ? `/pods?namespace=${namespace}`
       : '/pods?namespace=';
     const data = await fetchAPI<any[]>(endpoint);

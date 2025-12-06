@@ -1,7 +1,22 @@
-import { Component, For, Show, createSignal, createMemo, onCleanup, createResource } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, createEffect, onCleanup, createResource } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { namespace, setNamespace, namespaces, clusterStatus, setClusterStatus, refreshAll, namespacesResource, contexts, currentContext, switchContext, contextsResource } from '../stores/cluster';
+import {
+  namespace,
+  setNamespace,
+  namespaces,
+  clusterStatus,
+  refreshAll,
+  namespacesResource,
+  contexts,
+  currentContext,
+  switchContext,
+  contextsResource,
+  selectedNamespaces,
+  setSelectedNamespaces,
+  workspaceContext,
+} from '../stores/cluster';
 import { toggleAIPanel, searchQuery, setSearchQuery, setCurrentView, addNotification } from '../stores/ui';
+import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
 import ThemeToggle from './ThemeToggle';
 import { api } from '../services/api';
 import LocalTerminalModal from './LocalTerminalModal';
@@ -119,13 +134,12 @@ const Header: Component = () => {
   const [ctxSearch, setCtxSearch] = createSignal('');
   const [switching, setSwitching] = createSignal(false);
   const [terminalOpen, setTerminalOpen] = createSignal(false);
-  const [clusterStatusDropdownOpen, setClusterStatusDropdownOpen] = createSignal(false);
+  const [nsSelection, setNsSelection] = createSignal<string[]>([]);
+  const [nsSelectionMode, setNsSelectionMode] = createSignal<'default' | 'all' | 'custom'>('default');
   let nsDropdownRef: HTMLDivElement | undefined;
   let nsButtonRef: HTMLButtonElement | undefined;
   let ctxDropdownRef: HTMLDivElement | undefined;
   let ctxButtonRef: HTMLButtonElement | undefined;
-  let clusterStatusDropdownRef: HTMLDivElement | undefined;
-  let clusterStatusButtonRef: HTMLButtonElement | undefined;
 
   // Fetch cloud info (fast endpoint - single API call)
   const [cloudInfo] = createResource(() => api.getCloudInfo().catch(() => null));
@@ -167,11 +181,23 @@ const Header: Component = () => {
     return namespaces().filter(ns => ns.toLowerCase().includes(search));
   });
 
-  // Filtered contexts based on search
   const filteredContexts = createMemo(() => {
     const search = ctxSearch().toLowerCase();
     if (!search) return contexts();
     return contexts().filter(ctx => ctx.name.toLowerCase().includes(search));
+  });
+
+  createEffect(() => {
+    const ctx = workspaceContext();
+    const mode = (ctx?.filters?.namespaceMode as 'default' | 'all' | 'custom' | undefined)
+      || (selectedNamespaces().length === 0 ? 'default' : 'custom');
+    
+    // Only update local selection if workspace context changed (not when user is selecting)
+    // This prevents resetting the selection while user is choosing namespaces
+    if (!nsDropdownOpen()) {
+      setNsSelection(selectedNamespaces());
+      setNsSelectionMode(mode);
+    }
   });
 
   // Keyboard shortcut for search
@@ -195,84 +221,80 @@ const Header: Component = () => {
         setCtxDropdownOpen(false);
         setCtxSearch('');
       }
-      if (clusterStatusDropdownOpen() && clusterStatusDropdownRef && !clusterStatusDropdownRef.contains(e.target as Node) &&
-          clusterStatusButtonRef && !clusterStatusButtonRef.contains(e.target as Node)) {
-        setClusterStatusDropdownOpen(false);
-      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
   }
 
-  const selectNamespace = (ns: string) => {
-    setNamespace(ns);
-    setNsDropdownOpen(false);
-    setNsSearch('');
+  const toggleNamespaceSelection = (ns: string) => {
+    const current = new Set(nsSelection());
+    if (current.has(ns)) {
+      current.delete(ns);
+    } else {
+      current.add(ns);
+    }
+    setNsSelection(Array.from(current));
+    setNsSelectionMode('custom');
   };
 
+  const isNamespaceChecked = (ns: string) => nsSelection().includes(ns);
+
+  const applyNamespaceSelection = async () => {
+    try {
+      // Update namespace signal directly (like v1.3.0-rc6)
+      if (nsSelectionMode() === 'all' || nsSelection().length === 0) {
+        setNamespace('All Namespaces');
+      } else if (nsSelection().length === 1) {
+        setNamespace(nsSelection()[0]);
+      } else {
+        // For multiple namespaces, just use the first one (like v1.3.0-rc6)
+        setNamespace(nsSelection()[0]);
+      }
+      
+      // Also update workspace context for persistence (non-blocking)
+      setSelectedNamespaces(nsSelection(), nsSelectionMode()).catch(err => {
+        console.error('Failed to persist workspace context', err);
+        // Don't show error to user - namespace is already updated
+      });
+      
+      setNsDropdownOpen(false);
+      setNsSearch('');
+    } catch (err) {
+      console.error('Failed to update namespace', err);
+      addNotification('Failed to update namespace', 'error');
+      setNsDropdownOpen(false);
+      setNsSearch('');
+    }
+  };
+
+
+  const handleSelectAllNamespaces = () => {
+    setNsSelection([]);
+    setNsSelectionMode('all');
+    // Don't call setNamespace here - it will be updated when Apply is clicked
+  };
+
+  const getDisplayName = () => namespace();
+
+  // Disconnect from cluster
+  // Connect to cluster
   const selectContext = async (ctxName: string) => {
-    if (ctxName === currentContext()) return;
+    if (ctxName === currentContext()) {
+      setCtxDropdownOpen(false);
+      setCtxSearch('');
+      return;
+    }
     setSwitching(true);
     try {
       await switchContext(ctxName);
+      addNotification(`Switched to ${ctxName}`, 'success');
     } catch (err) {
       console.error('Failed to switch context:', err);
+      addNotification('Failed to switch cluster', 'error');
     } finally {
       setSwitching(false);
       setCtxDropdownOpen(false);
       setCtxSearch('');
-    }
-  };
-
-  const getDisplayName = () => {
-    return namespace() === '_all' ? 'All Namespaces' : namespace();
-  };
-
-  // Disconnect from cluster
-  const disconnectCluster = async () => {
-    try {
-      setClusterStatusDropdownOpen(false);
-      addNotification(`Disconnecting from ${currentContext()}...`, 'info');
-
-      // Call API to disconnect (this might clear the current context or set to a disconnected state)
-      const res = await fetch('/api/disconnect', { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to disconnect');
-
-      // Update cluster status to disconnected
-      setClusterStatus({
-        connected: false,
-        context: '',
-        server: '',
-        namespace: 'default',
-        nodeCount: 0,
-        podCount: 0,
-        cpuUsage: 0,
-        memoryUsage: 0,
-      });
-
-      addNotification('Cluster disconnected successfully', 'success');
-      // Don't call refreshAll() as it will refetch status and immediately reconnect
-    } catch (error) {
-      console.error('Disconnect error:', error);
-      // Even if API fails, we can simulate disconnection on UI
-      addNotification('Disconnected from cluster', 'warning');
-    }
-  };
-
-  // Connect to cluster
-  const connectCluster = async () => {
-    try {
-      setClusterStatusDropdownOpen(false);
-      // If we have contexts available, open the context selector
-      if (contexts().length > 0) {
-        setCtxDropdownOpen(true);
-        addNotification('Please select a cluster to connect', 'info');
-      } else {
-        addNotification('No clusters available. Please configure kubectl contexts.', 'warning');
-      }
-    } catch (error) {
-      console.error('Connect error:', error);
-      addNotification('Failed to connect to cluster', 'error');
     }
   };
 
@@ -293,21 +315,28 @@ const Header: Component = () => {
         {/* Namespace selector with search */}
         <div class="flex items-center gap-2 relative">
           <label class="text-sm" style={{ color: 'var(--text-secondary)' }}>Namespace:</label>
-          <button
-            ref={nsButtonRef}
-            onClick={() => setNsDropdownOpen(!nsDropdownOpen())}
-            class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm min-w-[180px] justify-between"
-            style={{
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
-          >
-            <span class="truncate">{getDisplayName()}</span>
-            <svg class={`w-4 h-4 transition-transform ${nsDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              ref={nsButtonRef}
+              onClick={() => {
+                if (!nsDropdownOpen()) {
+                  setNsSelection(selectedNamespaces());
+                }
+                setNsDropdownOpen(!nsDropdownOpen());
+              }}
+              class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm min-w-[180px] justify-between"
+              style={{
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              <span class="truncate">{getDisplayName()}</span>
+              <svg class={`w-4 h-4 transition-transform ${nsDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
 
           {/* Dropdown */}
           <Show when={nsDropdownOpen()}>
@@ -347,68 +376,81 @@ const Header: Component = () => {
                 </div>
               </div>
 
-              {/* Options list */}
               <div class="max-h-64 overflow-y-auto">
-                {/* All namespaces option */}
-                <Show when={!nsSearch() || 'all namespaces'.includes(nsSearch().toLowerCase())}>
-                  <button
-                    onClick={() => selectNamespace('_all')}
-                    class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
-                    style={{
-                      background: namespace() === '_all' ? 'var(--bg-tertiary)' : 'transparent',
-                      color: namespace() === '_all' ? 'var(--accent-primary)' : 'var(--text-primary)',
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = namespace() === '_all' ? 'var(--bg-tertiary)' : 'transparent'}
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                <button
+                  onClick={handleSelectAllNamespaces}
+                  class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
+                  style={{
+                    background: nsSelectionMode() === 'all' ? 'var(--bg-tertiary)' : 'transparent',
+                    color: nsSelectionMode() === 'all' ? 'var(--accent-primary)' : 'var(--text-primary)',
+                  }}
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                  All Namespaces
+                  <Show when={nsSelectionMode() === 'all'}>
+                    <svg class="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                     </svg>
-                    All Namespaces
-                    <Show when={namespace() === '_all'}>
-                      <svg class="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                      </svg>
-                    </Show>
-                  </button>
-                </Show>
-
-                {/* Namespace list */}
+                  </Show>
+                </button>
                 <Show when={!namespacesResource.loading} fallback={
                   <div class="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Loading...</div>
                 }>
                   <For each={filteredNamespaces()}>
-                    {(ns) => (
-                      <button
-                        onClick={() => selectNamespace(ns)}
-                        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
-                        style={{
-                          background: namespace() === ns ? 'var(--bg-tertiary)' : 'transparent',
-                          color: namespace() === ns ? 'var(--accent-primary)' : 'var(--text-primary)',
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = namespace() === ns ? 'var(--bg-tertiary)' : 'transparent'}
-                      >
-                        <svg class="w-4 h-4" style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                        </svg>
-                        <span class="truncate flex-1">{ns}</span>
-                        <Show when={namespace() === ns}>
-                          <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                          </svg>
-                        </Show>
-                      </button>
-                    )}
+                    {(ns) => {
+                      const checked = createMemo(() => isNamespaceChecked(ns));
+                      return (
+                        <label
+                          class="w-full px-3 py-2 text-sm flex items-center gap-3 cursor-pointer transition-colors"
+                          style={{
+                            background: checked() ? 'var(--bg-tertiary)' : 'transparent',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            class="w-4 h-4"
+                            checked={checked()}
+                            onInput={() => toggleNamespaceSelection(ns)}
+                          />
+                          <span class="truncate flex-1">{ns}</span>
+                        </label>
+                      );
+                    }}
                   </For>
                 </Show>
-
-                {/* No results */}
                 <Show when={nsSearch() && filteredNamespaces().length === 0}>
                   <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
                     No namespaces found
                   </div>
                 </Show>
+              </div>
+
+              <div class="p-3 border-t flex items-center gap-2" style={{ 'border-color': 'var(--border-color)' }}>
+                <button
+                  class="flex-1 px-3 py-1.5 rounded-md text-sm"
+                  style={{ border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
+                  onClick={() => {
+                    setNsDropdownOpen(false);
+                    setNsSearch('');
+                    setNsSelection(selectedNamespaces());
+                    const ctx = workspaceContext();
+                    const mode = (ctx?.filters?.namespaceMode as 'default' | 'all' | 'custom' | undefined)
+                      || (selectedNamespaces().length === 0 ? 'default' : 'custom');
+                    setNsSelectionMode(mode);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="flex-1 px-3 py-1.5 rounded-md text-sm text-black"
+                  style={{ background: 'var(--accent-primary)' }}
+                  onClick={applyNamespaceSelection}
+                >
+                  Apply
+                </button>
               </div>
 
               {/* Footer with count */}
@@ -450,14 +492,13 @@ const Header: Component = () => {
 
       {/* Right side - Cluster selector, Status and actions */}
       <div class="flex items-center gap-4">
-        {/* Cluster/Context selector with cloud provider */}
+        {/* Cluster/Context selector with provider */}
         <div class="flex items-center gap-2 relative">
           <label class="text-sm" style={{ color: 'var(--text-secondary)' }}>Cluster:</label>
           <button
             ref={ctxButtonRef}
             onClick={() => setCtxDropdownOpen(!ctxDropdownOpen())}
-            disabled={switching()}
-            class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm min-w-[200px] justify-between"
+            class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm min-w-[220px] justify-between transition-all"
             style={{
               background: 'var(--bg-secondary)',
               color: 'var(--text-primary)',
@@ -465,62 +506,24 @@ const Header: Component = () => {
               opacity: switching() ? 0.7 : 1,
             }}
           >
-            <div class="flex items-center gap-2">
-              {/* Cloud provider logo - clickable only for cloud providers with console URLs */}
+            <div class="flex items-center gap-2 text-left">
               <Show when={cloudInfo() && !cloudInfo.loading} fallback={
                 <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
               }>
-                {(() => {
-                  const info = cloudInfo();
-                  const hasConsoleUrl = info?.consoleUrl && info.consoleUrl.trim() !== '';
-                  
-                  if (hasConsoleUrl) {
-                    // Cloud provider with console URL - make it clickable
-                    return (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (info.consoleUrl) {
-                            window.open(info.consoleUrl, '_blank', 'noopener,noreferrer');
-                          }
-                        }}
-                        class="cursor-pointer hover:opacity-80 transition-opacity"
-                        title={`Open ${info?.displayName || 'Cloud'} Console`}
-                      >
-                        {getCloudLogo()()}
-                      </button>
-                    );
-                  } else {
-                    // Local cluster - show icon but not clickable
-                    return (
-                      <div
-                        class="opacity-70"
-                        title={`${info?.displayName || 'Local'} Cluster (no console available)`}
-                      >
-                        {getCloudLogo()()}
-                      </div>
-                    );
-                  }
-                })()}
+                {getCloudLogo()()}
               </Show>
-              <div class="flex flex-col items-start">
-                <span class="truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
-                <Show when={cloudInfo() && !cloudInfo.loading}>
-                  <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {cloudInfo()?.region || ''}
-                  </span>
-                </Show>
+              <div class="flex flex-col leading-tight">
+                <span class="text-sm font-medium truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
+                <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {clusterStatus().connected ? 'Connected' : 'Disconnected'}
+                </span>
               </div>
             </div>
-            <div class="flex items-center gap-1">
-              <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-              <svg class={`w-4 h-4 transition-transform ${ctxDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
+            <svg class={`w-4 h-4 transition-transform ${ctxDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
 
-          {/* Context Dropdown */}
           <Show when={ctxDropdownOpen()}>
             <div
               ref={ctxDropdownRef}
@@ -530,7 +533,6 @@ const Header: Component = () => {
                 border: '1px solid var(--border-color)',
               }}
             >
-              {/* Search input */}
               <div class="p-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
                 <div class="relative">
                   <svg
@@ -546,7 +548,7 @@ const Header: Component = () => {
                     type="text"
                     placeholder="Search clusters..."
                     value={ctxSearch()}
-                    onInput={(e) => setCtxSearch(e.target.value)}
+                    onInput={(e) => setCtxSearch(e.currentTarget.value)}
                     class="w-full rounded-md pl-8 pr-3 py-1.5 text-sm"
                     style={{
                       background: 'var(--bg-tertiary)',
@@ -558,7 +560,6 @@ const Header: Component = () => {
                 </div>
               </div>
 
-              {/* Context list */}
               <div class="max-h-64 overflow-y-auto">
                 <Show when={!contextsResource.loading} fallback={
                   <div class="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Loading clusters...</div>
@@ -572,8 +573,6 @@ const Header: Component = () => {
                           background: ctx.isCurrent ? 'var(--bg-tertiary)' : 'transparent',
                           color: ctx.isCurrent ? 'var(--accent-primary)' : 'var(--text-primary)',
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = ctx.isCurrent ? 'var(--bg-tertiary)' : 'transparent'}
                       >
                         <span class={`w-2 h-2 rounded-full flex-shrink-0 ${ctx.connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
                         <div class="flex-1 min-w-0">
@@ -592,14 +591,12 @@ const Header: Component = () => {
                   </For>
                 </Show>
 
-                {/* No results */}
                 <Show when={ctxSearch() && filteredContexts().length === 0}>
                   <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
                     No clusters found
                   </div>
                 </Show>
 
-                {/* Empty state */}
                 <Show when={!contextsResource.loading && contexts().length === 0}>
                   <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
                     No clusters available
@@ -607,12 +604,43 @@ const Header: Component = () => {
                 </Show>
               </div>
 
-              {/* Footer with count */}
               <div class="px-3 py-2 text-xs border-t" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
                 {contexts().length} cluster{contexts().length !== 1 ? 's' : ''} available
               </div>
             </div>
           </Show>
+        </div>
+
+        {/* Cluster status + connection manager */}
+
+        <div class="flex items-center gap-2">
+          <button
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
+            style={{
+              background: (clusterManagerStatus()?.connected ?? clusterStatus().connected) ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+              color: (clusterManagerStatus()?.connected ?? clusterStatus().connected) ? '#10b981' : '#ef4444',
+              border: '1px solid var(--border-color)',
+            }}
+            onClick={() => goToClusterManager()}
+          >
+            <span class={`w-2 h-2 rounded-full ${(clusterManagerStatus()?.connected ?? clusterStatus().connected) ? 'bg-emerald-400' : 'bg-red-500'}`}></span>
+            {(clusterManagerStatus()?.connected ?? clusterStatus().connected) ? 'Cluster Connected' : 'Cluster Disconnected'}
+          </button>
+          <button
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
+            style={{
+              background: 'var(--accent-primary)',
+              color: '#000',
+              border: '1px solid var(--accent-primary)',
+              boxShadow: '0 0 10px rgba(59,130,246,0.35)',
+            }}
+            onClick={() => goToClusterManager()}
+            title="Manage Connections"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM12 15a3 3 0 100-6 3 3 0 000 6z" />
+            </svg>
+          </button>
         </div>
 
         {/* Terminal button */}
@@ -651,120 +679,6 @@ const Header: Component = () => {
 
         {/* Theme toggle */}
         <ThemeToggle />
-
-        {/* Cluster Status Button with dropdown */}
-        <div class="relative">
-          <button
-            ref={clusterStatusButtonRef}
-            onClick={() => setClusterStatusDropdownOpen(!clusterStatusDropdownOpen())}
-            class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold hover:opacity-90 transition-opacity"
-            style={{
-              background: 'var(--bg-secondary)',
-              color: clusterStatus().connected ? '#22c55e' : '#ef4444',
-              border: `1px solid ${clusterStatus().connected ? '#22c55e' : '#ef4444'}`,
-            }}
-            title={clusterStatus().connected ? `Connected to ${currentContext()}` : 'Not connected to any cluster'}
-          >
-            <span
-              class="w-2.5 h-2.5 rounded-full animate-pulse"
-              style={{ background: clusterStatus().connected ? '#22c55e' : '#ef4444' }}
-            ></span>
-            <span style={{ 'font-size': '14px' }}>
-              Cluster: {clusterStatus().connected ? (currentContext() || 'Connected') : 'Not Connected'}
-            </span>
-            <svg class={`w-4 h-4 transition-transform ${clusterStatusDropdownOpen() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-
-          {/* Cluster Status Dropdown */}
-          <Show when={clusterStatusDropdownOpen()}>
-            <div
-              ref={clusterStatusDropdownRef}
-              class="absolute top-full right-0 mt-1 w-64 rounded-lg shadow-xl z-[200] overflow-hidden"
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              <div class="p-3 border-b" style={{ 'border-color': 'var(--border-color)' }}>
-                <div class="text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
-                  CLUSTER STATUS
-                </div>
-                <div class="flex items-center gap-2">
-                  <span
-                    class="w-3 h-3 rounded-full"
-                    style={{ background: clusterStatus().connected ? '#22c55e' : '#ef4444' }}
-                  ></span>
-                  <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {clusterStatus().connected ? 'Connected' : 'Disconnected'}
-                  </span>
-                </div>
-                <Show when={clusterStatus().connected && currentContext()}>
-                  <div class="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                    Context: <span style={{ color: 'var(--text-primary)' }}>{currentContext()}</span>
-                  </div>
-                </Show>
-              </div>
-
-              {/* Action buttons */}
-              <div class="p-2">
-                <Show when={clusterStatus().connected} fallback={
-                  <button
-                    onClick={connectCluster}
-                    class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 rounded-md transition-colors"
-                    style={{
-                      background: 'transparent',
-                      color: 'var(--text-primary)',
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    <span>Connect to Cluster</span>
-                  </button>
-                }>
-                  <button
-                    onClick={disconnectCluster}
-                    class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 rounded-md transition-colors"
-                    style={{
-                      background: 'transparent',
-                      color: '#ef4444',
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    <span>Disconnect</span>
-                  </button>
-                </Show>
-
-                {/* Additional cluster info */}
-                <Show when={clusterStatus().connected}>
-                  <div class="mt-2 pt-2 border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                    <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-                      Cluster Details
-                    </div>
-                    <div class="space-y-1 text-xs">
-                      <div class="flex justify-between">
-                        <span style={{ color: 'var(--text-muted)' }}>Nodes:</span>
-                        <span style={{ color: 'var(--text-primary)' }}>{clusterStatus().nodeCount}</span>
-                      </div>
-                      <div class="flex justify-between">
-                        <span style={{ color: 'var(--text-muted)' }}>Pods:</span>
-                        <span style={{ color: 'var(--text-primary)' }}>{clusterStatus().podCount}</span>
-                      </div>
-                    </div>
-                  </div>
-                </Show>
-              </div>
-            </div>
-          </Show>
-        </div>
 
         {/* AI Assistant button */}
         <button

@@ -1,0 +1,3 @@
+./kubectl_describe.go
+./kubectl_get.go
+./kubectl_logs.go

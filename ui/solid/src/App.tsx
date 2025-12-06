@@ -28,6 +28,7 @@ import SREAgent from './routes/SREAgent';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Apps from './routes/Apps';
+import ClusterManager from './routes/ClusterManager';
 import Placeholder from './routes/Placeholder';
 import Storage from './routes/Storage';
 import RBAC from './routes/RBAC';
@@ -112,6 +113,7 @@ const GitOps: Component = () => (
 import Settings from './routes/Settings';
 import AIChat from './components/AIChat';
 import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen } from './stores/ui';
+import { refreshClusterStatus } from './stores/clusterManager';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
 import { api } from './services/api';
@@ -145,6 +147,7 @@ const views: Record<string, Component> = {
   sreagent: SREAgent,
   apps: Marketplace,
   customapps: CustomApps,
+  clustermanager: ClusterManager,
   settings: Settings,
   // Placeholder views for new menu items
   deployapp: DeployApp,
@@ -165,6 +168,9 @@ const App: Component = () => {
   onMount(() => {
     // Connect WebSocket for real-time updates
     wsService.connect();
+
+    // Prime cluster manager status for header indicator
+    refreshClusterStatus();
 
     // Subscribe to connection state
     const unsubscribe = wsService.subscribe((msg) => {

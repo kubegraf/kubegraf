@@ -45,28 +45,60 @@ func NewApp(namespace string) *App {
 
 // Initialize sets up the application
 func (a *App) Initialize() error {
-	// Initialize context manager
+	if err := a.loadContexts(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{}); err != nil {
+		return err
+	}
+
+	// Initialize vulnerability scanner
+	a.vulnerabilityScanner = NewVulnerabilityScanner(a)
+	a.vulnerabilityScanner.StartBackgroundRefresh(a.ctx)
+
+	// Initialize anomaly detector
+	a.anomalyDetector = NewAnomalyDetector(a)
+
+	// Initialize ML recommender
+	a.mlRecommender = NewMLRecommender(a)
+
+	// Initialize event monitor
+	a.eventMonitor = NewEventMonitor(a)
+
+	// Initialize connector manager
+	a.connectorManager = NewConnectorManager(a)
+
+	// Initialize SRE Agent
+	a.sreAgent = NewSREAgent(a)
+
+	// Start monitoring (will wait for cluster connection)
+	a.eventMonitor.Start(a.ctx)
+
+	// Setup UI - only for TUI mode, not for web mode
+	// Web mode doesn't need TUI components
+	// This will be called separately when running TUI mode
+
+	return nil
+}
+
+// loadContexts configures the app's cluster contexts using the provided loading rules
+func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, configOverrides *clientcmd.ConfigOverrides) error {
+	// Initialize context manager fresh each time
 	a.contextManager = &ContextManager{
 		Contexts:     make(map[string]*ClusterContext),
 		ContextOrder: []string{},
 	}
 
-	// Load kubeconfig
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-
-	// Get raw config to access all contexts
 	rawConfig, err := kubeConfig.RawConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get raw config: %w", err)
 	}
 
-	// Store current context
+	if len(rawConfig.Contexts) == 0 {
+		return fmt.Errorf("no Kubernetes contexts found")
+	}
+
 	a.contextManager.CurrentContext = rawConfig.CurrentContext
 	a.cluster = rawConfig.CurrentContext
 
-	// Load all available contexts (with timeout to avoid blocking startup)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -75,12 +107,10 @@ func (a *App) Initialize() error {
 		context *ClusterContext
 	}, len(rawConfig.Contexts))
 
-	// Load contexts in parallel with timeout
 	for contextName := range rawConfig.Contexts {
 		a.contextManager.ContextOrder = append(a.contextManager.ContextOrder, contextName)
 
 		go func(name string) {
-			// Create config for this context
 			contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 				loadingRules,
 				&clientcmd.ConfigOverrides{CurrentContext: name},
@@ -102,7 +132,6 @@ func (a *App) Initialize() error {
 				return
 			}
 
-			// Create clientset for this context
 			clientset, err := kubernetes.NewForConfig(config)
 			if err != nil {
 				contextChan <- struct {
@@ -120,10 +149,8 @@ func (a *App) Initialize() error {
 				return
 			}
 
-			// Create metrics client for this context
 			metricsClient, _ := metricsclientset.NewForConfig(config)
 
-			// Get server version to verify connection (with timeout to avoid blocking)
 			serverVersion := ""
 			versionChan := make(chan string, 1)
 			go func() {
@@ -137,7 +164,6 @@ func (a *App) Initialize() error {
 			select {
 			case serverVersion = <-versionChan:
 			case <-time.After(2 * time.Second):
-				// Timeout - mark as connected but without version
 				serverVersion = ""
 			}
 
@@ -158,7 +184,6 @@ func (a *App) Initialize() error {
 		}(contextName)
 	}
 
-	// Collect all contexts with timeout
 	collected := 0
 	for collected < len(rawConfig.Contexts) {
 		select {
@@ -166,7 +191,6 @@ func (a *App) Initialize() error {
 			a.contextManager.Contexts[result.name] = result.context
 			collected++
 		case <-ctx.Done():
-			// Timeout - mark remaining contexts as not connected
 			for _, contextName := range a.contextManager.ContextOrder {
 				if _, exists := a.contextManager.Contexts[contextName]; !exists {
 					a.contextManager.Contexts[contextName] = &ClusterContext{
@@ -180,59 +204,49 @@ func (a *App) Initialize() error {
 		}
 	}
 
-	// Set up the current context's clients as the active ones
 	if currentCtx, ok := a.contextManager.Contexts[a.contextManager.CurrentContext]; ok && currentCtx.Connected {
 		a.clientset = currentCtx.Clientset
 		a.metricsClient = currentCtx.MetricsClient
 		a.config = currentCtx.Config
 		a.connected = true
-	} else {
-		// Fall back to default loading if current context failed
-		config, err := kubeConfig.ClientConfig()
-		if err != nil {
-			a.connected = false
-			a.connectionError = err.Error()
-		} else {
-			a.config = config
-			clientset, err := kubernetes.NewForConfig(config)
-			if err != nil {
-				a.connected = false
-				a.connectionError = err.Error()
-			} else {
-				a.clientset = clientset
-				a.metricsClient, _ = metricsclientset.NewForConfig(config)
-				a.connected = true
-			}
-		}
+		a.connectionError = ""
+		return nil
 	}
 
-	// Initialize vulnerability scanner
-	a.vulnerabilityScanner = NewVulnerabilityScanner(a)
-	a.vulnerabilityScanner.StartBackgroundRefresh(a.ctx)
+	config, err := kubeConfig.ClientConfig()
+	if err != nil {
+		a.connected = false
+		a.connectionError = err.Error()
+		return err
+	}
 
-	// Initialize anomaly detector
-	a.anomalyDetector = NewAnomalyDetector(a)
+	a.config = config
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		a.connected = false
+		a.connectionError = err.Error()
+		return err
+	}
 
-	// Initialize ML recommender
-	a.mlRecommender = NewMLRecommender(a)
-
-	// Initialize event monitor
-	a.eventMonitor = NewEventMonitor(a)
-
-	// Initialize connector manager
-	a.connectorManager = NewConnectorManager(a)
-	
-	// Initialize SRE Agent
-	a.sreAgent = NewSREAgent(a)
-	
-	// Start monitoring (will wait for cluster connection)
-	a.eventMonitor.Start(a.ctx)
-
-	// Setup UI - only for TUI mode, not for web mode
-	// Web mode doesn't need TUI components
-	// This will be called separately when running TUI mode
-
+	a.clientset = clientset
+	a.metricsClient, _ = metricsclientset.NewForConfig(config)
+	a.connected = true
+	a.connectionError = ""
 	return nil
+}
+
+// ConnectWithKubeconfig reloads the application contexts from the provided kubeconfig path
+func (a *App) ConnectWithKubeconfig(kubeconfigPath string) error {
+	if kubeconfigPath == "" {
+		return fmt.Errorf("kubeconfig path is required")
+	}
+
+	loadingRules := &clientcmd.ClientConfigLoadingRules{
+		ExplicitPath: kubeconfigPath,
+		Precedence:   []string{kubeconfigPath},
+	}
+
+	return a.loadContexts(loadingRules, &clientcmd.ConfigOverrides{})
 }
 
 // SwitchContext switches to a different cluster context

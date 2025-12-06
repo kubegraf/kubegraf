@@ -2,7 +2,7 @@
 import { createSignal } from 'solid-js';
 
 export type WebSocketMessage = {
-  type: 'event' | 'monitored_event' | 'pod_update' | 'deployment_update' | 'node_update' | 'metrics' | 'connection';
+  type: 'event' | 'monitored_event' | 'pod_update' | 'deployment_update' | 'node_update' | 'metrics' | 'connection' | 'cluster_status';
   data: any;
 };
 

@@ -1,5 +1,5 @@
 import { createSignal, createResource, createEffect } from 'solid-js';
-import { api } from '../services/api';
+import { api, type WorkspaceContextPayload } from '../services/api';
 
 // Types
 export interface ClusterContext {
@@ -60,9 +60,16 @@ export interface ClusterStatus {
   memoryUsage: number;
 }
 
+const ALL_NAMESPACES_LABEL = 'All Namespaces';
+
 // Reactive signals with fine-grained updates
-const [namespace, setNamespace] = createSignal<string>('_all');
+const [namespaceLabel, setNamespaceLabel] = createSignal<string>(ALL_NAMESPACES_LABEL);
+const namespace = namespaceLabel;
 const [namespaces, setNamespaces] = createSignal<string[]>(['default']);
+const [workspaceContext, setWorkspaceContext] = createSignal<WorkspaceContextPayload | null>(null);
+const [workspaceVersion, setWorkspaceVersion] = createSignal<number>(0);
+const [selectedNamespaces, setSelectedNamespacesSignal] = createSignal<string[]>([]);
+const [workspaceLoading, setWorkspaceLoading] = createSignal<boolean>(false);
 const [contexts, setContexts] = createSignal<ClusterContext[]>([]);
 const [currentContext, setCurrentContext] = createSignal<string>('');
 const [clusterSwitching, setClusterSwitching] = createSignal<boolean>(false);
@@ -78,6 +85,124 @@ const [clusterStatus, setClusterStatus] = createSignal<ClusterStatus>({
   memoryUsage: 0,
 });
 
+function computeNamespaceLabel(selection: string[]): string {
+  if (!selection || selection.length === 0) return ALL_NAMESPACES_LABEL;
+  if (selection.length === 1) return selection[0];
+  return `${selection.length} namespaces`;
+}
+
+function normalizeNamespaces(list: string[]): string[] {
+  const deduped = Array.from(new Set(list.map(ns => ns.trim()).filter(Boolean)));
+  return deduped.sort((a, b) => a.localeCompare(b));
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function applyWorkspaceContextState(ctx: WorkspaceContextPayload) {
+  const safeSelection = normalizeNamespaces(ctx.selectedNamespaces || []);
+  const filters = ctx.filters || {};
+  setWorkspaceContext({
+    selectedNamespaces: safeSelection,
+    selectedCluster: ctx.selectedCluster || '',
+    filters,
+  });
+  setSelectedNamespacesSignal(safeSelection);
+  const labelSelection = (() => {
+    if (filters.namespaceMode === 'all') {
+      return [] as string[];
+    }
+    if (safeSelection.length === 0 && (filters.namespaceMode === 'default' || !filters.namespaceMode)) {
+      const currentNs = clusterStatus().namespace;
+      return currentNs ? [currentNs] : [];
+    }
+    return safeSelection;
+  })();
+  setNamespaceLabel(computeNamespaceLabel(labelSelection));
+  setWorkspaceVersion(prev => prev + 1);
+}
+
+async function loadWorkspaceContext(): Promise<void> {
+  if (workspaceLoading()) return;
+  setWorkspaceLoading(true);
+  try {
+    const ctx = await api.getWorkspaceContext();
+    applyWorkspaceContextState(ctx || { selectedNamespaces: [] });
+  } catch (err) {
+    console.error('Failed to load workspace context', err);
+    applyWorkspaceContextState({ selectedNamespaces: [] });
+  } finally {
+    setWorkspaceLoading(false);
+  }
+}
+
+async function persistWorkspaceContext(next: WorkspaceContextPayload): Promise<void> {
+  try {
+    const updated = await api.updateWorkspaceContext({
+      selectedNamespaces: next.selectedNamespaces || [],
+      selectedCluster: next.selectedCluster || '',
+      filters: next.filters || {},
+    });
+    applyWorkspaceContextState(updated || next);
+  } catch (err) {
+    console.error('Failed to update workspace context', err);
+    throw err;
+  }
+}
+
+type NamespaceMode = 'default' | 'all' | 'custom';
+
+async function setSelectedNamespaces(names: string[], mode?: NamespaceMode): Promise<void> {
+  const normalized = normalizeNamespaces(names);
+  if (arraysEqual(selectedNamespaces(), normalized) && (!mode || mode === (workspaceContext()?.filters?.namespaceMode as NamespaceMode))) {
+    return;
+  }
+  const base = workspaceContext() || { selectedNamespaces: [], selectedCluster: '', filters: {} };
+  const filters = { ...(base.filters || {}) };
+  let namespaceMode: NamespaceMode;
+  if (mode) {
+    namespaceMode = mode;
+  } else {
+    namespaceMode = normalized.length === 0 ? 'default' : 'custom';
+  }
+  filters.namespaceMode = namespaceMode;
+  await persistWorkspaceContext({
+    selectedNamespaces: normalized,
+    selectedCluster: base.selectedCluster,
+    filters,
+  });
+}
+
+async function resetWorkspaceContext(): Promise<void> {
+  const base = workspaceContext() || { selectedNamespaces: [], selectedCluster: '', filters: {} };
+  await persistWorkspaceContext({
+    selectedNamespaces: [],
+    selectedCluster: base.selectedCluster,
+    filters: { ...(base.filters || {}), namespaceMode: 'default' },
+  });
+}
+
+async function setNamespace(value: string): Promise<void> {
+  try {
+    // Update the namespace label immediately for Pods.tsx reactivity
+    setNamespaceLabel(value);
+    
+    // Also update workspace context for persistence
+    if (!value || value === '_all' || value === ALL_NAMESPACES_LABEL) {
+      await setSelectedNamespaces([], 'all');
+    } else {
+      await setSelectedNamespaces([value], 'custom');
+    }
+  } catch (err) {
+    console.error('Failed to set namespace', err);
+  }
+}
+
 // API fetch functions
 async function fetchNamespaces(): Promise<string[]> {
   const res = await fetch('/api/namespaces');
@@ -86,26 +211,22 @@ async function fetchNamespaces(): Promise<string[]> {
   return data.namespaces || [];
 }
 
-async function fetchPods(ns: string): Promise<Pod[]> {
-  const endpoint = ns === '_all' ? '/api/pods?all=true' : `/api/pods?namespace=${ns}`;
-  const res = await fetch(endpoint);
+async function fetchPods(): Promise<Pod[]> {
+  const res = await fetch('/api/pods');
   if (!res.ok) throw new Error('Failed to fetch pods');
   const data = await res.json();
-  // API returns array directly
   return Array.isArray(data) ? data : (data.pods || []);
 }
 
-async function fetchDeployments(ns: string): Promise<Deployment[]> {
-  const endpoint = ns === '_all' ? '/api/deployments?all=true' : `/api/deployments?namespace=${ns}`;
-  const res = await fetch(endpoint);
+async function fetchDeployments(): Promise<Deployment[]> {
+  const res = await fetch('/api/deployments');
   if (!res.ok) throw new Error('Failed to fetch deployments');
   const data = await res.json();
   return Array.isArray(data) ? data : (data.deployments || []);
 }
 
-async function fetchServices(ns: string): Promise<Service[]> {
-  const endpoint = ns === '_all' ? '/api/services?all=true' : `/api/services?namespace=${ns}`;
-  const res = await fetch(endpoint);
+async function fetchServices(): Promise<Service[]> {
+  const res = await fetch('/api/services');
   if (!res.ok) throw new Error('Failed to fetch services');
   const data = await res.json();
   return Array.isArray(data) ? data : (data.services || []);
@@ -122,7 +243,6 @@ async function fetchClusterStatus(): Promise<ClusterStatus> {
   const res = await fetch('/api/status');
   if (!res.ok) throw new Error('Failed to fetch status');
   const data = await res.json();
-  // Map API response to ClusterStatus
   return {
     connected: data.connected || false,
     context: data.cluster || data.context || '',
@@ -155,18 +275,14 @@ async function switchContext(contextName: string): Promise<void> {
     });
     if (!res.ok) throw new Error('Failed to switch context');
 
-    // Update current context
     setCurrentContext(contextName);
     setClusterSwitchMessage(`Loading resources from ${contextName}...`);
 
-    // Refresh all data for the new context
     refreshAll();
 
-    // Refetch contexts to update isCurrent flags
     const ctxData = await fetchContexts();
     setContexts(ctxData);
 
-    // Refetch namespaces for new cluster
     const nsRes = await fetch('/api/namespaces');
     if (nsRes.ok) {
       const nsData = await nsRes.json();
@@ -174,7 +290,6 @@ async function switchContext(contextName: string): Promise<void> {
     }
 
     setClusterSwitchMessage(`Connected to ${contextName}`);
-    // Brief delay to show success message
     setTimeout(() => {
       setClusterSwitching(false);
       setClusterSwitchMessage('');
@@ -191,10 +306,10 @@ async function switchContext(contextName: string): Promise<void> {
 
 // Create resources with fine-grained reactivity
 const [namespacesResource] = createResource(fetchNamespaces);
-const [podsResource, { refetch: refetchPods }] = createResource(namespace, fetchPods);
-const [deploymentsResource, { refetch: refetchDeployments }] = createResource(namespace, fetchDeployments);
-const [servicesResource, { refetch: refetchServices }] = createResource(namespace, fetchServices);
-const [nodesResource, { refetch: refetchNodes }] = createResource(fetchNodes);
+const [podsResource, { refetch: refetchPods }] = createResource(workspaceVersion, () => fetchPods());
+const [deploymentsResource, { refetch: refetchDeployments }] = createResource(workspaceVersion, () => fetchDeployments());
+const [servicesResource, { refetch: refetchServices }] = createResource(workspaceVersion, () => fetchServices());
+const [nodesResource, { refetch: refetchNodes }] = createResource(workspaceVersion, () => fetchNodes());
 const [statusResource, { refetch: refetchStatus }] = createResource(fetchClusterStatus);
 const [contextsResource, { refetch: refetchContexts }] = createResource(fetchContexts);
 
@@ -207,7 +322,6 @@ createEffect(() => {
 // Update cluster status when resource loads
 createEffect(() => {
   const status = statusResource();
-  console.log('Status resource loaded:', status);
   if (status) {
     setClusterStatus(status);
     setCurrentContext(status.context);
@@ -217,7 +331,6 @@ createEffect(() => {
 // Update contexts when resource loads
 createEffect(() => {
   const ctx = contextsResource();
-  console.log('Contexts resource loaded:', ctx);
   if (ctx) setContexts(ctx);
 });
 
@@ -239,8 +352,11 @@ function refreshAll() {
   refetchServices();
   refetchNodes();
   refetchStatus();
-  // Trigger global refresh event
   setRefreshTrigger(prev => prev + 1);
+}
+
+if (typeof window !== 'undefined') {
+  loadWorkspaceContext();
 }
 
 export {
@@ -268,7 +384,14 @@ export {
   refetchNodes,
   refetchStatus,
   refetchContexts,
-  refreshTrigger, // Export refresh trigger for components to listen to
+  refreshTrigger,
+  workspaceVersion,
+  selectedNamespaces,
+  setSelectedNamespaces,
+  workspaceContext,
+  workspaceLoading,
+  loadWorkspaceContext,
+  resetWorkspaceContext,
 };
 
 export type { ClusterContext };

@@ -414,6 +414,14 @@ func (ws *WebServer) handleResourceMap(w http.ResponseWriter, r *http.Request) {
 func (ws *WebServer) handleNamespaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	if ws.app.clientset == nil {
+		// Return empty list if client not initialized
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"namespaces": []string{},
+		})
+		return
+	}
+
 	namespaces, err := ws.app.clientset.CoreV1().Namespaces().List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
