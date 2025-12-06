@@ -1075,8 +1075,13 @@ func (ws *WebServer) handleStorageClasses(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	clientset := ws.requireClientset(w)
+	if clientset == nil {
+		return
+	}
+
 	// StorageClasses are in storage.k8s.io/v1 API group
-	storageClasses, err := ws.app.clientset.StorageV1().StorageClasses().List(ws.app.ctx, metav1.ListOptions{})
+	storageClasses, err := clientset.StorageV1().StorageClasses().List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		// If StorageV1 API is not available, return empty list
 		log.Printf("Warning: Failed to list StorageClasses: %v", err)

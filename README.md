@@ -45,6 +45,7 @@
 - **Secure sessions** with HttpOnly cookies
 
 ### ✅ Complete Documentation
+- [**Build Instructions**](BUILD.md) - Clear guide for building frontend and backend
 - [First-Time Setup Guide](FIRST_TIME_SETUP_GUIDE.md)
 - [AI Agent Integration](docs/AI_AGENT_INTEGRATION.md)
 - [ML Deployment Guide](docs/ML_DEPLOYMENT.md)

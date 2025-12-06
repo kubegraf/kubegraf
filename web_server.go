@@ -162,9 +162,10 @@ type WebServer struct {
 	// MCP Server for AI agents
 	mcpServer *server.MCPServer
 	// Production upgrades
-	cache *Cache
-	db    *Database
-	iam   *IAM
+	cache          *Cache
+	db             *Database
+	iam            *IAM
+	clusterService *ClusterService
 }
 
 // NewWebServer creates a new web server
@@ -211,6 +212,10 @@ func NewWebServer(app *App) *WebServer {
 		// Silent failure for production
 	} else {
 		ws.db = db
+		// Initialize cluster service if database is available
+		if ws.db != nil {
+			ws.clusterService = NewClusterService(app, ws.db)
+		}
 	}
 	
 	// Initialize cache (use LRU backend by default)
@@ -265,6 +270,15 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/contexts", ws.handleContexts)
 	http.HandleFunc("/api/contexts/current", ws.handleCurrentContext)
 	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
+
+	// Cluster manager endpoints
+	http.HandleFunc("/api/clusters", ws.handleClusters)
+	http.HandleFunc("/api/clusters/connect", ws.handleClusterConnect)
+	http.HandleFunc("/api/clusters/disconnect", ws.handleClusterDisconnect)
+	http.HandleFunc("/api/clusters/status", ws.handleClusterStatus)
+
+	// Workspace context endpoint
+	http.HandleFunc("/api/workspace/context", ws.handleWorkspaceContext)
 
 	// Real-time events endpoint
 	http.HandleFunc("/api/events", ws.handleEvents)

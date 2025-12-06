@@ -30,6 +30,13 @@ import (
 
 // handlePods returns pod list
 func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+	
 	namespace := r.URL.Query().Get("namespace")
 	// Empty namespace means "all namespaces" in Kubernetes
 	// Only default to app.namespace if namespace param is not provided at all
@@ -141,6 +148,14 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 
 // handlePodMetrics returns only CPU/memory metrics for pods (lightweight, for live updates)
 func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if ws.app.clientset == nil {
+		// Return empty metrics map if client not initialized
+		json.NewEncoder(w).Encode(map[string]map[string]string{})
+		return
+	}
+	
 	namespace := r.URL.Query().Get("namespace")
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace

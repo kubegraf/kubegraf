@@ -1,0 +1,12 @@
+./analyse.go
+./attr.go
+./attrs.go
+./catch.go
+./edges.go
+./escape.go
+./gographviz.go
+./graph.go
+./nodes.go
+./relations.go
+./subgraphs.go
+./write.go

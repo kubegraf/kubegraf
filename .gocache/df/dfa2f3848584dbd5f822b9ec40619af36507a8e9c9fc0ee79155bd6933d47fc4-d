@@ -1,0 +1,6 @@
+./action.go
+./actiontable.go
+./gototable.go
+./main.go
+./parser.go
+./productionstable.go
