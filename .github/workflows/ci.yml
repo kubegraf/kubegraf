@@ -58,12 +58,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web/dist
+          path: web
 
-      - name: Verify web/dist contents
+      - name: Verify web contents
         run: |
-          echo "Contents of web/dist:"
-          ls -laR web/dist || echo "web/dist does not exist"
+          echo "Contents of web:"
+          ls -laR web || echo "web does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -91,12 +91,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web/dist
+          path: web
 
-      - name: Verify web/dist contents
+      - name: Verify web contents
         run: |
-          echo "Contents of web/dist:"
-          ls -laR web/dist || echo "web/dist does not exist"
+          echo "Contents of web:"
+          ls -laR web || echo "web does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -123,12 +123,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web/dist
+          path: web
 
-      - name: Verify web/dist contents
+      - name: Verify web contents
         run: |
-          echo "Contents of web/dist:"
-          ls -laR web/dist || echo "web/dist does not exist"
+          echo "Contents of web:"
+          ls -laR web || echo "web does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
