@@ -17,6 +17,7 @@ import {
 } from '../stores/cluster';
 import { toggleAIPanel, searchQuery, setSearchQuery, setCurrentView, addNotification } from '../stores/ui';
 import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
+import { setNamespaces } from '../stores/globalStore';
 import ThemeToggle from './ThemeToggle';
 import { api } from '../services/api';
 import LocalTerminalModal from './LocalTerminalModal';
@@ -241,7 +242,15 @@ const Header: Component = () => {
 
   const applyNamespaceSelection = async () => {
     try {
-      // Update namespace signal directly (like v1.3.0-rc6)
+      // Update global store with selected namespaces
+      const selected = nsSelectionMode() === 'all' || nsSelection().length === 0 
+        ? [] 
+        : nsSelection();
+      
+      // Update global store (this will trigger cache invalidation)
+      setNamespaces(selected);
+      
+      // Update namespace signal directly (like v1.3.0-rc6) for backward compatibility
       if (nsSelectionMode() === 'all' || nsSelection().length === 0) {
         setNamespace('All Namespaces');
       } else if (nsSelection().length === 1) {
