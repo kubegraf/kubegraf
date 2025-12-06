@@ -24,7 +24,7 @@ func NewKubectlDescribeTool(app interface{}) *KubectlDescribeTool {
 	if a, ok := app.(AppInterface); ok {
 		appInterface = a
 	}
-	
+
 	tool := &KubectlDescribeTool{
 		BaseTool: types.NewBaseTool(
 			"kubectl_describe",
@@ -90,7 +90,7 @@ func (t *KubectlDescribeTool) Execute(ctx context.Context, args json.RawMessage)
 
 	// For now, return a simple response
 	// In a real implementation, we would use t.app.GetClientset() to access Kubernetes API
-	result := fmt.Sprintf("kubectl_describe would show detailed information for %s/%s in namespace '%s'", 
+	result := fmt.Sprintf("kubectl_describe would show detailed information for %s/%s in namespace '%s'",
 		kind, params.Name, namespace)
 	result += "\n\nNote: This is a placeholder implementation. The actual Kubernetes API integration needs to be implemented."
 
@@ -105,11 +105,11 @@ func (t *KubectlDescribeTool) Validate(ctx context.Context) error {
 	if t.app == nil {
 		return fmt.Errorf("app instance not available")
 	}
-	
+
 	// Check if connected to cluster
 	if !t.app.IsConnected() {
 		return fmt.Errorf("not connected to Kubernetes cluster")
 	}
-	
+
 	return nil
 }

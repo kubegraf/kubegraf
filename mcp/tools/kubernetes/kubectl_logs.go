@@ -23,7 +23,7 @@ func NewKubectlLogsTool(app interface{}) *KubectlLogsTool {
 	if a, ok := app.(AppInterface); ok {
 		appInterface = a
 	}
-	
+
 	tool := &KubectlLogsTool{
 		BaseTool: types.NewBaseTool(
 			"kubectl_logs",
@@ -87,7 +87,7 @@ func (t *KubectlLogsTool) Execute(ctx context.Context, args json.RawMessage) (*t
 
 	// For now, return a simple response
 	// In a real implementation, we would use t.app.GetClientset() to access Kubernetes API
-	result := fmt.Sprintf("kubectl_logs would retrieve logs from pod '%s' in namespace '%s'", 
+	result := fmt.Sprintf("kubectl_logs would retrieve logs from pod '%s' in namespace '%s'",
 		params.Pod, params.Namespace)
 	if params.Container != "" {
 		result += fmt.Sprintf(" for container '%s'", params.Container)
@@ -106,11 +106,11 @@ func (t *KubectlLogsTool) Validate(ctx context.Context) error {
 	if t.app == nil {
 		return fmt.Errorf("app instance not available")
 	}
-	
+
 	// Check if connected to cluster
 	if !t.app.IsConnected() {
 		return fmt.Errorf("not connected to Kubernetes cluster")
 	}
-	
+
 	return nil
 }

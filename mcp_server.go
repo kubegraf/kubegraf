@@ -622,7 +622,6 @@ func (mcp *MCPServer) handleKubectlScale(ctx context.Context, args json.RawMessa
 		return nil, fmt.Errorf("not connected to cluster")
 	}
 
-	var err error
 	switch params.Kind {
 	case "Deployment":
 		scale, err := mcp.app.clientset.AppsV1().Deployments(params.Namespace).GetScale(ctx, params.Name, metav1.GetOptions{})
@@ -630,20 +629,20 @@ func (mcp *MCPServer) handleKubectlScale(ctx context.Context, args json.RawMessa
 			return nil, err
 		}
 		scale.Spec.Replicas = params.Replicas
-		_, err = mcp.app.clientset.AppsV1().Deployments(params.Namespace).UpdateScale(ctx, params.Name, scale, metav1.UpdateOptions{})
+		if _, err := mcp.app.clientset.AppsV1().Deployments(params.Namespace).UpdateScale(ctx, params.Name, scale, metav1.UpdateOptions{}); err != nil {
+			return nil, err
+		}
 	case "StatefulSet":
 		scale, err := mcp.app.clientset.AppsV1().StatefulSets(params.Namespace).GetScale(ctx, params.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		scale.Spec.Replicas = params.Replicas
-		_, err = mcp.app.clientset.AppsV1().StatefulSets(params.Namespace).UpdateScale(ctx, params.Name, scale, metav1.UpdateOptions{})
+		if _, err := mcp.app.clientset.AppsV1().StatefulSets(params.Namespace).UpdateScale(ctx, params.Name, scale, metav1.UpdateOptions{}); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported resource kind for scaling: %s", params.Kind)
-	}
-
-	if err != nil {
-		return nil, err
 	}
 
 	return &MCPToolResult{
@@ -792,9 +791,6 @@ func (mcp *MCPServer) handleDetectAnomalies(ctx context.Context, args json.RawMe
 			}
 		}
 		anomalies = filtered
-	}
-	if err != nil {
-		return nil, err
 	}
 
 	result := fmt.Sprintf("Found %d anomalies\n", len(anomalies))
@@ -1409,7 +1405,7 @@ func (mcp *MCPServer) handlePredictCapacity(ctx context.Context, args json.RawMe
 		avgCPU := totalCPU / float64(len(deployments.Items))
 		avgMemory := totalMemory / float64(len(deployments.Items))
 
-		result += fmt.Sprintf("\n📊 Cluster Average:\n")
+		result += "\n📊 Cluster Average:\n"
 		result += fmt.Sprintf("   Average CPU: %.1f%%\n", avgCPU)
 		result += fmt.Sprintf("   Average Memory: %.1f%%\n", avgMemory)
 

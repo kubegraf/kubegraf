@@ -30,11 +30,11 @@ import (
 // Connector represents an external service connector
 type Connector struct {
 	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`      // "github", "slack", "pagerduty", "webhook", "email", "teams", "discord"
+	Type      string                 `json:"type"` // "github", "slack", "pagerduty", "webhook", "email", "teams", "discord"
 	Name      string                 `json:"name"`
 	Enabled   bool                   `json:"enabled"`
 	Config    map[string]interface{} `json:"config"`
-	Status    string                 `json:"status"`     // "connected", "disconnected", "error"
+	Status    string                 `json:"status"` // "connected", "disconnected", "error"
 	LastTest  *time.Time             `json:"lastTest,omitempty"`
 	CreatedAt time.Time              `json:"createdAt"`
 	UpdatedAt time.Time              `json:"updatedAt"`
@@ -266,12 +266,12 @@ func (cm *ConnectorManager) testPagerDutyConnector(connector *Connector) error {
 	}
 
 	payload := map[string]interface{}{
-		"routing_key": integrationKey,
+		"routing_key":  integrationKey,
 		"event_action": "trigger",
 		"payload": map[string]interface{}{
-			"summary":     "Test alert from KubeGraf",
-			"source":      "kubegraf",
-			"severity":     "info",
+			"summary":  "Test alert from KubeGraf",
+			"source":   "kubegraf",
+			"severity": "info",
 			"custom_details": map[string]interface{}{
 				"test": true,
 			},
@@ -433,7 +433,7 @@ func (cm *ConnectorManager) sendToWebhook(connector Connector, eventType string,
 		"event_type": eventType,
 		"severity":   severity,
 		"message":    message,
-		"timestamp":   time.Now().Unix(),
+		"timestamp":  time.Now().Unix(),
 		"details":    details,
 	}
 
@@ -482,17 +482,17 @@ func (cm *ConnectorManager) sendToTeams(connector Connector, eventType string, s
 	}
 
 	payload := map[string]interface{}{
-		"@type":    "MessageCard",
-		"@context": "https://schema.org/extensions",
-		"summary":  message,
+		"@type":      "MessageCard",
+		"@context":   "https://schema.org/extensions",
+		"summary":    message,
 		"themeColor": color,
-		"title":    fmt.Sprintf("KubeGraf Alert: %s", eventType),
-		"text":     message,
+		"title":      fmt.Sprintf("KubeGraf Alert: %s", eventType),
+		"text":       message,
 		"sections": []map[string]interface{}{
 			{
-				"activityTitle": eventType,
+				"activityTitle":    eventType,
 				"activitySubtitle": severity,
-				"facts": []map[string]interface{}{},
+				"facts":            []map[string]interface{}{},
 			},
 		},
 	}
@@ -536,9 +536,9 @@ func (cm *ConnectorManager) sendToDiscord(connector Connector, eventType string,
 			{
 				"title":       fmt.Sprintf("KubeGraf Alert: %s", eventType),
 				"description": message,
-				"color":      color,
+				"color":       color,
 				"timestamp":   time.Now().Format(time.RFC3339),
-				"fields":     []map[string]interface{}{},
+				"fields":      []map[string]interface{}{},
 			},
 		},
 	}
@@ -584,12 +584,12 @@ func (cm *ConnectorManager) sendToPagerDuty(connector Connector, eventType strin
 	}
 
 	payload := map[string]interface{}{
-		"routing_key": integrationKey,
+		"routing_key":  integrationKey,
 		"event_action": "trigger",
 		"payload": map[string]interface{}{
-			"summary":  message,
-			"source":   "kubegraf",
-			"severity": pagerDutySeverity,
+			"summary":        message,
+			"source":         "kubegraf",
+			"severity":       pagerDutySeverity,
 			"custom_details": details,
 		},
 	}
@@ -683,4 +683,3 @@ func formatDetails(details map[string]interface{}) string {
 	}
 	return string(jsonData)
 }
-
