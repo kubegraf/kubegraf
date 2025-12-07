@@ -395,6 +395,16 @@ func (ws *WebServer) Start(port int) error {
 	// Plugin endpoints - Flux
 	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)
 
+	// Kiali integration endpoints
+	http.HandleFunc("/api/integrations/kiali/status", ws.handleKialiStatus)
+	http.HandleFunc("/api/integrations/kiali/install", ws.handleKialiInstall)
+	http.HandleFunc("/api/integrations/kiali/versions", ws.handleKialiVersions)
+	http.HandleFunc("/api/kiali/proxy/", ws.handleKialiProxy)
+	http.HandleFunc("/api/kiali/proxy", ws.handleKialiProxy)
+	
+	// Traffic metrics endpoint for live traffic visualization
+	http.HandleFunc("/api/traffic/metrics", ws.handleTrafficMetrics)
+
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 

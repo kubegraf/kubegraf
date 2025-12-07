@@ -695,6 +695,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ context: contextName }),
     }),
+  
+  // ============ Workspace Context ============
+  getWorkspaceContext: () => fetchAPI<any>('/workspace/context'),
+  setWorkspaceContext: (context: any) =>
+    fetchAPI<any>('/workspace/context', {
+      method: 'POST',
+      body: JSON.stringify(context),
+    }),
+  updateWorkspaceContext: (context: any) =>
+    fetchAPI<any>('/workspace/context', {
+      method: 'POST',
+      body: JSON.stringify(context),
+    }),
 
   // ============ Events ============
   getEvents: async (namespace?: string, limit?: number) => {
