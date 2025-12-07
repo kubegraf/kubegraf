@@ -135,7 +135,7 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
                     e.preventDefault();
                     e.stopPropagation();
                     // Special handling for terminal - open as view instead of docked terminal
-                    setCurrentView(item.id);
+                      setCurrentView(item.id);
                   }}
                   onMouseEnter={(e) => {
                     if (sidebarCollapsed()) {

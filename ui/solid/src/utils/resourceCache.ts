@@ -165,3 +165,4 @@ export function createSkeletonData<T>(count: number, template: () => T): T[] {
   return Array.from({ length: count }, template);
 }
 
+
