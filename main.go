@@ -74,14 +74,7 @@ func main() {
 
 	if webMode {
 		// In web mode, start server immediately and connect to cluster in background
-		fmt.Println("🚀 Starting KubeGraf Web UI...")
-		fmt.Println("📡 Connecting to Kubernetes cluster in background...")
-		fmt.Println()
-		fmt.Printf("📊 Dashboard:    http://localhost:%d\n", port)
-		fmt.Printf("🗺️  Topology:     http://localhost:%d/topology\n", port)
-		fmt.Printf("📦 Namespace:    %s\n", namespace)
-		fmt.Println("\nPress Ctrl+C to stop the server")
-		fmt.Println()
+		fmt.Println("🚀 Starting KubeGraf Daemon...")
 
 		// Start web server immediately
 		webServer := NewWebServer(app)

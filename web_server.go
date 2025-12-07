@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,7 +47,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
@@ -69,7 +70,7 @@ var upgrader = websocket.Upgrader{
 
 // toKubectlYAML converts a Kubernetes object to YAML format matching kubectl output
 // It sets the TypeMeta (Kind/APIVersion) and removes managed fields for cleaner output
-func toKubectlYAML(obj runtime.Object, gvk schema.GroupVersionKind) ([]byte, error) {
+func toKubectlYAML(obj k8sruntime.Object, gvk schema.GroupVersionKind) ([]byte, error) {
 	// Set the TypeMeta on the object so it appears in the YAML
 	obj.GetObjectKind().SetGroupVersionKind(gvk)
 
@@ -547,23 +548,36 @@ func (ws *WebServer) prewarmCostCache() {
 
 // showStartupBanner displays a startup message with the web server port
 func (ws *WebServer) showStartupBanner(port int) {
-	fmt.Println("╔══════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                    KubeGraf Web Dashboard                    ║")
-	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
-	fmt.Printf("║  Web UI: http://localhost:%d                                   ║\n", port)
-	fmt.Printf("║  MCP Server: http://localhost:%d/api/mcp                      ║\n", port)
-	fmt.Println("║                                                              ║")
-	fmt.Println("║  Features:                                                   ║")
-	fmt.Println("║  • Real-time cluster monitoring                              ║")
-	fmt.Println("║  • Interactive terminal access                               ║")
-	fmt.Println("║  • Security analysis                                         ║")
-	fmt.Println("║  • Cost estimation                                           ║")
-	fmt.Println("║  • AI-powered recommendations                                ║")
-	fmt.Println("║  • MCP (Model Context Protocol) for AI agents               ║")
-	fmt.Println("║                                                              ║")
-	fmt.Println("║  Press Ctrl+C to stop the server                             ║")
-	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
+	fmt.Printf("🌐 Web UI running at: http://localhost:%d\n", port)
+	fmt.Println("🔄 Auto-updates enabled")
 	fmt.Println()
+	
+	// Open browser automatically after a short delay
+	go func() {
+		time.Sleep(1 * time.Second) // Give server time to start
+		url := fmt.Sprintf("http://localhost:%d", port)
+		if err := openBrowser(url); err != nil {
+			// Silently fail - browser opening is optional
+		} else {
+			fmt.Println("✨ Opening browser...")
+		}
+	}()
+}
+
+// openBrowser opens a URL in the default browser (cross-platform)
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+	return cmd.Start() // Use Start() instead of Run() to not block
 }
 
 // handleStaticFiles serves static files from the embedded filesystem
