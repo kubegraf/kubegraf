@@ -34,22 +34,22 @@ export interface MLflowVersions {
 
 export const mlflowService = {
   getStatus: async (): Promise<MLflowStatus> => {
-    return fetchAPI<MLflowStatus>('/api/mlflow/status');
+    return fetchAPI<MLflowStatus>('/mlflow/status');
   },
 
   install: async (request: MLflowInstallRequest): Promise<{ success: boolean; message: string }> => {
-    return fetchAPI<{ success: boolean; message: string }>('/api/mlflow/install', {
+    return fetchAPI<{ success: boolean; message: string }>('/mlflow/install', {
       method: 'POST',
       body: JSON.stringify(request),
     });
   },
 
   getVersions: async (): Promise<MLflowVersions> => {
-    return fetchAPI<MLflowVersions>('/api/mlflow/versions');
+    return fetchAPI<MLflowVersions>('/mlflow/versions');
   },
 
   upgrade: async (namespace: string, version: string): Promise<{ success: boolean; message: string }> => {
-    return fetchAPI<{ success: boolean; message: string }>('/api/mlflow/upgrade', {
+    return fetchAPI<{ success: boolean; message: string }>('/mlflow/upgrade', {
       method: 'POST',
       body: JSON.stringify({ namespace, version }),
     });
