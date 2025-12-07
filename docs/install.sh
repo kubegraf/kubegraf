@@ -1,5 +1,5 @@
 #!/bin/bash
-# KubeGraf Installation Script
+# KubeGraf Installation Script for Linux and macOS
 # Usage: curl -sSL https://kubegraf.io/install.sh | bash
 # Alternative: curl -sSL https://raw.githubusercontent.com/kubegraf/kubegraf/main/docs/install.sh | bash
 
@@ -21,13 +21,29 @@ success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# Check for required commands
+check_dependencies() {
+    local missing_deps=()
+    
+    if ! command -v curl &> /dev/null; then
+        missing_deps+=("curl")
+    fi
+    
+    if ! command -v tar &> /dev/null; then
+        missing_deps+=("tar")
+    fi
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        error "Missing required dependencies: ${missing_deps[*]}. Please install them first."
+    fi
+}
+
 # Detect OS
 detect_os() {
     case "$(uname -s)" in
         Linux*)     OS="linux";;
         Darwin*)    OS="darwin";;
-        MINGW*|MSYS*|CYGWIN*) OS="windows";;
-        *)          error "Unsupported operating system: $(uname -s)";;
+        *)          error "Unsupported operating system: $(uname -s). For Windows, use: irm https://kubegraf.io/install.ps1 | iex";;
     esac
 }
 
@@ -86,6 +102,16 @@ install() {
     fi
 
     info "Installing to ${INSTALL_DIR}..."
+    
+    # Create install directory if it doesn't exist
+    if [ ! -d "$INSTALL_DIR" ]; then
+        if [ -w "$(dirname "$INSTALL_DIR")" ]; then
+            mkdir -p "$INSTALL_DIR"
+        else
+            sudo mkdir -p "$INSTALL_DIR"
+        fi
+    fi
+    
     if [ -w "$INSTALL_DIR" ]; then
         mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
     else
@@ -115,6 +141,8 @@ verify() {
     else
         warn "Installation completed, but '${BINARY_NAME}' not found in PATH"
         warn "You may need to add ${INSTALL_DIR} to your PATH"
+        warn "Add this to your ~/.bashrc or ~/.zshrc:"
+        echo "  export PATH=\"\${PATH}:${INSTALL_DIR}\""
     fi
 }
 
@@ -125,6 +153,7 @@ main() {
     echo "╚═══════════════════════════════════════╝"
     echo ""
 
+    check_dependencies
     detect_os
     detect_arch
     get_latest_version
