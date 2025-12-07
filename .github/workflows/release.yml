@@ -36,10 +36,13 @@ jobs:
           rm -rf web/dist
           cp -r ui/solid/dist web/dist
 
-      - name: Clean Go cache (fix corrupted cache)
+      - name: Clean Go toolchain cache (fix corrupted cache)
         run: |
-          rm -rf ~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 || true
-          rm -rf $GOMODCACHE/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 || true
+          # Clean up corrupted toolchain cache that causes tar extraction errors
+          rm -rf ~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 2>/dev/null || true
+          rm -rf ${{ env.GOMODCACHE }}/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 2>/dev/null || true
+          # Also clean any existing toolchain directories
+          find ~/go/pkg/mod/golang.org/toolchain* -type d -name "*go1.24.0*" -exec rm -rf {} + 2>/dev/null || true
         continue-on-error: true
 
       - name: Set up Go
