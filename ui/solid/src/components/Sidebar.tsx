@@ -1,6 +1,9 @@
 import { Component, For, Show, createSignal, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, type View } from '../stores/ui';
+import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, addNotification, type View } from '../stores/ui';
+import { setUpdateInfo } from '../stores/globalStore';
+import { api } from '../services/api';
+import UpdateModal from './UpdateModal';
 
 interface NavSection {
   title: string;
@@ -199,6 +202,68 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
   );
 };
 
+// Update button component for sidebar
+const SidebarUpdateButton: Component = () => {
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
+  const [updateModalOpen, setUpdateModalOpen] = createSignal(false);
+  const [updateInfo, setUpdateInfoState] = createSignal<any>(null);
+
+  return (
+    <>
+      <button
+        onClick={async () => {
+          setCheckingUpdate(true);
+          try {
+            const info = await api.checkUpdate();
+            setUpdateInfoState(info);
+            setUpdateInfo(info);
+            if (info.updateAvailable) {
+              setUpdateModalOpen(true);
+            } else {
+              addNotification("You're on the latest version 🎉", 'success');
+            }
+          } catch (err) {
+            addNotification('Failed to check for updates', 'error');
+            console.error('Update check failed:', err);
+          } finally {
+            setCheckingUpdate(false);
+          }
+        }}
+        class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-white/5`}
+        style={{ color: 'var(--text-secondary)' }}
+        title="Check for Updates"
+        disabled={checkingUpdate()}
+      >
+        <Show when={!checkingUpdate()} fallback={
+          <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        }>
+          {/* Upward arrow in circle icon */}
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none">
+            {/* Blue circular background */}
+            <circle cx="12" cy="12" r="12" fill="#3b82f6" />
+            {/* White circle outline */}
+            <circle cx="12" cy="12" r="10" stroke="white" stroke-width="1.5" fill="none" />
+            {/* White upward arrow - triangular head with rectangular shaft */}
+            <path d="M12 7v6M9 10l3-3 3 3" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+          </svg>
+        </Show>
+        <Show when={!sidebarCollapsed()}>
+          <span class="text-sm">Check Updates</span>
+        </Show>
+      </button>
+      <Show when={updateModalOpen() && updateInfo()}>
+        <UpdateModal
+          isOpen={updateModalOpen()}
+          onClose={() => setUpdateModalOpen(false)}
+          updateInfo={updateInfo()!}
+        />
+      </Show>
+    </>
+  );
+};
+
 const Sidebar: Component = () => {
   const [searchQuery, setSearchQuery] = createSignal('');
 
@@ -367,6 +432,10 @@ const Sidebar: Component = () => {
             <span class="text-sm">Settings</span>
           </Show>
         </button>
+        
+        {/* Check for Updates button */}
+        <SidebarUpdateButton />
+        
         <Show when={!sidebarCollapsed()}>
           <div class="flex items-center gap-1.5 px-2.5 mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
             <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>

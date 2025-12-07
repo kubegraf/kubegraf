@@ -2,6 +2,9 @@ import { Component, Show, onMount, For } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import UpdateBanner from './components/UpdateNotification';
+import { setUpdateInfo } from './stores/globalStore';
+import { api } from './services/api';
 import Dashboard from './routes/Dashboard';
 import Pods from './routes/Pods';
 import Deployments from './routes/Deployments';
@@ -125,7 +128,6 @@ import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notificatio
 import { refreshClusterStatus } from './stores/clusterManager';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
-import { api } from './services/api';
 import { createSignal, createResource } from 'solid-js';
 
 const views: Record<string, Component> = {
@@ -189,6 +191,16 @@ const App: Component = () => {
     // Prime cluster manager status for header indicator
     refreshClusterStatus();
 
+    // Auto-check for updates silently on app load
+    api.autoCheckUpdate()
+      .then((info) => {
+        setUpdateInfo(info);
+      })
+      .catch((err) => {
+        // Silently fail - don't show error to user on auto-check
+        console.debug('Auto-update check failed:', err);
+      });
+
     // Subscribe to connection state
     const unsubscribe = wsService.subscribe((msg) => {
       if (msg.type === 'connection') {
@@ -205,7 +217,11 @@ const App: Component = () => {
   const isConnected = () => connectionStatus()?.connected !== false;
 
   return (
-    <div class="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+    <div class="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+      {/* Update Banner */}
+      <UpdateBanner />
+      
+      <div class="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <Sidebar />
 
@@ -530,6 +546,7 @@ const App: Component = () => {
         isOpen={terminalOpen()}
         onClose={() => setTerminalOpen(false)}
       />
+      </div>
     </div>
   );
 };

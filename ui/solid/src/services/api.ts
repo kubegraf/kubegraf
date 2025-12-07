@@ -173,7 +173,7 @@ export const api = {
   // Status
   getStatus: () => fetchAPI<ClusterStatus>('/status'),
   
-  // Updates
+  // Updates (legacy endpoints)
   checkForUpdates: () => fetchAPI<{
     currentVersion: string;
     latestVersion: string;
@@ -183,6 +183,24 @@ export const api = {
     publishedAt?: string;
     error?: string;
   }>('/updates/check'),
+  
+  // New update endpoints
+  checkUpdate: () => fetchAPI<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    releaseNotes: string;
+    htmlUrl: string;
+    error?: string;
+  }>('/update/check'),
+  autoCheckUpdate: () => fetchAPI<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    releaseNotes: string;
+    htmlUrl: string;
+    error?: string;
+  }>('/update/auto-check'),
   installUpdate: (downloadUrl: string) =>
     fetchAPI<{ success: boolean; message?: string; error?: string }>('/updates/install', {
       method: 'POST',
