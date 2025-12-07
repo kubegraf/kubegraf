@@ -1,6 +1,7 @@
 import { Component, For, Show, createSignal, createResource, createEffect, JSX } from 'solid-js';
 import { api } from '../services/api';
 import Modal from '../components/Modal';
+import HelmReleaseDeleteModal from '../components/HelmReleaseDeleteModal';
 import { currentContext } from '../stores/cluster';
 
 interface Plugin {
@@ -51,6 +52,9 @@ const Plugins: Component = () => {
   const [historyLoading, setHistoryLoading] = createSignal(false);
   const [actionLoading, setActionLoading] = createSignal(false);
   const [actionMessage, setActionMessage] = createSignal<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showUninstallModal, setShowUninstallModal] = createSignal(false);
+  const [releaseToUninstall, setReleaseToUninstall] = createSignal<HelmRelease | null>(null);
+  const [uninstalling, setUninstalling] = createSignal(false);
 
   // Resources now depend on currentContext to auto-refetch when cluster changes
   // Fetch data when on Overview tab OR when on the specific tab
@@ -145,14 +149,27 @@ const Plugins: Component = () => {
   };
 
   // Handle Helm uninstall
-  const handleUninstallHelm = async (release: HelmRelease) => {
-    if (!confirm(`Are you sure you want to uninstall ${release.name} from ${release.namespace}?`)) return;
+  const handleUninstallHelm = (release: HelmRelease) => {
+    console.log('[Plugins] Opening uninstall modal for:', release.name);
+    setReleaseToUninstall(release);
+    setShowUninstallModal(true);
+  };
 
+  const confirmUninstallHelm = async () => {
+    const release = releaseToUninstall();
+    if (!release) return;
+
+    setUninstalling(true);
     try {
       await api.uninstallApp(release.name, release.namespace);
       refetchHelm();
+      setShowUninstallModal(false);
+      setReleaseToUninstall(null);
+      setActionMessage({ type: 'success', text: `${release.name} uninstalled successfully` });
     } catch (e: any) {
-      alert(`Failed to uninstall ${release.name}: ${e.message || 'Unknown error'}`);
+      setActionMessage({ type: 'error', text: `Failed to uninstall ${release.name}: ${e.message || 'Unknown error'}` });
+    } finally {
+      setUninstalling(false);
     }
   };
 
@@ -424,10 +441,16 @@ const Plugins: Component = () => {
                             </svg>
                           </button>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleUninstallHelm(release); }}
+                            onClick={(e) => { 
+                              e.preventDefault();
+                              e.stopPropagation(); 
+                              console.log('[Plugins] Uninstall button clicked for:', release.name);
+                              handleUninstallHelm(release); 
+                            }}
                             class="action-btn"
                             style={{ color: 'var(--error-color)' }}
                             title="Uninstall release"
+                            type="button"
                           >
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -780,6 +803,18 @@ const Plugins: Component = () => {
           </div>
         </Show>
       </Modal>
+
+      {/* Helm Release Uninstall Confirmation Modal */}
+      <HelmReleaseDeleteModal
+        isOpen={showUninstallModal()}
+        release={releaseToUninstall()}
+        onClose={() => {
+          setShowUninstallModal(false);
+          setReleaseToUninstall(null);
+        }}
+        onConfirm={confirmUninstallHelm}
+        loading={uninstalling()}
+      />
     </div>
   );
 };
