@@ -135,8 +135,14 @@ func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request)
 
 // handleMetrics returns cluster metrics
 func (ws *WebServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	metrics := ws.getClusterMetrics()
-	json.NewEncoder(w).Encode(metrics)
+	if err := json.NewEncoder(w).Encode(metrics); err != nil {
+		log.Printf("Error encoding metrics: %v", err)
+		http.Error(w, "Failed to encode metrics", http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleTopology returns topology data for visualization

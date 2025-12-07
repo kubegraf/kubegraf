@@ -45,6 +45,7 @@ export function createCachedResource<T>(
   const [loading, setLoading] = createSignal<boolean>(false);
   const [error, setError] = createSignal<Error | undefined>(undefined);
   const [isInitialLoad, setIsInitialLoad] = createSignal<boolean>(true);
+  const [lastCacheKey, setLastCacheKey] = createSignal<string>('');
 
   // Check cache and load if available
   const loadFromCache = (): boolean => {
@@ -92,18 +93,36 @@ export function createCachedResource<T>(
   };
 
   // Initial load: check cache first, then fetch in background if needed
-  const initialLoad = async (): Promise<void> => {
-    const hasCache = loadFromCache();
+  const initialLoad = async (skipCache = false): Promise<void> => {
+    const currentKey = getCacheKey();
+    const cacheKeyChanged = currentKey !== lastCacheKey();
     
-    if (hasCache && backgroundRefresh) {
-      // Return cached data immediately, refresh in background
-      setIsInitialLoad(false);
-      fetchFresh(true).catch(err => {
-        console.warn(`Background refresh failed for ${resourceType}:`, err);
-      });
-    } else {
-      // No cache or background refresh disabled, fetch immediately
+    // If cache key changed, skip cache and fetch fresh
+    if (skipCache || cacheKeyChanged) {
+      setLastCacheKey(currentKey);
       await fetchFresh(false);
+      return;
+    }
+    
+    // Only load from cache if data is not already set
+    if (!data()) {
+      const hasCache = loadFromCache();
+      
+      if (hasCache && backgroundRefresh) {
+        // Return cached data immediately, refresh in background
+        setLastCacheKey(currentKey);
+        setIsInitialLoad(false);
+        fetchFresh(true).catch(err => {
+          console.warn(`Background refresh failed for ${resourceType}:`, err);
+        });
+      } else {
+        // No cache or background refresh disabled, fetch immediately
+        setLastCacheKey(currentKey);
+        await fetchFresh(false);
+      }
+    } else {
+      // Data already set, just update cache key
+      setLastCacheKey(currentKey);
     }
   };
 
@@ -117,6 +136,7 @@ export function createCachedResource<T>(
   
   createEffect(() => {
     const currentKey = getCacheKey();
+    const cacheKeyChanged = currentKey !== lastCacheKey();
     
     // Clear existing timer
     if (refreshTimer) {
@@ -124,8 +144,16 @@ export function createCachedResource<T>(
       refreshTimer = null;
     }
     
-    // Initial load
-    initialLoad();
+    // If cache key changed (namespace/cluster changed), clear data immediately
+    // to prevent showing stale data from previous namespace/cluster
+    if (cacheKeyChanged && lastCacheKey() !== '') {
+      console.log(`[${resourceType}] Cache key changed from ${lastCacheKey()} to ${currentKey}, clearing data and fetching fresh`);
+      setData(undefined);
+      setError(undefined);
+    }
+    
+    // Initial load (will skip cache if key changed)
+    initialLoad(cacheKeyChanged);
     
     // Set up periodic refresh if background refresh is enabled
     if (backgroundRefresh) {
