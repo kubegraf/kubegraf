@@ -20,6 +20,14 @@ export interface ResourceCache {
   [key: string]: ResourceCacheEntry<any> | null;
 }
 
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  releaseNotes: string;
+  htmlUrl: string;
+}
+
 export interface GlobalStoreState {
   selectedCluster: string;
   selectedNamespaces: string[];
@@ -29,6 +37,7 @@ export interface GlobalStoreState {
   globalLoading: boolean;
   aiPanelOpen: boolean;
   resourceCache: ResourceCache;
+  updateInfo: UpdateInfo | null;
 }
 
 // ============================================================================
@@ -112,6 +121,8 @@ const [resourceCache, setResourceCacheSignal] = createSignal<ResourceCache>({
   events: null,
 });
 
+const [updateInfo, setUpdateInfoSignal] = createSignal<UpdateInfo | null>(null);
+
 // ============================================================================
 // Persistence Effects
 // ============================================================================
@@ -190,6 +201,10 @@ export function setAIPanelOpen(open: boolean): void {
   setAIPanelOpenSignal(open);
 }
 
+export function setUpdateInfo(info: UpdateInfo | null): void {
+  setUpdateInfoSignal(info);
+}
+
 // ============================================================================
 // Cache Management Functions
 // ============================================================================
@@ -264,6 +279,7 @@ export {
   globalLoading,
   aiPanelOpen,
   resourceCache,
+  updateInfo,
 };
 
 // Context for optional provider pattern (if needed in future)
@@ -289,6 +305,8 @@ export function useGlobalStore() {
       setTheme,
       setGlobalLoading,
       setAIPanelOpen,
+      updateInfo,
+      setUpdateInfo,
       getCacheKey,
       getCachedResource,
       setCachedResource,
