@@ -175,7 +175,8 @@ export const api = {
   // Namespaces
   getNamespaces: async () => {
     const data = await fetchAPI<{ namespaces: string[]; success: boolean }>('/namespaces');
-    return data.namespaces || [];
+    // Return array of namespace names (strings)
+    return (data.namespaces || []).map(ns => typeof ns === 'string' ? ns : (ns as any).name || ns);
   },
 
   // ============ Workloads ============
