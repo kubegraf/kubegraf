@@ -21,8 +21,12 @@ const Anomalies: Component = () => {
     async ({ severity }) => {
       try {
         const data = await api.detectAnomalies(severity || undefined);
-        console.log('[Anomalies] Fetched anomalies:', data.anomalies.length);
-        return data;
+        console.log('[Anomalies] Fetched anomalies:', data?.anomalies?.length || 0);
+        return {
+          anomalies: data?.anomalies || [],
+          stats: data?.stats || { total: 0, critical: 0, warning: 0, info: 0 },
+          duration: data?.duration || '0s'
+        };
       } catch (err) {
         console.error('[Anomalies] Failed to fetch anomalies:', err);
         return { anomalies: [], stats: { total: 0, critical: 0, warning: 0, info: 0 }, duration: '0s' };
@@ -151,7 +155,7 @@ const Anomalies: Component = () => {
     }
   };
 
-  // Fetch ML Recommendations - refresh when cluster changes
+  // Fetch ML Recommendations - refresh when cluster changes or tab changes
   const [recommendations, { refetch: refetchRecommendations }] = createResource(
     () => {
       const shouldFetch = activeTab() === 'recommendations';
@@ -160,20 +164,34 @@ const Anomalies: Component = () => {
       return { shouldFetch, context: ctx, refresh };
     },
     async ({ shouldFetch }) => {
-      if (!shouldFetch) return { recommendations: [], total: 0, error: undefined };
+      if (!shouldFetch) {
+        // Return empty data immediately when tab is not active
+        return { recommendations: [], total: 0, error: undefined };
+      }
       try {
+        console.log('[Anomalies] Fetching ML recommendations...');
         const data = await api.getMLRecommendations();
+        console.log('[Anomalies] Fetched ML recommendations:', data);
         return { ...data, error: undefined };
       } catch (err: any) {
         console.error('[Anomalies] Failed to fetch recommendations:', err);
+        const errorMessage = err?.message || 'Failed to load ML recommendations. This may take a few moments if there is no historical data.';
         return { 
           recommendations: [], 
           total: 0, 
-          error: err?.message || 'Failed to load ML recommendations. This may take a few moments if there is no historical data.' 
+          error: errorMessage
         };
       }
     }
   );
+
+  // Refetch recommendations when tab changes to recommendations
+  createEffect(() => {
+    if (activeTab() === 'recommendations' && !recommendations.loading && !recommendations()) {
+      console.log('[Anomalies] Tab changed to recommendations, fetching...');
+      refetchRecommendations();
+    }
+  });
 
   onMount(() => {
     // Trigger initial scan
@@ -411,7 +429,7 @@ const Anomalies: Component = () => {
 
       {/* ML Recommendations Tab Content */}
       <Show when={activeTab() === 'recommendations'}>
-        <Show when={recommendations.loading}>
+        <Show when={recommendations.loading && activeTab() === 'recommendations'}>
           <div class="card p-8 text-center">
             <div class="spinner mx-auto mb-2" />
             <div class="flex flex-col items-center gap-2">
@@ -421,10 +439,10 @@ const Anomalies: Component = () => {
           </div>
         </Show>
 
-        <Show when={!recommendations.loading && recommendations.error}>
+        <Show when={!recommendations.loading && recommendations() && recommendations()!.error}>
           <div class="card p-4 bg-red-500/10 border-l-4 border-red-500">
             <p style={{ color: 'var(--error-color)' }}>
-              Error: {recommendations.error}
+              Error: {recommendations()!.error}
             </p>
             <p class="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
               Tip: Run anomaly detection first to collect metrics, then try again.
@@ -432,7 +450,7 @@ const Anomalies: Component = () => {
           </div>
         </Show>
 
-        <Show when={!recommendations.loading && !recommendations.error && (!recommendations() || recommendations()!.recommendations.length === 0)}>
+        <Show when={!recommendations.loading && recommendations() && !recommendations()!.error && (!recommendations()!.recommendations || !Array.isArray(recommendations()!.recommendations) || recommendations()!.recommendations.length === 0)}>
           <div class="card p-8 text-center" style={{ color: 'var(--text-muted)' }}>
             <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -444,14 +462,14 @@ const Anomalies: Component = () => {
           </div>
         </Show>
 
-        <Show when={!recommendations.loading && recommendations() && recommendations()!.recommendations.length > 0}>
+        <Show when={!recommendations.loading && recommendations() && recommendations()!.recommendations && Array.isArray(recommendations()!.recommendations) && recommendations()!.recommendations.length > 0}>
           <div class="space-y-4">
             <div class="card p-4">
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Total Recommendations: <strong style={{ color: 'var(--text-primary)' }}>{recommendations()!.total}</strong>
+                Total Recommendations: <strong style={{ color: 'var(--text-primary)' }}>{recommendations()!.total || 0}</strong>
               </div>
             </div>
-            <For each={recommendations()!.recommendations}>
+            <For each={recommendations()!.recommendations || []}>
               {(rec: any) => (
                 <div
                   class="card p-4 border-l-4"

@@ -280,6 +280,11 @@ func (ws *WebServer) handleCostNamespace(w http.ResponseWriter, r *http.Request)
 
 // handleCloudDetection returns the detected cloud provider (fast - single API call)
 func (ws *WebServer) handleCloudDetection(w http.ResponseWriter, r *http.Request) {
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+
 	estimator := NewCostEstimator(ws.app)
 	ctx := r.Context()
 
@@ -296,6 +301,11 @@ func (ws *WebServer) handleCloudDetection(w http.ResponseWriter, r *http.Request
 // handleCostCluster returns cost estimate for the entire cluster
 // Results are cached for 5 minutes per cluster context to avoid slow API calls
 func (ws *WebServer) handleCostCluster(w http.ResponseWriter, r *http.Request) {
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Get current cluster context for cache key
 	currentContext := ws.app.GetCurrentContext()
 	if currentContext == "" {
