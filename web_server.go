@@ -405,6 +405,14 @@ func (ws *WebServer) Start(port int) error {
 	// Traffic metrics endpoint for live traffic visualization
 	http.HandleFunc("/api/traffic/metrics", ws.handleTrafficMetrics)
 
+	// MLflow integration endpoints
+	http.HandleFunc("/api/mlflow/status", ws.handleMLflowStatus)
+	http.HandleFunc("/api/mlflow/install", ws.handleMLflowInstall)
+	http.HandleFunc("/api/mlflow/versions", ws.handleMLflowVersions)
+	http.HandleFunc("/api/mlflow/upgrade", ws.handleMLflowUpgrade)
+	http.HandleFunc("/api/mlflow/proxy/", ws.ProxyMLflowAPI)
+	http.HandleFunc("/api/mlflow/proxy", ws.ProxyMLflowAPI)
+
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 

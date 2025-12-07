@@ -3,7 +3,7 @@
 const API_BASE = '/api';
 
 // Generic fetch wrapper with error handling
-async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   // Add timeout for long-running requests (like ML recommendations)
   const timeout = 15000; // 15 seconds
   const controller = new AbortController();
