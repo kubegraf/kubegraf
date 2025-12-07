@@ -413,6 +413,14 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/mlflow/proxy/", ws.ProxyMLflowAPI)
 	http.HandleFunc("/api/mlflow/proxy", ws.ProxyMLflowAPI)
 
+	// ML Training Jobs endpoints
+	http.HandleFunc("/api/ml/jobs/create", ws.handleMLJobCreate)
+	http.HandleFunc("/api/ml/jobs/list", ws.handleMLJobList)
+	http.HandleFunc("/api/ml/jobs/get", ws.handleMLJobGet)
+	http.HandleFunc("/api/ml/jobs/delete", ws.handleMLJobDelete)
+	http.HandleFunc("/api/ml/jobs/logs", ws.handleMLJobLogs)
+	http.HandleFunc("/api/ml/jobs/logs/ws", ws.handleMLJobLogsWS)
+
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 
