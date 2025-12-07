@@ -28,6 +28,7 @@ import SREAgent from './routes/SREAgent';
 import Kiali from './routes/Kiali';
 import MLflow from './routes/MLflow';
 import TrainingJobs from './routes/TrainingJobs';
+import InferenceServices from './routes/InferenceServices';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Incidents from './routes/Incidents';
@@ -155,6 +156,7 @@ const views: Record<string, Component> = {
   kiali: Kiali,
   mlflow: MLflow,
   trainingjobs: TrainingJobs,
+  inferenceservices: InferenceServices,
   apps: Marketplace,
   customapps: CustomApps,
   clustermanager: ClusterManager,

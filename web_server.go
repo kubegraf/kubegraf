@@ -421,6 +421,14 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/ml/jobs/logs", ws.handleMLJobLogs)
 	http.HandleFunc("/api/ml/jobs/logs/ws", ws.handleMLJobLogsWS)
 
+	// Inference Services endpoints
+	http.HandleFunc("/api/inference/create", ws.handleInferenceCreate)
+	http.HandleFunc("/api/inference/list", ws.handleInferenceList)
+	http.HandleFunc("/api/inference/get", ws.handleInferenceGet)
+	http.HandleFunc("/api/inference/delete", ws.handleInferenceDelete)
+	http.HandleFunc("/api/inference/test", ws.handleInferenceTest)
+	http.HandleFunc("/api/inference/status", ws.handleInferenceGet)
+
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 
