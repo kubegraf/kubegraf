@@ -223,7 +223,7 @@ const Anomalies: Component = () => {
           </Show>
           <Show when={activeTab() === 'recommendations'}>
             <button
-              onClick={() => recommendations.refetch()}
+              onClick={() => refetchRecommendations()}
               disabled={recommendations.loading}
               class="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: 'var(--accent-primary)', color: 'white' }}
