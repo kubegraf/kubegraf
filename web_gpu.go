@@ -34,6 +34,27 @@ func (ws *WebServer) handleGPUStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
+// handleGPUNodes returns GPU nodes detected in the cluster
+func (ws *WebServer) handleGPUNodes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	nodes, err := ws.app.DetectGPUNodes(ctx)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": err.Error(),
+			"nodes": []GPUNodeInfo{},
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"nodes": nodes,
+	})
+}
+
 // handleGPUMetrics returns GPU metrics
 func (ws *WebServer) handleGPUMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

@@ -435,6 +435,7 @@ func (ws *WebServer) Start(port int) error {
 
 	// GPU Metrics endpoints
 	http.HandleFunc("/api/gpu/status", ws.handleGPUStatus)
+	http.HandleFunc("/api/gpu/nodes", ws.handleGPUNodes)
 	http.HandleFunc("/api/gpu/metrics", ws.handleGPUMetrics)
 	http.HandleFunc("/api/gpu/install", ws.handleGPUInstall)
 

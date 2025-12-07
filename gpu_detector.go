@@ -15,10 +15,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DetectDCGM detects if DCGM exporter is installed
+// DetectDCGM detects if DCGM exporter is installed and GPU nodes
 func (app *App) DetectDCGM(ctx context.Context) (*GPUStatus, error) {
 	status := &GPUStatus{
 		DCGMInstalled: false,
+		GPUNodesFound: false,
+	}
+
+	// First, detect GPU nodes automatically (no plugins needed)
+	gpuNodes, err := app.DetectGPUNodes(ctx)
+	if err == nil && len(gpuNodes) > 0 {
+		status.GPUNodesFound = true
+		status.GPUNodes = gpuNodes
 	}
 
 	// Check common namespaces

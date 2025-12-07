@@ -2,8 +2,24 @@
 
 import { fetchAPI } from './api';
 
+export interface GPUNodeInfo {
+  nodeName: string;
+  gpus: GPUInfo[];
+  totalGPUs: number;
+  gpuType?: string;
+  labels?: Record<string, string>;
+}
+
+export interface GPUInfo {
+  id: string;
+  type?: string;
+  capacity: string;
+}
+
 export interface GPUStatus {
   dcgmInstalled: boolean;
+  gpuNodesFound: boolean;
+  gpuNodes?: GPUNodeInfo[];
   namespace?: string;
   serviceURL?: string;
   prometheusURL?: string;
@@ -36,6 +52,10 @@ export interface GPUInstallRequest {
 export const gpuService = {
   getStatus: async (): Promise<GPUStatus> => {
     return fetchAPI<GPUStatus>('/gpu/status');
+  },
+
+  getNodes: async (): Promise<{ nodes: GPUNodeInfo[] }> => {
+    return fetchAPI<{ nodes: GPUNodeInfo[] }>('/gpu/nodes');
   },
 
   getMetrics: async (): Promise<{ metrics: GPUMetrics[] }> => {

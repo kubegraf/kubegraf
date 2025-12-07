@@ -10,10 +10,12 @@ package main
 
 // GPUStatus represents the status of GPU monitoring
 type GPUStatus struct {
-	DCGMInstalled bool   `json:"dcgmInstalled"`
-	Namespace     string `json:"namespace,omitempty"`
-	ServiceURL    string `json:"serviceURL,omitempty"`
-	PrometheusURL string `json:"prometheusURL,omitempty"`
+	DCGMInstalled bool            `json:"dcgmInstalled"`
+	GPUNodesFound bool            `json:"gpuNodesFound"`
+	GPUNodes      []GPUNodeInfo   `json:"gpuNodes,omitempty"`
+	Namespace     string          `json:"namespace,omitempty"`
+	ServiceURL    string          `json:"serviceURL,omitempty"`
+	PrometheusURL string          `json:"prometheusURL,omitempty"`
 }
 
 // GPUMetrics represents GPU metrics for a node

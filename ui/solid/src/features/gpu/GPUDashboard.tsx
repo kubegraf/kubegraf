@@ -102,15 +102,56 @@ const GPUDashboard: Component = () => {
       </Show>
 
       <Show when={!status.loading && status()}>
+        {/* Show GPU nodes if detected, even without DCGM */}
+        <Show when={status()!.gpuNodesFound && status()!.gpuNodes && status()!.gpuNodes.length > 0}>
+          <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>GPU Nodes Detected</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <For each={status()!.gpuNodes}>
+                {(node) => (
+                  <div class="card rounded-lg p-4 border" style={{
+                    background: 'var(--bg-card)',
+                    borderColor: 'var(--border-color)'
+                  }}>
+                    <div class="font-medium mb-2" style={{ color: 'var(--text-primary)' }}>{node.nodeName}</div>
+                    <div class="text-sm space-y-1">
+                      <div style={{ color: 'var(--text-secondary)' }}>
+                        <span class="font-medium">GPUs:</span> {node.totalGPUs}
+                      </div>
+                      {node.gpuType && (
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          <span class="font-medium">Type:</span> {node.gpuType}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
         <Show when={!status()!.dcgmInstalled}>
           <div class="card p-8 text-center border" style={{
             background: 'var(--bg-card)',
             borderColor: 'var(--border-color)'
           }}>
-            <p class="mb-4" style={{ color: 'var(--text-secondary)' }}>DCGM Exporter is not installed</p>
-            <p class="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
-              DCGM Exporter is required to monitor GPU metrics. Install it to view GPU utilization, memory usage, temperature, and power consumption.
+            <p class="mb-4" style={{ color: 'var(--text-secondary)' }}>
+              {status()!.gpuNodesFound 
+                ? 'DCGM Exporter is not installed. Install it to view detailed GPU metrics.'
+                : 'No GPU nodes detected. DCGM Exporter can be installed to monitor GPU metrics when available.'}
             </p>
+            <p class="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
+              DCGM Exporter provides detailed GPU metrics: utilization, memory usage, temperature, and power consumption.
+            </p>
+            <Show when={status()!.gpuNodesFound}>
+              <p class="text-xs mb-4 p-2 rounded" style={{
+                background: 'rgba(6, 182, 212, 0.1)',
+                color: 'var(--accent-primary)'
+              }}>
+                ✓ {status()!.gpuNodes!.length} GPU node(s) detected automatically
+              </p>
+            </Show>
             <button
               onClick={() => setShowWizard(true)}
               class="px-4 py-2 rounded-lg text-white transition-colors"
