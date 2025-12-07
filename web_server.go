@@ -429,6 +429,15 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/inference/test", ws.handleInferenceTest)
 	http.HandleFunc("/api/inference/status", ws.handleInferenceGet)
 
+	// Feast Feature Store endpoints
+	http.HandleFunc("/api/feast/status", ws.handleFeastStatus)
+	http.HandleFunc("/api/feast/install", ws.handleFeastInstall)
+
+	// GPU Metrics endpoints
+	http.HandleFunc("/api/gpu/status", ws.handleGPUStatus)
+	http.HandleFunc("/api/gpu/metrics", ws.handleGPUMetrics)
+	http.HandleFunc("/api/gpu/install", ws.handleGPUInstall)
+
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 

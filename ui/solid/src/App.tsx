@@ -29,6 +29,8 @@ import Kiali from './routes/Kiali';
 import MLflow from './routes/MLflow';
 import TrainingJobs from './routes/TrainingJobs';
 import InferenceServices from './routes/InferenceServices';
+import Feast from './routes/Feast';
+import GPUDashboard from './routes/GPUDashboard';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Incidents from './routes/Incidents';
@@ -157,6 +159,8 @@ const views: Record<string, Component> = {
   mlflow: MLflow,
   trainingjobs: TrainingJobs,
   inferenceservices: InferenceServices,
+  feast: Feast,
+  gpudashboard: GPUDashboard,
   apps: Marketplace,
   customapps: CustomApps,
   clustermanager: ClusterManager,

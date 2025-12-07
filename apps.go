@@ -191,6 +191,15 @@ var appsCatalog = []AppDefinition{
 		ChartRepo:   "https://community-charts.github.io/helm-charts",
 		ChartName:   "mlflow",
 	},
+	{
+		Name:        "feast",
+		DisplayName: "Feast Feature Store",
+		Description: "Open source feature store for machine learning. Store, manage, and serve features for training and inference",
+		Category:    "ML Apps",
+		Version:     "0.38.0",
+		ChartRepo:   "https://feast-charts.storage.googleapis.com",
+		ChartName:   "feast",
+	},
 	// Local Cluster Installers
 	{
 		Name:        "k3d",
