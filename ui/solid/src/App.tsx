@@ -25,6 +25,7 @@ import MonitoredEvents from './routes/MonitoredEvents';
 import Connectors from './routes/Connectors';
 import AIAgents from './routes/AIAgents';
 import SREAgent from './routes/SREAgent';
+import Kiali from './routes/Kiali';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Incidents from './routes/Incidents';
@@ -114,6 +115,7 @@ const GitOps: Component = () => (
 
 import Settings from './routes/Settings';
 import AIChat from './components/AIChat';
+import BrainPanel from './features/brain/BrainPanel';
 import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen } from './stores/ui';
 import { refreshClusterStatus } from './stores/clusterManager';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
@@ -148,6 +150,7 @@ const views: Record<string, Component> = {
   connectors: Connectors,
   aiagents: AIAgents,
   sreagent: SREAgent,
+  kiali: Kiali,
   apps: Marketplace,
   customapps: CustomApps,
   clustermanager: ClusterManager,
@@ -458,6 +461,9 @@ const App: Component = () => {
       <Show when={aiPanelOpen()}>
         <AIChat />
       </Show>
+
+      {/* Brain Panel */}
+      <BrainPanel />
 
       {/* Notifications */}
       <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2">

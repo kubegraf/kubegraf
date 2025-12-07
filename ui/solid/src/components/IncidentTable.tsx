@@ -140,3 +140,4 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
 
 export default IncidentTable;
 
+

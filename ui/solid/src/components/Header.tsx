@@ -18,6 +18,7 @@ import {
 import { toggleAIPanel, searchQuery, setSearchQuery, setCurrentView, addNotification } from '../stores/ui';
 import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
 import { setNamespaces } from '../stores/globalStore';
+import { toggleBrainPanel, brainPanelOpen } from '../stores/brain';
 import ThemeToggle from './ThemeToggle';
 import { api } from '../services/api';
 import LocalTerminalModal from './LocalTerminalModal';
@@ -688,6 +689,21 @@ const Header: Component = () => {
 
         {/* Theme toggle */}
         <ThemeToggle />
+
+        {/* Brain button */}
+        <button
+          onClick={toggleBrainPanel}
+          class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
+          style={{
+            background: brainPanelOpen() ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+            color: brainPanelOpen() ? '#fff' : 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+          }}
+          title="Open Brain Panel"
+        >
+          <span class="text-lg">🧠</span>
+          <span>Brain</span>
+        </button>
 
         {/* AI Assistant button */}
         <button
