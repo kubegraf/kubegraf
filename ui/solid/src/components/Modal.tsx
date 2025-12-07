@@ -45,10 +45,30 @@ const Modal: Component<ModalProps> = (props) => {
   return (
     <Show when={props.isOpen}>
       <Portal>
-        <div class="modal-overlay animate-fade-in" onClick={props.onClose}>
+        <div 
+          class="modal-overlay animate-fade-in" 
+          onClick={props.onClose}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            'align-items': 'center',
+            'justify-content': 'center',
+            'z-index': 1000,
+          }}
+        >
           <div
             class={`modal-content ${sizeClasses[props.size || 'lg']} animate-slide-up`}
             onClick={(e) => e.stopPropagation()}
+            style={{
+              margin: 'auto',
+              position: 'relative',
+            }}
           >
             {/* Header */}
             <div class="flex items-center justify-between p-4 border-b" style={{ 'border-color': 'var(--border-color)' }}>
