@@ -9,6 +9,10 @@
 package main
 
 import (
+	ml "github.com/kubegraf/kubegraf/internal/ml"
+)
+
+import (
 	"context"
 	"fmt"
 	"time"
@@ -19,7 +23,7 @@ import (
 )
 
 // ListMLTrainingJobs lists all ML training jobs
-func (ws *WebServer) ListMLTrainingJobs(ctx context.Context, namespace string) ([]MLTrainingJob, error) {
+func (ws *WebServer) ListMLTrainingJobs(ctx context.Context, namespace string) ([]ml.MLTrainingJob, error) {
 	// List all jobs with kubegraf-managed label
 	labelSelector := "kubegraf-managed=true,job-type=ml-training"
 	
@@ -40,7 +44,7 @@ func (ws *WebServer) ListMLTrainingJobs(ctx context.Context, namespace string) (
 		return nil, fmt.Errorf("failed to list jobs: %v", err)
 	}
 
-	result := make([]MLTrainingJob, 0, len(jobs.Items))
+	result := make([]ml.MLTrainingJob, 0, len(jobs.Items))
 	for _, job := range jobs.Items {
 		mlJob := convertJobToMLTrainingJob(job)
 		result = append(result, mlJob)
@@ -50,7 +54,7 @@ func (ws *WebServer) ListMLTrainingJobs(ctx context.Context, namespace string) (
 }
 
 // GetMLTrainingJob gets a specific ML training job
-func (ws *WebServer) GetMLTrainingJob(ctx context.Context, name, namespace string) (*MLTrainingJob, error) {
+func (ws *WebServer) GetMLTrainingJob(ctx context.Context, name, namespace string) (*ml.MLTrainingJob, error) {
 	job, err := ws.app.clientset.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get job: %v", err)
@@ -74,8 +78,8 @@ func (ws *WebServer) DeleteMLTrainingJob(ctx context.Context, name, namespace st
 	return nil
 }
 
-// convertJobToMLTrainingJob converts a Kubernetes Job to MLTrainingJob
-func convertJobToMLTrainingJob(job batchv1.Job) MLTrainingJob {
+// convertJobToMLTrainingJob converts a Kubernetes Job to ml.MLTrainingJob
+func convertJobToMLTrainingJob(job batchv1.Job) ml.MLTrainingJob {
 	// Determine status
 	status := "Active"
 	if job.Status.Succeeded > 0 {
@@ -119,7 +123,7 @@ func convertJobToMLTrainingJob(job batchv1.Job) MLTrainingJob {
 		completedAt = job.Status.CompletionTime.Format(time.RFC3339)
 	}
 
-	return MLTrainingJob{
+	return ml.MLTrainingJob{
 		Name:        job.Name,
 		Namespace:   job.Namespace,
 		Status:      status,

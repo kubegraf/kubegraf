@@ -6,7 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-package main
+package inference
 
 // InferenceServiceRequest represents a request to create an inference service
 type InferenceServiceRequest struct {

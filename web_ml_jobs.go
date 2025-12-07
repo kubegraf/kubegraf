@@ -9,6 +9,10 @@
 package main
 
 import (
+	ml "github.com/kubegraf/kubegraf/internal/ml"
+)
+
+import (
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,7 +32,7 @@ func (ws *WebServer) handleMLJobCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req MLTrainingJobRequest
+	var req ml.MLTrainingJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -72,7 +76,7 @@ func (ws *WebServer) handleMLJobList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": err.Error(),
-			"jobs":  []MLTrainingJob{},
+			"jobs":  []ml.MLTrainingJob{},
 		})
 		return
 	}

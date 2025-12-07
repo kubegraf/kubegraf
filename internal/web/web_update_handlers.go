@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package web
 
 import (
 	"encoding/json"
@@ -70,9 +70,9 @@ func HandleUpdateCheck(ws interface{}, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
-// handleAutoCheckUpdates handles GET /api/update/auto-check
+// handleUpdateAutoCheck handles GET /api/update/auto-check
 // Silent auto-check endpoint for background polling
-func (ws *WebServer) handleAutoCheckUpdates(w http.ResponseWriter, r *http.Request) {
+func (ws *WebServer) handleUpdateAutoCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method != http.MethodGet {

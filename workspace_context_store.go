@@ -4,15 +4,30 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/kubegraf/kubegraf/internal/database"
 )
 
+// WorkspaceContextDB wraps database operations for workspace context
+// Since we can't add methods to database.Database from main package,
+// we use helper functions that work with the database package
+type WorkspaceContextDB struct {
+	db *database.Database
+}
+
+// NewWorkspaceContextDB creates a new workspace context database helper
+func NewWorkspaceContextDB(db *database.Database) *WorkspaceContextDB {
+	return &WorkspaceContextDB{db: db}
+}
+
 // GetWorkspaceContext loads the persisted workspace context or returns the default.
-func (d *Database) GetWorkspaceContext() (*WorkspaceContext, error) {
-	if d == nil || d.db == nil {
+func (w *WorkspaceContextDB) GetWorkspaceContext() (*WorkspaceContext, error) {
+	if w.db == nil {
 		return DefaultWorkspaceContext(), nil
 	}
 
-	row := d.db.QueryRow(`SELECT payload, updated_at FROM workspace_context WHERE id = 1`)
+	sqlDB := w.db.GetDB()
+	row := sqlDB.QueryRow(`SELECT payload, updated_at FROM workspace_context WHERE id = 1`)
 	var payload sql.NullString
 	var updatedAt sql.NullTime
 	if err := row.Scan(&payload, &updatedAt); err != nil {
@@ -25,7 +40,6 @@ func (d *Database) GetWorkspaceContext() (*WorkspaceContext, error) {
 	ctx := DefaultWorkspaceContext()
 	if payload.Valid && payload.String != "" {
 		if err := json.Unmarshal([]byte(payload.String), ctx); err != nil {
-			// If payload is corrupt, fall back to default
 			ctx = DefaultWorkspaceContext()
 		}
 	}
@@ -37,8 +51,8 @@ func (d *Database) GetWorkspaceContext() (*WorkspaceContext, error) {
 }
 
 // SaveWorkspaceContext persists the workspace context atomically.
-func (d *Database) SaveWorkspaceContext(ctx *WorkspaceContext) error {
-	if d == nil || d.db == nil {
+func (w *WorkspaceContextDB) SaveWorkspaceContext(ctx *WorkspaceContext) error {
+	if w.db == nil {
 		return nil
 	}
 	if ctx == nil {
@@ -51,7 +65,8 @@ func (d *Database) SaveWorkspaceContext(ctx *WorkspaceContext) error {
 		return err
 	}
 
-	_, err = d.db.Exec(`
+	sqlDB := w.db.GetDB()
+	_, err = sqlDB.Exec(`
 		INSERT INTO workspace_context (id, payload, updated_at)
 		VALUES (1, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET

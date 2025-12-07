@@ -5,12 +5,17 @@ import (
 	"net/http"
 )
 
+var workspaceContextDB *WorkspaceContextDB
+
 // getWorkspaceContext retrieves the current workspace context from the database.
 func (ws *WebServer) getWorkspaceContext() *WorkspaceContext {
 	if ws.db == nil {
 		return DefaultWorkspaceContext()
 	}
-	ctx, err := ws.db.GetWorkspaceContext()
+	if workspaceContextDB == nil {
+		workspaceContextDB = NewWorkspaceContextDB(ws.db)
+	}
+	ctx, err := workspaceContextDB.GetWorkspaceContext()
 	if err != nil {
 		return DefaultWorkspaceContext()
 	}
@@ -22,7 +27,10 @@ func (ws *WebServer) persistWorkspaceContext(ctx *WorkspaceContext) (*WorkspaceC
 	if ws.db == nil {
 		return ctx, nil
 	}
-	if err := ws.db.SaveWorkspaceContext(ctx); err != nil {
+	if workspaceContextDB == nil {
+		workspaceContextDB = NewWorkspaceContextDB(ws.db)
+	}
+	if err := workspaceContextDB.SaveWorkspaceContext(ctx); err != nil {
 		return nil, err
 	}
 	return ctx, nil

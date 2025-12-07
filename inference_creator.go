@@ -20,10 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	inference "github.com/kubegraf/kubegraf/internal/inference"
 )
 
 // CreateInferenceService creates a Kubernetes Deployment and Service for model inference
-func (ws *WebServer) CreateInferenceService(ctx context.Context, req InferenceServiceRequest) error {
+func (ws *WebServer) CreateInferenceService(ctx context.Context, req inference.InferenceServiceRequest) error {
 	// Decode model file
 	modelData, err := base64.StdEncoding.DecodeString(req.ModelFile)
 	if err != nil {
@@ -111,7 +113,7 @@ func (ws *WebServer) getRuntimeImage(runtime string) (string, int32) {
 }
 
 // buildInferenceDeployment builds a Kubernetes Deployment for inference
-func (ws *WebServer) buildInferenceDeployment(req InferenceServiceRequest, image string, port int32, configMapName string) *appsv1.Deployment {
+func (ws *WebServer) buildInferenceDeployment(req inference.InferenceServiceRequest, image string, port int32, configMapName string) *appsv1.Deployment {
 	replicas := int32(1)
 	if req.Replicas > 0 {
 		replicas = req.Replicas
@@ -254,7 +256,7 @@ func (ws *WebServer) buildInferenceDeployment(req InferenceServiceRequest, image
 }
 
 // buildInferenceService builds a Kubernetes Service for inference
-func (ws *WebServer) buildInferenceService(req InferenceServiceRequest, port int32) *corev1.Service {
+func (ws *WebServer) buildInferenceService(req inference.InferenceServiceRequest, port int32) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
@@ -283,7 +285,7 @@ func (ws *WebServer) buildInferenceService(req InferenceServiceRequest, port int
 }
 
 // buildInferenceHPA builds a HorizontalPodAutoscaler for inference
-func (ws *WebServer) buildInferenceHPA(req InferenceServiceRequest) *autoscalingv2.HorizontalPodAutoscaler {
+func (ws *WebServer) buildInferenceHPA(req inference.InferenceServiceRequest) *autoscalingv2.HorizontalPodAutoscaler {
 	minReplicas := int32(1)
 	maxReplicas := int32(3)
 	targetCPU := int32(70)
@@ -335,7 +337,7 @@ func (ws *WebServer) buildInferenceHPA(req InferenceServiceRequest) *autoscaling
 }
 
 // buildInferenceIngress builds an Ingress for inference service
-func (ws *WebServer) buildInferenceIngress(req InferenceServiceRequest, port int32) *networkingv1.Ingress {
+func (ws *WebServer) buildInferenceIngress(req inference.InferenceServiceRequest, port int32) *networkingv1.Ingress {
 	host := req.Ingress.Host
 	if host == "" {
 		host = fmt.Sprintf("%s.%s", req.Name, req.Namespace)

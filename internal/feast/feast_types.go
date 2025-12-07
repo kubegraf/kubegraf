@@ -6,7 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-package main
+package feast
 
 // FeastStatus represents the status of Feast installation
 type FeastStatus struct {
