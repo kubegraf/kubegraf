@@ -36,6 +36,12 @@ jobs:
           rm -rf web/dist
           cp -r ui/solid/dist web/dist
 
+      - name: Clean Go cache (fix corrupted cache)
+        run: |
+          rm -rf ~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 || true
+          rm -rf $GOMODCACHE/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 || true
+        continue-on-error: true
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
