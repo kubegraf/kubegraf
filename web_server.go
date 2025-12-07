@@ -248,6 +248,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/status", ws.handleConnectionStatus)
 	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
 	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
+	// New update endpoints
+	http.HandleFunc("/api/update/check", ws.handleUpdateCheck)
+	http.HandleFunc("/api/update/auto-check", ws.handleUpdateAutoCheck)
 	http.HandleFunc("/api/metrics", ws.handleMetrics)
 	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
 	http.HandleFunc("/api/pods", ws.handlePods)
@@ -488,6 +491,9 @@ func (ws *WebServer) Start(port int) error {
 	
 	// Show startup banner
 	ws.showStartupBanner(actualPort)
+
+	// Start update polling in background (checks every 4 hours)
+	go ws.startUpdatePolling()
 
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
