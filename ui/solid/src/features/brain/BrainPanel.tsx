@@ -1,9 +1,13 @@
 import { Component, Show, createResource } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
 import { api } from '../../services/api';
+import { brainMLService } from '../../services/brainML';
 import ClusterTimeline from './ClusterTimeline';
 import OOMInsights from './OOMInsights';
 import Suggestions from './Suggestions';
+import MLTimeline from './MLTimeline';
+import MLPredictions from './MLPredictions';
+import MLSummary from './MLSummary';
 import { TimelineEvent } from './types';
 import { OOMMetrics } from './types';
 import { BrainSummary } from './types';
@@ -123,7 +127,8 @@ const BrainPanel: Component = () => {
             'scrollbar-color': '#333333 #000000'
           }}>
             <Show
-              when={!timelineEvents.loading && !oomMetrics.loading && !summary.loading}
+              when={!timelineEvents.loading && !oomMetrics.loading && !summary.loading && 
+                    !mlTimeline.loading && !mlPredictions.loading && !mlSummary.loading}
               fallback={
                 <div class="flex items-center justify-center h-64">
                 <div class="text-center">
@@ -143,6 +148,23 @@ const BrainPanel: Component = () => {
                   topRiskAreas: [],
                   recommendedActions: [],
                   generatedAt: new Date().toISOString(),
+                }} />
+              </div>
+              
+              {/* ML Insights Sections */}
+              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                <MLTimeline events={mlTimeline()?.events || []} />
+              </div>
+              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                <MLPredictions predictions={mlPredictions()?.predictions || []} />
+              </div>
+              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                <MLSummary summary={mlSummary() || {
+                  summary: '',
+                  keyInsights: [],
+                  recommendations: [],
+                  generatedAt: new Date().toISOString(),
+                  timeRange: 'last 24 hours',
                 }} />
               </div>
             </Show>
