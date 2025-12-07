@@ -3,6 +3,8 @@ import { api } from '../services/api';
 import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
+import AppUninstallModal from '../components/AppUninstallModal';
+import CustomAppDeleteModal from '../components/CustomAppDeleteModal';
 import { addDeployment, updateDeploymentTask } from '../components/DeploymentProgress';
 import MLflowInstallWizard from '../features/mlflow/MLflowInstallWizard';
 import FeastInstallWizard from '../features/feast/FeastInstallWizard';
@@ -283,6 +285,15 @@ const Apps: Component<AppsProps> = (props) => {
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
   // Track apps currently being deployed with their target namespace
   const [deployingApps, setDeployingApps] = createSignal<Record<string, { namespace: string; startTime: number }>>({});
+  
+  // Uninstall modal states
+  const [showUninstallModal, setShowUninstallModal] = createSignal(false);
+  const [appToUninstall, setAppToUninstall] = createSignal<{ app: App; instance: InstalledInstance } | null>(null);
+  const [uninstalling, setUninstalling] = createSignal(false);
+  
+  // Custom app delete modal states
+  const [showDeleteCustomModal, setShowDeleteCustomModal] = createSignal(false);
+  const [appToDelete, setAppToDelete] = createSignal<App | null>(null);
 
   // Auto-filter to Local Cluster if coming from no-cluster overlay
   onMount(() => {
@@ -573,15 +584,26 @@ const Apps: Component<AppsProps> = (props) => {
     setCurrentView('pods');
   };
 
-  const handleUninstall = async (app: App, instance: InstalledInstance) => {
-    if (!confirm(`Are you sure you want to uninstall ${app.displayName} from ${instance.namespace}?`)) return;
+  const handleUninstall = (app: App, instance: InstalledInstance) => {
+    setAppToUninstall({ app, instance });
+    setShowUninstallModal(true);
+  };
 
+  const confirmUninstall = async () => {
+    const uninstallData = appToUninstall();
+    if (!uninstallData) return;
+
+    setUninstalling(true);
     try {
-      await api.uninstallApp(instance.releaseName, instance.namespace);
-      addNotification(`${app.displayName} uninstalled from ${instance.namespace}`, 'success');
+      await api.uninstallApp(uninstallData.instance.releaseName, uninstallData.instance.namespace);
+      addNotification(`${uninstallData.app.displayName} uninstalled from ${uninstallData.instance.namespace}`, 'success');
       refetchInstalled();
+      setShowUninstallModal(false);
+      setAppToUninstall(null);
     } catch (error) {
-      addNotification(`Failed to uninstall ${app.displayName}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      addNotification(`Failed to uninstall ${uninstallData.app.displayName}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setUninstalling(false);
     }
   };
 
@@ -628,12 +650,20 @@ const Apps: Component<AppsProps> = (props) => {
 
   // Delete a custom app
   const handleDeleteCustomApp = (app: App) => {
-    if (!confirm(`Are you sure you want to remove ${app.displayName} from your custom apps?`)) return;
+    setAppToDelete(app);
+    setShowDeleteCustomModal(true);
+  };
+
+  const confirmDeleteCustomApp = () => {
+    const app = appToDelete();
+    if (!app) return;
 
     const updated = customApps().filter(a => a.name !== app.name);
     setCustomApps(updated);
     saveCustomApps(updated);
     addNotification(`${app.displayName} removed from custom apps`, 'success');
+    setShowDeleteCustomModal(false);
+    setAppToDelete(null);
   };
 
   // Get all apps (marketplace + custom) with installed status
@@ -1515,6 +1545,32 @@ const Apps: Component<AppsProps> = (props) => {
           </div>
         </div>
       </Modal>
+
+      {/* App Uninstall Confirmation Modal */}
+      <AppUninstallModal
+        isOpen={showUninstallModal()}
+        appName={appToUninstall()?.instance.releaseName || ''}
+        displayName={appToUninstall()?.app.displayName || ''}
+        namespace={appToUninstall()?.instance.namespace || ''}
+        onClose={() => {
+          setShowUninstallModal(false);
+          setAppToUninstall(null);
+        }}
+        onConfirm={confirmUninstall}
+        loading={uninstalling()}
+      />
+
+      {/* Custom App Delete Confirmation Modal */}
+      <CustomAppDeleteModal
+        isOpen={showDeleteCustomModal()}
+        appName={appToDelete()?.name || ''}
+        displayName={appToDelete()?.displayName || ''}
+        onClose={() => {
+          setShowDeleteCustomModal(false);
+          setAppToDelete(null);
+        }}
+        onConfirm={confirmDeleteCustomApp}
+      />
     </div>
   );
 };
