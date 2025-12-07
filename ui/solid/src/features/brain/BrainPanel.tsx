@@ -1,9 +1,14 @@
 import { Component, Show, createResource } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
 import { api } from '../../services/api';
+import { brainMLService } from '../../services/brainML';
+import { settings } from '../../stores/settings';
 import ClusterTimeline from './ClusterTimeline';
 import OOMInsights from './OOMInsights';
 import Suggestions from './Suggestions';
+import MLTimeline from './MLTimeline';
+import MLPredictions from './MLPredictions';
+import MLSummary from './MLSummary';
 import { TimelineEvent } from './types';
 import { OOMMetrics } from './types';
 import { BrainSummary } from './types';
@@ -40,6 +45,41 @@ const BrainPanel: Component = () => {
         };
       }
       return await api.getBrainSummary();
+    }
+  );
+
+  // Fetch ML timeline (only if enabled in settings)
+  const [mlTimeline] = createResource(
+    () => brainPanelOpen() && settings().showMLTimelineInBrain,
+    async () => {
+      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) return { events: [], timeRange: '', total: 0 };
+      return await brainMLService.getTimeline(72);
+    }
+  );
+
+  // Fetch ML predictions (only if enabled in settings)
+  const [mlPredictions] = createResource(
+    () => brainPanelOpen() && settings().showMLTimelineInBrain,
+    async () => {
+      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) return { predictions: [], generatedAt: '', total: 0 };
+      return await brainMLService.getPredictions();
+    }
+  );
+
+  // Fetch ML summary (only if enabled in settings)
+  const [mlSummary] = createResource(
+    () => brainPanelOpen() && settings().showMLTimelineInBrain,
+    async () => {
+      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) {
+        return {
+          summary: '',
+          keyInsights: [],
+          recommendations: [],
+          generatedAt: '',
+          timeRange: '',
+        };
+      }
+      return await brainMLService.getSummary(24);
     }
   );
 
@@ -145,6 +185,35 @@ const BrainPanel: Component = () => {
                   generatedAt: new Date().toISOString(),
                 }} />
               </div>
+              
+              {/* ML Insights Sections - Only show if enabled in settings */}
+              <Show when={settings().showMLTimelineInBrain}>
+                <Show when={!mlTimeline.loading && !mlPredictions.loading && !mlSummary.loading}>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <MLTimeline events={mlTimeline()?.events || []} />
+                  </div>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <MLPredictions predictions={mlPredictions()?.predictions || []} />
+                  </div>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <MLSummary summary={mlSummary() || {
+                      summary: '',
+                      keyInsights: [],
+                      recommendations: [],
+                      generatedAt: new Date().toISOString(),
+                      timeRange: 'last 24 hours',
+                    }} />
+                  </div>
+                </Show>
+                <Show when={mlTimeline.loading || mlPredictions.loading || mlSummary.loading}>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <div class="text-center py-4" style={{ color: '#8b949e' }}>
+                      <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                      <p class="text-sm">Loading ML insights...</p>
+                    </div>
+                  </div>
+                </Show>
+              </Show>
             </Show>
           </div>
         </div>

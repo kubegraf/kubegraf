@@ -25,6 +25,7 @@ export interface FeatureFlags {
   enableWebTerminal: boolean;
   enableLogs: boolean;
   enableMetrics: boolean;
+  showMLTimelineInBrain: boolean;
 
   // Monitoring & Alerts
   enableAutoRefresh: boolean;
@@ -96,6 +97,7 @@ const defaultFeatureFlags: FeatureFlags = {
   enableWebTerminal: true,
   enableLogs: true,
   enableMetrics: true,
+  showMLTimelineInBrain: true,
 
   // Monitoring & Alerts
   enableAutoRefresh: true,
@@ -126,7 +128,7 @@ const defaultFeatureFlags: FeatureFlags = {
 };
 
 // Settings version - increment this when defaults change to force update
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 // Default settings
 const defaultSettings: AppSettings = {
@@ -225,6 +227,7 @@ export const featureFlags = () => {
     enableWebTerminal: s.enableWebTerminal,
     enableLogs: s.enableLogs,
     enableMetrics: s.enableMetrics,
+    showMLTimelineInBrain: s.showMLTimelineInBrain,
     enableAutoRefresh: s.enableAutoRefresh,
     enableNotifications: s.enableNotifications,
     enableSoundEffects: s.enableSoundEffects,
