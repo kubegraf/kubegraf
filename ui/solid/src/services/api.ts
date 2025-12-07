@@ -695,6 +695,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ context: contextName }),
     }),
+  
+  // ============ Workspace Context ============
+  getWorkspaceContext: () => fetchAPI<any>('/workspace/context'),
+  setWorkspaceContext: (context: any) =>
+    fetchAPI<any>('/workspace/context', {
+      method: 'POST',
+      body: JSON.stringify(context),
+    }),
+  updateWorkspaceContext: (context: any) =>
+    fetchAPI<any>('/workspace/context', {
+      method: 'POST',
+      body: JSON.stringify(context),
+    }),
 
   // ============ Events ============
   getEvents: async (namespace?: string, limit?: number) => {
@@ -885,6 +898,148 @@ export const api = {
     const endpoint = query ? `/incidents?${query}` : '/incidents';
     const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
     return data.incidents || [];
+  },
+
+  // ============ Brain ============
+  getBrainTimeline: async (hours: number = 72) => {
+    // Get incidents for timeline
+    const incidents = await api.getIncidents();
+    const cutoffTime = new Date(Date.now() - hours * 3600000);
+    
+    // Filter and transform incidents to timeline events
+    const timelineEvents = incidents
+      .filter(inc => new Date(inc.firstSeen) >= cutoffTime)
+      .map(inc => ({
+        id: inc.id,
+        timestamp: inc.firstSeen,
+        type: 'incident' as const,
+        severity: inc.severity as 'info' | 'warning' | 'critical',
+        title: `${inc.type.replace(/_/g, ' ')} - ${inc.resourceName}`,
+        description: inc.message || `${inc.resourceKind} ${inc.resourceName} in ${inc.namespace || 'cluster'}`,
+        resource: {
+          kind: inc.resourceKind,
+          name: inc.resourceName,
+          namespace: inc.namespace,
+        },
+      }));
+
+    return timelineEvents;
+  },
+
+  getBrainOOMInsights: async () => {
+    // Get all incidents
+    const incidents = await api.getIncidents();
+    const cutoffTime = new Date(Date.now() - 24 * 3600000);
+    
+    // Filter incidents from last 24h
+    const recentIncidents = incidents.filter(inc => 
+      new Date(inc.firstSeen) >= cutoffTime
+    );
+
+    // Calculate metrics
+    const oomIncidents = recentIncidents.filter(inc => inc.type === 'oom').length;
+    const crashLoops = recentIncidents.filter(inc => inc.type === 'crashloop').length;
+
+    // Group by resource to find problematic workloads
+    const workloadMap = new Map<string, {
+      name: string;
+      namespace: string;
+      kind: string;
+      issues: { oomKilled: number; restarts: number; crashLoops: number };
+    }>();
+
+    recentIncidents.forEach(inc => {
+      const key = `${inc.namespace || ''}:${inc.resourceName}`;
+      if (!workloadMap.has(key)) {
+        workloadMap.set(key, {
+          name: inc.resourceName.split('/')[0] || inc.resourceName,
+          namespace: inc.namespace || '',
+          kind: inc.resourceKind,
+          issues: { oomKilled: 0, restarts: 0, crashLoops: 0 },
+        });
+      }
+      const workload = workloadMap.get(key)!;
+      if (inc.type === 'oom') workload.issues.oomKilled += inc.count;
+      if (inc.type === 'crashloop') workload.issues.crashLoops += inc.count;
+      workload.issues.restarts += inc.count;
+    });
+
+    // Calculate scores and sort
+    const topProblematic = Array.from(workloadMap.values())
+      .map(w => ({
+        ...w,
+        score: w.issues.oomKilled * 10 + w.issues.crashLoops * 5 + w.issues.restarts,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    return {
+      incidents24h: oomIncidents,
+      crashLoops24h: crashLoops,
+      topProblematic,
+    };
+  },
+
+  getBrainSummary: async () => {
+    // Get incidents and metrics
+    const incidents = await api.getIncidents();
+    const cutoffTime = new Date(Date.now() - 24 * 3600000);
+    const recentIncidents = incidents.filter(inc => 
+      new Date(inc.firstSeen) >= cutoffTime
+    );
+
+    // Generate rule-based summary
+    const criticalCount = recentIncidents.filter(inc => inc.severity === 'critical').length;
+    const warningCount = recentIncidents.filter(inc => inc.severity === 'warning').length;
+    const oomCount = recentIncidents.filter(inc => inc.type === 'oom').length;
+    const crashLoopCount = recentIncidents.filter(inc => inc.type === 'crashloop').length;
+
+    // Generate summary text
+    let summary = `In the last 24 hours, ${recentIncidents.length} incidents were detected. `;
+    if (criticalCount > 0) {
+      summary += `${criticalCount} critical and `;
+    }
+    summary += `${warningCount} warning-level issues. `;
+    if (oomCount > 0) {
+      summary += `${oomCount} OOMKilled events occurred. `;
+    }
+    if (crashLoopCount > 0) {
+      summary += `${crashLoopCount} CrashLoopBackOff incidents detected.`;
+    }
+
+    // Top risk areas
+    const riskAreas: string[] = [];
+    if (oomCount > 0) {
+      riskAreas.push('Memory pressure and OOMKilled containers indicate resource constraints');
+    }
+    if (crashLoopCount > 0) {
+      riskAreas.push('CrashLoopBackOff patterns suggest application instability');
+    }
+    if (recentIncidents.length > 10) {
+      riskAreas.push('High incident rate indicates systemic issues requiring attention');
+    }
+
+    // Recommended actions
+    const actions: string[] = [];
+    if (oomCount > 0) {
+      actions.push('Review and increase memory limits for workloads experiencing OOMKilled events');
+    }
+    if (crashLoopCount > 0) {
+      actions.push('Investigate application logs for CrashLoopBackOff root causes');
+    }
+    if (recentIncidents.length > 5) {
+      actions.push('Consider implementing Horizontal Pod Autoscaling (HPA) for high-traffic workloads');
+    }
+    if (actions.length === 0) {
+      actions.push('Continue monitoring cluster health and resource usage');
+    }
+
+    return {
+      last24hSummary: summary || 'No significant incidents in the last 24 hours.',
+      topRiskAreas: riskAreas.slice(0, 3),
+      recommendedActions: actions.slice(0, 5),
+      generatedAt: new Date().toISOString(),
+    };
   },
 
   // ============ Cluster Manager ============

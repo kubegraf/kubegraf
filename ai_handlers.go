@@ -1038,9 +1038,9 @@ func (ws *WebServer) handlePersistentVolumeClaims(w http.ResponseWriter, r *http
 		}
 
 		pvcs, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).List(ws.app.ctx, opts)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
-			return
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
+		return
 		}
 
 		allPVCs = append(allPVCs, pvcs.Items...)
