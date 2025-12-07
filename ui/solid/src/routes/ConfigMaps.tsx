@@ -1,7 +1,11 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedNamespaces,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -33,7 +37,51 @@ const ConfigMaps: Component = () => {
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
 
-  const [configmaps, { refetch }] = createResource(namespace, api.getConfigMaps);
+  // Determine namespace parameter from global store (same pattern as Services/Ingresses)
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache (same pattern as Services/Ingresses)
+  const configMapsCache = createCachedResource<ConfigMap[]>(
+    'configmaps',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const configmaps = await api.getConfigMaps(namespaceParam);
+        return configmaps;
+      } catch (error) {
+        console.error('[ConfigMaps] Error fetching configmaps:', error);
+        addNotification(`❌ Failed to fetch ConfigMaps: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        throw error;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  // Get configmaps from cache
+  const configmaps = createMemo(() => configMapsCache.data() || []);
+  
+  // Refetch function for updates
+  const refetch = () => configMapsCache.refetch();
+  
+  // Initial load on mount
+  onMount(() => {
+    if (!configMapsCache.data()) {
+      configMapsCache.refetch();
+    }
+  });
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
@@ -217,10 +265,22 @@ const ConfigMaps: Component = () => {
         </select>
       </div>
 
+      {/* Error display */}
+      <Show when={configMapsCache.error()}>
+        <div class="card p-4 mb-4" style={{ background: 'var(--error-bg)', border: '1px solid var(--error-color)' }}>
+          <div class="flex items-center gap-2">
+            <span style={{ color: 'var(--error-color)' }}>❌</span>
+            <span style={{ color: 'var(--error-color)' }}>
+              Error loading ConfigMaps: {configMapsCache.error()?.message || 'Unknown error'}
+            </span>
+          </div>
+        </div>
+      </Show>
+
       {/* ConfigMaps table */}
       <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
         <Show
-          when={!configmaps.loading}
+          when={!configMapsCache.loading() || configMapsCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
