@@ -1,0 +1,8 @@
+{
+  "editor.inlineSuggest.enabled": true,
+  "editor.inlineSuggest.showToolbar": false,
+  "editor.suggest.showWords": true,
+  "editor.acceptSuggestionOnCommitCharacter": true,
+  "editor.acceptSuggestionOnEnter": "on",
+  "continueDev.inlineSuggestAutoAccept": true
+}
