@@ -1,4 +1,4 @@
-import { Component, createSignal, createResource, For, Show, createMemo } from 'solid-js';
+import { Component, createSignal, createResource, For, Show, createMemo, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { setCurrentView } from '../stores/ui';
 import { currentContext, refreshTrigger, nodesResource } from '../stores/cluster';
@@ -122,7 +122,16 @@ const Dashboard: Component = () => {
       const refresh = refreshTrigger();
       return { context: ctx, refresh };
     },
-    async () => api.getMetrics()
+    async () => {
+      try {
+        const data = await api.getMetrics();
+        console.log('Dashboard: Metrics fetched:', data);
+        return data;
+      } catch (error) {
+        console.error('Dashboard: Error fetching metrics:', error);
+        throw error;
+      }
+    }
   );
   
   const [pods, { refetch: refetchPods }] = createResource(
@@ -180,6 +189,24 @@ const Dashboard: Component = () => {
       }
     }
   );
+
+  // Debug: Log metrics resource state
+  createEffect(() => {
+    console.log('Dashboard: Metrics resource state:', {
+      loading: metrics.loading,
+      error: metrics.error,
+      hasData: !!metrics(),
+      data: metrics(),
+      context: currentContext(),
+      refresh: refreshTrigger(),
+    });
+  });
+
+  // Trigger initial fetch on mount
+  onMount(() => {
+    console.log('Dashboard: Component mounted, refetching metrics');
+    refetchMetrics();
+  });
 
   // Calculate stats
   const runningPods = () => {
@@ -466,14 +493,38 @@ const Dashboard: Component = () => {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="CPU Usage"
-          value={metrics()?.cpu != null ? `${typeof metrics()!.cpu === 'object' ? metrics()!.cpu.percentage?.toFixed(1) : Number(metrics()!.cpu).toFixed(1)}%` : '--'}
+          value={(() => {
+            if (metrics.loading) return '...';
+            if (metrics.error) return 'Error';
+            const cpu = metrics()?.cpu;
+            if (!cpu) {
+              console.log('Dashboard: CPU is null/undefined, metrics:', metrics());
+              return '--';
+            }
+            if (typeof cpu === 'object' && 'percentage' in cpu) {
+              return `${cpu.percentage.toFixed(1)}%`;
+            }
+            return `${Number(cpu).toFixed(1)}%`;
+          })()}
           subtext="Cluster average"
           color="#06b6d4"
           icon={CpuIcon}
         />
         <MetricCard
           label="Memory Usage"
-          value={metrics()?.memory != null ? `${typeof metrics()!.memory === 'object' ? metrics()!.memory.percentage?.toFixed(1) : Number(metrics()!.memory).toFixed(1)}%` : '--'}
+          value={(() => {
+            if (metrics.loading) return '...';
+            if (metrics.error) return 'Error';
+            const memory = metrics()?.memory;
+            if (!memory) {
+              console.log('Dashboard: Memory is null/undefined, metrics:', metrics());
+              return '--';
+            }
+            if (typeof memory === 'object' && 'percentage' in memory) {
+              return `${memory.percentage.toFixed(1)}%`;
+            }
+            return `${Number(memory).toFixed(1)}%`;
+          })()}
           subtext="Cluster average"
           color="#8b5cf6"
           icon={MemoryIcon}
