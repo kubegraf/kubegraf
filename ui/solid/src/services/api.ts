@@ -473,7 +473,9 @@ export const api = {
 
   // ============ Topology ============
   getTopology: (namespace?: string) => {
-    const endpoint = namespace && namespace !== 'All Namespaces' ? `/topology?namespace=${namespace}` : '/topology';
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
+      ? `/topology?namespace=${namespace}`
+      : '/topology';
     return fetchAPI<any>(endpoint);
   },
   getResourceMap: () => fetchAPI<any>('/resourcemap'),

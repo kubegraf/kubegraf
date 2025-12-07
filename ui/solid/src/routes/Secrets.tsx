@@ -1,7 +1,11 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedNamespaces,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -70,7 +74,51 @@ const Secrets: Component = () => {
     });
   };
 
-  const [secrets, { refetch }] = createResource(namespace, api.getSecrets);
+  // Determine namespace parameter from global store (same pattern as Services/Ingresses)
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache (same pattern as Services/Ingresses)
+  const secretsCache = createCachedResource<Secret[]>(
+    'secrets',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const secrets = await api.getSecrets(namespaceParam);
+        return secrets;
+      } catch (error) {
+        console.error('[Secrets] Error fetching secrets:', error);
+        addNotification(`❌ Failed to fetch Secrets: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        throw error;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  // Get secrets from cache
+  const secrets = createMemo(() => secretsCache.data() || []);
+  
+  // Refetch function for updates
+  const refetch = () => secretsCache.refetch();
+  
+  // Initial load on mount
+  onMount(() => {
+    if (!secretsCache.data()) {
+      secretsCache.refetch();
+    }
+  });
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
@@ -215,9 +263,21 @@ const Secrets: Component = () => {
         </div>
       </div>
 
+      {/* Error display */}
+      <Show when={secretsCache.error()}>
+        <div class="card p-4 mb-4" style={{ background: 'var(--error-bg)', border: '1px solid var(--error-color)' }}>
+          <div class="flex items-center gap-2">
+            <span style={{ color: 'var(--error-color)' }}>❌</span>
+            <span style={{ color: 'var(--error-color)' }}>
+              Error loading Secrets: {secretsCache.error()?.message || 'Unknown error'}
+            </span>
+          </div>
+        </div>
+      </Show>
+
       {/* Secrets Table */}
       <div class="overflow-hidden rounded-lg w-full" style={{ background: '#0d1117' }}>
-        <Show when={!secrets.loading} fallback={
+        <Show when={!secretsCache.loading() || secretsCache.data() !== undefined} fallback={
           <div class="p-8 text-center">
             <div class="spinner mx-auto mb-2" />
             <span style={{ color: 'var(--text-muted)' }}>Loading Secrets...</span>

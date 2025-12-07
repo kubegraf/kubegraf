@@ -147,6 +147,13 @@ func (ws *WebServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 // handleTopology returns topology data for visualization
 func (ws *WebServer) handleTopology(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+
 	namespace := r.URL.Query().Get("namespace")
 	// Empty namespace means all namespaces
 	topology := ws.buildTopologyData(namespace)

@@ -508,13 +508,17 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 // handleIngresses returns ingress list
 func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
-	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
 	}
-	// Handle "_all" namespace - query all namespaces
-	if namespace == "_all" {
-		namespace = ""
+
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
+		namespace = "" // Set to empty string for all namespaces
 	}
 	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
@@ -567,9 +571,17 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 
 // handleConfigMaps returns configmap list
 func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+
 	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
+		namespace = "" // Set to empty string for all namespaces
 	}
 	configmaps, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
@@ -592,9 +604,17 @@ func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
 
 // handleSecrets returns secrets list
 func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+
 	namespace := r.URL.Query().Get("namespace")
-	if !r.URL.Query().Has("namespace") {
-		namespace = ws.app.namespace
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
+		namespace = "" // Set to empty string for all namespaces
 	}
 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
