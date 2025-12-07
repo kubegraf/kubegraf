@@ -238,6 +238,14 @@ const Settings: Component = () => {
           badge: 'Advanced',
           badgeColor: 'orange',
         },
+        {
+          id: 'showMLTimelineInBrain',
+          label: 'ML Timeline in Brain Panel',
+          description: 'Show ML timeline events in the Brain Panel',
+          type: 'toggle',
+          badge: 'Brain',
+          badgeColor: 'blue',
+        },
       ],
     },
     {

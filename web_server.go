@@ -459,6 +459,11 @@ func (ws *WebServer) Start(port int) error {
 	// Incidents endpoint
 	http.HandleFunc("/api/incidents", ws.handleIncidents)
 
+	// Brain ML Insights endpoints
+	http.HandleFunc("/api/brain/ml/timeline", ws.handleBrainMLTimeline)
+	http.HandleFunc("/api/brain/ml/predictions", ws.handleBrainMLPredictions)
+	http.HandleFunc("/api/brain/ml/summary", ws.handleBrainMLSummary)
+
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 
