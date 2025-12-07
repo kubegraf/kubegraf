@@ -74,6 +74,32 @@ func (mlr *MLRecommender) UpdateMetricsHistory(samples []MetricSample) {
 	}
 }
 
+// GetMetricsHistoryStats returns statistics about the metrics history
+func (mlr *MLRecommender) GetMetricsHistoryStats() map[string]interface{} {
+	mlr.mu.RLock()
+	defer mlr.mu.RUnlock()
+
+	historyLen := len(mlr.metricsHistory)
+	minRequired := 20
+	progress := float64(historyLen) / float64(minRequired) * 100
+	if progress > 100 {
+		progress = 100
+	}
+
+	remainingNeeded := minRequired - historyLen
+	if remainingNeeded < 0 {
+		remainingNeeded = 0
+	}
+
+	return map[string]interface{}{
+		"totalSamples":    historyLen,
+		"minRequired":    minRequired,
+		"progress":       progress,
+		"hasEnoughData":   historyLen >= minRequired,
+		"remainingNeeded": remainingNeeded,
+	}
+}
+
 // PredictResourceNeeds predicts future resource needs using time series forecasting
 func (mlr *MLRecommender) PredictResourceNeeds(ctx context.Context, namespace, deployment string, hoursAhead int) (cpuPrediction, memoryPrediction float64, err error) {
 	// Collect historical metrics for this deployment

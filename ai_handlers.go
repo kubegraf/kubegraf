@@ -701,6 +701,7 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 	// ML Recommendations
 	http.HandleFunc("/api/ml/recommendations", ws.handleMLRecommendations)
 	http.HandleFunc("/api/ml/recommendations/apply", ws.handleApplyRecommendation)
+	http.HandleFunc("/api/ml/recommendations/stats", ws.handleMLRecommendationsStats)
 	http.HandleFunc("/api/ml/predict", ws.handleMLPredict)
 
 	// Storage
@@ -929,10 +930,38 @@ func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Get metrics history stats
+	stats := ws.app.mlRecommender.GetMetricsHistoryStats()
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"recommendations": recommendations,
 		"total":           len(recommendations),
+		"metricsStats":    stats,
 	})
+}
+
+// handleMLRecommendationsStats returns metrics history statistics
+func (ws *WebServer) handleMLRecommendationsStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil || !ws.app.connected {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"totalSamples":    0,
+			"minRequired":    20,
+			"progress":        0,
+			"hasEnoughData":   false,
+			"remainingNeeded": 20,
+		})
+		return
+	}
+
+	stats := ws.app.mlRecommender.GetMetricsHistoryStats()
+	json.NewEncoder(w).Encode(stats)
 }
 
 // handleMLPredict predicts future resource needs
