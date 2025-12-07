@@ -47,6 +47,41 @@ const BrainPanel: Component = () => {
     }
   );
 
+  // Fetch ML timeline
+  const [mlTimeline] = createResource(
+    () => brainPanelOpen(),
+    async () => {
+      if (!brainPanelOpen()) return { events: [], timeRange: '', total: 0 };
+      return await brainMLService.getTimeline(72);
+    }
+  );
+
+  // Fetch ML predictions
+  const [mlPredictions] = createResource(
+    () => brainPanelOpen(),
+    async () => {
+      if (!brainPanelOpen()) return { predictions: [], generatedAt: '', total: 0 };
+      return await brainMLService.getPredictions();
+    }
+  );
+
+  // Fetch ML summary
+  const [mlSummary] = createResource(
+    () => brainPanelOpen(),
+    async () => {
+      if (!brainPanelOpen()) {
+        return {
+          summary: '',
+          keyInsights: [],
+          recommendations: [],
+          generatedAt: '',
+          timeRange: '',
+        };
+      }
+      return await brainMLService.getSummary(24);
+    }
+  );
+
   return (
     <Show when={brainPanelOpen()}>
       <div
