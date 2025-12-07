@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -39,7 +40,10 @@ func (a *App) DetectMLflow(ctx context.Context) (*MLflowStatus, error) {
 	var mlflowNamespace string
 
 	for _, ns := range namespaces {
-		_, err := a.clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+		// Check if namespace exists (with quick timeout per namespace)
+		nsCtx, nsCancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err := a.clientset.CoreV1().Namespaces().Get(nsCtx, ns, metav1.GetOptions{})
+		nsCancel()
 		if err != nil {
 			continue
 		}

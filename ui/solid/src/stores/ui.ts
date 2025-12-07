@@ -42,7 +42,9 @@ export type View =
   | 'uidemo'
   | 'trainingjobs'
   | 'trainingjobdetails'
-  | 'inferenceservices';
+  | 'inferenceservices'
+  | 'feast'
+  | 'gpudashboard';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
