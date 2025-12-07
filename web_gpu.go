@@ -9,6 +9,10 @@
 package main
 
 import (
+	gpu "github.com/kubegraf/kubegraf/internal/gpu"
+)
+
+import (
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,7 +49,7 @@ func (ws *WebServer) handleGPUNodes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": err.Error(),
-			"nodes": []GPUNodeInfo{},
+			"nodes": []gpu.GPUNodeInfo{},
 		})
 		return
 	}
@@ -67,7 +71,7 @@ func (ws *WebServer) handleGPUMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": err.Error(),
-			"metrics": []GPUMetrics{},
+			"metrics": []gpu.GPUMetrics{},
 		})
 		return
 	}
@@ -75,7 +79,7 @@ func (ws *WebServer) handleGPUMetrics(w http.ResponseWriter, r *http.Request) {
 	if !status.DCGMInstalled {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": "DCGM exporter is not installed",
-			"metrics": []GPUMetrics{},
+			"metrics": []gpu.GPUMetrics{},
 		})
 		return
 	}
@@ -84,7 +88,7 @@ func (ws *WebServer) handleGPUMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": err.Error(),
-			"metrics": []GPUMetrics{},
+			"metrics": []gpu.GPUMetrics{},
 		})
 		return
 	}
@@ -103,7 +107,7 @@ func (ws *WebServer) handleGPUInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req GPUInstallRequest
+	var req gpu.GPUInstallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,

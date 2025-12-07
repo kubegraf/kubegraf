@@ -1,4 +1,4 @@
-package main
+package database
 
 import (
 	"crypto/aes"
@@ -526,4 +526,10 @@ func generateSessionID() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
+}
+
+// GetDB returns the underlying sql.DB for advanced operations
+// This allows other packages to work with the database when needed
+func (d *Database) GetDB() *sql.DB {
+	return d.db
 }

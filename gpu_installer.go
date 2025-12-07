@@ -12,10 +12,12 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+
+	gpu "github.com/kubegraf/kubegraf/internal/gpu"
 )
 
 // InstallDCGM installs DCGM exporter using Helm
-func (ws *WebServer) InstallDCGM(ctx context.Context, req GPUInstallRequest) error {
+func (ws *WebServer) InstallDCGM(ctx context.Context, req gpu.GPUInstallRequest) error {
 	// Add NVIDIA GPU Operator Helm repository
 	repoCmd := exec.CommandContext(ctx, "helm", "repo", "add", "nvidia", "https://nvidia.github.io/gpu-operator")
 	repoCmd.Run() // Ignore error if repo already exists
@@ -28,13 +30,12 @@ func (ws *WebServer) InstallDCGM(ctx context.Context, req GPUInstallRequest) err
 
 	// Install DCGM exporter
 	installCmd := exec.CommandContext(ctx, "helm", "install", "dcgm-exporter",
-		"nvidia/gpu-operator",
+		"nvidia/dcgm-exporter",
 		"--namespace", req.Namespace,
-		"--create-namespace",
-		"--set", "dcgmExporter.enabled=true")
+		"--create-namespace")
 
 	if req.Version != "" {
-		installCmd.Args = append(installCmd.Args, "--set", fmt.Sprintf("dcgmExporter.image.tag=%s", req.Version))
+		installCmd.Args = append(installCmd.Args, "--set", fmt.Sprintf("image.tag=%s", req.Version))
 	}
 
 	output, err := installCmd.CombinedOutput()
@@ -44,4 +45,3 @@ func (ws *WebServer) InstallDCGM(ctx context.Context, req GPUInstallRequest) err
 
 	return nil
 }
-

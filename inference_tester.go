@@ -8,6 +8,7 @@
 
 package main
 
+
 import (
 	"bytes"
 	"context"
@@ -16,23 +17,23 @@ import (
 	"io"
 	"net/http"
 	"time"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+inference "github.com/kubegraf/kubegraf/internal/inference"
 )
 
 // TestInferenceService sends a test request to an inference service
-func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTestRequest) (*InferenceTestResponse, error) {
+func (ws *WebServer) TestInferenceService(ctx context.Context, req inference.InferenceTestRequest) (*inference.InferenceTestResponse, error) {
 	// Get the service to find the port
 	service, err := ws.app.clientset.CoreV1().Services(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to get service: %v", err),
 		}, nil
 	}
 
 	if len(service.Spec.Ports) == 0 {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   "Service has no ports configured",
 		}, nil
@@ -43,7 +44,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 	// Create port-forward to the inference service
 	localPort, err := ws.createInferencePortForward(ctx, req.Name, req.Namespace, port)
 	if err != nil {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to create port-forward: %v", err),
 		}, nil
@@ -52,7 +53,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 	// Prepare request body
 	requestBody, err := json.Marshal(req.Input)
 	if err != nil {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to marshal input: %v", err),
 		}, nil
@@ -63,7 +64,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 	url := fmt.Sprintf("http://localhost:%d/predict", localPort)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(requestBody))
 	if err != nil {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to create request: %v", err),
 		}, nil
@@ -77,7 +78,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Request failed: %v", err),
 		}, nil
@@ -89,7 +90,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to read response: %v", err),
 			Latency: latency,
@@ -97,7 +98,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return &InferenceTestResponse{
+		return &inference.InferenceTestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, string(body)),
 			Latency: latency,
@@ -113,7 +114,7 @@ func (ws *WebServer) TestInferenceService(ctx context.Context, req InferenceTest
 		}
 	}
 
-	return &InferenceTestResponse{
+	return &inference.InferenceTestResponse{
 		Success: true,
 		Output:  output,
 		Latency: latency,

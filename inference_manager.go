@@ -8,6 +8,7 @@
 
 package main
 
+
 import (
 	"context"
 	"fmt"
@@ -17,10 +18,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	inference "github.com/kubegraf/kubegraf/internal/inference"
 )
 
 // ListInferenceServices lists all inference services
-func (ws *WebServer) ListInferenceServices(ctx context.Context, namespace string) ([]InferenceService, error) {
+func (ws *WebServer) ListInferenceServices(ctx context.Context, namespace string) ([]inference.InferenceService, error) {
 	labelSelector := "kubegraf-managed=true,type=inference-service"
 	
 	var deployments *appsv1.DeploymentList
@@ -40,24 +43,24 @@ func (ws *WebServer) ListInferenceServices(ctx context.Context, namespace string
 		return nil, fmt.Errorf("failed to list deployments: %v", err)
 	}
 
-	result := make([]InferenceService, 0, len(deployments.Items))
+	result := make([]inference.InferenceService, 0, len(deployments.Items))
 	for _, deployment := range deployments.Items {
-		inference := convertDeploymentToInferenceService(deployment)
-		result = append(result, inference)
+		inf := convertDeploymentToInferenceService(deployment)
+		result = append(result, inf)
 	}
 
 	return result, nil
 }
 
 // GetInferenceService gets a specific inference service
-func (ws *WebServer) GetInferenceService(ctx context.Context, name, namespace string) (*InferenceService, error) {
+func (ws *WebServer) GetInferenceService(ctx context.Context, name, namespace string) (*inference.InferenceService, error) {
 	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get deployment: %v", err)
 	}
 
-	inference := convertDeploymentToInferenceService(*deployment)
-	return &inference, nil
+	inf := convertDeploymentToInferenceService(*deployment)
+	return &inf, nil
 }
 
 // DeleteInferenceService deletes an inference service
@@ -103,8 +106,8 @@ func (ws *WebServer) DeleteInferenceService(ctx context.Context, name, namespace
 	return nil
 }
 
-// convertDeploymentToInferenceService converts a Kubernetes Deployment to InferenceService
-func convertDeploymentToInferenceService(deployment appsv1.Deployment) InferenceService {
+// convertDeploymentToInferenceService converts a Kubernetes Deployment to inference.InferenceService
+func convertDeploymentToInferenceService(deployment appsv1.Deployment) inference.InferenceService {
 	// Determine status
 	status := "Pending"
 	if deployment.Status.ReadyReplicas > 0 {
@@ -159,7 +162,7 @@ func convertDeploymentToInferenceService(deployment appsv1.Deployment) Inference
 		replicas = *deployment.Spec.Replicas
 	}
 
-	return InferenceService{
+	return inference.InferenceService{
 		Name:          deployment.Name,
 		Namespace:     deployment.Namespace,
 		Status:        status,

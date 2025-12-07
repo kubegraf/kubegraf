@@ -9,6 +9,10 @@
 package main
 
 import (
+	brain "github.com/kubegraf/kubegraf/internal/brain"
+)
+
+import (
 	"context"
 	"encoding/json"
 	"net/http"
@@ -35,7 +39,7 @@ func (ws *WebServer) handleBrainMLTimeline(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": err.Error(),
-			"events": []MLTimelineEvent{},
+			"events": []brain.MLTimelineEvent{},
 		})
 		return
 	}
@@ -54,7 +58,7 @@ func (ws *WebServer) handleBrainMLPredictions(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": err.Error(),
-			"predictions": []MLPrediction{},
+			"predictions": []brain.MLPrediction{},
 		})
 		return
 	}
@@ -88,4 +92,5 @@ func (ws *WebServer) handleBrainMLSummary(w http.ResponseWriter, r *http.Request
 
 	json.NewEncoder(w).Encode(summary)
 }
+
 

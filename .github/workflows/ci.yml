@@ -58,12 +58,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web
+          path: web-temp
 
-      - name: Verify web contents
+      - name: Copy UI dist to web/dist
         run: |
-          echo "Contents of web:"
-          ls -laR web || echo "web does not exist"
+          mkdir -p web
+          rm -rf web/dist
+          cp -r web-temp/dist web/dist || cp -r web-temp web/dist
+
+      - name: Verify web/dist contents
+        run: |
+          echo "Contents of web/dist:"
+          ls -laR web/dist || echo "web/dist does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -91,12 +97,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web
+          path: web-temp
 
-      - name: Verify web contents
+      - name: Copy UI dist to web/dist
         run: |
-          echo "Contents of web:"
-          ls -laR web || echo "web does not exist"
+          mkdir -p web
+          rm -rf web/dist
+          cp -r web-temp/dist web/dist || cp -r web-temp web/dist
+
+      - name: Verify web/dist contents
+        run: |
+          echo "Contents of web/dist:"
+          ls -laR web/dist || echo "web/dist does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -123,12 +135,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web
+          path: web-temp
 
-      - name: Verify web contents
+      - name: Copy UI dist to web/dist
         run: |
-          echo "Contents of web:"
-          ls -laR web || echo "web does not exist"
+          mkdir -p web
+          rm -rf web/dist
+          cp -r web-temp/dist web/dist || cp -r web-temp web/dist
+
+      - name: Verify web/dist contents
+        run: |
+          echo "Contents of web/dist:"
+          ls -laR web/dist || echo "web/dist does not exist"
 
       - name: Set up Go
         uses: actions/setup-go@v5

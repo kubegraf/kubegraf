@@ -9,6 +9,10 @@
 package main
 
 import (
+	feast "github.com/kubegraf/kubegraf/internal/feast"
+)
+
+import (
 	"context"
 	"encoding/json"
 	"fmt"
@@ -43,7 +47,7 @@ func (ws *WebServer) handleFeastInstall(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req FeastInstallRequest
+	var req feast.FeastInstallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,

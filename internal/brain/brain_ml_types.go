@@ -6,7 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-package main
+package brain
 
 // MLTimelineEvent represents an ML-related event in the timeline
 type MLTimelineEvent struct {
@@ -64,4 +64,5 @@ type MLPredictionsResponse struct {
 	GeneratedAt string         `json:"generatedAt"`
 	Total       int            `json:"total"`
 }
+
 

@@ -9,6 +9,9 @@
 package main
 
 import (
+	gpu "github.com/kubegraf/kubegraf/internal/gpu"
+)
+import (
 	"context"
 	"fmt"
 
@@ -16,30 +19,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-// GPUNodeInfo represents GPU information from a node
-type GPUNodeInfo struct {
-	NodeName   string            `json:"nodeName"`
-	GPUs       []GPUInfo         `json:"gpus"`
-	TotalGPUs  int               `json:"totalGPUs"`
-	GPUType    string            `json:"gpuType,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"`
-}
-
-// GPUInfo represents basic GPU information from node
-type GPUInfo struct {
-	ID       string `json:"id"`
-	Type     string `json:"type,omitempty"`
-	Capacity string `json:"capacity"`
-}
-
 // DetectGPUNodes detects GPU nodes in the cluster without requiring DCGM
-func (app *App) DetectGPUNodes(ctx context.Context) ([]GPUNodeInfo, error) {
+func (app *App) DetectGPUNodes(ctx context.Context) ([]gpu.GPUNodeInfo, error) {
 	nodes, err := app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %v", err)
 	}
 
-	var gpuNodes []GPUNodeInfo
+	var gpuNodes []gpu.GPUNodeInfo
 
 	for _, node := range nodes.Items {
 		// Check if node has GPU resources
@@ -63,16 +50,16 @@ func (app *App) DetectGPUNodes(ctx context.Context) ([]GPUNodeInfo, error) {
 		}
 
 		// Build GPU info
-		gpus := make([]GPUInfo, 0, gpuCount)
+		gpus := make([]gpu.GPUInfo, 0, gpuCount)
 		for i := int64(0); i < gpuCount; i++ {
-			gpus = append(gpus, GPUInfo{
+			gpus = append(gpus, gpu.GPUInfo{
 				ID:       fmt.Sprintf("%d", i),
 				Type:     gpuType,
 				Capacity: gpuQuantity.String(),
 			})
 		}
 
-		gpuNodes = append(gpuNodes, GPUNodeInfo{
+		gpuNodes = append(gpuNodes, gpu.GPUNodeInfo{
 			NodeName:  node.Name,
 			GPUs:      gpus,
 			TotalGPUs: int(gpuCount),

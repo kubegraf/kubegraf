@@ -51,6 +51,14 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kubegraf/kubegraf/mcp/server"
+	"github.com/kubegraf/kubegraf/internal/cache"
+	"github.com/kubegraf/kubegraf/internal/database"
+)
+
+var (
+	NewDatabase = database.NewDatabase
+	NewCache    = cache.NewCache
+	CacheBackendLRU = cache.CacheBackendLRU
 )
 
 var upgrader = websocket.Upgrader{
@@ -162,8 +170,8 @@ type WebServer struct {
 	// MCP Server for AI agents
 	mcpServer *server.MCPServer
 	// Production upgrades
-	cache          *Cache
-	db             *Database
+	cache          *cache.Cache
+	db             *database.Database
 	iam            *IAM
 	clusterService *ClusterService
 }
@@ -249,8 +257,8 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
 	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
 	// New update endpoints
-	http.HandleFunc("/api/update/check", ws.handleUpdateCheck)
-	http.HandleFunc("/api/update/auto-check", ws.handleUpdateAutoCheck)
+	http.HandleFunc("/api/update/check", ws.handleCheckUpdates)
+	http.HandleFunc("/api/update/auto-check", ws.handleAutoCheckUpdates)
 	http.HandleFunc("/api/metrics", ws.handleMetrics)
 	http.HandleFunc("/api/namespaces", ws.handleNamespaces)
 	http.HandleFunc("/api/pods", ws.handlePods)
