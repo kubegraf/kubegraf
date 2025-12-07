@@ -547,7 +547,9 @@ export const api = {
     }),
   // ============ ML Recommendations ============
   getMLRecommendations: () =>
-    fetchAPI<{ recommendations: any[]; total: number; error?: string; message?: string }>('/ml/recommendations'),
+    fetchAPI<{ recommendations: any[]; total: number; error?: string; message?: string; metricsStats?: any }>('/ml/recommendations'),
+  getMLRecommendationsStats: () =>
+    fetchAPI<{ totalSamples: number; minRequired: number; progress: number; hasEnoughData: boolean; remainingNeeded: number }>('/ml/recommendations/stats'),
   predictResourceNeeds: (namespace: string, deployment: string, hoursAhead?: number) => {
     const params = new URLSearchParams({ namespace, deployment });
     if (hoursAhead) params.append('hours', hoursAhead.toString());

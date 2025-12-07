@@ -451,15 +451,58 @@ const Anomalies: Component = () => {
         </Show>
 
         <Show when={!recommendations.loading && recommendations() && !recommendations()!.error && (!recommendations()!.recommendations || !Array.isArray(recommendations()!.recommendations) || recommendations()!.recommendations.length === 0)}>
-          <div class="card p-8 text-center" style={{ color: 'var(--text-muted)' }}>
-            <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-            <p class="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>No ML Recommendations Yet</p>
-            <p class="text-sm">Recommendations will appear as the system learns from your cluster metrics.</p>
-            <p class="text-sm mt-2">The ML model needs historical data (at least 20-50 metric samples) to generate optimization suggestions.</p>
-            <p class="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Metrics are collected automatically when you use the anomaly detection feature.</p>
-          </div>
+          {() => {
+            const stats = recommendations()?.metricsStats;
+            const totalSamples = stats?.totalSamples || 0;
+            const minRequired = stats?.minRequired || 20;
+            const progress = stats?.progress || 0;
+            const hasEnoughData = stats?.hasEnoughData || false;
+            const remainingNeeded = stats?.remainingNeeded || minRequired;
+
+            return (
+              <div class="card p-8 text-center">
+                <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                <p class="text-lg font-medium mb-4" style={{ color: 'var(--text-primary)' }}>No ML Recommendations Yet</p>
+                
+                {/* Metrics Progress */}
+                <div class="max-w-md mx-auto mb-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      Metrics Collected
+                    </span>
+                    <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {totalSamples} / {minRequired}
+                    </span>
+                  </div>
+                  <div class="w-full rounded-full h-3 overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
+                    <div
+                      class="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(progress, 100)}%`,
+                        background: hasEnoughData 
+                          ? 'linear-gradient(90deg, #22c55e, #10b981)' 
+                          : 'linear-gradient(90deg, #3b82f6, #2563eb)',
+                      }}
+                    />
+                  </div>
+                  <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                    {hasEnoughData 
+                      ? '✓ Enough data collected! Recommendations will appear after analysis.' 
+                      : `${remainingNeeded} more sample${remainingNeeded !== 1 ? 's' : ''} needed`}
+                  </p>
+                </div>
+
+                <div class="text-sm space-y-2 max-w-md mx-auto" style={{ color: 'var(--text-secondary)' }}>
+                  <p>Recommendations will appear as the system learns from your cluster metrics.</p>
+                  <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    💡 <strong>Tip:</strong> Run anomaly detection multiple times to collect more metrics. Each scan adds new samples to the history.
+                  </p>
+                </div>
+              </div>
+            );
+          }}
         </Show>
 
         <Show when={!recommendations.loading && recommendations() && recommendations()!.recommendations && Array.isArray(recommendations()!.recommendations) && recommendations()!.recommendations.length > 0}>
