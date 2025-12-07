@@ -39,7 +39,9 @@ export type View =
   | 'aiagents'
   | 'clustermanager'
   | 'usermanagement'
-  | 'uidemo';
+  | 'uidemo'
+  | 'trainingjobs'
+  | 'trainingjobdetails';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
