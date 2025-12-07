@@ -46,8 +46,10 @@ const BrainPanel: Component = () => {
   return (
     <Show when={brainPanelOpen()}>
       <div
-        class="fixed inset-y-0 right-0 z-50 flex"
+        class="fixed right-0 z-50 flex"
         style={{ 
+          top: '112px', // Header (64px) + Quick Access bar (48px)
+          bottom: '0',
           pointerEvents: brainPanelOpen() ? 'auto' : 'none'
         }}
       >
