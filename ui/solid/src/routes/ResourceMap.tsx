@@ -1,6 +1,10 @@
-import { Component, createSignal, createResource, createEffect, on, Show, For, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, createResource, createEffect, on, Show, For, onMount, onCleanup, createMemo } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import {
+  selectedNamespaces,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import TrafficMap from '../features/kiali/TrafficMap';
 import LiveTrafficMap from '../features/kiali/LiveTrafficMap';
@@ -22,10 +26,59 @@ interface TopologyLink extends d3.SimulationLinkDatum<TopologyNode> {
 
 const ResourceMap: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'resource' | 'traffic' | 'live'>('resource');
-  const [topology, { refetch }] = createResource(
-    () => namespace(),
-    (ns) => api.getTopology(ns === '_all' ? '' : ns)
+  
+  // Determine namespace parameter from global store (same pattern as Services/Ingresses)
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache (same pattern as Services/Ingresses)
+  const topologyCache = createCachedResource<any>(
+    'topology',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        console.log('[ResourceMap] Fetching topology with namespace:', namespaceParam);
+        const topology = await api.getTopology(namespaceParam);
+        console.log('[ResourceMap] Fetched topology:', topology);
+        console.log('[ResourceMap] Nodes count:', topology?.nodes?.length || 0);
+        console.log('[ResourceMap] Links count:', topology?.links?.length || 0);
+        return topology;
+      } catch (error) {
+        console.error('[ResourceMap] Error fetching topology:', error);
+        throw error;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
   );
+
+  // Get topology from cache
+  const topology = createMemo(() => {
+    const data = topologyCache.data();
+    console.log('[ResourceMap] Current topology data from cache:', data);
+    return data;
+  });
+  
+  // Refetch function for updates
+  const refetch = () => topologyCache.refetch();
+  
+  // Initial load on mount
+  onMount(() => {
+    if (!topologyCache.data()) {
+      topologyCache.refetch();
+    }
+  });
 
   const [selectedNode, setSelectedNode] = createSignal<TopologyNode | null>(null);
   const [showDetails, setShowDetails] = createSignal(false);
@@ -387,8 +440,11 @@ const ResourceMap: Component = () => {
   };
 
   // Setup when topology changes
-  createEffect(on(() => topology(), () => {
-    setupVisualization();
+  createEffect(on(() => [topology(), svgRef], () => {
+    if (svgRef && topology()) {
+      console.log('[ResourceMap] Topology data changed, setting up visualization');
+      setupVisualization();
+    }
   }));
 
   // Handle window resize
@@ -532,6 +588,18 @@ const ResourceMap: Component = () => {
         </div>
       </div>
 
+      {/* Error display */}
+      <Show when={topologyCache.error()}>
+        <div class="card p-4 mb-4" style={{ background: 'var(--error-bg)', border: '1px solid var(--error-color)' }}>
+          <div class="flex items-center gap-2">
+            <span style={{ color: 'var(--error-color)' }}>❌</span>
+            <span style={{ color: 'var(--error-color)' }}>
+              Error loading topology: {topologyCache.error()?.message || 'Unknown error'}
+            </span>
+          </div>
+        </div>
+      </Show>
+
       {/* Graph Container */}
       <div
         ref={containerRef}
@@ -539,7 +607,7 @@ const ResourceMap: Component = () => {
         style={{ height: '650px' }}
       >
         <Show
-          when={!topology.loading}
+          when={!topologyCache.loading() || topologyCache.data() !== undefined}
           fallback={
             <div class="h-full flex items-center justify-center">
               <div class="spinner" />
@@ -547,14 +615,23 @@ const ResourceMap: Component = () => {
           }
         >
           <Show
-            when={topology()?.nodes?.length > 0}
+            when={topology() && topology()?.nodes && topology()?.nodes?.length > 0}
             fallback={
               <div class="h-full flex items-center justify-center flex-col gap-4" style={{ color: 'var(--text-muted)' }}>
                 <svg class="w-20 h-20 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
                 </svg>
                 <p class="text-lg">No resources found</p>
-                <p class="text-sm">Select a namespace with deployments and services</p>
+                <p class="text-sm">
+                  {topologyCache.error() 
+                    ? 'Error loading topology data' 
+                    : topology() 
+                      ? 'Select a namespace with deployments and services' 
+                      : 'Loading topology data...'}
+                </p>
+                {topology() && topology()?.nodes && topology()?.nodes?.length === 0 && (
+                  <p class="text-xs opacity-70">The selected namespace(s) may not have any resources</p>
+                )}
               </div>
             }
           >
@@ -614,7 +691,7 @@ const ResourceMap: Component = () => {
                     {selectedNode()!.type}
                   </span>
                   <span class="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    in {selectedNode()!.namespace || namespace()}
+                    in {selectedNode()!.namespace || (selectedNamespaces().length === 0 ? 'all namespaces' : selectedNamespaces().join(', '))}
                   </span>
                 </div>
               </div>

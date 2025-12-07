@@ -1,7 +1,12 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, createEffect, onMount } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedNamespaces,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -55,7 +60,57 @@ const Ingresses: Component = () => {
     localStorage.setItem('ingresses-font-family', family);
   };
 
-  const [ingresses, { refetch }] = createResource(namespace, api.getIngresses);
+  // Determine namespace parameter from global store (same pattern as Services)
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache (same pattern as Services)
+  const ingressesCache = createCachedResource<Ingress[]>(
+    'ingresses',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        console.log('[Ingresses] Fetching ingresses with namespace:', namespaceParam);
+        const ingresses = await api.getIngresses(namespaceParam);
+        console.log('[Ingresses] Fetched ingresses:', ingresses);
+        return ingresses;
+      } catch (error) {
+        console.error('[Ingresses] Error fetching ingresses:', error);
+        addNotification(`❌ Failed to fetch ingresses: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        throw error;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  // Get ingresses from cache
+  const ingresses = createMemo(() => {
+    const data = ingressesCache.data();
+    console.log('[Ingresses] Current data from cache:', data);
+    return data || [];
+  });
+  
+  // Refetch function for updates
+  const refetch = () => ingressesCache.refetch();
+  
+  // Initial load on mount
+  onMount(() => {
+    if (!ingressesCache.data()) {
+      ingressesCache.refetch();
+    }
+  });
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
@@ -95,7 +150,11 @@ const Ingresses: Component = () => {
   };
 
   const filteredAndSorted = createMemo(() => {
-    let all = ingresses() || [];
+    const data = ingresses();
+    if (!data || !Array.isArray(data)) {
+      return [];
+    }
+    let all = [...data];
     const query = search().toLowerCase();
 
     // Filter by search
@@ -277,10 +336,22 @@ const Ingresses: Component = () => {
         </select>
       </div>
 
+      {/* Error display */}
+      <Show when={ingressesCache.error()}>
+        <div class="card p-4 mb-4" style={{ background: 'var(--error-bg)', border: '1px solid var(--error-color)' }}>
+          <div class="flex items-center gap-2">
+            <span style={{ color: 'var(--error-color)' }}>❌</span>
+            <span style={{ color: 'var(--error-color)' }}>
+              Error loading ingresses: {ingressesCache.error()?.message || 'Unknown error'}
+            </span>
+          </div>
+        </div>
+      </Show>
+
       {/* Ingresses table */}
       <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
-          when={!ingresses.loading}
+          when={!ingressesCache.loading() || ingressesCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
