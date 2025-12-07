@@ -26,6 +26,8 @@ import Connectors from './routes/Connectors';
 import AIAgents from './routes/AIAgents';
 import SREAgent from './routes/SREAgent';
 import Kiali from './routes/Kiali';
+import MLflow from './routes/MLflow';
+import TrainingJobs from './routes/TrainingJobs';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Incidents from './routes/Incidents';
@@ -151,6 +153,8 @@ const views: Record<string, Component> = {
   aiagents: AIAgents,
   sreagent: SREAgent,
   kiali: Kiali,
+  mlflow: MLflow,
+  trainingjobs: TrainingJobs,
   apps: Marketplace,
   customapps: CustomApps,
   clustermanager: ClusterManager,

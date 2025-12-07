@@ -4,6 +4,7 @@ import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import { addDeployment, updateDeploymentTask } from '../components/DeploymentProgress';
+import MLflowInstallWizard from '../features/mlflow/MLflowInstallWizard';
 
 interface InstalledInstance {
   namespace: string;
@@ -199,6 +200,16 @@ const defaultApps: App[] = [
     chartRepo: 'https://prometheus-community.github.io/helm-charts',
     chartName: 'kube-prometheus-stack',
   },
+  {
+    name: 'mlflow',
+    displayName: 'MLflow',
+    description: 'Open source platform for managing the ML lifecycle, including experimentation, reproducibility, deployment, and a central model registry',
+    category: 'ML Apps',
+    icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+    version: '2.8.0',
+    chartRepo: 'https://community-charts.github.io/helm-charts',
+    chartName: 'mlflow',
+  },
   // Local Cluster Installers
   {
     name: 'k3d',
@@ -238,6 +249,7 @@ const categoryColors: Record<string, string> = {
   'Observability': '#f97316',
   'Security': '#22c55e',
   'Data': '#3b82f6',
+  'ML Apps': '#ec4899',
   'Local Cluster': '#10b981',
 };
 
@@ -250,6 +262,7 @@ const Apps: Component<AppsProps> = (props) => {
   const [selectedCategory, setSelectedCategory] = createSignal<string>('all');
   const [selectedApp, setSelectedApp] = createSignal<App | null>(null);
   const [showInstallModal, setShowInstallModal] = createSignal(false);
+  const [showMLflowWizard, setShowMLflowWizard] = createSignal(false);
   const [installNamespace, setInstallNamespace] = createSignal('default');
   const [clusterName, setClusterName] = createSignal('kubegraf-cluster'); // For local clusters
   const [installing, setInstalling] = createSignal(false);
@@ -787,7 +800,15 @@ const Apps: Component<AppsProps> = (props) => {
 
                       <Show when={!isDeploying()}>
                         <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setSelectedApp(app);
+                            if (app.name === 'mlflow') {
+                              setShowMLflowWizard(true);
+                            } else {
+                              setShowInstallModal(true);
+                            }
+                          }}
                           class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
                           style={{ background: 'var(--accent-primary)', color: '#000' }}
                         >
@@ -930,7 +951,14 @@ const Apps: Component<AppsProps> = (props) => {
                         <Show when={!isDeploying()}>
                           <Show when={app.installed} fallback={
                             <button
-                              onClick={() => { setSelectedApp(app); setShowInstallModal(true); }}
+                              onClick={() => { 
+                                setSelectedApp(app);
+                                if (app.name === 'mlflow') {
+                                  setShowMLflowWizard(true);
+                                } else {
+                                  setShowInstallModal(true);
+                                }
+                              }}
                               class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
                               style={{ background: 'var(--accent-primary)', color: '#000' }}
                             >
@@ -1007,7 +1035,15 @@ const Apps: Component<AppsProps> = (props) => {
                 <span style={{ color: 'var(--text-muted)' }}>v{app.version}</span>
                 <Show when={!isDeploying() && !isInstalled()}>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setSelectedApp(app); setShowInstallModal(true); }}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setSelectedApp(app);
+                      if (app.name === 'mlflow') {
+                        setShowMLflowWizard(true);
+                      } else {
+                        setShowInstallModal(true);
+                      }
+                    }}
                     class="px-2 py-0.5 rounded text-xs transition-all hover:opacity-80"
                     style={{ background: 'var(--accent-primary)', color: '#000' }}
                   >
@@ -1307,6 +1343,20 @@ const Apps: Component<AppsProps> = (props) => {
           </div>
         </div>
       </Modal>
+
+      {/* MLflow Installation Wizard */}
+      <Show when={showMLflowWizard()}>
+        <MLflowInstallWizard
+          onClose={() => {
+            setShowMLflowWizard(false);
+            setSelectedApp(null);
+          }}
+          onSuccess={() => {
+            refetchInstalled();
+            addNotification('MLflow installation started', 'success');
+          }}
+        />
+      </Show>
 
       {/* Add Custom App Modal */}
       <Modal isOpen={showAddCustomModal()} onClose={() => setShowAddCustomModal(false)} title="Add Custom App">

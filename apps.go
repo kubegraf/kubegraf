@@ -182,6 +182,15 @@ var appsCatalog = []AppDefinition{
 		ChartRepo:   "https://prometheus-community.github.io/helm-charts",
 		ChartName:   "kube-prometheus-stack",
 	},
+	{
+		Name:        "mlflow",
+		DisplayName: "MLflow",
+		Description: "Open source platform for managing the ML lifecycle, including experimentation, reproducibility, deployment, and a central model registry",
+		Category:    "ML Apps",
+		Version:     "2.8.0",
+		ChartRepo:   "https://community-charts.github.io/helm-charts",
+		ChartName:   "mlflow",
+	},
 	// Local Cluster Installers
 	{
 		Name:        "k3d",
