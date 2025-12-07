@@ -2,6 +2,7 @@ import { Component, Show, createResource } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
 import { api } from '../../services/api';
 import { brainMLService } from '../../services/brainML';
+import { settings } from '../../stores/settings';
 import ClusterTimeline from './ClusterTimeline';
 import OOMInsights from './OOMInsights';
 import Suggestions from './Suggestions';
@@ -47,29 +48,29 @@ const BrainPanel: Component = () => {
     }
   );
 
-  // Fetch ML timeline
+  // Fetch ML timeline (only if enabled in settings)
   const [mlTimeline] = createResource(
-    () => brainPanelOpen(),
+    () => brainPanelOpen() && settings().showMLTimelineInBrain,
     async () => {
-      if (!brainPanelOpen()) return { events: [], timeRange: '', total: 0 };
+      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) return { events: [], timeRange: '', total: 0 };
       return await brainMLService.getTimeline(72);
     }
   );
 
-  // Fetch ML predictions
+  // Fetch ML predictions (only if enabled in settings)
   const [mlPredictions] = createResource(
-    () => brainPanelOpen(),
+    () => brainPanelOpen() && settings().showMLTimelineInBrain,
     async () => {
-      if (!brainPanelOpen()) return { predictions: [], generatedAt: '', total: 0 };
+      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) return { predictions: [], generatedAt: '', total: 0 };
       return await brainMLService.getPredictions();
     }
   );
 
-  // Fetch ML summary
+  // Fetch ML summary (only if enabled in settings)
   const [mlSummary] = createResource(
-    () => brainPanelOpen(),
+    () => brainPanelOpen() && settings().showMLTimelineInBrain,
     async () => {
-      if (!brainPanelOpen()) {
+      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) {
         return {
           summary: '',
           keyInsights: [],
@@ -162,8 +163,7 @@ const BrainPanel: Component = () => {
             'scrollbar-color': '#333333 #000000'
           }}>
             <Show
-              when={!timelineEvents.loading && !oomMetrics.loading && !summary.loading && 
-                    !mlTimeline.loading && !mlPredictions.loading && !mlSummary.loading}
+              when={!timelineEvents.loading && !oomMetrics.loading && !summary.loading}
               fallback={
                 <div class="flex items-center justify-center h-64">
                 <div class="text-center">
@@ -186,22 +186,34 @@ const BrainPanel: Component = () => {
                 }} />
               </div>
               
-              {/* ML Insights Sections */}
-              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                <MLTimeline events={mlTimeline()?.events || []} />
-              </div>
-              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                <MLPredictions predictions={mlPredictions()?.predictions || []} />
-              </div>
-              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                <MLSummary summary={mlSummary() || {
-                  summary: '',
-                  keyInsights: [],
-                  recommendations: [],
-                  generatedAt: new Date().toISOString(),
-                  timeRange: 'last 24 hours',
-                }} />
-              </div>
+              {/* ML Insights Sections - Only show if enabled in settings */}
+              <Show when={settings().showMLTimelineInBrain}>
+                <Show when={!mlTimeline.loading && !mlPredictions.loading && !mlSummary.loading}>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <MLTimeline events={mlTimeline()?.events || []} />
+                  </div>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <MLPredictions predictions={mlPredictions()?.predictions || []} />
+                  </div>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <MLSummary summary={mlSummary() || {
+                      summary: '',
+                      keyInsights: [],
+                      recommendations: [],
+                      generatedAt: new Date().toISOString(),
+                      timeRange: 'last 24 hours',
+                    }} />
+                  </div>
+                </Show>
+                <Show when={mlTimeline.loading || mlPredictions.loading || mlSummary.loading}>
+                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <div class="text-center py-4" style={{ color: '#8b949e' }}>
+                      <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                      <p class="text-sm">Loading ML insights...</p>
+                    </div>
+                  </div>
+                </Show>
+              </Show>
             </Show>
           </div>
         </div>
