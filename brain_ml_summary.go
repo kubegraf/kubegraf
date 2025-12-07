@@ -14,10 +14,14 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	brain "github.com/kubegraf/kubegraf/internal/brain"
+
+	gpu "github.com/kubegraf/kubegraf/internal/gpu"
 )
 
 // GenerateMLSummary generates a natural language summary of ML activities
-func (app *App) GenerateMLSummary(ctx context.Context, hours int) (*MLSummary, error) {
+func (app *App) GenerateMLSummary(ctx context.Context, hours int) (*brain.MLSummary, error) {
 	// Collect data from various sources
 	timeline, _ := app.GenerateMLTimeline(ctx, hours)
 	predictions, _ := app.GenerateMLPredictions(ctx)
@@ -41,7 +45,7 @@ func (app *App) GenerateMLSummary(ctx context.Context, hours int) (*MLSummary, e
 	insights := extractKeyInsights(timeline, predictions, len(jobs.Items), len(deployments.Items))
 	recommendations := generateRecommendations(timeline, predictions, len(jobs.Items), len(deployments.Items), gpuStatus)
 
-	return &MLSummary{
+	return &brain.MLSummary{
 		Summary:        summary,
 		KeyInsights:    insights,
 		Recommendations: recommendations,
@@ -51,8 +55,8 @@ func (app *App) GenerateMLSummary(ctx context.Context, hours int) (*MLSummary, e
 }
 
 // buildMLSummaryText creates a natural language summary
-func buildMLSummaryText(timeline *MLTimelineResponse, predictions *MLPredictionsResponse, 
-	jobCount int, deploymentCount int, gpuStatus *GPUStatus, gpuNodes []GPUNodeInfo, hours int) string {
+func buildMLSummaryText(timeline *brain.MLTimelineResponse, predictions *brain.MLPredictionsResponse, 
+	jobCount int, deploymentCount int, gpuStatus *gpu.GPUStatus, gpuNodes []gpu.GPUNodeInfo, hours int) string {
 	
 	summary := fmt.Sprintf("ML Activity Summary (Last %d hours):\n\n", hours)
 	
@@ -96,7 +100,7 @@ func buildMLSummaryText(timeline *MLTimelineResponse, predictions *MLPredictions
 }
 
 // extractKeyInsights extracts key insights from ML data
-func extractKeyInsights(timeline *MLTimelineResponse, predictions *MLPredictionsResponse,
+func extractKeyInsights(timeline *brain.MLTimelineResponse, predictions *brain.MLPredictionsResponse,
 	jobCount int, deploymentCount int) []string {
 	
 	var insights []string
@@ -142,8 +146,8 @@ func extractKeyInsights(timeline *MLTimelineResponse, predictions *MLPredictions
 }
 
 // generateRecommendations generates actionable recommendations
-func generateRecommendations(timeline *MLTimelineResponse, predictions *MLPredictionsResponse,
-	jobCount int, deploymentCount int, gpuStatus *GPUStatus) []string {
+func generateRecommendations(timeline *brain.MLTimelineResponse, predictions *brain.MLPredictionsResponse,
+	jobCount int, deploymentCount int, gpuStatus *gpu.GPUStatus) []string {
 	
 	var recommendations []string
 	

@@ -6,7 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-package main
+package gpu
 
 // GPUStatus represents the status of GPU monitoring
 type GPUStatus struct {
@@ -45,3 +45,19 @@ type GPUInstallRequest struct {
 	Version   string `json:"version,omitempty"`
 }
 
+
+// GPUNodeInfo represents GPU information from a node
+type GPUNodeInfo struct {
+	NodeName   string            `json:"nodeName"`
+	GPUs       []GPUInfo         `json:"gpus"`
+	TotalGPUs  int               `json:"totalGPUs"`
+	GPUType    string            `json:"gpuType,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+}
+
+// GPUInfo represents basic GPU information from node
+type GPUInfo struct {
+	ID       string `json:"id"`
+	Type     string `json:"type,omitempty"`
+	Capacity string `json:"capacity"`
+}

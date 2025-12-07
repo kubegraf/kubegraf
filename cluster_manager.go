@@ -13,7 +13,12 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/kubegraf/kubegraf/internal/database"
 )
+
+// Re-export ClusterEntry for convenience
+type ClusterEntry = database.ClusterEntry
 
 // ClusterConnectRequest represents the payload used for connect requests
 type ClusterConnectRequest struct {
@@ -46,7 +51,7 @@ type DiscoveredKubeconfig struct {
 // ClusterService orchestrates cluster discovery and connection management
 type ClusterService struct {
 	app        *App
-	db         *Database
+	db         *database.Database
 	activePath string
 	mu         sync.Mutex
 }
@@ -63,7 +68,7 @@ type RuntimeClusterContext struct {
 }
 
 // NewClusterService creates a new cluster service and ensures the active kubeconfig path exists
-func NewClusterService(app *App, db *Database) *ClusterService {
+func NewClusterService(app *App, db *database.Database) *ClusterService {
 	service := &ClusterService{app: app, db: db}
 	home, err := os.UserHomeDir()
 	if err != nil {

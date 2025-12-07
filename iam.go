@@ -10,11 +10,16 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/kubegraf/kubegraf/internal/database"
 )
+
+// Re-export User for convenience
+type User = database.User
 
 // IAM provides local identity and access management
 type IAM struct {
-	db      *Database
+	db      *database.Database
 	enabled bool
 }
 
@@ -35,7 +40,7 @@ type Permission struct {
 }
 
 // NewIAM creates a new IAM instance
-func NewIAM(db *Database, enabled bool) *IAM {
+func NewIAM(db *database.Database, enabled bool) *IAM {
 	return &IAM{
 		db:      db,
 		enabled: enabled,

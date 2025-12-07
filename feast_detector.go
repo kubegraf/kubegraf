@@ -9,6 +9,9 @@
 package main
 
 import (
+	feast "github.com/kubegraf/kubegraf/internal/feast"
+)
+import (
 	"context"
 	"fmt"
 	"strings"
@@ -18,8 +21,8 @@ import (
 )
 
 // DetectFeast detects if Feast is installed in the cluster
-func (app *App) DetectFeast(ctx context.Context) (*FeastStatus, error) {
-	status := &FeastStatus{
+func (app *App) DetectFeast(ctx context.Context) (*feast.FeastStatus, error) {
+	status := &feast.FeastStatus{
 		Installed: false,
 	}
 

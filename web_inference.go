@@ -9,6 +9,10 @@
 package main
 
 import (
+	inference "github.com/kubegraf/kubegraf/internal/inference"
+)
+
+import (
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,7 +29,7 @@ func (ws *WebServer) handleInferenceCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var req InferenceServiceRequest
+	var req inference.InferenceServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -67,7 +71,7 @@ func (ws *WebServer) handleInferenceList(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":    err.Error(),
-			"services": []InferenceService{},
+			"services": []inference.InferenceService{},
 		})
 		return
 	}
@@ -151,7 +155,7 @@ func (ws *WebServer) handleInferenceTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req InferenceTestRequest
+	var req inference.InferenceTestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,

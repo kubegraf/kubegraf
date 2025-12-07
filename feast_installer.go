@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	feast "github.com/kubegraf/kubegraf/internal/feast"
 )
 
 // InstallFeast installs Feast using Helm
-func (ws *WebServer) InstallFeast(ctx context.Context, req FeastInstallRequest) error {
+func (ws *WebServer) InstallFeast(ctx context.Context, req feast.FeastInstallRequest) error {
 	// Generate Helm values
 	values := ws.generateFeastHelmValues(req)
 
@@ -46,7 +48,7 @@ func (ws *WebServer) InstallFeast(ctx context.Context, req FeastInstallRequest) 
 }
 
 // generateFeastHelmValues generates Helm values from installation request
-func (ws *WebServer) generateFeastHelmValues(req FeastInstallRequest) string {
+func (ws *WebServer) generateFeastHelmValues(req feast.FeastInstallRequest) string {
 	var values []string
 
 	// Version
@@ -57,63 +59,33 @@ func (ws *WebServer) generateFeastHelmValues(req FeastInstallRequest) string {
 	// Resources
 	if req.CPU != "" {
 		values = append(values, fmt.Sprintf("feast.resources.requests.cpu=%s", req.CPU))
-		values = append(values, fmt.Sprintf("feast.resources.limits.cpu=%s", req.CPU))
 	}
 	if req.Memory != "" {
 		values = append(values, fmt.Sprintf("feast.resources.requests.memory=%s", req.Memory))
-		values = append(values, fmt.Sprintf("feast.resources.limits.memory=%s", req.Memory))
 	}
 
 	// Online store
 	if req.OnlineStore != nil {
-		switch req.OnlineStore.Type {
-		case "redis":
-			if req.OnlineStore.Redis != nil {
-				values = append(values, fmt.Sprintf("feast.onlineStore.type=redis"))
-				values = append(values, fmt.Sprintf("feast.onlineStore.redis.host=%s", req.OnlineStore.Redis.Host))
-				values = append(values, fmt.Sprintf("feast.onlineStore.redis.port=%d", req.OnlineStore.Redis.Port))
-				if req.OnlineStore.Redis.Password != "" {
-					values = append(values, fmt.Sprintf("feast.onlineStore.redis.password=%s", req.OnlineStore.Redis.Password))
-				}
-			}
-		case "bigquery":
-			if req.OnlineStore.BigQuery != nil {
-				values = append(values, fmt.Sprintf("feast.onlineStore.type=bigquery"))
+		if req.OnlineStore.Type == "redis" && req.OnlineStore.Redis != nil {
+			values = append(values, fmt.Sprintf("feast.onlineStore.type=redis"))
+			values = append(values, fmt.Sprintf("feast.onlineStore.redis.host=%s", req.OnlineStore.Redis.Host))
+			values = append(values, fmt.Sprintf("feast.onlineStore.redis.port=%d", req.OnlineStore.Redis.Port))
+		} else if req.OnlineStore.Type == "bigquery" && req.OnlineStore.BigQuery != nil {
+			values = append(values, fmt.Sprintf("feast.onlineStore.type=bigquery"))
 				values = append(values, fmt.Sprintf("feast.onlineStore.bigquery.projectId=%s", req.OnlineStore.BigQuery.ProjectID))
-				values = append(values, fmt.Sprintf("feast.onlineStore.bigquery.dataset=%s", req.OnlineStore.BigQuery.Dataset))
-			}
 		}
 	}
 
 	// Offline store
 	if req.OfflineStore != nil {
-		switch req.OfflineStore.Type {
-		case "file":
-			if req.OfflineStore.File != nil {
-				values = append(values, fmt.Sprintf("feast.offlineStore.type=file"))
-				values = append(values, fmt.Sprintf("feast.offlineStore.file.path=%s", req.OfflineStore.File.Path))
-			}
-		case "pvc":
-			if req.OfflineStore.PVC != nil {
-				values = append(values, fmt.Sprintf("feast.offlineStore.type=pvc"))
+		if req.OfflineStore.Type == "file" && req.OfflineStore.File != nil {
+			values = append(values, fmt.Sprintf("feast.offlineStore.type=file"))
+			values = append(values, fmt.Sprintf("feast.offlineStore.file.path=%s", req.OfflineStore.File.Path))
+		} else if req.OfflineStore.Type == "pvc" && req.OfflineStore.PVC != nil {
+			values = append(values, fmt.Sprintf("feast.offlineStore.type=pvc"))
 				values = append(values, fmt.Sprintf("feast.offlineStore.pvc.name=%s", req.OfflineStore.PVC.PVCName))
-				values = append(values, fmt.Sprintf("feast.offlineStore.pvc.mountPath=%s", req.OfflineStore.PVC.MountPath))
-			}
-		case "bigquery":
-			if req.OfflineStore.BigQuery != nil {
-				values = append(values, fmt.Sprintf("feast.offlineStore.type=bigquery"))
-				values = append(values, fmt.Sprintf("feast.offlineStore.bigquery.projectId=%s", req.OfflineStore.BigQuery.ProjectID))
-				values = append(values, fmt.Sprintf("feast.offlineStore.bigquery.dataset=%s", req.OfflineStore.BigQuery.Dataset))
-			}
-		case "snowflake":
-			if req.OfflineStore.Snowflake != nil {
-				values = append(values, fmt.Sprintf("feast.offlineStore.type=snowflake"))
-				values = append(values, fmt.Sprintf("feast.offlineStore.snowflake.account=%s", req.OfflineStore.Snowflake.Account))
-				values = append(values, fmt.Sprintf("feast.offlineStore.snowflake.database=%s", req.OfflineStore.Snowflake.Database))
-			}
 		}
 	}
 
 	return strings.Join(values, ",")
 }
-

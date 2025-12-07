@@ -1,4 +1,4 @@
-package main
+package database
 
 import (
 	"database/sql"
@@ -7,6 +7,7 @@ import (
 )
 
 // ClusterEntry represents a persisted cluster connection record
+// Export it so it can be used by other packages
 type ClusterEntry struct {
 	ID             int        `json:"id"`
 	Name           string     `json:"name"`

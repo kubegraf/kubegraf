@@ -9,6 +9,10 @@
 package main
 
 import (
+	gpu "github.com/kubegraf/kubegraf/internal/gpu"
+)
+
+import (
 	"context"
 	"fmt"
 
@@ -16,8 +20,8 @@ import (
 )
 
 // DetectDCGM detects if DCGM exporter is installed and GPU nodes
-func (app *App) DetectDCGM(ctx context.Context) (*GPUStatus, error) {
-	status := &GPUStatus{
+func (app *App) DetectDCGM(ctx context.Context) (*gpu.GPUStatus, error) {
+	status := &gpu.GPUStatus{
 		DCGMInstalled: false,
 		GPUNodesFound: false,
 	}

@@ -1,7 +1,7 @@
 // Copyright 2025 KubeGraf Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package fuzzy
 
 import (
 	"sort"

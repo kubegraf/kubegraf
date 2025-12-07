@@ -88,3 +88,4 @@ export function mapLegacyCategoryToNew(category: string): string {
   return categoryMap[category] || category.toLowerCase().replace(/\s+/g, '-');
 }
 
+

@@ -17,11 +17,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	gpu "github.com/kubegraf/kubegraf/internal/gpu"
 )
 
 // GetGPUMetrics fetches GPU metrics from DCGM exporter or Prometheus
-func (ws *WebServer) GetGPUMetrics(ctx context.Context, status *GPUStatus) ([]GPUMetrics, error) {
-	var metrics []GPUMetrics
+func (ws *WebServer) GetGPUMetrics(ctx context.Context, status *gpu.GPUStatus) ([]gpu.GPUMetrics, error) {
+	var metrics []gpu.GPUMetrics
 
 	// Try Prometheus first if available
 	if status.PrometheusURL != "" {
@@ -43,7 +45,7 @@ func (ws *WebServer) GetGPUMetrics(ctx context.Context, status *GPUStatus) ([]GP
 }
 
 // fetchGPUMetricsFromPrometheus fetches GPU metrics from Prometheus
-func (ws *WebServer) fetchGPUMetricsFromPrometheus(ctx context.Context, promURL string) ([]GPUMetrics, error) {
+func (ws *WebServer) fetchGPUMetricsFromPrometheus(ctx context.Context, promURL string) ([]gpu.GPUMetrics, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// Query GPU utilization
@@ -80,7 +82,7 @@ func (ws *WebServer) fetchGPUMetricsFromPrometheus(ctx context.Context, promURL 
 	}
 
 	// Parse metrics (simplified - in production, query multiple metrics)
-	metrics := make([]GPUMetrics, 0)
+	metrics := make([]gpu.GPUMetrics, 0)
 	for _, result := range promResp.Data.Result {
 		nodeName := result.Metric["instance"]
 		gpuID := result.Metric["gpu"]
@@ -94,7 +96,7 @@ func (ws *WebServer) fetchGPUMetricsFromPrometheus(ctx context.Context, promURL 
 			}
 		}
 
-		metrics = append(metrics, GPUMetrics{
+		metrics = append(metrics, gpu.GPUMetrics{
 			NodeName:    nodeName,
 			GPUID:       gpuID,
 			Utilization: utilization,
@@ -106,7 +108,7 @@ func (ws *WebServer) fetchGPUMetricsFromPrometheus(ctx context.Context, promURL 
 }
 
 // fetchGPUMetricsFromDCGM fetches GPU metrics from DCGM REST API
-func (ws *WebServer) fetchGPUMetricsFromDCGM(ctx context.Context, dcgmURL string) ([]GPUMetrics, error) {
+func (ws *WebServer) fetchGPUMetricsFromDCGM(ctx context.Context, dcgmURL string) ([]gpu.GPUMetrics, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// DCGM exporter endpoint
@@ -134,11 +136,11 @@ func (ws *WebServer) fetchGPUMetricsFromDCGM(ctx context.Context, dcgmURL string
 }
 
 // parsePrometheusMetrics parses Prometheus format metrics
-func parsePrometheusMetrics(metricsText string) []GPUMetrics {
-	metrics := make([]GPUMetrics, 0)
+func parsePrometheusMetrics(metricsText string) []gpu.GPUMetrics {
+	metrics := make([]gpu.GPUMetrics, 0)
 	lines := strings.Split(metricsText, "\n")
 
-	currentMetric := make(map[string]GPUMetrics)
+	currentMetric := make(map[string]gpu.GPUMetrics)
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") {
@@ -170,7 +172,7 @@ func parsePrometheusMetrics(metricsText string) []GPUMetrics {
 					m.Utilization = value
 					currentMetric[key] = m
 				} else {
-					currentMetric[key] = GPUMetrics{
+					currentMetric[key] = gpu.GPUMetrics{
 						NodeName:    nodeName,
 						GPUID:       gpuID,
 						Utilization: value,
@@ -188,4 +190,3 @@ func parsePrometheusMetrics(metricsText string) []GPUMetrics {
 
 	return metrics
 }
-
