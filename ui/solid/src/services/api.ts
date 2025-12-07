@@ -22,8 +22,26 @@ export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Prom
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      const contentType = response.headers.get('content-type');
       const error = await response.text();
+      
+      // Check if response is HTML (error page) instead of JSON
+      if (contentType && contentType.includes('text/html')) {
+        throw new Error(`API endpoint not found (${response.status}). The server returned an HTML error page. Check that the endpoint exists.`);
+      }
+      
       throw new Error(error || `API error: ${response.status}`);
+    }
+
+    // Check content type before parsing JSON
+    const contentType = response.headers.get('content-type');
+    if (contentType && !contentType.includes('application/json')) {
+      const text = await response.text();
+      // If it's HTML, provide a helpful error
+      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<!doctype')) {
+        throw new Error(`Server returned HTML instead of JSON. This usually means the API endpoint doesn't exist (404). Response: ${text.substring(0, 200)}...`);
+      }
+      throw new Error(`Unexpected content type: ${contentType}. Expected JSON.`);
     }
 
     return response.json();

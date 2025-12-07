@@ -20,7 +20,10 @@ import (
 func (ws *WebServer) handleMLflowStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	status, err := ws.app.DetectMLflow(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	status, err := ws.app.DetectMLflow(ctx)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"installed": false,

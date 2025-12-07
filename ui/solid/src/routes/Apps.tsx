@@ -5,6 +5,7 @@ import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import { addDeployment, updateDeploymentTask } from '../components/DeploymentProgress';
 import MLflowInstallWizard from '../features/mlflow/MLflowInstallWizard';
+import FeastInstallWizard from '../features/feast/FeastInstallWizard';
 
 interface InstalledInstance {
   namespace: string;
@@ -210,6 +211,16 @@ const defaultApps: App[] = [
     chartRepo: 'https://community-charts.github.io/helm-charts',
     chartName: 'mlflow',
   },
+  {
+    name: 'feast',
+    displayName: 'Feast Feature Store',
+    description: 'Open source feature store for machine learning. Store, manage, and serve features for training and inference',
+    category: 'ML Apps',
+    icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10',
+    version: '0.38.0',
+    chartRepo: 'https://feast-charts.storage.googleapis.com',
+    chartName: 'feast',
+  },
   // Local Cluster Installers
   {
     name: 'k3d',
@@ -263,6 +274,7 @@ const Apps: Component<AppsProps> = (props) => {
   const [selectedApp, setSelectedApp] = createSignal<App | null>(null);
   const [showInstallModal, setShowInstallModal] = createSignal(false);
   const [showMLflowWizard, setShowMLflowWizard] = createSignal(false);
+  const [showFeastWizard, setShowFeastWizard] = createSignal(false);
   const [installNamespace, setInstallNamespace] = createSignal('default');
   const [clusterName, setClusterName] = createSignal('kubegraf-cluster'); // For local clusters
   const [installing, setInstalling] = createSignal(false);
@@ -805,6 +817,8 @@ const Apps: Component<AppsProps> = (props) => {
                             setSelectedApp(app);
                             if (app.name === 'mlflow') {
                               setShowMLflowWizard(true);
+                            } else if (app.name === 'feast') {
+                              setShowFeastWizard(true);
                             } else {
                               setShowInstallModal(true);
                             }
@@ -1354,6 +1368,20 @@ const Apps: Component<AppsProps> = (props) => {
           onSuccess={() => {
             refetchInstalled();
             addNotification('MLflow installation started', 'success');
+          }}
+        />
+      </Show>
+
+      {/* Feast Installation Wizard */}
+      <Show when={showFeastWizard()}>
+        <FeastInstallWizard
+          onClose={() => {
+            setShowFeastWizard(false);
+            setSelectedApp(null);
+          }}
+          onSuccess={() => {
+            refetchInstalled();
+            addNotification('Feast installation started', 'success');
           }}
         />
       </Show>
