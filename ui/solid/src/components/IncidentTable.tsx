@@ -29,7 +29,8 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
   };
 
   const getSeverityColor = (severity: string): string => {
-    return severity === 'critical' ? '#ef4444' : '#f59e0b';
+    // Use theme error/warning colors
+    return severity === 'critical' ? 'var(--error-color)' : 'var(--warning-color)';
   };
 
   const formatDate = (dateString: string): string => {
@@ -48,49 +49,57 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
   };
 
   return (
-    <div class="w-full overflow-x-auto" style={{ background: '#000000', border: '1px solid #333333', 'border-radius': '4px' }}>
+    <div class="w-full overflow-x-auto rounded border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
       <table class="w-full" style={{ 'border-collapse': 'collapse' }}>
         <thead>
           <tr style={{ 
-            background: '#161b22', 
-            'border-bottom': '1px solid #333333',
+            background: 'var(--bg-secondary)', 
+            'border-bottom': '1px solid var(--border-color)',
             height: '40px'
           }}>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Type</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Resource</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Namespace</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Severity</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>First Seen</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Last Seen</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Count</th>
-            <th style={{ padding: '8px 12px', 'text-align': 'left', color: '#0ea5e9', 'font-weight': '900' }}>Actions</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Type</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Resource</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Namespace</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Severity</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>First Seen</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Last Seen</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Count</th>
+            <th style={{ padding: '8px 12px', 'text-align': 'left', color: 'var(--accent-primary)', 'font-weight': '900' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           <For each={props.incidents} fallback={
             <tr>
-              <td colspan="8" style={{ padding: '24px', 'text-align': 'center', color: '#8b949e' }}>
+              <td colspan="8" style={{ padding: '24px', 'text-align': 'center', color: 'var(--text-muted)' }}>
                 No incidents found
               </td>
             </tr>
           }>
             {(incident) => (
-              <tr style={{ 
-                'border-bottom': '1px solid #333333',
-                height: '48px',
-                '&:hover': { background: '#161b22' }
-              }}>
-                <td style={{ padding: '8px 12px', color: '#0ea5e9' }}>
+              <tr 
+                style={{ 
+                  'border-bottom': '1px solid var(--border-color)',
+                  height: '48px',
+                  background: 'var(--bg-card)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-secondary)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-card)';
+                }}
+              >
+                <td style={{ padding: '8px 12px', color: 'var(--text-primary)' }}>
                   <span style={{ 'margin-right': '8px' }}>{getTypeIcon(incident.type)}</span>
                   <span style={{ 'text-transform': 'capitalize' }}>{incident.type.replace(/_/g, ' ')}</span>
                 </td>
-                <td style={{ padding: '8px 12px', color: '#0ea5e9' }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-primary)' }}>
                   <div>
                     <div style={{ 'font-weight': '600' }}>{incident.resourceName}</div>
-                    <div style={{ 'font-size': '12px', color: '#8b949e' }}>{incident.resourceKind}</div>
+                    <div style={{ 'font-size': '12px', color: 'var(--text-secondary)' }}>{incident.resourceKind}</div>
                   </div>
                 </td>
-                <td style={{ padding: '8px 12px', color: '#0ea5e9' }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-primary)' }}>
                   {incident.namespace || '-'}
                 </td>
                 <td style={{ padding: '8px 12px' }}>
@@ -105,13 +114,13 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                     {incident.severity.toUpperCase()}
                   </span>
                 </td>
-                <td style={{ padding: '8px 12px', color: '#8b949e', 'font-size': '13px' }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)', 'font-size': '13px' }}>
                   {formatDate(incident.firstSeen)}
                 </td>
-                <td style={{ padding: '8px 12px', color: '#8b949e', 'font-size': '13px' }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)', 'font-size': '13px' }}>
                   {formatDate(incident.lastSeen)}
                 </td>
-                <td style={{ padding: '8px 12px', color: '#0ea5e9', 'font-weight': '600' }}>
+                <td style={{ padding: '8px 12px', color: 'var(--accent-primary)', 'font-weight': '600' }}>
                   {incident.count}
                 </td>
                 <td style={{ padding: '8px 12px' }}>
