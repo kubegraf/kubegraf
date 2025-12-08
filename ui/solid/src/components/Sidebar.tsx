@@ -190,12 +190,12 @@ const Sidebar: Component = () => {
     // Apply search filter
     if (query) {
       sections = sections.map(section => ({
-        ...section,
-        items: section.items.filter(item =>
-          item.label.toLowerCase().includes(query) ||
-          section.title.toLowerCase().includes(query)
-        )
-      })).filter(section => section.items.length > 0);
+      ...section,
+      items: section.items.filter(item =>
+        item.label.toLowerCase().includes(query) ||
+        section.title.toLowerCase().includes(query)
+      )
+    })).filter(section => section.items.length > 0);
     }
 
     return sections;

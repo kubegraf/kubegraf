@@ -28,46 +28,46 @@ import (
 // information from the calling package (typically main package)
 func HandleUpdateCheck(getVersion func() string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
 		currentVersion := getVersion()
-		info, err := update.CheckGitHubLatestRelease(currentVersion)
-		if err != nil {
-			// Check if it's a rate limit error
-			if err.Error() == "GitHub API rate limit exceeded (HTTP 429)" {
-				w.WriteHeader(http.StatusTooManyRequests)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"currentVersion":  currentVersion,
-					"latestVersion":   currentVersion,
-					"updateAvailable": false,
-					"error":           "GitHub API rate limit exceeded. Please try again later.",
-				})
-				return
-			}
-
-			// Return cached result if available
-			cached := update.CacheLatestRelease()
-			if cached != nil {
-				json.NewEncoder(w).Encode(cached)
-				return
-			}
-
-			// Return error response
+	info, err := update.CheckGitHubLatestRelease(currentVersion)
+	if err != nil {
+		// Check if it's a rate limit error
+		if err.Error() == "GitHub API rate limit exceeded (HTTP 429)" {
+			w.WriteHeader(http.StatusTooManyRequests)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"currentVersion":  currentVersion,
 				"latestVersion":   currentVersion,
 				"updateAvailable": false,
-				"error":           err.Error(),
+				"error":           "GitHub API rate limit exceeded. Please try again later.",
 			})
 			return
 		}
 
-		json.NewEncoder(w).Encode(info)
+		// Return cached result if available
+		cached := update.CacheLatestRelease()
+		if cached != nil {
+			json.NewEncoder(w).Encode(cached)
+			return
+		}
+
+		// Return error response
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"currentVersion":  currentVersion,
+			"latestVersion":   currentVersion,
+			"updateAvailable": false,
+			"error":           err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(info)
 	}
 }
 
@@ -77,40 +77,40 @@ func HandleUpdateCheck(getVersion func() string) http.HandlerFunc {
 // information from the calling package (typically main package)
 func HandleUpdateAutoCheck(getVersion func() string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
 		currentVersion := getVersion()
+	
+	// Try to get cached result first (fast path)
+	cached := update.CacheLatestRelease()
+	if cached != nil && update.GetCacheAge() < 4*time.Hour {
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
 
-		// Try to get cached result first (fast path)
-		cached := update.CacheLatestRelease()
-		if cached != nil && update.GetCacheAge() < 4*time.Hour {
+	// If cache is stale or missing, check GitHub (but don't block)
+	info, err := update.CheckGitHubLatestRelease(currentVersion)
+	if err != nil {
+		// Return cached result even if stale, or return current version info
+		if cached != nil {
 			json.NewEncoder(w).Encode(cached)
 			return
 		}
 
-		// If cache is stale or missing, check GitHub (but don't block)
-		info, err := update.CheckGitHubLatestRelease(currentVersion)
-		if err != nil {
-			// Return cached result even if stale, or return current version info
-			if cached != nil {
-				json.NewEncoder(w).Encode(cached)
-				return
-			}
-
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"currentVersion":  currentVersion,
-				"latestVersion":   currentVersion,
-				"updateAvailable": false,
-				"error":           err.Error(),
-			})
-			return
-		}
-
-		json.NewEncoder(w).Encode(info)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"currentVersion":  currentVersion,
+			"latestVersion":   currentVersion,
+			"updateAvailable": false,
+			"error":           err.Error(),
+		})
+		return
 	}
+
+	json.NewEncoder(w).Encode(info)
+}
 }

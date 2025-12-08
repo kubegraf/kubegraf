@@ -54,6 +54,7 @@ import (
 	"github.com/kubegraf/kubegraf/mcp/server"
 	"github.com/kubegraf/kubegraf/internal/cache"
 	"github.com/kubegraf/kubegraf/internal/database"
+	"github.com/kubegraf/kubegraf/internal/aiagents"
 )
 
 var (
@@ -241,6 +242,11 @@ func NewWebServer(app *App) *WebServer {
 		ws.iam = NewIAM(ws.db, iamEnabled)
 	}
 	
+	// Initialize AI agents and discover available agents
+	ctx := context.Background()
+	registry := aiagents.GetRegistry()
+	aiagents.DiscoverAgents(ctx, registry)
+	
 	return ws
 }
 
@@ -304,6 +310,14 @@ func (ws *WebServer) Start(port int) error {
 
 	// Impact analysis endpoint
 	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)
+
+	// AI Agent endpoints
+	http.HandleFunc("/api/ai/agents", ws.handleListAgents)
+	http.HandleFunc("/api/ai/agents/get", ws.handleGetAgent)
+	http.HandleFunc("/api/ai/agents/query", ws.handleAgentQuery)
+	http.HandleFunc("/api/ai/agents/register", ws.handleRegisterAgent)
+	http.HandleFunc("/api/ai/agents/health", ws.handleAgentHealthCheck)
+	http.HandleFunc("/api/ai/agents/discover", ws.handleDiscoverAgents)
 
 	// Operations endpoints
 	http.HandleFunc("/api/pod/details", ws.handlePodDetails)
