@@ -11,6 +11,7 @@ import {
   setGlobalLoading,
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
+import { getRowHoverBackground } from '../utils/rowHoverStyles';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -930,19 +931,10 @@ const Pods: Component = () => {
                       return '#0ea5e9'; // Sky blue for default/running
                     };
 
-                    // Background color only on hover
+                    // Background color only on hover - theme-aware
                     const getRowBackground = () => {
                       if (!isHovered()) return 'transparent';
-                      if (isSelected()) {
-                        return '#1f2937';
-                      }
-                      if (isFailed) {
-                        return 'rgba(239, 68, 68, 0.15)';
-                      }
-                      if (isPending) {
-                        return 'rgba(245, 158, 11, 0.15)';
-                      }
-                      return 'rgba(14, 165, 233, 0.1)';
+                      return getRowHoverBackground(isSelected(), isFailed, isPending);
                     };
 
                     const textColor = getTextColor();
