@@ -6,6 +6,7 @@ import UpdateBanner from './components/UpdateNotification';
 import { setUpdateInfo } from './stores/globalStore';
 import { api } from './services/api';
 import Dashboard from './routes/Dashboard';
+import Topology from './routes/Topology';
 import Pods from './routes/Pods';
 import Deployments from './routes/Deployments';
 import StatefulSets from './routes/StatefulSets';
@@ -45,6 +46,8 @@ import RBAC from './routes/RBAC';
 import NetworkPolicies from './routes/NetworkPolicies';
 import UserManagement from './routes/UserManagement';
 import Terminal from './routes/Terminal';
+import AutoFix from './routes/AutoFix';
+import AIAssistant from './routes/AIAssistant';
 import DeploymentProgress from './components/DeploymentProgress';
 import DockedTerminal from './components/DockedTerminal';
 import UIDemo from './components/UIDemo';
@@ -131,57 +134,67 @@ import { wsService } from './services/websocket';
 import { createSignal, createResource } from 'solid-js';
 
 const views: Record<string, Component> = {
+  // Overview
   dashboard: Dashboard,
+  topology: Topology,
+  monitoredevents: MonitoredEvents,
+  // Insights
+  incidents: Incidents,
+  anomalies: Anomalies,
+  security: Security,
+  cost: Cost,
+  drift: Drift,
+  // Workloads
   pods: Pods,
   deployments: Deployments,
   statefulsets: StatefulSets,
   daemonsets: DaemonSets,
-  cronjobs: CronJobs,
   jobs: Jobs,
+  cronjobs: CronJobs,
+  // Networking
   services: Services,
   ingresses: Ingresses,
+  networkpolicies: NetworkPolicies,
+  // Config & Storage
   configmaps: ConfigMaps,
   secrets: Secrets,
   certificates: Certificates,
+  storage: Storage,
+  // Platform
   nodes: Nodes,
+  rbac: RBAC,
+  usermanagement: UserManagement,
   resourcemap: ResourceMap,
-  security: Security,
-  plugins: Plugins,
-  cost: Cost,
-  drift: Drift,
-  events: Events,
-  monitoredevents: MonitoredEvents,
-  logs: Logs,
-  anomalies: Anomalies,
-  incidents: Incidents,
   connectors: Connectors,
-  aiagents: AIAgents,
+  plugins: Plugins,
+  terminal: Terminal,
+  settings: Settings,
+  // Intelligence
+  ai: AIAssistant,
+  autofix: AutoFix,
   sreagent: SREAgent,
-  kiali: Kiali,
-  mlflow: MLflow,
+  aiagents: AIAgents,
+  // ML (conditional)
   trainingjobs: TrainingJobs,
   inferenceservices: InferenceServices,
+  mlflow: MLflow,
   feast: Feast,
   gpudashboard: GPUDashboard,
+  // Legacy/Additional views (kept for backward compatibility)
+  events: Events,
+  logs: Logs,
   apps: Marketplace,
   customapps: CustomApps,
   clustermanager: ClusterManager,
-  settings: Settings,
-  // Placeholder views for new menu items
+  kiali: Kiali,
   deployapp: DeployApp,
   releases: Releases,
   rollouts: Rollouts,
-  storage: Storage,
-  rbac: RBAC,
-  networkpolicies: NetworkPolicies,
-  usermanagement: UserManagement,
-  terminal: Terminal,
-  // UI Demo
   uidemo: UIDemo,
 };
 
 const App: Component = () => {
-  const [connectionStatus] = createResource(api.getStatus);
+  const [connectionStatus, { refetch: refetchStatus }] = createResource(api.getStatus);
   const [wsConnected, setWsConnected] = createSignal(false);
 
   onMount(() => {
@@ -331,7 +344,7 @@ const App: Component = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        location.reload();
+                        refetchStatus();
                       }}
                       class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 flex items-center justify-center gap-2"
                       style={{ background: 'var(--accent-primary)', color: '#000' }}

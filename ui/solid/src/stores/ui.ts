@@ -2,6 +2,7 @@ import { createSignal } from 'solid-js';
 
 export type View =
   | 'dashboard'
+  | 'topology'
   | 'pods'
   | 'deployments'
   | 'statefulsets'
@@ -17,10 +18,12 @@ export type View =
   | 'resourcemap'
   | 'security'
   | 'anomalies'
+  | 'incidents'
   | 'plugins'
   | 'cost'
   | 'drift'
   | 'ai'
+  | 'autofix'
   | 'events'
   | 'monitoredevents'
   | 'logs'
@@ -43,6 +46,7 @@ export type View =
   | 'trainingjobs'
   | 'trainingjobdetails'
   | 'inferenceservices'
+  | 'mlflow'
   | 'feast'
   | 'gpudashboard';
 

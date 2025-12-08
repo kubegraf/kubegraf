@@ -1097,6 +1097,32 @@ export const api = {
     fetchAPI<{ success: boolean; status: ClusterManagerStatus }>('/clusters/disconnect', {
       method: 'POST',
     }),
+
+  // ============ AutoFix Engine ============
+  getAutoFixRules: async () => {
+    const data = await fetchAPI<{ rules: AutoFixRule[] }>('/autofix/rules');
+    return data.rules || [];
+  },
+  toggleAutoFixRule: async (ruleId: string, enabled: boolean, settings?: AutoFixRuleSettings) => {
+    return fetchAPI<{ success: boolean; rule: AutoFixRule }>('/autofix/rules/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ ruleId, enabled, settings }),
+    });
+  },
+  getAutoFixActions: async () => {
+    const data = await fetchAPI<{ actions: AutoFixAction[] }>('/autofix/actions');
+    return data.actions || [];
+  },
+  getAutoFixEnabled: async () => {
+    const data = await fetchAPI<{ enabled: boolean }>('/autofix/enabled');
+    return data.enabled;
+  },
+  setAutoFixEnabled: async (enabled: boolean) => {
+    return fetchAPI<{ success: boolean; enabled: boolean }>('/autofix/enabled', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  },
 };
 
 interface Connector {
@@ -1124,4 +1150,30 @@ export interface Incident {
   message?: string;
 }
 
-export default api;
+// ============ AutoFix Engine ============
+export interface AutoFixRuleSettings {
+  additionalReplicas?: number; // For HPA Max: number of additional replicas to add
+  memoryIncreaseMiB?: number; // For OOM: memory to add in MiB
+  maxReplicasLimit?: number; // Maximum replicas limit (0 = no limit)
+}
+
+export interface AutoFixRule {
+  id: string;
+  name: string;
+  type: 'oom' | 'hpa_max' | 'security' | 'drift';
+  enabled: boolean;
+  description: string;
+  lastTriggered?: string;
+  triggerCount: number;
+  settings?: AutoFixRuleSettings;
+}
+
+export interface AutoFixAction {
+  id: string;
+  timestamp: string;
+  type: string;
+  resource: string;
+  namespace: string;
+  status: 'success' | 'failed' | 'pending';
+  message: string;
+}
