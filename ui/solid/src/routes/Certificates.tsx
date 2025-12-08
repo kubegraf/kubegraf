@@ -7,6 +7,7 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { getTableCellStyle, STANDARD_TEXT_COLOR } from '../utils/tableCellStyles';
 
 interface Certificate {
   name: string;
@@ -34,6 +35,19 @@ const Certificates: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('certificates-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('certificates-font-family') || 'Monaco');
+
+  const getFontFamilyCSS = (family: string): string => {
+    switch (family) {
+      case 'Monospace': return 'monospace';
+      case 'System-ui': return 'system-ui';
+      case 'Monaco': return 'Monaco, monospace';
+      case 'Consolas': return 'Consolas, monospace';
+      case 'Courier': return '"Courier New", monospace';
+      default: return 'Monaco, monospace';
+    }
+  };
 
   const [certificates, { refetch }] = createResource(namespace, api.getCertificates);
   const [yamlContent] = createResource(
@@ -235,7 +249,7 @@ const Certificates: Component = () => {
       </div>
 
       {/* Certificates table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
           when={!certificates.loading}
           fallback={
@@ -246,7 +260,12 @@ const Certificates: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+              <style>{`
+                table { width: 100%; border-collapse: collapse; }
+                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
+                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+              `}</style>
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
@@ -271,9 +290,11 @@ const Certificates: Component = () => {
                 <For each={paginatedCertificates()} fallback={
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No certificates found. Make sure cert-manager is installed.</td></tr>
                 }>
-                  {(cert: Certificate) => (
+                  {(cert: Certificate) => {
+                    const textColor = STANDARD_TEXT_COLOR;
+                    return (
                     <tr>
-                      <td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>
                         <button
                           onClick={() => { setSelected(cert); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -282,21 +303,27 @@ const Certificates: Component = () => {
                           {cert.name.length > 40 ? cert.name.slice(0, 37) + '...' : cert.name}
                         </button>
                       </td>
-                      <td>{cert.namespace}</td>
-                      <td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>{cert.namespace}</td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>
                         <code class="px-2 py-1 rounded text-xs" style={{ background: 'var(--bg-tertiary)' }}>
                           {cert.secretName || '-'}
                         </code>
                       </td>
-                      <td>{cert.issuer || '-'}</td>
-                      <td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>{cert.issuer || '-'}</td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>
                         <span class={`badge ${getStatusBadgeClass(cert.status)}`}>
                           {cert.status}
                         </span>
                       </td>
-                      <td>{cert.notAfter || '-'}</td>
-                      <td>{cert.age}</td>
-                      <td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>{cert.notAfter || '-'}</td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>{cert.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(cert); setShowYaml(true); } },
@@ -306,7 +333,8 @@ const Certificates: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
