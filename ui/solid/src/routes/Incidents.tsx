@@ -86,7 +86,7 @@ const Incidents: Component = () => {
           class="px-4 py-2 rounded-lg text-sm font-medium"
           style={{ 
             background: 'var(--accent-primary)', 
-            color: '#fff' 
+            color: '#000' 
           }}
         >
           Refresh
@@ -95,21 +95,21 @@ const Incidents: Component = () => {
 
       {/* Summary Cards */}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div class="card p-4" style={{ 'border-left': '4px solid #ef4444' }}>
+        <div class="card p-4" style={{ 'border-left': '4px solid var(--error-color)' }}>
           <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#ef4444' }}>
+          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--error-color)' }}>
             {criticalCount()}
           </div>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #f59e0b' }}>
+        <div class="card p-4" style={{ 'border-left': '4px solid var(--warning-color)' }}>
           <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Warnings</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#f59e0b' }}>
+          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--warning-color)' }}>
             {warningCount()}
           </div>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #0ea5e9' }}>
+        <div class="card p-4" style={{ 'border-left': '4px solid var(--accent-primary)' }}>
           <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Total</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#0ea5e9' }}>
+          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--accent-primary)' }}>
             {filteredIncidents().length}
           </div>
         </div>

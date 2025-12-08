@@ -92,24 +92,26 @@ const Nodes: Component = () => {
           const isReady = node.status === 'Ready';
           const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
           return (
-            <div class={`bg-k8s-card border rounded-xl p-6 card-hover ${
-              isReady ? 'border-k8s-border' : 'border-red-500/30'
-            }`}>
+            <div class="border rounded-xl p-6 card-hover" style={{ 
+              background: 'var(--bg-card)', 
+              'border-color': isReady ? 'var(--border-color)' : 'rgba(239, 68, 68, 0.3)'
+            }}>
               <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
-                  <div class={`p-2 rounded-lg ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
-                    <svg class={`w-6 h-6 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div class={`p-2 rounded-lg ${isControlPlane ? 'bg-cyan-500/20' : ''}`} style={!isControlPlane ? { background: 'var(--bg-secondary)' } : {}}>
+                    <svg class={`w-6 h-6 ${isControlPlane ? 'text-cyan-400' : ''}`} style={!isControlPlane ? { color: 'var(--text-secondary)' } : {}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                     </svg>
                   </div>
                   <div>
                     <button
                       onClick={() => { setSelected(node); setShowDescribe(true); }}
-                      class="text-white font-semibold hover:underline text-left"
+                      class="font-semibold hover:underline text-left"
+                      style={{ color: 'var(--text-primary)' }}
                     >
                       {node.name}
                     </button>
-                    <p class="text-gray-500 text-sm">{node.roles || 'worker'}</p>
+                    <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>{node.roles || 'worker'}</p>
                   </div>
                 </div>
                 <span class={`px-2 py-1 rounded text-xs font-medium ${
@@ -120,28 +122,28 @@ const Nodes: Component = () => {
               </div>
 
               <div class="grid grid-cols-2 gap-4 mb-4">
-                <div class="bg-k8s-dark rounded-lg p-3">
+                <div class="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
                   <div class="flex items-center justify-between mb-2">
-                    <span class="text-gray-400 text-sm">CPU</span>
-                    <span class="text-white font-medium">{node.cpu || 'N/A'}</span>
+                    <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>CPU</span>
+                    <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{node.cpu || 'N/A'}</span>
                   </div>
-                  <div class="h-2 bg-k8s-border rounded-full overflow-hidden">
-                    <div class="h-full bg-blue-500 rounded-full" style={{ width: '45%' }}></div>
+                  <div class="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
+                    <div class="h-full rounded-full" style={{ width: '45%', background: 'var(--accent-primary)' }}></div>
                   </div>
                 </div>
 
-                <div class="bg-k8s-dark rounded-lg p-3">
+                <div class="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
                   <div class="flex items-center justify-between mb-2">
-                    <span class="text-gray-400 text-sm">Memory</span>
-                    <span class="text-white font-medium">{node.memory || 'N/A'}</span>
+                    <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Memory</span>
+                    <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{node.memory || 'N/A'}</span>
                   </div>
-                  <div class="h-2 bg-k8s-border rounded-full overflow-hidden">
-                    <div class="h-full bg-purple-500 rounded-full" style={{ width: '60%' }}></div>
+                  <div class="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
+                    <div class="h-full rounded-full" style={{ width: '60%', background: 'var(--accent-secondary)' }}></div>
                   </div>
                 </div>
               </div>
 
-              <div class="flex items-center justify-between text-sm text-gray-400 pt-4 border-t border-k8s-border">
+              <div class="flex items-center justify-between text-sm pt-4 border-t" style={{ color: 'var(--text-secondary)', 'border-color': 'var(--border-color)' }}>
                 <span>Version: {node.version}</span>
                 <span>Age: {node.age}</span>
               </div>
@@ -296,13 +298,15 @@ const Nodes: Component = () => {
           return (
             <button
               onClick={() => { setSelected(node); setShowDescribe(true); }}
-              class={`bg-k8s-card border rounded-lg p-4 text-left hover:bg-k8s-dark transition-colors ${
-                isReady ? 'border-k8s-border' : 'border-red-500/30'
-              }`}
+              class="border rounded-lg p-4 text-left transition-colors hover:opacity-80"
+              style={{ 
+                background: 'var(--bg-card)', 
+                'border-color': isReady ? 'var(--border-color)' : 'rgba(239, 68, 68, 0.3)'
+              }}
             >
               <div class="flex items-center gap-2 mb-2">
-                <div class={`p-1.5 rounded ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
-                  <svg class={`w-4 h-4 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class={`p-1.5 rounded ${isControlPlane ? 'bg-cyan-500/20' : ''}`} style={!isControlPlane ? { background: 'var(--bg-secondary)' } : {}}>
+                  <svg class={`w-4 h-4 ${isControlPlane ? 'text-cyan-400' : ''}`} style={!isControlPlane ? { color: 'var(--text-secondary)' } : {}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                   </svg>
                 </div>
@@ -312,18 +316,18 @@ const Nodes: Component = () => {
                   {node.status}
                 </span>
               </div>
-              <h4 class="text-white font-medium text-sm truncate mb-1" title={node.name}>
+              <h4 class="font-medium text-sm truncate mb-1" style={{ color: 'var(--text-primary)' }} title={node.name}>
                 {node.name}
               </h4>
-              <p class="text-gray-500 text-xs truncate">{node.roles || 'worker'}</p>
-              <div class="mt-2 pt-2 border-t border-k8s-border">
+              <p class="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{node.roles || 'worker'}</p>
+              <div class="mt-2 pt-2 border-t" style={{ 'border-color': 'var(--border-color)' }}>
                 <div class="flex justify-between text-xs">
-                  <span class="text-gray-500">CPU</span>
-                  <span class="text-gray-300">{node.cpu || 'N/A'}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>CPU</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{node.cpu || 'N/A'}</span>
                 </div>
                 <div class="flex justify-between text-xs mt-1">
-                  <span class="text-gray-500">Mem</span>
-                  <span class="text-gray-300">{node.memory || 'N/A'}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Mem</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{node.memory || 'N/A'}</span>
                 </div>
               </div>
             </button>
