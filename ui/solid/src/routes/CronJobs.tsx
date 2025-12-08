@@ -1,7 +1,12 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedNamespaces,
+  globalLoading,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -55,7 +60,37 @@ const CronJobs: Component = () => {
     localStorage.setItem('cronjobs-font-family', family);
   };
 
-  const [cronjobs, { refetch }] = createResource(namespace, api.getCronJobs);
+  // Determine namespace parameter from global store
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache
+  const cronjobsCache = createCachedResource<CronJob[]>(
+    'cronjobs',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const cronjobs = await api.getCronJobs(namespaceParam);
+        return cronjobs;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  const cronjobs = createMemo(() => cronjobsCache.data() || []);
+  const refetch = () => cronjobsCache.refetch();
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
@@ -297,7 +332,7 @@ const CronJobs: Component = () => {
       {/* CronJobs table */}
       <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
-          when={!cronjobs.loading}
+          when={!cronjobsCache.loading() || cronjobsCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
