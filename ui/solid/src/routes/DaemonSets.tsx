@@ -2,6 +2,7 @@ import { Component, For, Show, createMemo, createSignal, createResource } from '
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -286,7 +287,7 @@ const DaemonSets: Component = () => {
       </div>
 
       {/* DaemonSets table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
+      <div class="w-full" style={{ background: getThemeBackground(), margin: '0', padding: '0', border: `1px solid ${getThemeBorderColor()}`, 'border-radius': '4px' }}>
         <Show
           when={!daemonsets.loading}
           fallback={
@@ -296,13 +297,19 @@ const DaemonSets: Component = () => {
             </div>
           }
         >
-          <div class="overflow-x-auto">
-            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
-              <style>{`
-                table { width: 100%; border-collapse: collapse; }
-                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
-                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
-              `}</style>
+          <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+            <table
+              class="w-full"
+              style={{
+                width: '100%',
+                'table-layout': 'auto',
+                'font-family': getFontFamilyCSS(fontFamily()),
+                background: getThemeBackground(),
+                'border-collapse': 'collapse',
+                margin: '0',
+                padding: '0'
+              }}
+            >
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
