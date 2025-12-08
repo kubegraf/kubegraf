@@ -49,9 +49,16 @@ func main() {
 			return
 		case "--web", "web":
 			webMode = true
-			// Check for custom port
-			if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "--port=") {
-				fmt.Sscanf(os.Args[2], "--port=%d", &port)
+			// Check for custom port - support both --port=3003 and --port 3003 formats
+			for i := 2; i < len(os.Args); i++ {
+				arg := os.Args[i]
+				if strings.HasPrefix(arg, "--port=") {
+					fmt.Sscanf(arg, "--port=%d", &port)
+					break
+				} else if arg == "--port" && i+1 < len(os.Args) {
+					fmt.Sscanf(os.Args[i+1], "%d", &port)
+					break
+				}
 			}
 		}
 	}

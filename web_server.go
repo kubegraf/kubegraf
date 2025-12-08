@@ -451,6 +451,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/gpu/metrics", ws.handleGPUMetrics)
 	http.HandleFunc("/api/gpu/install", ws.handleGPUInstall)
 
+	// Initialize AutoFix rules
+	initAutoFixRules()
+
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 

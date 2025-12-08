@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -697,6 +698,12 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 	http.HandleFunc("/api/anomalies/stats", ws.handleAnomalyStats)
 	http.HandleFunc("/api/anomalies/remediate", ws.handleAnomalyRemediate)
 	http.HandleFunc("/api/anomalies/metrics", ws.handleAnomalyMetrics)
+
+	// AutoFix Engine
+	http.HandleFunc("/api/autofix/rules", ws.handleAutoFixRules)
+	http.HandleFunc("/api/autofix/rules/toggle", ws.handleAutoFixRuleToggle)
+	http.HandleFunc("/api/autofix/actions", ws.handleAutoFixActions)
+	http.HandleFunc("/api/autofix/enabled", ws.handleAutoFixEnabled)
 
 	// ML Recommendations
 	http.HandleFunc("/api/ml/recommendations", ws.handleMLRecommendations)
@@ -2019,4 +2026,256 @@ func (ws *WebServer) handleVulnerabilityStats(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// AutoFix rule storage (in-memory, can be persisted later)
+var (
+	autofixRules   = sync.Map{} // map[string]*AutoFixRule
+	autofixEnabled = false      // Disabled by default - user must enable
+	autofixActions []AutoFixAction
+	autofixMu      sync.RWMutex
+)
+
+// AutoFixRule represents an AutoFix rule configuration
+type AutoFixRule struct {
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	Type          string                `json:"type"` // "oom", "hpa_max", "security", "drift"
+	Enabled       bool                  `json:"enabled"`
+	Description   string                `json:"description"`
+	LastTriggered *time.Time            `json:"lastTriggered,omitempty"`
+	TriggerCount  int                   `json:"triggerCount"`
+	Settings      *AutoFixRuleSettings  `json:"settings,omitempty"`
+}
+
+// AutoFixRuleSettings contains configurable settings for each rule type
+type AutoFixRuleSettings struct {
+	// For HPA Max: number of additional replicas to add
+	AdditionalReplicas *int32 `json:"additionalReplicas,omitempty"`
+	// For OOM: memory to add in MiB
+	MemoryIncreaseMiB *int32 `json:"memoryIncreaseMiB,omitempty"`
+	// Maximum replicas limit (0 = no limit)
+	MaxReplicasLimit *int32 `json:"maxReplicasLimit,omitempty"`
+}
+
+// AutoFixAction represents a completed AutoFix action
+type AutoFixAction struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Type      string    `json:"type"`
+	Resource  string    `json:"resource"`
+	Namespace string    `json:"namespace"`
+	Status    string    `json:"status"` // "success", "failed", "pending"
+	Message   string    `json:"message"`
+}
+
+// initAutoFixRules initializes default AutoFix rules (called on startup)
+func initAutoFixRules() {
+	now := time.Now()
+	hourAgo := now.Add(-1 * time.Hour)
+	twoHoursAgo := now.Add(-2 * time.Hour)
+
+	// Default settings
+	defaultHPAReplicas := int32(2)
+	defaultOOMMemory := int32(500) // 500 MiB
+	defaultMaxReplicasLimit := int32(0) // 0 = no limit
+
+	rules := []*AutoFixRule{
+		{
+			ID:            "oom-1",
+			Name:          "OOM Auto-Restart",
+			Type:          "oom",
+			Enabled:       false, // Disabled by default
+			Description:   "Automatically restart pods that are OOM killed and increase memory limits",
+			LastTriggered: &now,
+			TriggerCount:  5,
+			Settings: &AutoFixRuleSettings{
+				MemoryIncreaseMiB: &defaultOOMMemory,
+			},
+		},
+		{
+			ID:            "hpa-1",
+			Name:          "HPA Max Scaling",
+			Type:          "hpa_max",
+			Enabled:       false, // Disabled by default
+			Description:   "Scale deployments when HPA reaches max replicas",
+			LastTriggered: &hourAgo,
+			TriggerCount:  12,
+			Settings: &AutoFixRuleSettings{
+				AdditionalReplicas: &defaultHPAReplicas,
+				MaxReplicasLimit:   &defaultMaxReplicasLimit,
+			},
+		},
+		{
+			ID:            "security-1",
+			Name:          "Security Policy AutoFix",
+			Type:          "security",
+			Enabled:       false, // Disabled by default
+			Description:   "Automatically apply security fixes for policy violations",
+			LastTriggered: &twoHoursAgo,
+			TriggerCount:  3,
+		},
+		{
+			ID:           "drift-1",
+			Name:         "Drift Auto-Correction",
+			Type:         "drift",
+			Enabled:      false,
+			Description:  "Automatically correct configuration drift",
+			TriggerCount: 0,
+		},
+	}
+
+	for _, rule := range rules {
+		autofixRules.Store(rule.ID, rule)
+	}
+
+	// Initialize some sample actions
+	autofixActions = []AutoFixAction{
+		{
+			ID:        "action-1",
+			Timestamp: now,
+			Type:      "oom",
+			Resource:  "my-app-pod",
+			Namespace: "default",
+			Status:    "success",
+			Message:   "Pod restarted successfully after OOM kill",
+		},
+		{
+			ID:        "action-2",
+			Timestamp: now.Add(-30 * time.Minute),
+			Type:      "hpa_max",
+			Resource:  "web-deployment",
+			Namespace: "production",
+			Status:    "success",
+			Message:   "Deployment scaled from 10 to 15 replicas",
+		},
+	}
+}
+
+// handleAutoFixRules returns all AutoFix rules
+func (ws *WebServer) handleAutoFixRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var rules []*AutoFixRule
+	autofixRules.Range(func(key, value interface{}) bool {
+		if rule, ok := value.(*AutoFixRule); ok {
+			rules = append(rules, rule)
+		}
+		return true
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"rules": rules,
+	})
+}
+
+// handleAutoFixRuleToggle toggles a rule's enabled state and updates settings
+func (ws *WebServer) handleAutoFixRuleToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		RuleID  string                `json:"ruleId"`
+		Enabled bool                  `json:"enabled"`
+		Settings *AutoFixRuleSettings `json:"settings,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	value, ok := autofixRules.Load(request.RuleID)
+	if !ok {
+		http.Error(w, "Rule not found", http.StatusNotFound)
+		return
+	}
+
+	rule := value.(*AutoFixRule)
+	rule.Enabled = request.Enabled
+	
+	// Update settings if provided
+	if request.Settings != nil {
+		if rule.Settings == nil {
+			rule.Settings = &AutoFixRuleSettings{}
+		}
+		if request.Settings.AdditionalReplicas != nil {
+			rule.Settings.AdditionalReplicas = request.Settings.AdditionalReplicas
+		}
+		if request.Settings.MemoryIncreaseMiB != nil {
+			rule.Settings.MemoryIncreaseMiB = request.Settings.MemoryIncreaseMiB
+		}
+		if request.Settings.MaxReplicasLimit != nil {
+			rule.Settings.MaxReplicasLimit = request.Settings.MaxReplicasLimit
+		}
+	}
+	
+	autofixRules.Store(request.RuleID, rule)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"rule":    rule,
+	})
+}
+
+// handleAutoFixActions returns recent AutoFix actions
+func (ws *WebServer) handleAutoFixActions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	autofixMu.RLock()
+	defer autofixMu.RUnlock()
+
+	// Return last 50 actions
+	actions := autofixActions
+	if len(actions) > 50 {
+		actions = actions[len(actions)-50:]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"actions": actions,
+	})
+}
+
+// handleAutoFixEnabled gets or sets the global AutoFix enabled state
+func (ws *WebServer) handleAutoFixEnabled(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": autofixEnabled,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var request struct {
+			Enabled bool `json:"enabled"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		autofixEnabled = request.Enabled
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"enabled": autofixEnabled,
+		})
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }

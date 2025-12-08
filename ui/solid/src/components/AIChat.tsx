@@ -10,12 +10,13 @@ import {
   switchProvider,
   fetchProviders,
 } from '../stores/ai';
-import { setAIPanelOpen } from '../stores/ui';
+import { setAIPanelOpen, sidebarCollapsed } from '../stores/ui';
 
 const AIChat: Component = () => {
   let messagesEndRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
   const [inputValue, setInputValue] = createSignal('');
+  const [isMaximized, setIsMaximized] = createSignal(false);
 
   const suggestions = [
     'Show me pods with high restart counts',
@@ -58,53 +59,104 @@ const AIChat: Component = () => {
   }
 
   return (
-    <div class="fixed top-0 right-0 w-[420px] h-full bg-k8s-card border-l border-k8s-border flex flex-col z-50 animate-slide-in">
-      {/* Header */}
-      <div class="flex items-center justify-between px-4 py-3 border-b border-k8s-border">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
-            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
+    <>
+      {/* Backdrop - click to close */}
+      <div
+        class="fixed inset-0 bg-black/50 transition-opacity z-40"
+        onClick={() => setAIPanelOpen(false)}
+        style={{ 
+          opacity: 1,
+          pointerEvents: 'auto'
+        }}
+      />
+
+      {/* Panel */}
+      <div 
+        class="fixed right-0 bg-k8s-card border-l border-k8s-border flex flex-col z-50 animate-slide-in shadow-2xl"
+        style={{
+          top: '112px', // Header (64px) + Quick Access bar (48px)
+          bottom: '0',
+          height: 'calc(100vh - 112px)',
+          width: isMaximized() 
+            ? `calc(100vw - ${sidebarCollapsed() ? '64px' : '208px'})` 
+            : '420px', // When maximized, take full width minus sidebar (64px collapsed, 208px expanded)
+          transition: 'width 0.3s ease-in-out'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div class="flex items-center justify-between px-4 py-3 border-b border-k8s-border bg-k8s-dark/50">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
+              <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-white font-semibold">AI Assistant</h2>
+              <p class="text-gray-500 text-xs">Kubernetes expert</p>
+            </div>
           </div>
-          <div>
-            <h2 class="text-white font-semibold">AI Assistant</h2>
-            <p class="text-gray-500 text-xs">Kubernetes expert</p>
+          <div class="flex items-center gap-2">
+            {/* Provider selector */}
+            <select
+              value={currentProvider()}
+              onChange={(e) => switchProvider(e.target.value)}
+              class="bg-k8s-dark border border-k8s-border rounded-lg px-2 py-1 text-sm text-gray-400 focus:border-k8s-blue focus:outline-none"
+            >
+              <For each={providers()}>
+                {(provider) => (
+                  <option value={provider.id}>{provider.name}</option>
+                )}
+              </For>
+            </select>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                clearChat();
+              }}
+              class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
+              title="Clear chat"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMaximized(!isMaximized());
+              }}
+              class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
+              title={isMaximized() ? "Restore" : "Maximize"}
+            >
+              <Show
+                when={isMaximized()}
+                fallback={
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                }
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                </svg>
+              </Show>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setAIPanelOpen(false);
+              }}
+              class="p-2 rounded-lg hover:bg-red-500/20 transition-colors text-gray-400 hover:text-red-400 hover:border-red-500/50 border border-transparent"
+              title="Close panel"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          {/* Provider selector */}
-          <select
-            value={currentProvider()}
-            onChange={(e) => switchProvider(e.target.value)}
-            class="bg-k8s-dark border border-k8s-border rounded-lg px-2 py-1 text-sm text-gray-400 focus:border-k8s-blue focus:outline-none"
-          >
-            <For each={providers()}>
-              {(provider) => (
-                <option value={provider.id}>{provider.name}</option>
-              )}
-            </For>
-          </select>
-          <button
-            onClick={clearChat}
-            class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
-            title="Clear chat"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setAIPanelOpen(false)}
-            class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
-            title="Close"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
 
       {/* Messages */}
       <div class="flex-1 overflow-y-auto p-4 space-y-4">
@@ -208,7 +260,8 @@ const AIChat: Component = () => {
           Using {providers().find(p => p.id === currentProvider())?.name || 'AI'}
         </p>
       </form>
-    </div>
+      </div>
+    </>
   );
 };
 
