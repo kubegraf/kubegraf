@@ -10,12 +10,13 @@ import {
   switchProvider,
   fetchProviders,
 } from '../stores/ai';
-import { setAIPanelOpen } from '../stores/ui';
+import { setAIPanelOpen, sidebarCollapsed } from '../stores/ui';
 
 const AIChat: Component = () => {
   let messagesEndRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
   const [inputValue, setInputValue] = createSignal('');
+  const [isMaximized, setIsMaximized] = createSignal(false);
 
   const suggestions = [
     'Show me pods with high restart counts',
@@ -71,12 +72,17 @@ const AIChat: Component = () => {
 
       {/* Panel */}
       <div 
-        class="fixed right-0 w-[420px] bg-k8s-card border-l border-k8s-border flex flex-col z-50 animate-slide-in shadow-2xl"
+        class="fixed right-0 bg-k8s-card border-l border-k8s-border flex flex-col z-50 animate-slide-in shadow-2xl"
         style={{
           top: '112px', // Header (64px) + Quick Access bar (48px)
           bottom: '0',
-          height: 'calc(100vh - 112px)'
+          height: 'calc(100vh - 112px)',
+          width: isMaximized() 
+            ? `calc(100vw - ${sidebarCollapsed() ? '64px' : '208px'})` 
+            : '420px', // When maximized, take full width minus sidebar (64px collapsed, 208px expanded)
+          transition: 'width 0.3s ease-in-out'
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div class="flex items-center justify-between px-4 py-3 border-b border-k8s-border bg-k8s-dark/50">
@@ -105,7 +111,10 @@ const AIChat: Component = () => {
               </For>
             </select>
             <button
-              onClick={clearChat}
+              onClick={(e) => {
+                e.stopPropagation();
+                clearChat();
+              }}
               class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
               title="Clear chat"
             >
@@ -114,7 +123,31 @@ const AIChat: Component = () => {
               </svg>
             </button>
             <button
-              onClick={() => setAIPanelOpen(false)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMaximized(!isMaximized());
+              }}
+              class="p-2 rounded-lg hover:bg-k8s-border/50 transition-colors text-gray-400 hover:text-white"
+              title={isMaximized() ? "Restore" : "Maximize"}
+            >
+              <Show
+                when={isMaximized()}
+                fallback={
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                }
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                </svg>
+              </Show>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setAIPanelOpen(false);
+              }}
               class="p-2 rounded-lg hover:bg-red-500/20 transition-colors text-gray-400 hover:text-red-400 hover:border-red-500/50 border border-transparent"
               title="Close panel"
             >
