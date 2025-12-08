@@ -26,6 +26,7 @@ export interface UpdateInfo {
   updateAvailable: boolean;
   releaseNotes: string;
   htmlUrl: string;
+  downloadUrl?: string;
 }
 
 export interface GlobalStoreState {

@@ -78,6 +78,7 @@ export interface ClusterStatus {
   cluster: string;
   connected: boolean;
   error?: string;
+  version?: string;
 }
 
 export interface ClusterManagerStatus {
@@ -180,6 +181,7 @@ export const api = {
     updateAvailable: boolean;
     releaseNotes?: string;
     downloadUrl?: string;
+    htmlUrl?: string;
     publishedAt?: string;
     error?: string;
   }>('/updates/check'),
@@ -191,6 +193,7 @@ export const api = {
     updateAvailable: boolean;
     releaseNotes: string;
     htmlUrl: string;
+    downloadUrl?: string;
     error?: string;
   }>('/update/check'),
   autoCheckUpdate: () => fetchAPI<{
@@ -199,6 +202,7 @@ export const api = {
     updateAvailable: boolean;
     releaseNotes: string;
     htmlUrl: string;
+    downloadUrl?: string;
     error?: string;
   }>('/update/auto-check'),
   installUpdate: (downloadUrl: string) =>
