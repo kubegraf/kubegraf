@@ -11,6 +11,7 @@ import {
   setGlobalLoading,
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
+import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -457,7 +458,7 @@ const Services: Component = () => {
       </Show>
 
       {/* Services table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
+      <div class="w-full" style={{ background: getThemeBackground(), margin: '0', padding: '0', border: `1px solid ${getThemeBorderColor()}`, 'border-radius': '4px' }}>
         <Show
           when={!servicesCache.loading() || servicesCache.data() !== undefined}
           fallback={
@@ -466,19 +467,19 @@ const Services: Component = () => {
             </div>
           }
         >
-          <div class="overflow-x-auto">
-            <table class="data-table terminal-table" style={{
-              fontSize: `${fontSize()}px`,
-              fontFamily: getFontFamilyCSS(),
-              color: '#0ea5e9',
-              fontWeight: 900
-            }}>
-              <style>{`
-                table { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table thead { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table tbody { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table tr { height: ${Math.max(24, fontSize() * 1.7)}px; }
-              `}</style>
+          <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+            <table
+              class="w-full"
+              style={{
+                width: '100%',
+                'table-layout': 'auto',
+                'font-family': getFontFamilyCSS(),
+                background: getThemeBackground(),
+                'border-collapse': 'collapse',
+                margin: '0',
+                padding: '0'
+              }}
+            >
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
