@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createMemo } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, addNotification } from '../stores/ui';
 import { setUpdateInfo } from '../stores/globalStore';
@@ -165,6 +165,71 @@ const SidebarUpdateButton: Component = () => {
 
 const Sidebar: Component = () => {
   const [searchQuery, setSearchQuery] = createSignal('');
+  const [version, setVersion] = createSignal<string>('');
+
+  // Fetch version function
+  const fetchVersion = async () => {
+    try {
+      const status = await api.getStatus();
+      if (status?.version) {
+        const newVersion = status.version;
+        const oldVersion = version();
+        setVersion(newVersion);
+        
+        // If version changed and we had an old version, show notification
+        if (oldVersion && oldVersion !== newVersion && oldVersion !== '') {
+          addNotification(`🎉 KubeGraf updated to v${newVersion}!`, 'success');
+        }
+      } else {
+        // Fallback: try to get version from update check
+        try {
+          const updateInfo = await api.checkForUpdates();
+          if (updateInfo?.currentVersion) {
+            const newVersion = updateInfo.currentVersion;
+            const oldVersion = version();
+            setVersion(newVersion);
+            
+            // If version changed, show notification
+            if (oldVersion && oldVersion !== newVersion && oldVersion !== '') {
+              addNotification(`🎉 KubeGraf updated to v${newVersion}!`, 'success');
+            }
+          }
+        } catch (e) {
+          console.error('Failed to get version from update check:', e);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch version:', err);
+    }
+  };
+
+  // Fetch version on mount and periodically refresh
+  onMount(() => {
+    fetchVersion();
+    // Refresh version every 10 seconds (more frequent to catch updates)
+    const interval = setInterval(fetchVersion, 10000);
+    
+    // Also refresh when page becomes visible (after app restart)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Small delay to ensure server is ready after restart
+        setTimeout(fetchVersion, 1000);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Refresh on focus (when user returns to tab)
+    const handleFocus = () => {
+      setTimeout(fetchVersion, 500);
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  });
 
   // Handle terminal view - toggle docked terminal at bottom
   const handleTerminalClick = () => {
@@ -330,7 +395,7 @@ const Sidebar: Component = () => {
         <Show when={!sidebarCollapsed()}>
           <div class="flex items-center gap-1.5 px-2.5 mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
             <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-            <span>v1.0.0</span>
+            <span>{version() ? `v${version()}` : 'Loading...'}</span>
           </div>
         </Show>
       </div>

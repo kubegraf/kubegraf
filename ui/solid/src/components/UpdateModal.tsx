@@ -1,6 +1,9 @@
-import { Component, Show } from 'solid-js';
+import { Component, Show, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { UpdateInfo } from '../stores/globalStore';
+import UpdateApplyButton from './UpdateApplyButton';
+import { canApplyUpdate } from '../utils/updateHelpers';
+import { addNotification } from '../stores/ui';
 
 interface UpdateModalProps {
   isOpen: boolean;
@@ -183,29 +186,52 @@ const UpdateModal: Component<UpdateModalProps> = (props) => {
 
             {/* Footer */}
             <div
-              class="px-6 py-4 border-t flex items-center justify-end gap-3"
+              class="px-6 py-4 border-t flex items-center justify-between gap-3"
               style={{ 'border-color': 'var(--border-color)' }}
             >
-              <button
-                onClick={props.onClose}
-                class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border-color)',
-                }}
-              >
-                Remind Me Later
-              </button>
-              <button
-                onClick={handleInstallClick}
-                class="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                style={{
-                  background: 'var(--accent-primary)',
-                }}
-              >
-                View on GitHub
-              </button>
+              <div class="flex items-center gap-3">
+                <Show when={canApplyUpdate(props.updateInfo)}>
+                  <UpdateApplyButton
+                    updateInfo={props.updateInfo}
+                    onSuccess={() => {
+                      // Show additional success message
+                      addNotification(
+                        `✨ KubeGraf is updating to v${props.updateInfo.latestVersion}. The application will restart shortly.`,
+                        'success'
+                      );
+                      // Update will restart the app, so we can close the modal
+                      // The app will restart and version will be refreshed automatically
+                      props.onClose();
+                    }}
+                    onError={(error) => {
+                      console.error('Update failed:', error);
+                      addNotification(`Update failed: ${error}`, 'error');
+                    }}
+                  />
+                </Show>
+              </div>
+              <div class="flex items-center gap-3">
+                <button
+                  onClick={props.onClose}
+                  class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                >
+                  Remind Me Later
+                </button>
+                <button
+                  onClick={handleInstallClick}
+                  class="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
+                  style={{
+                    background: 'var(--accent-primary)',
+                  }}
+                >
+                  View on GitHub
+                </button>
+              </div>
             </div>
           </div>
         </div>
