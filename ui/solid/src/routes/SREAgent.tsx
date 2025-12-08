@@ -226,45 +226,45 @@ const SREAgent: Component = () => {
         {(status) => (
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Metrics Cards */}
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Incidents Detected</div>
-              <div class="text-3xl font-bold text-white">{status().metrics.incidentsDetected}</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Incidents Detected</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>{status().metrics.incidentsDetected}</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Auto Remediations</div>
-              <div class="text-3xl font-bold text-green-400">{status().metrics.autoRemediations}</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Auto Remediations</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--success-color)' }}>{status().metrics.autoRemediations}</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Success Rate</div>
-              <div class="text-3xl font-bold text-blue-400">{status().metrics.successRate.toFixed(1)}%</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Success Rate</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--accent-primary)' }}>{status().metrics.successRate.toFixed(1)}%</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Escalations</div>
-              <div class="text-3xl font-bold text-orange-400">{status().metrics.escalations}</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Escalations</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--warning-color)' }}>{status().metrics.escalations}</div>
             </div>
 
             {/* Additional Metrics */}
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Incidents Resolved</div>
-              <div class="text-3xl font-bold text-white">{status().metrics.incidentsResolved}</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Incidents Resolved</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>{status().metrics.incidentsResolved}</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Avg Resolution Time</div>
-              <div class="text-2xl font-bold text-white">{Math.round(status().metrics.avgResolutionTime / 1000)}s</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Avg Resolution Time</div>
+              <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{Math.round(status().metrics.avgResolutionTime / 1000)}s</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Batch SLO Met</div>
-              <div class="text-3xl font-bold text-green-400">{status().metrics.batchSLOMet}</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Batch SLO Met</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--success-color)' }}>{status().metrics.batchSLOMet}</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Actions This Hour</div>
-              <div class="text-3xl font-bold text-purple-400">{status().metrics.actionsThisHour}</div>
-              <div class="text-xs text-gray-500 mt-1">/ {status().maxAutoActionsPerHour} max</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Actions This Hour</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--accent-secondary)' }}>{status().metrics.actionsThisHour}</div>
+              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>/ {status().maxAutoActionsPerHour} max</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div class="text-gray-400 text-sm mb-2">Open Incidents</div>
-              <div class="text-3xl font-bold text-red-400">{openIncidentsCount()}</div>
-              <div class="text-xs text-gray-500 mt-1">From cluster resources</div>
+            <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+              <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Open Incidents</div>
+              <div class="text-3xl font-bold" style={{ color: 'var(--error-color)' }}>{openIncidentsCount()}</div>
+              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>From cluster resources</div>
             </div>
           </div>
         )}
@@ -272,9 +272,9 @@ const SREAgent: Component = () => {
 
       {/* Incidents Tab */}
       <Show when={activeTab() === 'incidents'}>
-        <div class="bg-gray-800 rounded-lg border border-gray-700">
-          <div class="p-4 border-b border-gray-700 flex justify-between items-center">
-            <h2 class="text-xl font-bold text-white">Active Incidents</h2>
+        <div class="rounded-lg border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+          <div class="p-4 border-b flex justify-between items-center" style={{ 'border-color': 'var(--border-color)' }}>
+            <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Active Incidents</h2>
             <button
               onClick={refetchIncidents}
               class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
@@ -283,17 +283,17 @@ const SREAgent: Component = () => {
             </button>
           </div>
           <Show when={incidents()?.incidents.length === 0}>
-            <div class="p-8 text-center text-gray-400">
+            <div class="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>
               <div class="text-6xl mb-4">🎉</div>
               <div class="text-xl font-medium">No active incidents</div>
               <div class="text-sm mt-2">Your cluster is running smoothly!</div>
             </div>
           </Show>
           <Show when={incidents() && incidents()!.incidents.length > 0}>
-            <div class="divide-y divide-gray-700">
+            <div class="divide-y" style={{ 'border-color': 'var(--border-color)' }}>
               <For each={incidents()!.incidents}>
                 {(incident) => (
-                  <div class="p-4 hover:bg-gray-700/50 transition-colors">
+                  <div class="p-4 transition-colors hover:opacity-80" style={{ background: 'var(--bg-card)' }}>
                     <div class="flex items-start justify-between mb-2">
                       <div class="flex-1">
                         <div class="flex items-center space-x-2 mb-1">
@@ -304,16 +304,16 @@ const SREAgent: Component = () => {
                             {incident.status}
                           </span>
                           <Show when={incident.autoRemediated}>
-                            <span class="px-2 py-1 bg-green-900/30 text-green-400 rounded text-xs">
+                            <span class="px-2 py-1 rounded text-xs" style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}>
                               Auto-remediated
                             </span>
                           </Show>
                         </div>
-                        <h3 class="text-lg font-medium text-white">{incident.title}</h3>
-                        <p class="text-gray-400 text-sm mt-1">{incident.description}</p>
+                        <h3 class="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>{incident.title}</h3>
+                        <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{incident.description}</p>
                       </div>
                     </div>
-                    <div class="flex items-center space-x-4 text-sm text-gray-500 mt-2">
+                    <div class="flex items-center space-x-4 text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
                       <span>Resource: {incident.resource}</span>
                       <span>Namespace: {incident.namespace}</span>
                       <span>Detected: {new Date(incident.detectedAt).toLocaleString()}</span>
@@ -328,9 +328,9 @@ const SREAgent: Component = () => {
 
       {/* Actions Tab */}
       <Show when={activeTab() === 'actions'}>
-        <div class="bg-gray-800 rounded-lg border border-gray-700">
-          <div class="p-4 border-b border-gray-700 flex justify-between items-center">
-            <h2 class="text-xl font-bold text-white">Remediation Actions</h2>
+        <div class="rounded-lg border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
+          <div class="p-4 border-b flex justify-between items-center" style={{ 'border-color': 'var(--border-color)' }}>
+            <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Remediation Actions</h2>
             <button
               onClick={refetchActions}
               class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
@@ -339,36 +339,36 @@ const SREAgent: Component = () => {
             </button>
           </div>
           <Show when={actions()?.actions.length === 0}>
-            <div class="p-8 text-center text-gray-400">
+            <div class="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>
               <div class="text-6xl mb-4">📋</div>
               <div class="text-xl font-medium">No actions recorded</div>
               <div class="text-sm mt-2">Actions will appear here when incidents are remediated</div>
             </div>
           </Show>
           <Show when={actions() && actions()!.actions.length > 0}>
-            <div class="divide-y divide-gray-700">
+            <div class="divide-y" style={{ 'border-color': 'var(--border-color)' }}>
               <For each={actions()!.actions}>
                 {(action) => (
-                  <div class="p-4 hover:bg-gray-700/50 transition-colors">
+                  <div class="p-4 transition-colors hover:opacity-80" style={{ background: 'var(--bg-card)' }}>
                     <div class="flex items-start justify-between">
                       <div class="flex-1">
                         <div class="flex items-center space-x-2 mb-1">
                           <Show when={action.success}>
-                            <span class="text-green-400">✓</span>
+                            <span style={{ color: 'var(--success-color)' }}>✓</span>
                           </Show>
                           <Show when={!action.success}>
-                            <span class="text-red-400">✗</span>
+                            <span style={{ color: 'var(--error-color)' }}>✗</span>
                           </Show>
-                          <span class="font-medium text-white">{action.action}</span>
+                          <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{action.action}</span>
                           <Show when={action.automated}>
-                            <span class="px-2 py-1 bg-purple-900/30 text-purple-400 rounded text-xs">
+                            <span class="px-2 py-1 rounded text-xs" style={{ background: 'rgba(139, 92, 246, 0.2)', color: 'var(--accent-secondary)' }}>
                               Automated
                             </span>
                           </Show>
                         </div>
-                        <p class="text-gray-400 text-sm">{action.details}</p>
+                        <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>{action.details}</p>
                       </div>
-                      <span class="text-gray-500 text-sm">
+                      <span class="text-sm" style={{ color: 'var(--text-muted)' }}>
                         {new Date(action.timestamp).toLocaleString()}
                       </span>
                     </div>
@@ -383,9 +383,9 @@ const SREAgent: Component = () => {
       {/* Configuration Tab */}
       <Show when={activeTab() === 'config' && sreStatus()}>
         {(status) => (
-          <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+          <div class="rounded-lg border p-6" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
             <div class="flex justify-between items-center mb-6">
-              <h2 class="text-xl font-bold text-white">Agent Configuration</h2>
+              <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Agent Configuration</h2>
               <Show when={!configEditing()}>
                 <button
                   onClick={startEditing}
@@ -415,7 +415,7 @@ const SREAgent: Component = () => {
             <div class="space-y-4">
               <div class="grid grid-cols-2 gap-4">
                 <div>
-                  <label class="block text-gray-400 text-sm mb-2">Auto Remediation</label>
+                  <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Auto Remediation</label>
                   <Show when={configEditing()}>
                     <input
                       type="checkbox"
@@ -425,12 +425,12 @@ const SREAgent: Component = () => {
                     />
                   </Show>
                   <Show when={!configEditing()}>
-                    <span class="text-white">{status().autoRemediate ? 'Enabled' : 'Disabled'}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{status().autoRemediate ? 'Enabled' : 'Disabled'}</span>
                   </Show>
                 </div>
 
                 <div>
-                  <label class="block text-gray-400 text-sm mb-2">Learning Mode</label>
+                  <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Learning Mode</label>
                   <Show when={configEditing()}>
                     <input
                       type="checkbox"
@@ -440,12 +440,12 @@ const SREAgent: Component = () => {
                     />
                   </Show>
                   <Show when={!configEditing()}>
-                    <span class="text-white">{status().learningEnabled ? 'Enabled' : 'Disabled'}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{status().learningEnabled ? 'Enabled' : 'Disabled'}</span>
                   </Show>
                 </div>
 
                 <div>
-                  <label class="block text-gray-400 text-sm mb-2">Notifications</label>
+                  <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Notifications</label>
                   <Show when={configEditing()}>
                     <input
                       type="checkbox"
@@ -455,12 +455,12 @@ const SREAgent: Component = () => {
                     />
                   </Show>
                   <Show when={!configEditing()}>
-                    <span class="text-white">{status().notificationEnabled ? 'Enabled' : 'Disabled'}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{status().notificationEnabled ? 'Enabled' : 'Disabled'}</span>
                   </Show>
                 </div>
 
                 <div>
-                  <label class="block text-gray-400 text-sm mb-2">Batch Monitoring</label>
+                  <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Batch Monitoring</label>
                   <Show when={configEditing()}>
                     <input
                       type="checkbox"
@@ -470,32 +470,33 @@ const SREAgent: Component = () => {
                     />
                   </Show>
                   <Show when={!configEditing()}>
-                    <span class="text-white">{status().batchMonitoring ? 'Enabled' : 'Disabled'}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{status().batchMonitoring ? 'Enabled' : 'Disabled'}</span>
                   </Show>
                 </div>
 
                 <div class="col-span-2">
-                  <label class="block text-gray-400 text-sm mb-2">Max Actions Per Hour</label>
+                  <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Max Actions Per Hour</label>
                   <Show when={configEditing()}>
                     <input
                       type="number"
                       value={configForm().maxAutoActionsPerHour}
                       onChange={(e) => setConfigForm({ ...configForm(), maxAutoActionsPerHour: parseInt(e.target.value) })}
-                      class="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600"
+                      class="w-full rounded px-3 py-2 border"
+                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', 'border-color': 'var(--border-color)' }}
                     />
                   </Show>
                   <Show when={!configEditing()}>
-                    <span class="text-white">{status().maxAutoActionsPerHour}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{status().maxAutoActionsPerHour}</span>
                   </Show>
                 </div>
               </div>
 
-              <div class="mt-6 pt-6 border-t border-gray-700">
-                <h3 class="text-lg font-medium text-white mb-4">Auto-Remediate Types</h3>
+              <div class="mt-6 pt-6 border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                <h3 class="text-lg font-medium mb-4" style={{ color: 'var(--text-primary)' }}>Auto-Remediate Types</h3>
                 <div class="flex flex-wrap gap-2">
                   <For each={status().autoRemediateTypes}>
                     {(type) => (
-                      <span class="px-3 py-1 bg-blue-900/30 text-blue-400 rounded-full text-sm">
+                      <span class="px-3 py-1 rounded-full text-sm" style={{ background: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent-secondary)' }}>
                         {type}
                       </span>
                     )}
@@ -503,9 +504,9 @@ const SREAgent: Component = () => {
                 </div>
               </div>
 
-              <div class="mt-6 pt-6 border-t border-gray-700">
-                <h3 class="text-lg font-medium text-white mb-2">Batch SLO</h3>
-                <p class="text-gray-400">{status().batchSLO}</p>
+              <div class="mt-6 pt-6 border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                <h3 class="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Batch SLO</h3>
+                <p style={{ color: 'var(--text-secondary)' }}>{status().batchSLO}</p>
               </div>
             </div>
           </div>

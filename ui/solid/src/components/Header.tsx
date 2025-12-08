@@ -15,13 +15,15 @@ import {
   setSelectedNamespaces,
   workspaceContext,
 } from '../stores/cluster';
-import { toggleAIPanel, searchQuery, setSearchQuery, setCurrentView, addNotification } from '../stores/ui';
+import { toggleAIPanel, searchQuery, setSearchQuery, setCurrentView, addNotification, currentView } from '../stores/ui';
 import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
 import { setNamespaces } from '../stores/globalStore';
 import { toggleBrainPanel, brainPanelOpen } from '../stores/brain';
 import ThemeToggle from './ThemeToggle';
 import { api } from '../services/api';
 import LocalTerminalModal from './LocalTerminalModal';
+import { favorites, toggleFavorite, isFavorite } from '../stores/favorites';
+import { navSections } from '../config/navSections';
 
 // Cloud provider logos as inline SVGs
 const CloudLogos: Record<string, () => any> = {
@@ -308,14 +310,42 @@ const Header: Component = () => {
     }
   };
 
-  // Quick access navigation items
-  const quickAccessItems = [
-    { label: 'Dashboard', view: 'dashboard' as const, icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-    { label: 'Pods Health', view: 'pods' as const, icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
-    { label: 'Resource Metrics', view: 'cost' as const, icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
-    { label: 'Security Status', view: 'security' as const, icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-    { label: 'Events Log', view: 'monitoredevents' as const, icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
-  ];
+  // Get all available views from navSections
+  const allViews = navSections.flatMap(section => section.items);
+  
+  // Get view label helper
+  const getViewLabel = (viewId: string) => {
+    const item = allViews.find(item => item.id === viewId);
+    return item?.label || viewId;
+  };
+  
+  // Get view icon helper
+  const getViewIcon = (viewId: string) => {
+    const item = allViews.find(item => item.id === viewId);
+    return item?.icon || 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2';
+  };
+  
+  // Quick access navigation items - use favorites or default
+  const quickAccessItems = createMemo(() => {
+    const favs = favorites();
+    if (favs.length > 0) {
+      return favs.map(view => ({
+        label: getViewLabel(view),
+        view: view as any,
+        icon: getViewIcon(view)
+      }));
+    }
+    // Default items if no favorites
+    return [
+      { label: 'Dashboard', view: 'dashboard' as const, icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+      { label: 'Pods Health', view: 'pods' as const, icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+      { label: 'Resource Metrics', view: 'cost' as const, icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+      { label: 'Security Status', view: 'security' as const, icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+      { label: 'Events Log', view: 'monitoredevents' as const, icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
+    ];
+  });
+  
+  const [showFavoritesModal, setShowFavoritesModal] = createSignal(false);
 
   return (
     <>
@@ -799,7 +829,7 @@ const Header: Component = () => {
       <span class="text-xs font-semibold mr-2" style={{ color: 'var(--text-muted)' }}>
         QUICK ACCESS:
       </span>
-      <For each={quickAccessItems}>
+      <For each={quickAccessItems()}>
         {(item) => (
           <button
             onClick={() => setCurrentView(item.view)}
@@ -817,6 +847,82 @@ const Header: Component = () => {
           </button>
         )}
       </For>
+      <button
+        onClick={() => setShowFavoritesModal(true)}
+        class="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-[var(--bg-tertiary)]"
+        style={{
+          color: 'var(--text-secondary)',
+          background: 'transparent'
+        }}
+        title="Manage Favorites"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+        </svg>
+        <span>Manage</span>
+      </button>
+      
+      {/* Favorites Modal */}
+      <Show when={showFavoritesModal()}>
+        <Portal>
+          <div
+            class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"
+            onClick={() => setShowFavoritesModal(false)}
+          >
+            <div
+              class="rounded-lg border p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+              style={{
+                background: 'var(--bg-card)',
+                'border-color': 'var(--border-color)'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Manage Quick Access</h2>
+                <button
+                  onClick={() => setShowFavoritesModal(false)}
+                  class="p-2 rounded hover:bg-[var(--bg-tertiary)]"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                Click the star icon to add or remove items from Quick Access
+              </p>
+              <div class="space-y-2">
+                <For each={allViews}>
+                  {(item) => (
+                    <div
+                      class="flex items-center justify-between p-3 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+                      style={{ background: isFavorite(item.id) ? 'var(--bg-secondary)' : 'transparent' }}
+                    >
+                      <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-secondary)' }}>
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={item.icon} />
+                        </svg>
+                        <span style={{ color: 'var(--text-primary)' }}>{item.label}</span>
+                      </div>
+                      <button
+                        onClick={() => toggleFavorite(item.id)}
+                        class="p-2 rounded hover:bg-[var(--bg-tertiary)]"
+                        style={{ color: isFavorite(item.id) ? 'var(--warning-color)' : 'var(--text-muted)' }}
+                        title={isFavorite(item.id) ? 'Remove from favorites' : 'Add to favorites'}
+                      >
+                        <svg class="w-5 h-5" fill={isFavorite(item.id) ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      </Show>
     </div>
     </>
   );
