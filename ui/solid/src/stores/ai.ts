@@ -141,6 +141,7 @@ function switchProvider(providerId: string) {
 export {
   sessionId,
   messages,
+  setMessages,
   isLoading,
   currentProvider,
   providers,

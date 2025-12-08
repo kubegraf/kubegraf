@@ -11,6 +11,7 @@ import {
   fetchProviders,
   type AIMessage,
 } from '../stores/ai';
+import { setMessages } from '../stores/ai';
 import { setAIPanelOpen, sidebarCollapsed } from '../stores/ui';
 import AgentSelector from './aiAgents/AgentSelector';
 import AgentConfigModal from './aiAgents/AgentConfigModal';
@@ -58,11 +59,23 @@ const AIChat: Component = () => {
     const agentId = selectedAgentId();
     if (agentId) {
       try {
+        // Add user message first
+        const userMessage: AIMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: msg,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, userMessage]);
+        
+        // Query the agent
         const response = await queryAgent(msg);
+        
+        // Add agent response
         const assistantMessage: AIMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: response.content,
+          content: response.response || response.content || 'No response',
           timestamp: new Date(),
           usage: response.usage,
         };
@@ -70,6 +83,14 @@ const AIChat: Component = () => {
         return;
       } catch (error) {
         console.error('Agent query failed:', error);
+        // Add error message
+        const errorMessage: AIMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `Error querying agent: ${error instanceof Error ? error.message : String(error)}`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
         // Fall through to default AI
       }
     }
