@@ -2,6 +2,7 @@ import { Component, For, Show, createMemo, createSignal, createResource } from '
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -351,7 +352,7 @@ const StatefulSets: Component = () => {
       </div>
 
       {/* StatefulSets table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
+      <div class="w-full" style={{ background: getThemeBackground(), margin: '0', padding: '0', border: `1px solid ${getThemeBorderColor()}`, 'border-radius': '4px' }}>
         <Show
           when={!statefulsets.loading}
           fallback={
@@ -361,35 +362,84 @@ const StatefulSets: Component = () => {
             </div>
           }
         >
-          <div class="overflow-x-auto">
-            <table class="data-table terminal-table" style={{
-              fontSize: `${fontSize()}px`,
-              fontFamily: getFontFamilyCSS(),
-              color: '#0ea5e9',
-              fontWeight: 900
-            }}>
-              <style>{`
-                table { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table thead { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table tbody { font-size: ${fontSize()}px; font-family: ${getFontFamilyCSS()}; color: #0ea5e9; font-weight: 900; }
-                table tr { height: ${Math.max(24, fontSize() * 1.7)}px; }
-              `}</style>
+          <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+            <table
+              class="w-full"
+              style={{
+                width: '100%',
+                'table-layout': 'auto',
+                'font-family': getFontFamilyCSS(),
+                background: getThemeBackground(),
+                'border-collapse': 'collapse',
+                margin: '0',
+                padding: '0'
+              }}
+            >
               <thead>
-                <tr>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                <tr style={{
+                  height: `${Math.max(24, fontSize() * 1.7)}px`,
+                  'font-family': getFontFamilyCSS(),
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                }}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('ready')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('ready')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Ready <SortIcon field="ready" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Replicas</th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Replicas</th>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')} style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Actions</th>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}>Actions</th>
                 </tr>
               </thead>
               <tbody>

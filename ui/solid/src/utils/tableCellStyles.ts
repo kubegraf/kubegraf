@@ -23,11 +23,11 @@ export function getTableCellStyle(fontSize: number, textColor: string = '#0ea5e9
 }
 
 /**
- * Get the standard table header style matching Ingresses
+ * Get the standard table header cell style matching Ingresses
  * @param fontSize - Current font size from component state
- * @returns Style object for table headers
+ * @returns Style object for table header cells
  */
-export function getTableHeaderStyle(fontSize: number) {
+export function getTableHeaderCellStyle(fontSize: number) {
   return {
     padding: '0 8px',
     'text-align': 'left' as const,
@@ -35,6 +35,18 @@ export function getTableHeaderStyle(fontSize: number) {
     color: '#0ea5e9',
     'font-size': `${fontSize}px`,
     border: 'none',
+  };
+}
+
+/**
+ * Get the standard table header row style matching Ingresses
+ * @param fontSize - Current font size from component state
+ * @returns Style object for table header rows
+ */
+export function getTableHeaderRowStyle(fontSize: number) {
+  return {
+    height: `${Math.max(24, fontSize * 1.7)}px`,
+    'line-height': `${Math.max(24, fontSize * 1.7)}px`,
   };
 }
 

@@ -1,6 +1,7 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount } from 'solid-js';
 import { api } from '../services/api';
 import { addNotification } from '../stores/ui';
+import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import {
   selectedNamespaces,
   setGlobalLoading,
@@ -11,7 +12,6 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
-import { getTableCellStyle, STANDARD_TEXT_COLOR } from '../utils/tableCellStyles';
 
 interface ConfigMap {
   name: string;
@@ -292,7 +292,7 @@ const ConfigMaps: Component = () => {
       </Show>
 
       {/* ConfigMaps table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
+      <div class="w-full" style={{ background: getThemeBackground(), margin: '0', padding: '0', border: `1px solid ${getThemeBorderColor()}`, 'border-radius': '4px' }}>
         <Show
           when={!configMapsCache.loading() || configMapsCache.data() !== undefined}
           fallback={
@@ -302,28 +302,86 @@ const ConfigMaps: Component = () => {
             </div>
           }
         >
-          <div class="overflow-x-auto">
-            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
-              <style>{`
-                table { width: 100%; border-collapse: collapse; }
-                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
-                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
-              `}</style>
+          <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+            <table
+              class="w-full"
+              style={{
+                width: '100%',
+                'table-layout': 'auto',
+                'font-family': getFontFamilyCSS(fontFamily()),
+                background: getThemeBackground(),
+                'border-collapse': 'collapse',
+                margin: '0',
+                padding: '0'
+              }}
+            >
               <thead>
-                <tr>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
+                <tr style={{
+                  height: `${Math.max(24, fontSize() * 1.7)}px`,
+                  'font-family': getFontFamilyCSS(fontFamily()),
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                }}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    height: `${Math.max(24, fontSize() * 1.7)}px`,
+                    'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                    border: 'none'
+                  }} onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    height: `${Math.max(24, fontSize() * 1.7)}px`,
+                    'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                    border: 'none'
+                  }} onClick={() => handleSort('namespace')}>
                     <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('data')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    height: `${Math.max(24, fontSize() * 1.7)}px`,
+                    'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                    border: 'none'
+                  }} onClick={() => handleSort('data')}>
                     <div class="flex items-center gap-1">Data <SortIcon field="data" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
+                  <th class="cursor-pointer select-none whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    height: `${Math.max(24, fontSize() * 1.7)}px`,
+                    'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                    border: 'none'
+                  }} onClick={() => handleSort('age')}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Actions</th>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    height: `${Math.max(24, fontSize() * 1.7)}px`,
+                    'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                    border: 'none'
+                  }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -331,10 +389,19 @@ const ConfigMaps: Component = () => {
                   <tr><td colspan="5" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ConfigMaps found</td></tr>
                 }>
                   {(cm: ConfigMap) => {
-                    const textColor = STANDARD_TEXT_COLOR;
+                    const textColor = '#0ea5e9';
                     return (
                     <tr>
-                      <td style={getTableCellStyle(fontSize(), textColor)}>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <button
                           onClick={() => { setSelected(cm); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -343,11 +410,38 @@ const ConfigMaps: Component = () => {
                           {cm.name.length > 40 ? cm.name.slice(0, 37) + '...' : cm.name}
                         </button>
                       </td>
-                      <td style={getTableCellStyle(fontSize(), textColor)}>{cm.namespace}</td>
-                      <td style={getTableCellStyle(fontSize(), textColor)}>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{cm.namespace}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <span class="badge badge-info">{cm.data} keys</span>
                       </td>
-                      <td style={getTableCellStyle(fontSize(), textColor)}>{cm.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        color: textColor,
+                        'font-weight': '900',
+                        'font-size': `${fontSize()}px`,
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>{cm.age}</td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
