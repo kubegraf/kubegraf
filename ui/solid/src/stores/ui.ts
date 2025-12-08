@@ -52,6 +52,33 @@ export type View =
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+
+// Sidebar width state (in pixels)
+function getInitialSidebarWidth(): number {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('kubegraf-sidebar-width');
+    if (saved) {
+      const width = parseInt(saved, 10);
+      if (width >= 64 && width <= 400) {
+        return width;
+      }
+    }
+  }
+  return 208; // Default expanded width
+}
+
+const [sidebarWidth, setSidebarWidthInternal] = createSignal<number>(getInitialSidebarWidth());
+
+// Save sidebar width to localStorage
+function setSidebarWidth(width: number) {
+  // Clamp width between 64px (collapsed) and 400px (max)
+  const clampedWidth = Math.max(64, Math.min(400, width));
+  setSidebarWidthInternal(clampedWidth);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('kubegraf-sidebar-width', clampedWidth.toString());
+  }
+}
+
 const [aiPanelOpen, setAIPanelOpen] = createSignal(false);
 const [selectedResource, setSelectedResource] = createSignal<any>(null);
 const [detailPanelOpen, setDetailPanelOpen] = createSignal(false);
@@ -125,7 +152,10 @@ function addNotification(message: string, type: Notification['type'] = 'info') {
 }
 
 function toggleSidebar() {
-  setSidebarCollapsed(!sidebarCollapsed());
+  const newCollapsed = !sidebarCollapsed();
+  setSidebarCollapsed(newCollapsed);
+  // When collapsing, width is automatically set to 64px via effectiveWidth()
+  // When expanding, it uses the saved width from localStorage
 }
 
 function toggleAIPanel() {
@@ -155,6 +185,8 @@ export {
   sidebarCollapsed,
   setSidebarCollapsed,
   toggleSidebar,
+  sidebarWidth,
+  setSidebarWidth,
   aiPanelOpen,
   setAIPanelOpen,
   toggleAIPanel,
