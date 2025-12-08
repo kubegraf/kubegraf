@@ -120,8 +120,8 @@ const ClusterManager: Component = () => {
             </button>
             <Show when={hasActiveCluster()}>
               <button
-                class="px-3 py-1.5 rounded-md text-sm text-white"
-                style={{ background: 'var(--error-color)' }}
+                class="px-3 py-1.5 rounded-md text-sm"
+                style={{ background: 'var(--error-color)', color: '#fff' }}
                 disabled={clusterLoading()}
                 onClick={() => disconnectActiveCluster()}
               >
@@ -140,8 +140,11 @@ const ClusterManager: Component = () => {
                 <h3 class="text-base font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>{card.title}</h3>
                 <p class="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>{card.description}</p>
                 <button
-                  class={`px-3 py-1.5 rounded-md text-sm ${card.primary ? 'text-white' : ''}`}
-                  style={{ background: card.primary ? 'var(--accent-primary)' : 'var(--bg-tertiary)', color: card.primary ? '#000' : 'var(--text-primary)' }}
+                  class="px-3 py-1.5 rounded-md text-sm"
+                  style={{ 
+                    background: card.primary ? 'var(--accent-primary)' : 'var(--bg-tertiary)', 
+                    color: card.primary ? '#000' : 'var(--text-primary)' 
+                  }}
                   onClick={() => {
                     if (card.link) {
                       window.open(card.link, '_blank', 'noopener');
@@ -183,7 +186,10 @@ const ClusterManager: Component = () => {
                         <p class="text-xs" style={{ color: 'var(--text-muted)' }}>{cluster.provider} • {cluster.kubeconfigPath}</p>
                       </div>
                       <div class="flex items-center gap-2">
-                        <span class={`w-2 h-2 rounded-full ${cluster.connected ? 'bg-emerald-400' : 'bg-gray-500'}`}></span>
+                        <span 
+                          class="w-2 h-2 rounded-full" 
+                          style={{ background: cluster.connected ? 'var(--success-color)' : 'var(--text-muted)' }}
+                        ></span>
                         <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{cluster.connected ? 'Connected' : 'Disconnected'}</span>
                       </div>
                     </div>
@@ -317,6 +323,11 @@ const ClusterManager: Component = () => {
                 value={manualName()}
                 onInput={(e) => setManualName(e.currentTarget.value)}
                 class="w-full px-3 py-2 rounded-md text-sm"
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)'
+                }}
               />
               <input
                 type="text"
@@ -324,17 +335,27 @@ const ClusterManager: Component = () => {
                 value={manualPath()}
                 onInput={(e) => setManualPath(e.currentTarget.value)}
                 class="w-full px-3 py-2 rounded-md text-sm"
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)'
+                }}
               />
               <select
                 class="w-full px-3 py-2 rounded-md text-sm"
                 value={manualProvider()}
                 onInput={(e) => setManualProvider(e.currentTarget.value)}
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)'
+                }}
               >
                 <For each={providerOptions}>{(option) => <option value={option.id}>{option.label}</option>}</For>
               </select>
               <button
-                class="w-full px-3 py-2 rounded-md text-sm text-white"
-                style={{ background: 'var(--accent-primary)' }}
+                class="w-full px-3 py-2 rounded-md text-sm"
+                style={{ background: 'var(--accent-primary)', color: '#000' }}
                 disabled={!manualPath().trim() || clusterLoading()}
                 onClick={connectManual}
               >

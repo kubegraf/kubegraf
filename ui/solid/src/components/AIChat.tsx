@@ -10,9 +10,14 @@ import {
   switchProvider,
   fetchProviders,
 } from '../stores/ai';
-import { setAIPanelOpen, sidebarCollapsed } from '../stores/ui';
+import { setAIPanelOpen, sidebarCollapsed, currentView, setCurrentView } from '../stores/ui';
 
-const AIChat: Component = () => {
+interface AIChatProps {
+  inline?: boolean; // If true, render as inline component (for route view) instead of panel
+}
+
+const AIChat: Component<AIChatProps> = (props) => {
+  const isInline = () => props.inline ?? false;
   let messagesEndRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
   const [inputValue, setInputValue] = createSignal('');
@@ -58,22 +63,37 @@ const AIChat: Component = () => {
     }
   }
 
+  const handleClose = () => {
+    if (isInline()) {
+      // When inline (route view), navigate away
+      setCurrentView('dashboard');
+      setAIPanelOpen(false);
+    } else {
+      // When panel, just close panel
+      setAIPanelOpen(false);
+    }
+  };
+
   return (
     <>
-      {/* Backdrop - click to close */}
-      <div
-        class="fixed inset-0 bg-black/50 transition-opacity z-40"
-        onClick={() => setAIPanelOpen(false)}
-        style={{ 
-          opacity: 1,
-          pointerEvents: 'auto'
-        }}
-      />
+      {/* Backdrop - click to close (only when not inline) */}
+      <Show when={!isInline()}>
+        <div
+          class="fixed inset-0 bg-black/50 transition-opacity z-40"
+          onClick={handleClose}
+          style={{ 
+            opacity: 1,
+            pointerEvents: 'auto'
+          }}
+        />
+      </Show>
 
       {/* Panel */}
       <div 
-        class="fixed right-0 border-l flex flex-col z-50 animate-slide-in shadow-2xl"
-        style={{
+        class={`flex flex-col ${isInline() ? 'h-full' : 'fixed right-0 border-l z-50 animate-slide-in shadow-2xl'}`}
+        style={isInline() ? {
+          background: 'transparent'
+        } : {
           background: 'var(--bg-card)',
           'border-color': 'var(--border-color)',
           top: '112px', // Header (64px) + Quick Access bar (48px)
@@ -87,7 +107,8 @@ const AIChat: Component = () => {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div class="flex items-center justify-between px-4 py-3 border-b" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+        <Show when={!isInline()}>
+          <div class="flex items-center justify-between px-4 py-3 border-b" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
               <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,7 +180,7 @@ const AIChat: Component = () => {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setAIPanelOpen(false);
+                handleClose();
               }}
               class="p-2 rounded-lg transition-colors border"
               style={{ 
@@ -183,7 +204,8 @@ const AIChat: Component = () => {
               </svg>
             </button>
           </div>
-        </div>
+          </div>
+        </Show>
 
       {/* Messages */}
       <div class="flex-1 overflow-y-auto p-4 space-y-4">
