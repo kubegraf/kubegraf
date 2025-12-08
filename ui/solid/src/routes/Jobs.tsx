@@ -416,9 +416,9 @@ const Jobs: Component = () => {
           </div>
 
           {/* Pagination */}
-          <Show when={totalPages() > 1}>
-            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: '#161b22' }}>
-              <div style={{ color: '#8b949e' }}>
+          <Show when={totalPages() > 1 || filteredAndSorted().length > 0}>
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ color: 'var(--text-secondary)' }}>
                 Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} jobs
               </div>
               <div class="flex items-center gap-2">
@@ -426,7 +426,7 @@ const Jobs: Component = () => {
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   First
                 </button>
@@ -434,18 +434,18 @@ const Jobs: Component = () => {
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage() === 1}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   ← Prev
                 </button>
-                <span class="px-3 py-1" style={{ color: '#c9d1d9' }}>
+                <span class="px-3 py-1" style={{ color: 'var(--text-primary)' }}>
                   Page {currentPage()} of {totalPages()}
                 </span>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages(), p + 1))}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Next →
                 </button>
@@ -453,10 +453,21 @@ const Jobs: Component = () => {
                   onClick={() => setCurrentPage(totalPages())}
                   disabled={currentPage() === totalPages()}
                   class="px-3 py-1 rounded text-sm disabled:opacity-50"
-                  style={{ background: '#21262d', color: '#c9d1d9' }}
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Last
                 </button>
+                <select
+                  value={pageSize()}
+                  onChange={(e) => { setPageSize(parseInt(e.currentTarget.value)); setCurrentPage(1); }}
+                  class="px-3 py-1 rounded-lg text-sm ml-4"
+                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                >
+                  <option value="20">20 per page</option>
+                  <option value="50">50 per page</option>
+                  <option value="100">100 per page</option>
+                  <option value="200">200 per page</option>
+                </select>
               </div>
             </div>
           </Show>
