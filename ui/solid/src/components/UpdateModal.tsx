@@ -13,9 +13,10 @@ interface UpdateModalProps {
 
 const UpdateModal: Component<UpdateModalProps> = (props) => {
   const handleInstallClick = () => {
-    if (props.updateInfo.htmlUrl) {
-      window.open(props.updateInfo.htmlUrl, '_blank', 'noopener,noreferrer');
-    }
+    // Use htmlUrl if available, otherwise construct GitHub release URL
+    const url = props.updateInfo.htmlUrl || 
+                `https://github.com/kubegraf/kubegraf/releases/tag/v${props.updateInfo.latestVersion}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleCopyCommand = () => {

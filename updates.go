@@ -36,6 +36,7 @@ type GitHubRelease struct {
 	TagName     string `json:"tag_name"`
 	Name        string `json:"name"`
 	Body        string `json:"body"`
+	HTMLURL     string `json:"html_url"`
 	PublishedAt string `json:"published_at"`
 	Assets      []struct {
 		Name               string `json:"name"`
@@ -51,6 +52,7 @@ type UpdateInfo struct {
 	UpdateAvailable bool   `json:"updateAvailable"`
 	ReleaseNotes    string `json:"releaseNotes"`
 	DownloadURL     string `json:"downloadUrl"`
+	HTMLURL         string `json:"htmlUrl"`
 	PublishedAt     string `json:"publishedAt"`
 	Error           string `json:"error,omitempty"`
 }
@@ -96,11 +98,18 @@ func CheckForUpdates() (*UpdateInfo, error) {
 
 	updateAvailable := compareVersions(currentVersionClean, latestVersion) < 0
 
+	// Construct GitHub release URL
+	htmlURL := fmt.Sprintf("https://github.com/kubegraf/kubegraf/releases/tag/%s", release.TagName)
+	if release.HTMLURL != "" {
+		htmlURL = release.HTMLURL
+	}
+
 	info := &UpdateInfo{
 		CurrentVersion:  currentVersion,
 		LatestVersion:   latestVersion,
 		UpdateAvailable: updateAvailable,
 		ReleaseNotes:    release.Body,
+		HTMLURL:         htmlURL,
 		PublishedAt:     release.PublishedAt,
 	}
 
