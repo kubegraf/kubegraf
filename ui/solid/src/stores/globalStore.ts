@@ -17,6 +17,8 @@ export interface ResourceCache {
   deployments: ResourceCacheEntry<any[]> | null;
   services: ResourceCacheEntry<any[]> | null;
   events: ResourceCacheEntry<any[]> | null;
+  pdbs: ResourceCacheEntry<any[]> | null;
+  hpas: ResourceCacheEntry<any[]> | null;
   [key: string]: ResourceCacheEntry<any> | null;
 }
 

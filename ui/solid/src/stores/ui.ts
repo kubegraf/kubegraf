@@ -9,6 +9,8 @@ export type View =
   | 'daemonsets'
   | 'cronjobs'
   | 'jobs'
+  | 'pdb'
+  | 'hpa'
   | 'services'
   | 'ingresses'
   | 'configmaps'

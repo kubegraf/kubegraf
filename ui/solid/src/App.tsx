@@ -13,6 +13,8 @@ import StatefulSets from './routes/StatefulSets';
 import DaemonSets from './routes/DaemonSets';
 import CronJobs from './routes/CronJobs';
 import Jobs from './routes/Jobs';
+import PDB from './routes/PDB';
+import HPA from './routes/HPA';
 import Services from './routes/Services';
 import Ingresses from './routes/Ingresses';
 import ConfigMaps from './routes/ConfigMaps';
@@ -151,6 +153,8 @@ const views: Record<string, Component> = {
   daemonsets: DaemonSets,
   jobs: Jobs,
   cronjobs: CronJobs,
+  pdb: PDB,
+  hpa: HPA,
   // Networking
   services: Services,
   ingresses: Ingresses,

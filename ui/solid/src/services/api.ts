@@ -373,6 +373,48 @@ export const api = {
   deleteJob: (name: string, namespace: string) =>
     deleteAPI(`/job/delete?name=${name}&namespace=${namespace}`),
 
+  // Pod Disruption Budgets
+  getPDBs: async (namespace?: string) => {
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
+      ? `/pdbs?namespace=${namespace}`
+      : '/pdbs?namespace=';
+    const data = await fetchAPI<any[]>(endpoint);
+    return Array.isArray(data) ? data : [];
+  },
+  getPDBYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/pdb/yaml?name=${name}&namespace=${namespace}`),
+  getPDBDescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string }>(`/pdb/describe?name=${name}&namespace=${namespace}`),
+  updatePDB: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/pdb/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
+  deletePDB: (name: string, namespace: string) =>
+    deleteAPI(`/pdb/delete?name=${name}&namespace=${namespace}`),
+
+  // Horizontal Pod Autoscalers
+  getHPAs: async (namespace?: string) => {
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
+      ? `/hpas?namespace=${namespace}`
+      : '/hpas?namespace=';
+    const data = await fetchAPI<any[]>(endpoint);
+    return Array.isArray(data) ? data : [];
+  },
+  getHPAYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/hpa/yaml?name=${name}&namespace=${namespace}`),
+  getHPADescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string }>(`/hpa/describe?name=${name}&namespace=${namespace}`),
+  updateHPA: (name: string, namespace: string, yaml: string) =>
+    fetch(`${API_BASE}/hpa/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
+  deleteHPA: (name: string, namespace: string) =>
+    deleteAPI(`/hpa/delete?name=${name}&namespace=${namespace}`),
+
   // ============ Network ============
   // Services
   getServices: async (namespace?: string) => {
