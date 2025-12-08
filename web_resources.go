@@ -645,10 +645,24 @@ func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
 
 // handleCronJobs returns cronjob list
 func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+	
 	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	// Only default to app.namespace if namespace param is not provided at all
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+	// If namespace is empty string or special values, treat as all namespaces
+	if namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
+		namespace = "" // Set to empty string for all namespaces
+	}
+	
 	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -682,10 +696,24 @@ func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 
 // handleJobs returns job list
 func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+	
 	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	// Only default to app.namespace if namespace param is not provided at all
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
 	}
+	// If namespace is empty string or special values, treat as all namespaces
+	if namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
+		namespace = "" // Set to empty string for all namespaces
+	}
+	
 	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

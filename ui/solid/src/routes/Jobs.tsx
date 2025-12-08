@@ -1,7 +1,12 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import {
+  selectedNamespaces,
+  globalLoading,
+  setGlobalLoading,
+} from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
@@ -54,7 +59,37 @@ const Jobs: Component = () => {
     localStorage.setItem('jobs-font-family', family);
   };
 
-  const [jobs, { refetch }] = createResource(namespace, api.getJobs);
+  // Determine namespace parameter from global store
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    // For multiple namespaces, backend should handle it via query params
+    // For now, pass first namespace (backend may need to be updated to handle multiple)
+    return namespaces[0];
+  };
+
+  // CACHED RESOURCE - Uses globalStore and cache
+  const jobsCache = createCachedResource<Job[]>(
+    'jobs',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaceParam = getNamespaceParam();
+        const jobs = await api.getJobs(namespaceParam);
+        return jobs;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
+
+  const jobs = createMemo(() => jobsCache.data() || []);
+  const refetch = () => jobsCache.refetch();
   const [yamlContent] = createResource(
     () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
     async (params) => {
@@ -278,7 +313,7 @@ const Jobs: Component = () => {
       {/* Jobs table */}
       <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
-          when={!jobs.loading}
+          when={!jobsCache.loading() || jobsCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
