@@ -10,7 +10,7 @@ import {
   switchProvider,
   fetchProviders,
 } from '../stores/ai';
-import { setAIPanelOpen, sidebarCollapsed, sidebarWidth, currentView, setCurrentView } from '../stores/ui';
+import { setAIPanelOpen, sidebarCollapsed, currentView, setCurrentView } from '../stores/ui';
 
 interface AIChatProps {
   inline?: boolean; // If true, render as inline component (for route view) instead of panel
@@ -100,8 +100,8 @@ const AIChat: Component<AIChatProps> = (props) => {
           bottom: '0',
           height: 'calc(100vh - 112px)',
           width: isMaximized() 
-            ? `calc(100vw - ${sidebarCollapsed() ? '64px' : `${sidebarWidth()}px`})` 
-            : '420px', // When maximized, take full width minus sidebar
+            ? `calc(100vw - ${sidebarCollapsed() ? '64px' : '208px'})` 
+            : '420px', // When maximized, take full width minus sidebar (64px collapsed, 208px expanded)
           transition: 'width 0.3s ease-in-out'
         }}
         onClick={(e) => e.stopPropagation()}

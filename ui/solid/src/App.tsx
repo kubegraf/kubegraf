@@ -127,7 +127,7 @@ const GitOps: Component = () => (
 import Settings from './routes/Settings';
 import AIChat from './components/AIChat';
 import BrainPanel from './features/brain/BrainPanel';
-import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, sidebarWidth, notifications, terminalOpen, setTerminalOpen } from './stores/ui';
+import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen } from './stores/ui';
 import { refreshClusterStatus } from './stores/clusterManager';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
@@ -239,10 +239,7 @@ const App: Component = () => {
         <Sidebar />
 
         {/* Main content */}
-        <div 
-          class="flex-1 flex flex-col overflow-hidden transition-all duration-300"
-          style={{ marginLeft: `${sidebarCollapsed() ? 64 : sidebarWidth()}px` }}
-        >
+        <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-52'}`}>
           {/* Header */}
           <Header />
 
@@ -542,7 +539,7 @@ const App: Component = () => {
       </div>
 
       {/* WebSocket Status Indicator */}
-      <div class="fixed bottom-4 z-50" style={{ left: `${sidebarCollapsed() ? 64 : sidebarWidth()}px` }}>
+      <div class="fixed bottom-4 z-50" style={{ left: '80px' }}>
         <Show when={sidebarCollapsed()}>
           <div
             class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"

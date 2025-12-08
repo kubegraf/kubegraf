@@ -1,6 +1,6 @@
-import { Component, For, Show, createSignal, createMemo, onMount, onCleanup } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, addNotification, sidebarWidth, setSidebarWidth } from '../stores/ui';
+import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, addNotification } from '../stores/ui';
 import { setUpdateInfo } from '../stores/globalStore';
 import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
@@ -266,53 +266,8 @@ const Sidebar: Component = () => {
     return sections;
   });
 
-  // Resize handle state
-  const [isResizing, setIsResizing] = createSignal(false);
-  const [resizeStartX, setResizeStartX] = createSignal(0);
-  const [resizeStartWidth, setResizeStartWidth] = createSignal(0);
-
-  const handleResizeStart = (e: MouseEvent) => {
-    if (sidebarCollapsed()) return; // Don't allow resizing when collapsed
-    e.preventDefault();
-    setIsResizing(true);
-    setResizeStartX(e.clientX);
-    setResizeStartWidth(sidebarWidth());
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-
-  const handleResizeMove = (e: MouseEvent) => {
-    if (!isResizing()) return;
-    const deltaX = e.clientX - resizeStartX();
-    const newWidth = resizeStartWidth() + deltaX;
-    setSidebarWidth(newWidth);
-  };
-
-  const handleResizeEnd = () => {
-    if (!isResizing()) return;
-    setIsResizing(false);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  };
-
-  onMount(() => {
-    window.addEventListener('mousemove', handleResizeMove);
-    window.addEventListener('mouseup', handleResizeEnd);
-  });
-
-  onCleanup(() => {
-    window.removeEventListener('mousemove', handleResizeMove);
-    window.removeEventListener('mouseup', handleResizeEnd);
-  });
-
-  // Get effective sidebar width (use collapsed width if collapsed, otherwise use dynamic width)
-  const effectiveWidth = () => sidebarCollapsed() ? 64 : sidebarWidth();
-
   return (
-    <aside 
-      class="fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40"
-      style={{ width: `${effectiveWidth()}px` }}
-    >
+    <aside class={`fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40 ${sidebarCollapsed() ? 'w-16' : 'w-52'}`}>
       {/* Logo */}
       <div class="h-14 flex items-center justify-between px-3 border-b" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
         <button onClick={() => setCurrentView('dashboard')} class="flex items-center gap-2.5 hover:opacity-80 transition-opacity" title="Go to Dashboard">
@@ -461,20 +416,6 @@ const Sidebar: Component = () => {
           </div>
         </Show>
       </div>
-
-      {/* Resize Handle */}
-      <Show when={!sidebarCollapsed()}>
-        <div
-          class="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500/50 transition-colors z-50"
-          style={{ 
-            background: isResizing() ? 'var(--accent-primary)' : 'transparent'
-          }}
-          onMouseDown={handleResizeStart}
-          title="Drag to resize sidebar"
-        >
-          <div class="absolute inset-y-0 -right-1 w-3" />
-        </div>
-      </Show>
     </aside>
   );
 };
