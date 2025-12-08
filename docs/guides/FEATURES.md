@@ -28,45 +28,432 @@ KubeGraf is a comprehensive Kubernetes visualization and management tool that pr
 ### 3. Solid.js UI (Modern SPA)
 - **Modern reactive** single-page application
 - **5 built-in themes** (Dark, Light, Midnight, Cyberpunk, Ocean)
-- **Collapsible sidebar** for better navigation
+- **Collapsible sidebar** with search functionality
 - **Full CRUD operations** on resources
 - **Plugin system** for extensibility
 - **AI-powered insights** and recommendations
 - **Advanced filtering and search**
+- **Real-time WebSocket updates** for live data
+- **Responsive design** with mobile support
+- **Keyboard shortcuts** for power users
+- **Toast notifications** for user feedback
+- **Update notification system** with auto-check
 
 ---
 
-## 📊 Resource Management
+## 📊 Solid.js UI - Complete Feature List
 
-### Supported Kubernetes Resources
+### Overview Section
 
-#### Workloads
-- **Pods** - View, manage, shell access, logs, restart, delete
-- **Deployments** - Scale, restart, view history, rollback
-- **StatefulSets** - Manage stateful workloads
-- **DaemonSets** - View and manage daemon pods
-- **CronJobs** - Schedule and monitor cron jobs
-- **Jobs** - Track and manage job executions
+#### Dashboard
+- **Cluster Overview** - Real-time cluster health metrics
+- **Resource Summary Cards** - Quick view of pods, nodes, deployments
+- **CPU & Memory Usage** - Visual resource utilization charts
+- **Node Status** - Node health and capacity overview
+- **Recent Events** - Latest cluster events feed
+- **Quick Actions** - Fast access to common operations
+- **Namespace Selector** - Quick namespace switching
+- **Context Indicator** - Current Kubernetes context display
 
-#### Networking
-- **Services** - ClusterIP, NodePort, LoadBalancer, ExternalName
-- **Ingresses** - View ingress rules and TLS configuration
-- **Port Forwarding** - One-click service access with session management
+### Insights Section
 
-#### Configuration
-- **ConfigMaps** - View and edit configuration data
-- **Secrets** - Secure configuration management (masked display)
-- **Certificates** - TLS certificate management and expiration tracking
+#### AI Insights (Anomalies)
+- **Automated Anomaly Detection** - AI-powered cluster analysis
+- **Severity Classification** - Critical, Warning, Info levels
+- **Anomaly Statistics** - Total, critical, warning counts
+- **Filterable Anomaly List** - Filter by severity, namespace, type
+- **Remediation Recommendations** - Actionable fix suggestions
+- **One-Click Remediation** - Automated fix application
+- **Anomaly Details** - Detailed view with context
+- **Pagination Support** - Navigate through large anomaly lists
+- **Real-time Updates** - Live anomaly detection
 
-#### Cluster
-- **Nodes** - Node health, capacity, allocatable resources
-- **Namespaces** - Multi-namespace support, namespace switching
-- **Events** - Real-time cluster events and notifications
+#### Incidents & OOM
+- **Incident Detection** - Automatic detection of pod failures, OOM kills
+- **Incident Types** - Pod crashes, OOM, restarts, errors
+- **Severity Filtering** - Filter by critical, high, medium, low
+- **Namespace Filtering** - Filter incidents by namespace
+- **Resource Navigation** - Quick jump to affected pods
+- **Log Viewing** - Direct access to pod logs
+- **Event Correlation** - Link incidents to cluster events
+- **Incident Timeline** - Chronological incident view
 
-#### Extensions
-- **Apps Marketplace** - Browse and install Helm charts
-- **Plugins** - Helm, ArgoCD, Flux integrations
-- **Custom Resources** - Support for CRDs via dynamic client
+#### Cost Analysis
+- **Multi-Cloud Cost Estimation** - GCP, AWS, Azure, IBM, Oracle, DigitalOcean, Alibaba, Linode, Vultr, OVH, Hetzner
+- **Resource Cost Calculation** - CPU and memory cost breakdown
+- **Namespace Cost Allocation** - Per-namespace cost tracking
+- **Workload Cost Analysis** - Cost per deployment/pod
+- **Node Pool Analysis** - Spot instance detection
+- **Cost Trends** - Historical cost visualization
+- **Cost Optimization** - Identify cost-saving opportunities
+- **Real-time Cost Updates** - Live cost tracking
+
+#### Security Insights
+- **Automated Security Scanning** - Continuous security posture analysis
+- **Security Score** - 0-100 score based on findings
+- **Security Checks** - Comprehensive security rule validation
+- **Remediation Guidance** - Step-by-step fix instructions
+- **Severity Levels** - Critical, High, Medium, Low classifications
+- **SecurityContext Analysis** - Pod security context validation
+- **Network Security** - NetworkPolicy analysis
+- **Ingress Security** - TLS and port security checks
+
+#### Drift Detection
+- **GitOps Sync Status** - Detect drift from Git repositories
+- **Configuration Comparison** - Compare current vs. desired state
+- **Field-level Differences** - Detailed drift analysis
+- **Drift Status Indicators** - Synced, Drifted, Missing, Unknown
+- **Resource Comparison** - Compare live vs. declared state
+- **Change Tracking** - Track who modified resources
+- **GitOps Integration** - ArgoCD/Flux sync status detection
+- **Remediation Suggestions** - How to fix drift
+
+### CD (Continuous Deployment) Section
+
+#### Deploy (Apps Marketplace)
+- **50+ Pre-configured Apps** - One-click Helm chart installations
+- **App Categories** - Database, Monitoring, CI/CD, ML, Security, etc.
+- **App Search & Filter** - Find apps by name, category, tags
+- **Installation Wizard** - Guided app installation process
+- **Custom Apps** - Add and manage custom Helm charts
+- **App Management** - Install, upgrade, uninstall apps
+- **Version Selection** - Choose specific chart versions
+- **Installation Progress** - Real-time deployment tracking
+- **App Status** - View installed app health
+- **Namespace Selection** - Choose target namespace for apps
+
+#### Rollouts
+- **Rollout Management** - View and manage Argo Rollouts
+- **Rollout Status** - Current rollout state and progress
+- **Canary Deployments** - Canary rollout visualization
+- **Blue-Green Deployments** - Blue-green rollout management
+- **Rollout History** - View rollout revision history
+- **Rollback Support** - Rollback to previous revisions
+
+### Workloads Section
+
+#### Pods
+- **Pod List View** - Comprehensive pod listing with filters
+- **Pod Details** - Full pod information and status
+- **Shell Access** - Interactive terminal via WebSocket (`kubectl exec`)
+- **Logs Streaming** - Real-time log viewing with search
+- **YAML Viewer** - Syntax-highlighted full resource configuration
+- **YAML Editor** - Edit pod configurations
+- **Describe View** - Full `kubectl describe` output
+- **Restart Pods** - Restart pods with confirmation
+- **Delete Pods** - Safe deletion with confirmation dialogs
+- **Port Forward** - Forward container ports to local machine
+- **Metrics Display** - CPU and memory usage tracking
+- **Pod Status Filtering** - Filter by running, pending, failed, succeeded
+- **Namespace Filtering** - Filter pods by namespace
+- **Label Selectors** - Advanced pod filtering
+
+#### Deployments
+- **Deployment List** - View all deployments with status
+- **Scale Deployment** - Scale replicas up or down
+- **Restart Deployment** - Trigger rolling restart
+- **Rollback** - Rollback to previous revisions
+- **History View** - View deployment revision history
+- **YAML Viewer/Editor** - View and edit deployment manifests
+- **Describe View** - Detailed deployment information
+- **Pod Management** - View and manage deployment pods
+- **Replica Status** - Current vs. desired replica counts
+
+#### StatefulSets
+- **StatefulSet Management** - View and manage stateful workloads
+- **Scale StatefulSets** - Scale stateful replicas
+- **Restart StatefulSets** - Rolling restart of stateful pods
+- **YAML Viewer/Editor** - View and manage stateful set configuration
+- **Describe View** - StatefulSet details and status
+- **Pod Management** - View individual stateful pods
+
+#### DaemonSets
+- **DaemonSet View** - View and manage daemon pods
+- **Restart DaemonSets** - Restart daemon pods
+- **YAML Viewer/Editor** - View daemon set configuration
+- **Describe View** - DaemonSet details
+- **Node Coverage** - View which nodes have daemon pods
+
+#### Jobs
+- **Job List** - Track and manage job executions
+- **Job Status** - View job completion status
+- **Job Details** - View job configuration and logs
+- **Job History** - View job execution history
+- **YAML Viewer/Editor** - View job configuration
+- **Delete Jobs** - Remove completed jobs
+
+#### CronJobs
+- **CronJob List** - Schedule and monitor cron jobs
+- **Cron Schedule** - View and edit cron schedules
+- **Job History** - See job execution history
+- **Trigger Manually** - Manually trigger cron jobs
+- **YAML Viewer/Editor** - View cron job configuration
+- **Describe View** - CronJob details and status
+
+### Networking Section
+
+#### Services
+- **Service List** - View all services (ClusterIP, NodePort, LoadBalancer, ExternalName)
+- **Port Forwarding** - One-click port forwarding with session management
+- **Endpoint Discovery** - View service endpoints and pod backends
+- **YAML Viewer/Editor** - View service configuration
+- **Describe View** - Service details and selectors
+- **Service Type Filtering** - Filter by service type
+- **Namespace Filtering** - Filter services by namespace
+
+#### Ingresses
+- **Ingress List** - View ingress rules and TLS configuration
+- **Ingress Rules** - View routing rules and paths
+- **TLS Configuration** - View TLS certificates and secrets
+- **YAML Viewer/Editor** - View and edit ingress configuration
+- **Describe View** - Ingress details
+- **Namespace Filtering** - Filter ingresses by namespace
+
+#### Network Policies
+- **NetworkPolicy List** - View and manage Kubernetes Network Policies
+- **Policy Visualization** - Visual representation of network rules
+- **Ingress/Egress Rules** - View policy rules
+- **Pod Selector Matching** - See which pods match policies
+- **Policy Testing** - Test network policy rules
+
+### Config & Storage Section
+
+#### ConfigMaps
+- **ConfigMap List** - View all ConfigMaps
+- **View/Edit Data** - View and edit configuration data
+- **YAML Viewer/Editor** - Full ConfigMap YAML editing
+- **Key-Value Management** - Add, edit, delete keys
+- **Namespace Filtering** - Filter ConfigMaps by namespace
+- **Describe View** - ConfigMap details
+
+#### Secrets
+- **Secret List** - View all secrets
+- **Secure Display** - Masked secret values
+- **YAML Viewer/Editor** - View and edit secret configuration
+- **Secret Type Filtering** - Filter by secret type
+- **Namespace Filtering** - Filter secrets by namespace
+- **Base64 Encoding** - Automatic encoding/decoding
+
+#### Certificates
+- **Certificate List** - TLS certificate management
+- **Expiration Tracking** - Certificate expiration dates and warnings
+- **Certificate Details** - View certificate information
+- **Renewal Reminders** - Expiration notifications
+- **YAML Viewer** - View certificate configuration
+
+#### Storage
+- **PersistentVolumes (PVs)** - View and manage PVs
+- **PersistentVolumeClaims (PVCs)** - View and manage PVCs
+- **StorageClasses** - View and manage storage classes
+- **Storage Tab Navigation** - Switch between PV, PVC, StorageClass views
+- **YAML Viewer/Editor** - View and edit storage configurations
+- **Capacity Information** - View storage capacity and usage
+- **Access Modes** - View access mode configurations
+- **Reclaim Policies** - View and manage reclaim policies
+- **Volume Binding** - View volume binding information
+
+### Cluster Section
+
+#### Nodes
+- **Node List** - View all cluster nodes
+- **Node Health** - Node status and conditions
+- **Resource Capacity** - CPU, memory, storage capacity
+- **Allocatable Resources** - Available resources for pods
+- **Node Metrics** - CPU and memory usage per node
+- **Node Labels** - View and filter by node labels
+- **Taints & Tolerations** - View node taints
+- **Node Details** - Comprehensive node information
+
+#### RBAC
+- **Role Management** - View and manage Roles
+- **RoleBinding Management** - View and manage RoleBindings
+- **ClusterRole Management** - View and manage ClusterRoles
+- **ClusterRoleBinding Management** - View and manage ClusterRoleBindings
+- **RBAC Tab Navigation** - Switch between RBAC resource types
+- **Rule Visualization** - View RBAC rules and permissions
+- **Subject Management** - View users, groups, service accounts
+- **YAML Viewer/Editor** - View and edit RBAC configurations
+- **Namespace Filtering** - Filter roles and bindings by namespace
+
+#### User Management
+- **User List** - View all system users
+- **User Creation** - Create new users
+- **User Roles** - Assign roles to users
+- **User Status** - Enable/disable users
+- **Authentication** - Login/logout functionality
+- **User Details** - View user information and permissions
+- **Last Login Tracking** - View user activity
+
+#### Events
+- **Event List** - Real-time cluster events and notifications
+- **Event Filtering** - Filter by type, namespace, resource
+- **Event Timeline** - Chronological event view
+- **Event Details** - Detailed event information
+- **Namespace Filtering** - Filter events by namespace
+- **Resource Filtering** - Filter events by resource type
+- **Event Search** - Search events by message
+
+#### Event Monitor
+- **Monitored Events** - Advanced event monitoring and analysis
+- **Event Timeline View** - Chronological event visualization
+- **Grouped View** - Group events by type, namespace, resource
+- **Error Log View** - View application errors from logs
+- **Severity Filtering** - Filter by critical, high, medium, low, info
+- **Type Filtering** - Filter by infrastructure, application, security
+- **Multi-Namespace Selection** - Monitor events across namespaces
+- **Event Statistics** - Event counts and trends
+- **Auto-Refresh** - Real-time event updates
+- **Event Grouping** - Group similar events together
+- **Log Error Analysis** - Extract errors from pod logs
+
+#### Resource Map
+- **Hierarchical View** - Tree structure of resource relationships
+- **Dependency Visualization** - Visual resource dependencies
+- **Multi-format Export** - ASCII, Graphviz, D3.js
+- **Relationship Mapping** - Track dependencies and connections
+- **Interactive Navigation** - Click to navigate to resources
+
+### Integrations Section
+
+#### Connectors
+- **GitHub Integration** - Connect to GitHub repositories
+- **Slack Integration** - Send alerts to Slack channels
+- **PagerDuty Integration** - Incident management integration
+- **Webhook Support** - Custom webhook integrations
+- **Email Notifications** - Email alert configuration
+- **Microsoft Teams** - Teams channel integration
+- **Discord Integration** - Discord webhook support
+- **Connector Management** - Create, edit, delete connectors
+- **Connection Testing** - Test connector configurations
+- **Status Monitoring** - View connector connection status
+
+#### AI Agents
+- **MCP Integration** - Model Context Protocol support
+- **AI Tool Management** - View available AI tools
+- **Tool Descriptions** - View tool capabilities
+- **MCP Server Status** - Check MCP server availability
+- **Tool Schema** - View tool input schemas
+- **AI Agent Configuration** - Configure AI agent settings
+
+#### SRE Agent
+- **SRE Metrics Dashboard** - Incident and remediation metrics
+- **Auto-Remediation** - Automated incident resolution
+- **Incident Detection** - Automatic incident identification
+- **Remediation Actions** - View and manage remediation actions
+- **SLO Monitoring** - Service Level Objective tracking
+- **Batch SLO Tracking** - Batch job SLO monitoring
+- **Notification Management** - Configure alert notifications
+- **Learning Mode** - AI-powered learning from incidents
+- **Action History** - View remediation action history
+- **Escalation Management** - Configure escalation rules
+
+#### Kiali
+- **Service Mesh Visualization** - Kiali service mesh integration
+- **Service Graph** - Visual service dependencies
+- **Traffic Analysis** - Service-to-service traffic metrics
+- **Istio Integration** - Istio service mesh support
+
+### Extensions Section
+
+#### Plugins
+- **Plugin Management** - View and manage installed plugins
+- **Helm Integration** - Helm chart management
+- **ArgoCD Integration** - GitOps deployment tracking
+- **Flux Integration** - FluxCD integration
+- **Plugin Status** - Monitor plugin health
+- **Custom Plugins** - Extensible plugin architecture
+
+#### Terminal
+- **Local Terminal** - Full-featured system terminal
+- **PTY Support** - Pseudo-terminal emulation
+- **Command Execution** - Run system commands
+- **Terminal History** - Command history support
+- **Multi-tab Support** - Multiple terminal sessions
+- **Docked Terminal** - Terminal panel at bottom of screen
+
+#### UI Demo
+- **Component Showcase** - View UI components
+- **Theme Preview** - Preview all available themes
+- **Feature Demonstration** - Showcase UI features
+
+### ML Workloads Section
+
+#### Training Jobs
+- **ML Training Job Management** - Create and manage ML training jobs
+- **Job Creation Wizard** - Guided training job setup
+- **Docker Image Building** - Build Docker images from training scripts
+- **Job Status Tracking** - Monitor training job progress
+- **Job Logs** - View training job logs
+- **Job History** - View training job execution history
+- **Resource Configuration** - Configure CPU, memory, GPU resources
+- **Volume Mounts** - Configure data volumes
+- **Job Deletion** - Remove completed training jobs
+
+#### Inference Services
+- **Inference Service Management** - Create and manage inference services
+- **Service Creation** - Deploy ML inference endpoints
+- **Auto-scaling** - Horizontal Pod Autoscaler (HPA) configuration
+- **Ingress Configuration** - Expose inference services
+- **Storage Configuration** - Configure model storage (MinIO, S3)
+- **Service Testing** - Test inference endpoints
+- **Service Status** - Monitor inference service health
+- **Traffic Management** - Manage inference traffic
+
+#### MLflow
+- **MLflow Integration** - MLflow experiment tracking
+- **Experiment Management** - View and manage ML experiments
+- **Run Tracking** - Track ML training runs
+- **Model Registry** - Manage ML models
+- **Metrics Visualization** - View training metrics
+- **MLflow Installation** - Install MLflow in cluster
+
+#### Feature Store (Feast)
+- **Feast Integration** - Feature store management
+- **Feature Management** - View and manage features
+- **Online Store** - Configure online feature store (Redis, BigQuery)
+- **Offline Store** - Configure offline feature store (BigQuery, Snowflake, File)
+- **Feast Installation** - Install Feast in cluster
+- **Feature Serving** - Serve features for ML models
+
+#### GPU Dashboard
+- **GPU Detection** - Detect GPU nodes in cluster
+- **GPU Metrics** - View GPU utilization and metrics
+- **DCGM Integration** - NVIDIA DCGM exporter support
+- **GPU Process Monitoring** - View GPU processes
+- **GPU Installation** - Install DCGM exporter
+- **Prometheus Integration** - GPU metrics from Prometheus
+- **GPU Node Information** - View GPU node details
+
+### Settings & System
+
+#### Settings
+- **Appearance Settings** - Theme selection, UI customization
+- **Cluster Settings** - Default namespace, context management
+- **Update Settings** - Auto-update configuration
+- **Notification Settings** - Sound, toast notification preferences
+- **Advanced Settings** - Developer options, feature flags
+- **Settings Reset** - Reset all settings to defaults
+- **Version Information** - View current version
+- **Update Check** - Manual update checking
+
+#### Cluster Manager
+- **Multi-Cluster Support** - Manage multiple Kubernetes clusters
+- **Context Switching** - Switch between Kubernetes contexts
+- **Cluster Discovery** - Auto-detect available clusters
+- **Manual Cluster Addition** - Add clusters manually
+- **Cluster Connection Status** - View cluster connectivity
+- **Default Cluster** - Set default cluster
+- **Cluster Provider Detection** - Detect cloud provider (GKE, EKS, AKS, etc.)
+- **Cluster Disconnection** - Disconnect from clusters
+
+#### Update Notification
+- **Auto-Update Check** - Background update checking every 4 hours
+- **Update Banner** - Visual notification when updates available
+- **Update Modal** - Detailed update information
+- **Manual Update Check** - Check for updates on demand
+- **Version Comparison** - Compare current vs. latest version
+- **Release Notes** - View release notes
+- **Update Instructions** - Installation command provided
 
 ---
 
@@ -355,16 +742,59 @@ KubeGraf is a comprehensive Kubernetes visualization and management tool that pr
 
 KubeGraf provides a comprehensive set of features for Kubernetes cluster management:
 
-- **3 Interfaces** - Terminal, Web, and Modern SPA
-- **20+ Resource Types** - Full Kubernetes resource coverage
-- **Security Analysis** - Automated security posture assessment
-- **Cost Management** - Cloud cost estimation and optimization
-- **Drift Detection** - Configuration drift monitoring
-- **AI Integration** - AI-powered insights and assistance
-- **Visualization** - Multiple topology and graph views
-- **Real-time Monitoring** - Live metrics and updates
-- **Plugin System** - Extensible architecture
-- **Multi-cluster** - Support for multiple Kubernetes contexts
+### Interface Options
+- **3 Interfaces** - Terminal UI (TUI), Web Dashboard (Classic), and Solid.js UI (Modern SPA)
+- **5 Built-in Themes** - Dark, Light, Midnight, Cyberpunk, Ocean
+- **Responsive Design** - Works on desktop, tablet, and mobile devices
 
-This makes KubeGraf a complete solution for Kubernetes cluster visualization, management, and optimization.
+### Resource Management
+- **20+ Kubernetes Resource Types** - Full Kubernetes resource coverage
+  - Workloads: Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs
+  - Networking: Services, Ingresses, Network Policies
+  - Configuration: ConfigMaps, Secrets, Certificates
+  - Storage: PersistentVolumes, PersistentVolumeClaims, StorageClasses
+  - Cluster: Nodes, Namespaces, Events, RBAC (Roles, RoleBindings, ClusterRoles, ClusterRoleBindings)
+  - Extensions: Custom Resources (CRDs)
+
+### Advanced Features
+- **Security Analysis** - Automated security posture assessment with remediation guidance
+- **Cost Management** - Multi-cloud cost estimation and optimization (11 cloud providers supported)
+- **Drift Detection** - Configuration drift monitoring with GitOps integration
+- **AI Integration** - AI-powered insights, anomaly detection, and recommendations
+- **ML Workloads** - Training jobs, inference services, MLflow, Feast feature store, GPU dashboard
+- **Visualization** - Multiple topology and graph views (D3.js, ASCII, Graphviz)
+- **Real-time Monitoring** - Live metrics, WebSocket updates, event streaming
+- **Plugin System** - Extensible architecture with Helm, ArgoCD, Flux support
+- **Multi-cluster** - Support for multiple Kubernetes contexts with cluster manager
+- **Apps Marketplace** - 50+ pre-configured Helm charts for one-click installation
+
+### Integrations
+- **Connectors** - GitHub, Slack, PagerDuty, Webhooks, Email, Teams, Discord
+- **AI Agents** - MCP (Model Context Protocol) integration
+- **SRE Agent** - Automated incident detection and remediation
+- **Kiali** - Service mesh visualization and traffic analysis
+
+### User Experience
+- **Update Notifications** - Auto-check for updates with visual notifications
+- **Terminal Access** - Built-in terminal for local system and pod shell access
+- **Log Streaming** - Real-time log viewing with search and filtering
+- **YAML Editor** - Full YAML editing capabilities for all resources
+- **Search & Filtering** - Advanced filtering and fuzzy search across resources
+- **Keyboard Shortcuts** - Power user navigation support
+- **Toast Notifications** - User feedback for all actions
+
+### Sidebar Navigation
+The Solid.js UI features a comprehensive sidebar with 10 main sections:
+1. **Overview** - Dashboard
+2. **Insights** - AI Insights, Incidents, Cost, Security, Drift
+3. **CD** - Deploy (Apps), Rollouts
+4. **Workloads** - Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs
+5. **Networking** - Services, Ingresses, Network Policies
+6. **Config & Storage** - ConfigMaps, Secrets, Certificates, Storage
+7. **Cluster** - Nodes, RBAC, User Management, Events, Event Monitor, Resource Map
+8. **Integrations** - Connectors, AI Agents, SRE Agent, Kiali
+9. **Extensions** - Plugins, Terminal, UI Demo
+10. **ML Workloads** - Training Jobs, Inference Services, MLflow, Feast, GPU Dashboard
+
+This makes KubeGraf a complete solution for Kubernetes cluster visualization, management, optimization, and ML workload operations.
 
