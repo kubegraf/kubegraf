@@ -11,6 +11,7 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { getTableCellStyle, STANDARD_TEXT_COLOR } from '../utils/tableCellStyles';
 
 interface ConfigMap {
   name: string;
@@ -36,6 +37,19 @@ const ConfigMaps: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('configmaps-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('configmaps-font-family') || 'Monaco');
+
+  const getFontFamilyCSS = (family: string): string => {
+    switch (family) {
+      case 'Monospace': return 'monospace';
+      case 'System-ui': return 'system-ui';
+      case 'Monaco': return 'Monaco, monospace';
+      case 'Consolas': return 'Consolas, monospace';
+      case 'Courier': return '"Courier New", monospace';
+      default: return 'Monaco, monospace';
+    }
+  };
 
   // Determine namespace parameter from global store (same pattern as Services/Ingresses)
   const getNamespaceParam = (): string | undefined => {
@@ -278,7 +292,7 @@ const ConfigMaps: Component = () => {
       </Show>
 
       {/* ConfigMaps table */}
-      <div class="overflow-hidden rounded-lg" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
         <Show
           when={!configMapsCache.loading() || configMapsCache.data() !== undefined}
           fallback={
@@ -289,7 +303,12 @@ const ConfigMaps: Component = () => {
           }
         >
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+              <style>{`
+                table { width: 100%; border-collapse: collapse; }
+                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
+                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+              `}</style>
               <thead>
                 <tr>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
@@ -311,9 +330,11 @@ const ConfigMaps: Component = () => {
                 <For each={paginated()} fallback={
                   <tr><td colspan="5" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ConfigMaps found</td></tr>
                 }>
-                  {(cm: ConfigMap) => (
+                  {(cm: ConfigMap) => {
+                    const textColor = STANDARD_TEXT_COLOR;
+                    return (
                     <tr>
-                      <td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>
                         <button
                           onClick={() => { setSelected(cm); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
@@ -322,10 +343,18 @@ const ConfigMaps: Component = () => {
                           {cm.name.length > 40 ? cm.name.slice(0, 37) + '...' : cm.name}
                         </button>
                       </td>
-                      <td>{cm.namespace}</td>
-                      <td><span class="badge badge-info">{cm.data} keys</span></td>
-                      <td>{cm.age}</td>
-                      <td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>{cm.namespace}</td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>
+                        <span class="badge badge-info">{cm.data} keys</span>
+                      </td>
+                      <td style={getTableCellStyle(fontSize(), textColor)}>{cm.age}</td>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
                         <ActionMenu
                           actions={[
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(cm); setShowYaml(true); } },
@@ -335,7 +364,8 @@ const ConfigMaps: Component = () => {
                         />
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
