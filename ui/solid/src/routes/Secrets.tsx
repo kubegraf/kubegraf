@@ -11,6 +11,7 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { getTableCellStyle, STANDARD_TEXT_COLOR } from '../utils/tableCellStyles';
 
 interface Secret {
   name: string;
@@ -40,6 +41,19 @@ const Secrets: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('secrets-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('secrets-font-family') || 'Monaco');
+
+  const getFontFamilyCSS = (family: string): string => {
+    switch (family) {
+      case 'Monospace': return 'monospace';
+      case 'System-ui': return 'system-ui';
+      case 'Monaco': return 'Monaco, monospace';
+      case 'Consolas': return 'Consolas, monospace';
+      case 'Courier': return '"Courier New", monospace';
+      default: return 'Monaco, monospace';
+    }
+  };
 
   // Secret value visibility state - track which secrets are visible
   const [visibleSecrets, setVisibleSecrets] = createSignal<Set<string>>(new Set());
@@ -276,7 +290,7 @@ const Secrets: Component = () => {
       </Show>
 
       {/* Secrets Table */}
-      <div class="overflow-hidden rounded-lg w-full" style={{ background: '#0d1117' }}>
+      <div class="overflow-hidden rounded-lg w-full" style={{ background: '#000000' }}>
         <Show when={!secretsCache.loading() || secretsCache.data() !== undefined} fallback={
           <div class="p-8 text-center">
             <div class="spinner mx-auto mb-2" />
@@ -284,7 +298,12 @@ const Secrets: Component = () => {
           </div>
         }>
           <div class="overflow-x-auto">
-            <table class="data-table terminal-table">
+            <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+              <style>{`
+                table { width: 100%; border-collapse: collapse; }
+                thead { background: #000000; position: sticky; top: 0; z-index: 10; }
+                tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+              `}</style>
                 <thead>
                   <tr>
                     <th onClick={() => handleSort('name')} class="cursor-pointer select-none whitespace-nowrap">
@@ -310,45 +329,33 @@ const Secrets: Component = () => {
                     <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No secrets found</td></tr>
                   }>
                     {(secret: Secret) => {
-                      const isOpaque = secret.type.includes('Opaque');
-                      const isTLS = secret.type.includes('tls');
-
-                      // Text color based on type - similar to Pods
-                      const getTextColor = () => {
-                        if (isTLS) return '#22c55e'; // Green for TLS
-                        return '#3b82f6'; // Light blue for default
-                      };
-
-                      const textColor = getTextColor();
-
+                      const textColor = STANDARD_TEXT_COLOR;
                       return (
-                        <tr
-                          style={{
-                            color: textColor,
-                            fontWeight: 'bold',
-                            fontSize: '0.9375rem',
-                            paddingTop: '0.25rem',
-                            paddingBottom: '0.25rem',
-                          }}
-                        >
-                          <td style={{ textAlign: 'left' }}>
+                        <tr>
+                          <td style={getTableCellStyle(fontSize(), textColor)}>
                             <button
                               onClick={() => { setSelected(secret); setShowDetails(true); }}
-                              class="font-bold text-base hover:underline text-left"
-                              style={{ color: textColor }}
+                              class="font-medium hover:underline text-left"
+                              style={{ color: 'var(--accent-primary)' }}
                             >
                               {secret.name.length > 40 ? secret.name.slice(0, 37) + '...' : secret.name}
                             </button>
                           </td>
-                          <td style={{ textAlign: 'left', color: textColor }}>{secret.namespace}</td>
-                          <td style={{ textAlign: 'left' }}>
+                          <td style={getTableCellStyle(fontSize(), textColor)}>{secret.namespace}</td>
+                          <td style={getTableCellStyle(fontSize(), textColor)}>
                             <span class={`badge ${getTypeBadgeClass(secret.type)}`}>
                               {secret.type}
                             </span>
                           </td>
-                          <td style={{ textAlign: 'left', color: textColor }}>{secret.data}</td>
-                          <td style={{ textAlign: 'left', color: textColor }}>{secret.age}</td>
-                          <td style={{ textAlign: 'left' }}>
+                          <td style={getTableCellStyle(fontSize(), textColor)}>{secret.data}</td>
+                          <td style={getTableCellStyle(fontSize(), textColor)}>{secret.age}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>
                             <ActionMenu
                               actions={[
                                 { label: 'View Data', icon: 'describe', onClick: () => { setSelected(secret); setShowDetails(true); } },
