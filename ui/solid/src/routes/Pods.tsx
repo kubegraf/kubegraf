@@ -17,6 +17,10 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import ContainerStatusBadge from '../components/ContainerStatusBadge';
+import ContainerList from '../components/ContainerList';
+import { ContainerInfo, ContainerType, isSidecarContainer } from '../utils/containerTypes';
+import { calculateContainerStatus } from '../utils/containerStatus';
 
 interface Pod {
   name: string;
@@ -27,7 +31,7 @@ interface Pod {
   age: string;
   createdAt?: string;
   node: string;
-  containers?: string[];
+  containers?: string[] | ContainerInfo[]; // Can be array of names (legacy) or ContainerInfo objects
   ip?: string;
   cpu?: string;
   memory?: string;
@@ -502,13 +506,45 @@ const Pods: Component = () => {
     }
   };
 
+  // Helper to normalize containers (handle both legacy string[] and new ContainerInfo[])
+  const getContainerInfos = (pod: Pod): ContainerInfo[] => {
+    if (!pod.containers || pod.containers.length === 0) return [];
+    
+    // Check if it's the new format (ContainerInfo[])
+    if (typeof pod.containers[0] === 'object') {
+      return pod.containers as ContainerInfo[];
+    }
+    
+    // Legacy format: convert string[] to ContainerInfo[]
+    const containerNames = pod.containers as string[];
+    return containerNames.map(name => ({
+      name,
+      type: 'main' as ContainerType,
+      image: '',
+    }));
+  };
+
+  // Helper to get container names (for backward compatibility)
+  const getContainerNames = (pod: Pod): string[] => {
+    const infos = getContainerInfos(pod);
+    return infos.map(c => c.name);
+  };
+
+  // Helper to get main container name (for logs, shell, etc.)
+  const getMainContainerName = (pod: Pod): string => {
+    const infos = getContainerInfos(pod);
+    const mainContainer = infos.find(c => c.type === 'main');
+    return mainContainer?.name || infos[0]?.name || '';
+  };
+
   const openShellInNewTab = (pod: Pod) => {
+    const containerInfos = getContainerInfos(pod);
     // Show container selector if pod has multiple containers
-    if (pod.containers && pod.containers.length > 1) {
+    if (containerInfos.length > 1) {
       setContainerSelectPod(pod);
       setShowContainerSelect(true);
     } else {
-      const container = pod.containers?.[0] || '';
+      const container = getMainContainerName(pod);
       // Open shell endpoint in new tab - backend should handle WebSocket terminal
       window.open(`/api/pod/exec?name=${pod.name}&namespace=${pod.namespace}&container=${container}`, '_blank');
     }
@@ -531,7 +567,7 @@ const Pods: Component = () => {
     setLogsLoading(true);
     setLogsError(null);
 
-    const container = pod.containers?.[0] || '';
+    const container = getMainContainerName(pod);
     const url = `/api/pod/logs?name=${pod.name}&namespace=${pod.namespace}&container=${container}&tail=${logsTail()}${follow ? '&follow=true' : ''}`;
 
     if (follow) {
@@ -1006,7 +1042,16 @@ const Pods: Component = () => {
                         height: `${Math.max(24, fontSize() * 1.7)}px`,
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
-                      }}>{pod.ready}</td>
+                      }}>
+                        {(() => {
+                          const containerInfos = getContainerInfos(pod);
+                          if (containerInfos.length > 0) {
+                            const summary = calculateContainerStatus(containerInfos);
+                            return <ContainerStatusBadge summary={summary} size="sm" />;
+                          }
+                          return <span>{pod.ready}</span>;
+                        })()}
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -1289,7 +1334,18 @@ const Pods: Component = () => {
                     </div>
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Ready</div>
-                      <div style={{ color: 'var(--text-primary)' }}>{selectedPod()?.ready}</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        {(() => {
+                          const pod = selectedPod();
+                          if (!pod) return '-';
+                          const containerInfos = getContainerInfos(pod);
+                          if (containerInfos.length > 0) {
+                            const summary = calculateContainerStatus(containerInfos);
+                            return <ContainerStatusBadge summary={summary} />;
+                          }
+                          return pod.ready;
+                        })()}
+                      </div>
                     </div>
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>CPU</div>
@@ -1328,49 +1384,24 @@ const Pods: Component = () => {
                   <Show when={!podDetails.loading && podDetails()?.containers} fallback={
                     <div class="p-4 text-center"><div class="spinner mx-auto" /></div>
                   }>
-                    <div class="space-y-3">
-                      <For each={podDetails()?.containers || []}>
-                        {(container: any) => (
-                          <div class="p-4 rounded-lg border" style={{ background: 'var(--bg-secondary)', 'border-color': 'var(--border-color)' }}>
-                            <div class="flex items-center justify-between mb-3">
-                              <div class="flex items-center gap-2">
-                                <svg class="w-5 h-5" style={{ color: 'var(--accent-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                </svg>
-                                <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{container.name}</span>
-                              </div>
-                              <span class={`badge ${container.ready ? 'badge-success' : 'badge-error'}`}>
-                                {container.state || (container.ready ? 'Running' : 'Not Ready')}
-                              </span>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                              <div>
-                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Image</div>
-                                <div class="p-2 rounded text-xs font-mono break-all" style={{ background: 'var(--bg-tertiary)', color: 'var(--accent-primary)' }}>
-                                  {container.image}
-                                </div>
-                              </div>
-                              <div>
-                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Container ID</div>
-                                <div class="p-2 rounded text-xs font-mono truncate" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }} title={container.containerID}>
-                                  {container.containerID?.split('//')[1]?.substring(0, 24) || '-'}...
-                                </div>
-                              </div>
-                              <div>
-                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Restart Count</div>
-                                <div style={{ color: container.restartCount > 0 ? 'var(--warning-color)' : 'var(--text-primary)' }}>
-                                  {container.restartCount}
-                                </div>
-                              </div>
-                              <div>
-                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Started At</div>
-                                <div style={{ color: 'var(--text-secondary)' }}>{container.startedAt || '-'}</div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
+                    {(() => {
+                      const containers = podDetails()?.containers || [];
+                      // Convert to ContainerInfo[] if needed
+                      const containerInfos: ContainerInfo[] = containers.map((c: any) => ({
+                        name: c.name || (typeof c === 'string' ? c : ''),
+                        type: (c.type || 'main') as ContainerType,
+                        image: c.image || '',
+                        ready: c.ready,
+                        state: c.state,
+                        restartCount: c.restartCount,
+                        containerID: c.containerID,
+                        startedAt: c.startedAt,
+                        reason: c.reason,
+                        message: c.message,
+                        exitCode: c.exitCode,
+                      }));
+                      return <ContainerList containers={containerInfos} showAll={true} />;
+                    })()}
                   </Show>
                 </div>
 
@@ -1527,37 +1558,52 @@ const Pods: Component = () => {
       {/* Container Selector Modal */}
       <Modal isOpen={showContainerSelect()} onClose={() => setShowContainerSelect(false)} title={`Select Container for ${containerSelectPod()?.name}`} size="sm">
         <div class="space-y-2">
-          <Show when={containerSelectPod()?.containers} fallback={<div>No containers found</div>}>
-            {(containers) => (
-              <For each={containers()}>
-                {(container) => (
-                  <button
-                    onClick={() => connectToContainer(containerSelectPod()!, container)}
-                    class="w-full p-3 rounded-lg text-left transition-colors"
-                    style={{
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-color)',
-                      'hover-background': 'var(--bg-tertiary)'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                  >
-                    <div class="flex items-center gap-2">
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                      </svg>
-                      <div>
-                        <div class="font-medium">{container}</div>
-                        <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                          Container • {containerSelectPod()?.namespace}
+          <Show when={containerSelectPod()} fallback={<div>No pod selected</div>}>
+            {(pod) => {
+              const containerInfos = getContainerInfos(pod());
+              return (
+                <Show when={containerInfos.length > 0} fallback={<div>No containers found</div>}>
+                  <For each={containerInfos}>
+                    {(container) => (
+                      <button
+                        onClick={() => connectToContainer(pod(), container.name)}
+                        class="w-full p-3 rounded-lg text-left transition-colors"
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border-color)',
+                          'hover-background': 'var(--bg-tertiary)'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                      >
+                        <div class="flex items-center gap-2">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                          </svg>
+                          <div class="flex-1">
+                            <div class="font-medium">{container.name}</div>
+                            <div class="text-xs flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                              <span class={`px-1.5 py-0.5 rounded text-xs ${
+                                container.type === 'init' ? 'bg-blue-500/20 text-blue-400' :
+                                container.type === 'sidecar' ? 'bg-purple-500/20 text-purple-400' :
+                                'bg-gray-500/20 text-gray-400'
+                              }`}>
+                                {container.type}
+                              </span>
+                              <span>• {pod().namespace}</span>
+                            </div>
+                          </div>
+                          {container.ready && (
+                            <span class="text-green-400 text-xs">✓</span>
+                          )}
                         </div>
-                      </div>
-                    </div>
-                  </button>
-                )}
-              </For>
-            )}
+                      </button>
+                    )}
+                  </For>
+                </Show>
+              );
+            }}
           </Show>
         </div>
       </Modal>

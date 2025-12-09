@@ -77,19 +77,38 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 
 	podList := []map[string]interface{}{}
 	for _, pod := range pods.Items {
-		// Calculate ready count from container statuses
+		// Calculate total containers (main + init containers)
+		// Note: Init containers don't have a "ready" status - they either complete or fail
+		// So we count them separately
+		mainTotal := len(pod.Spec.Containers)
+		initTotal := len(pod.Spec.InitContainers)
+		totalContainers := mainTotal + initTotal
+
+		// Calculate ready count from main container statuses only
+		// Init containers are not included in "ready" count as they run before main containers
 		ready := 0
-		total := len(pod.Spec.Containers)
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.Ready {
 				ready++
 			}
 		}
 
-		// Calculate total restarts
+		// Count init containers that have completed
+		initReady := 0
+		for _, ics := range pod.Status.InitContainerStatuses {
+			// Init containers are "ready" if they've completed (terminated with exit code 0)
+			if ics.State.Terminated != nil && ics.State.Terminated.ExitCode == 0 {
+				initReady++
+			}
+		}
+
+		// Calculate total restarts (main + init)
 		restarts := int32(0)
 		for _, cs := range pod.Status.ContainerStatuses {
 			restarts += cs.RestartCount
+		}
+		for _, ics := range pod.Status.InitContainerStatuses {
+			restarts += ics.RestartCount
 		}
 
 		// Determine actual status
@@ -116,7 +135,7 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
-			if allReady && ready == total {
+			if allReady && ready == mainTotal {
 				status = "Running"
 			}
 		}
@@ -129,16 +148,80 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			memory = m.memory
 		}
 
-		// Extract container names
-		containerNames := make([]string, 0, len(pod.Spec.Containers))
-		for _, c := range pod.Spec.Containers {
-			containerNames = append(containerNames, c.Name)
+		// Extract container information with types
+		containerInfo := []map[string]interface{}{}
+		
+		// Add init containers
+		for _, ic := range pod.Spec.InitContainers {
+			containerData := map[string]interface{}{
+				"name":  ic.Name,
+				"image": ic.Image,
+				"type":  "init",
+			}
+			// Find init container status
+			for _, ics := range pod.Status.InitContainerStatuses {
+				if ics.Name == ic.Name {
+					containerData["restartCount"] = ics.RestartCount
+					containerData["containerID"] = ics.ContainerID
+					if ics.State.Terminated != nil {
+						containerData["state"] = "Terminated"
+						containerData["ready"] = ics.State.Terminated.ExitCode == 0
+						containerData["exitCode"] = ics.State.Terminated.ExitCode
+						containerData["reason"] = ics.State.Terminated.Reason
+					} else if ics.State.Running != nil {
+						containerData["state"] = "Running"
+						containerData["ready"] = false
+						containerData["startedAt"] = ics.State.Running.StartedAt.String()
+					} else if ics.State.Waiting != nil {
+						containerData["state"] = "Waiting"
+						containerData["ready"] = false
+						containerData["reason"] = ics.State.Waiting.Reason
+						containerData["message"] = ics.State.Waiting.Message
+					}
+					break
+				}
+			}
+			containerInfo = append(containerInfo, containerData)
 		}
+
+		// Add main containers
+		for _, c := range pod.Spec.Containers {
+			containerData := map[string]interface{}{
+				"name":  c.Name,
+				"image": c.Image,
+				"type":  "main",
+			}
+			// Find container status
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.Name == c.Name {
+					containerData["ready"] = cs.Ready
+					containerData["restartCount"] = cs.RestartCount
+					containerData["containerID"] = cs.ContainerID
+					if cs.State.Running != nil {
+						containerData["state"] = "Running"
+						containerData["startedAt"] = cs.State.Running.StartedAt.String()
+					} else if cs.State.Waiting != nil {
+						containerData["state"] = "Waiting"
+						containerData["reason"] = cs.State.Waiting.Reason
+						containerData["message"] = cs.State.Waiting.Message
+					} else if cs.State.Terminated != nil {
+						containerData["state"] = "Terminated"
+						containerData["reason"] = cs.State.Terminated.Reason
+						containerData["exitCode"] = cs.State.Terminated.ExitCode
+					}
+					break
+				}
+			}
+			containerInfo = append(containerInfo, containerData)
+		}
+
+		// Calculate total ready (main containers ready + init containers completed)
+		totalReady := ready + initReady
 
 		podList = append(podList, map[string]interface{}{
 			"name":       pod.Name,
 			"status":     status,
-			"ready":      fmt.Sprintf("%d/%d", ready, total),
+			"ready":      fmt.Sprintf("%d/%d", totalReady, totalContainers),
 			"restarts":   restarts,
 			"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
 			"createdAt":  pod.CreationTimestamp.Time.Format(time.RFC3339),
@@ -147,7 +230,7 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			"namespace":  pod.Namespace,
 			"cpu":        cpu,
 			"memory":     memory,
-			"containers": containerNames,
+			"containers": containerInfo,
 		})
 	}
 
