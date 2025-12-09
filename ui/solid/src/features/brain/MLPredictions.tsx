@@ -24,36 +24,37 @@ const MLPredictions: Component<MLPredictionsProps> = (props) => {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'critical':
-        return '#ef4444';
+        return 'var(--error-color)';
       case 'warning':
-        return '#f59e0b';
+        return 'var(--warning-color)';
       case 'info':
-        return '#3b82f6';
+        return 'var(--info-color)';
       default:
-        return '#8b949e';
+        return 'var(--text-muted)';
     }
   };
 
   const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.8) return '#ef4444';
-    if (confidence >= 0.6) return '#f59e0b';
-    return '#3b82f6';
+    if (confidence >= 0.8) return 'var(--error-color)';
+    if (confidence >= 0.6) return 'var(--warning-color)';
+    return 'var(--info-color)';
   };
 
   return (
     <div>
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold" style={{ color: '#f0f6fc' }}>ML Predictions</h3>
+        <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>ML Predictions</h3>
         <span class="text-sm px-2 py-1 rounded" style={{ 
-          background: 'rgba(245, 158, 11, 0.2)', 
-          color: '#f59e0b' 
+          background: 'var(--glass-gradient)', 
+          color: 'var(--warning-color)',
+          border: '1px solid var(--border-color)'
         }}>
           {props.predictions.length} forecasts
         </span>
       </div>
 
       <Show when={props.predictions.length === 0}>
-        <div class="text-center py-8" style={{ color: '#8b949e' }}>
+        <div class="text-center py-8" style={{ color: 'var(--text-muted)' }}>
           <p>No predictions available at this time</p>
         </div>
       </Show>
@@ -61,54 +62,61 @@ const MLPredictions: Component<MLPredictionsProps> = (props) => {
       <Show when={props.predictions.length > 0}>
         <div class="space-y-4">
           <For each={props.predictions}>
-            {(prediction) => (
-              <div class="p-4 rounded-lg border" style={{
-                background: 'rgba(22, 27, 34, 0.5)',
-                borderColor: getSeverityColor(prediction.severity),
-                borderLeftWidth: '4px'
-              }}>
-                <div class="flex items-start gap-3 mb-3">
-                  <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{
-                    background: `rgba(${getSeverityColor(prediction.severity).replace('#', '')}, 0.2)`
-                  }}>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{
-                      color: getSeverityColor(prediction.severity)
+            {(prediction) => {
+              const severityColor = getSeverityColor(prediction.severity);
+              const confidenceColor = getConfidenceColor(prediction.confidence);
+              return (
+                <div class="p-4 rounded-lg border" style={{
+                  background: 'var(--bg-tertiary)',
+                  borderColor: severityColor,
+                  borderLeftWidth: '4px'
+                }}>
+                  <div class="flex items-start gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{
+                      background: 'var(--bg-secondary)',
+                      border: `1px solid ${severityColor}`
                     }}>
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={getPredictionIcon(prediction.type)} />
-                    </svg>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-start justify-between gap-2 mb-1">
-                      <h4 class="font-medium" style={{ color: '#f0f6fc' }}>{prediction.title}</h4>
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs px-2 py-0.5 rounded" style={{
-                          background: `rgba(${getConfidenceColor(prediction.confidence).replace('#', '')}, 0.2)`,
-                          color: getConfidenceColor(prediction.confidence)
-                        }}>
-                          {Math.round(prediction.confidence * 100)}% confidence
-                        </span>
-                      </div>
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{
+                        color: severityColor
+                      }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={getPredictionIcon(prediction.type)} />
+                      </svg>
                     </div>
-                    <p class="text-sm mb-2" style={{ color: '#8b949e' }}>{prediction.description}</p>
-                    <div class="flex items-center gap-4 text-xs" style={{ color: '#8b949e' }}>
-                      <span>Timeframe: <strong style={{ color: '#f0f6fc' }}>{prediction.timeframe}</strong></span>
-                      <span>Trend: <strong style={{ color: prediction.trend === 'increasing' ? '#ef4444' : '#10b981' }}>{prediction.trend}</strong></span>
-                    </div>
-                    <Show when={prediction.resource}>
-                      <div class="mt-2 flex items-center gap-2 text-xs">
-                        <span class="px-2 py-0.5 rounded" style={{ 
-                          background: 'rgba(59, 130, 246, 0.2)',
-                          color: '#3b82f6'
-                        }}>
-                          {prediction.resource!.kind}
-                        </span>
-                        <span style={{ color: '#8b949e' }}>{prediction.resource!.name}</span>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-start justify-between gap-2 mb-1">
+                        <h4 class="font-medium" style={{ color: 'var(--text-primary)' }}>{prediction.title}</h4>
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs px-2 py-0.5 rounded" style={{
+                            background: 'var(--bg-secondary)',
+                            color: confidenceColor,
+                            border: '1px solid var(--border-color)'
+                          }}>
+                            {Math.round(prediction.confidence * 100)}% confidence
+                          </span>
+                        </div>
                       </div>
-                    </Show>
+                      <p class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>{prediction.description}</p>
+                      <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <span>Timeframe: <strong style={{ color: 'var(--text-primary)' }}>{prediction.timeframe}</strong></span>
+                        <span>Trend: <strong style={{ color: prediction.trend === 'increasing' ? 'var(--error-color)' : 'var(--success-color)' }}>{prediction.trend}</strong></span>
+                      </div>
+                      <Show when={prediction.resource}>
+                        <div class="mt-2 flex items-center gap-2 text-xs">
+                          <span class="px-2 py-0.5 rounded" style={{ 
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--info-color)',
+                            border: '1px solid var(--border-color)'
+                          }}>
+                            {prediction.resource!.kind}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)' }}>{prediction.resource!.name}</span>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>
