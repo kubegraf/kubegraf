@@ -106,6 +106,123 @@ const RBAC: Component = () => {
     }
   });
 
+  // Load YAML for a resource
+  const loadYAML = async (type: string, name: string, namespace?: string) => {
+    setYamlLoading(true);
+    try {
+      let url = '';
+      if (type === 'role') {
+        url = `/api/rbac/role/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
+      } else if (type === 'rb') {
+        url = `/api/rbac/rolebinding/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
+      } else if (type === 'cr') {
+        url = `/api/rbac/clusterrole/yaml?name=${encodeURIComponent(name)}`;
+      } else if (type === 'crb') {
+        url = `/api/rbac/clusterrolebinding/yaml?name=${encodeURIComponent(name)}`;
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch YAML');
+      const data = await response.json();
+      setYamlContent(data.yaml || '');
+    } catch (err: any) {
+      addNotification(`Failed to load YAML: ${err.message}`, 'error');
+      setYamlContent('');
+    } finally {
+      setYamlLoading(false);
+    }
+  };
+
+  // Handle delete
+  const handleDelete = async (type: string, name: string, namespace?: string) => {
+    if (!confirm(`Are you sure you want to delete ${name}?`)) {
+      return;
+    }
+
+    try {
+      let url = '';
+      if (type === 'role') {
+        url = `/api/rbac/role/delete?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
+      } else if (type === 'rb') {
+        url = `/api/rbac/rolebinding/delete?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
+      } else if (type === 'cr') {
+        url = `/api/rbac/clusterrole/delete?name=${encodeURIComponent(name)}`;
+      } else if (type === 'crb') {
+        url = `/api/rbac/clusterrolebinding/delete?name=${encodeURIComponent(name)}`;
+      }
+
+      const response = await fetch(url, { method: 'POST' });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Delete failed');
+      }
+      addNotification(`Successfully deleted ${name}`, 'success');
+      
+      // Refetch data
+      if (type === 'role') roles.refetch();
+      else if (type === 'rb') roleBindings.refetch();
+      else if (type === 'cr') clusterRoles.refetch();
+      else if (type === 'crb') clusterRoleBindings.refetch();
+    } catch (err: any) {
+      addNotification(`Failed to delete: ${err.message}`, 'error');
+    }
+  };
+
+  // Handle save YAML
+  const handleSaveYAML = async (yaml: string) => {
+    const currentResource = activeTab() === 'roles' ? selectedRole() :
+                            activeTab() === 'rolebindings' ? selectedRB() :
+                            activeTab() === 'clusterroles' ? selectedCR() :
+                            selectedCRB();
+    
+    if (!currentResource) return;
+
+    try {
+      let url = '';
+      const type = activeTab() === 'roles' ? 'role' :
+                   activeTab() === 'rolebindings' ? 'rolebinding' :
+                   activeTab() === 'clusterroles' ? 'clusterrole' :
+                   'clusterrolebinding';
+      
+      if (type === 'role') {
+        url = `/api/rbac/role/update?name=${encodeURIComponent(currentResource.name)}&namespace=${encodeURIComponent(currentResource.namespace || '')}`;
+      } else if (type === 'rolebinding') {
+        url = `/api/rbac/rolebinding/update?name=${encodeURIComponent(currentResource.name)}&namespace=${encodeURIComponent(currentResource.namespace || '')}`;
+      } else if (type === 'clusterrole') {
+        url = `/api/rbac/clusterrole/update?name=${encodeURIComponent(currentResource.name)}`;
+      } else if (type === 'clusterrolebinding') {
+        url = `/api/rbac/clusterrolebinding/update?name=${encodeURIComponent(currentResource.name)}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/yaml' },
+        body: yaml,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Update failed' }));
+        throw new Error(errorData.error || 'Update failed');
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Update failed');
+      }
+
+      addNotification(`Successfully updated ${currentResource.name}`, 'success');
+      setShowEdit(false);
+      
+      // Refetch data
+      if (type === 'role') roles.refetch();
+      else if (type === 'rolebinding') roleBindings.refetch();
+      else if (type === 'clusterrole') clusterRoles.refetch();
+      else if (type === 'clusterrolebinding') clusterRoleBindings.refetch();
+    } catch (err: any) {
+      addNotification(`Failed to update: ${err.message}`, 'error');
+    }
+  };
+
   return (
     <div class="space-y-6 p-6" style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
       {/* Header */}

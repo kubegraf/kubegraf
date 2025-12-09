@@ -7,6 +7,7 @@ import { setUpdateInfo } from './stores/globalStore';
 import { api } from './services/api';
 import Dashboard from './routes/Dashboard';
 import Topology from './routes/Topology';
+import ClusterOverview from './routes/ClusterOverview';
 import Pods from './routes/Pods';
 import Deployments from './routes/Deployments';
 import StatefulSets from './routes/StatefulSets';
@@ -46,6 +47,8 @@ import ClusterManager from './routes/ClusterManager';
 import Placeholder from './routes/Placeholder';
 import Storage from './routes/Storage';
 import RBAC from './routes/RBAC';
+import ServiceAccounts from './routes/ServiceAccounts';
+import CustomResources from './routes/CustomResources';
 import NetworkPolicies from './routes/NetworkPolicies';
 import UserManagement from './routes/UserManagement';
 import Terminal from './routes/Terminal';
@@ -125,7 +128,7 @@ import { createSignal, createResource } from 'solid-js';
 const views: Record<string, Component> = {
   // Overview
   dashboard: Dashboard,
-  topology: Topology,
+  topology: ClusterOverview, // Replaced with ClusterOverview for better UX
   monitoredevents: MonitoredEvents,
   // Insights
   incidents: Incidents,
@@ -151,9 +154,13 @@ const views: Record<string, Component> = {
   secrets: Secrets,
   certificates: Certificates,
   storage: Storage,
+  // Access Control
+  serviceaccounts: ServiceAccounts,
+  rbac: RBAC,
+  // Custom Resources
+  customresources: CustomResources,
   // Platform
   nodes: Nodes,
-  rbac: RBAC,
   usermanagement: UserManagement,
   resourcemap: ResourceMap,
   connectors: Connectors,
