@@ -45,9 +45,10 @@ const BrainPanel: Component = () => {
       >
         {/* Backdrop */}
         <div
-          class="fixed inset-0 bg-black/50 transition-opacity"
+          class="fixed inset-0 transition-opacity"
           onClick={() => !brainPanelPinned() && toggleBrainPanel()}
           style={{ 
+            background: 'rgba(0, 0, 0, 0.5)',
             opacity: brainPanelOpen() ? 1 : 0,
             pointerEvents: brainPanelOpen() ? 'auto' : 'none'
           }}
@@ -55,27 +56,27 @@ const BrainPanel: Component = () => {
 
         {/* Panel */}
         <div
-          class="relative flex flex-col w-full max-w-2xl bg-gray-900 shadow-xl transition-transform duration-300 ease-in-out"
+          class="relative flex flex-col w-full max-w-2xl shadow-xl transition-transform duration-300 ease-in-out"
           style={{
             transform: brainPanelOpen() ? 'translateX(0)' : 'translateX(100%)',
-            borderLeft: '1px solid #333333',
-            background: 'linear-gradient(180deg, #0a0a0a 0%, #161b22 100%)',
+            borderLeft: '1px solid var(--border-color)',
+            background: 'var(--bg-card)',
           }}
         >
           {/* Header */}
-          <div class="flex items-center justify-between p-4 border-b" style={{ borderColor: '#333333' }}>
+          <div class="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--border-color)' }}>
             <div class="flex items-center gap-3">
               <div class="text-2xl">🧠</div>
               <div>
                 <h2 class="text-xl font-bold" style={{ 
-                  background: 'linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%)',
+                  background: 'var(--accent-gradient)',
                   '-webkit-background-clip': 'text',
                   '-webkit-text-fill-color': 'transparent',
                   'background-clip': 'text'
                 }}>
                   Brain
                 </h2>
-                <p class="text-xs" style={{ color: '#8b949e' }}>
+                <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
                   Intelligent SRE insights for your cluster
                 </p>
               </div>
@@ -83,9 +84,14 @@ const BrainPanel: Component = () => {
             <div class="flex items-center gap-2">
               <button
                 onClick={toggleBrainPanelPin}
-                class="p-2 rounded-lg hover:bg-gray-800 transition-colors"
+                class="p-2 rounded-lg transition-colors"
                 title={brainPanelPinned() ? 'Unpin panel' : 'Pin panel'}
-                style={{ color: brainPanelPinned() ? '#0ea5e9' : '#8b949e' }}
+                style={{ 
+                  color: brainPanelPinned() ? 'var(--accent-primary)' : 'var(--text-muted)',
+                  background: 'transparent'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   {brainPanelPinned() ? (
@@ -97,8 +103,13 @@ const BrainPanel: Component = () => {
               </button>
               <button
                 onClick={toggleBrainPanel}
-                class="p-2 rounded-lg hover:bg-gray-800 transition-colors"
-                style={{ color: '#8b949e' }}
+                class="p-2 rounded-lg transition-colors"
+                style={{ 
+                  color: 'var(--text-muted)',
+                  background: 'transparent'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -110,15 +121,18 @@ const BrainPanel: Component = () => {
           {/* Content */}
           <div class="flex-1 overflow-y-auto p-6 space-y-8" style={{ 
             'scrollbar-width': 'thin',
-            'scrollbar-color': '#333333 #000000'
+            'scrollbar-color': 'var(--border-color) var(--bg-primary)'
           }}>
             <Show
               when={!brainData.loading && brainData()}
               fallback={
                 <div class="flex items-center justify-center h-64">
                 <div class="text-center">
-                  <div class="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                  <p style={{ color: '#8b949e' }}>Loading Brain insights...</p>
+                  <div class="inline-block w-8 h-8 border-4 rounded-full animate-spin mx-auto mb-4" style={{ 
+                    borderColor: 'var(--accent-primary)',
+                    borderTopColor: 'transparent'
+                  }} />
+                  <p style={{ color: 'var(--text-muted)' }}>Loading Brain insights...</p>
                 </div>
                 </div>
               }
@@ -128,10 +142,10 @@ const BrainPanel: Component = () => {
                 return (
                   <>
                     <ClusterTimeline events={data.timelineEvents || []} />
-                    <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <div class="border-t pt-8" style={{ borderColor: 'var(--border-color)' }}>
                       <OOMInsights metrics={data.oomMetrics || { incidents24h: 0, crashLoops24h: 0, topProblematic: [] }} />
                     </div>
-                    <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                    <div class="border-t pt-8" style={{ borderColor: 'var(--border-color)' }}>
                       <Suggestions summary={data.summary || {
                         last24hSummary: '',
                         topRiskAreas: [],
@@ -142,13 +156,13 @@ const BrainPanel: Component = () => {
                     
                     {/* ML Insights Sections - Only show if enabled in settings */}
                     <Show when={settings().showMLTimelineInBrain && data.mlTimeline && data.mlPredictions && data.mlSummary}>
-                      <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                      <div class="border-t pt-8" style={{ borderColor: 'var(--border-color)' }}>
                         <MLTimeline events={data.mlTimeline?.events || []} />
                       </div>
-                      <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                      <div class="border-t pt-8" style={{ borderColor: 'var(--border-color)' }}>
                         <MLPredictions predictions={data.mlPredictions?.predictions || []} />
                       </div>
-                      <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                      <div class="border-t pt-8" style={{ borderColor: 'var(--border-color)' }}>
                         <MLSummary summary={data.mlSummary || {
                           summary: '',
                           keyInsights: [],
