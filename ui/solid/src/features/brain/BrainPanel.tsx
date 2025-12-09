@@ -43,13 +43,13 @@ const BrainPanel: Component = () => {
           pointerEvents: brainPanelOpen() ? 'auto' : 'none'
         }}
       >
-        {/* Backdrop */}
+        {/* Backdrop - semi-transparent overlay */}
         <div
           class="fixed inset-0 transition-opacity"
           onClick={() => !brainPanelPinned() && toggleBrainPanel()}
           style={{ 
-            background: 'var(--bg-primary)',
-            opacity: brainPanelOpen() ? 0.7 : 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            opacity: brainPanelOpen() ? 1 : 0,
             pointerEvents: brainPanelOpen() ? 'auto' : 'none'
           }}
         />
