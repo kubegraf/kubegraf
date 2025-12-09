@@ -655,6 +655,33 @@ const Settings: Component = () => {
               <Show when={(section as any).isBackupSection}>
                 {/* Database Backup Section */}
                 <div class="space-y-4">
+                  {/* Information Banner */}
+                  <div class="card p-4 mb-4" style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                    <div class="flex items-start gap-3">
+                      <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          What gets backed up?
+                        </div>
+                        <div class="text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <p>KubeGraf stores all data locally on your device in a SQLite database. The backup includes:</p>
+                          <ul class="list-disc list-inside ml-2 space-y-0.5">
+                            <li>User accounts and authentication sessions</li>
+                            <li>Cloud provider credentials (encrypted)</li>
+                            <li>Cluster configurations and connections</li>
+                            <li>Event monitoring data and log errors</li>
+                            <li>Application settings and preferences</li>
+                          </ul>
+                          <p class="mt-2">
+                            <strong>Storage location:</strong> Backups are stored in <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>~/.kubegraf/backups/</code> on your local device. All data remains on your machine - nothing is sent to external servers.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="card p-6">
                     <div class="flex items-center justify-between mb-4">
                       <div>
@@ -670,16 +697,20 @@ const Settings: Component = () => {
                           type="checkbox"
                           checked={backupStatus()?.enabled ?? false}
                           onChange={async (e) => {
+                            const target = e.target as HTMLInputElement;
+                            if (!target) return;
+                            
+                            const isEnabled = target.checked;
                             setBackupLoading(true);
                             try {
                               await api.database.updateBackupConfig({
-                                enabled: e.currentTarget.checked,
+                                enabled: isEnabled,
                                 interval: backupInterval(),
                               });
                               const status = await api.database.getBackupStatus();
                               setBackupStatus(status);
                               addNotification(
-                                e.currentTarget.checked ? 'Automatic backups enabled' : 'Automatic backups disabled',
+                                isEnabled ? 'Automatic backups enabled' : 'Automatic backups disabled',
                                 'success'
                               );
                             } catch (err) {
@@ -785,6 +816,9 @@ const Settings: Component = () => {
                           </Show>
                           <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
                             Range: 1-168 hours (1 week)
+                          </div>
+                          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            Backups stored in: <code class="px-1 py-0.5 rounded text-xs" style={{ background: 'var(--bg-tertiary)' }}>~/.kubegraf/backups/</code>
                           </div>
                         </div>
                         <div>
