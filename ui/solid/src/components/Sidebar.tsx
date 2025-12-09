@@ -166,6 +166,7 @@ const SidebarUpdateButton: Component = () => {
 const Sidebar: Component = () => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [version, setVersion] = createSignal<string>('');
+  const [bottomSectionCollapsed, setBottomSectionCollapsed] = createSignal(false);
 
   // Fetch version function
   const fetchVersion = async () => {
@@ -387,34 +388,89 @@ const Sidebar: Component = () => {
         </Show>
       </nav>
 
-      {/* Bottom section with Settings, Updates and Version */}
-      <div class="absolute bottom-0 left-0 right-0 p-2 border-t" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
-        {/* Settings button */}
+      {/* Bottom section with Settings, Privacy, Docs, Updates and Version */}
+      <div class="absolute bottom-0 left-0 right-0 border-t" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
+        {/* Collapse/Expand button */}
         <button
-          onClick={() => setCurrentView('settings')}
-          class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-white/5 ${
-            currentView() === 'settings' ? 'bg-white/10' : ''
-          }`}
-          style={{ color: currentView() === 'settings' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-          title="Settings"
+          onClick={() => setBottomSectionCollapsed(!bottomSectionCollapsed())}
+          class="w-full flex items-center justify-center px-2.5 py-1.5 hover:bg-white/5 transition-colors"
+          style={{ color: 'var(--text-muted)' }}
+          title={bottomSectionCollapsed() ? 'Expand' : 'Collapse'}
         >
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <svg
+            class={`w-3.5 h-3.5 transition-transform duration-200 ${bottomSectionCollapsed() ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
-          <Show when={!sidebarCollapsed()}>
-            <span class="text-sm flex-1 min-w-0 truncate">Settings</span>
-          </Show>
         </button>
-        
-        {/* Check for Updates button */}
-        <SidebarUpdateButton />
-        
-        <Show when={!sidebarCollapsed()}>
-          <div class="flex items-center gap-1.5 px-2.5 mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+
+        <Show when={!bottomSectionCollapsed()}>
+          <div class="p-2 space-y-1">
+            {/* Settings button */}
+            <button
+              onClick={() => setCurrentView('settings')}
+              class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-white/5 ${
+                currentView() === 'settings' ? 'bg-white/10' : ''
+              }`}
+              style={{ color: currentView() === 'settings' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+              title="Settings"
+            >
+              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <Show when={!sidebarCollapsed()}>
+                <span class="text-sm flex-1 min-w-0 truncate">Settings</span>
+              </Show>
+            </button>
+
+            {/* Privacy button */}
+            <button
+              onClick={() => setCurrentView('privacy')}
+              class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-white/5 ${
+                currentView() === 'privacy' ? 'bg-white/10' : ''
+              }`}
+              style={{ color: currentView() === 'privacy' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+              title="Privacy Policy"
+            >
+              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <Show when={!sidebarCollapsed()}>
+                <span class="text-sm flex-1 min-w-0 truncate">Privacy</span>
+              </Show>
+            </button>
+
+            {/* Docs button */}
+            <button
+              onClick={() => setCurrentView('documentation')}
+              class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-white/5 ${
+                currentView() === 'documentation' ? 'bg-white/10' : ''
+              }`}
+              style={{ color: currentView() === 'documentation' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+              title="Documentation"
+            >
+              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <Show when={!sidebarCollapsed()}>
+                <span class="text-sm flex-1 min-w-0 truncate">Docs</span>
+              </Show>
+            </button>
+            {/* Check for Updates button */}
+            <SidebarUpdateButton />
+          </div>
+        </Show>
+
+        {/* Version - Always visible at bottom */}
+        <div class="px-2.5 py-1.5 border-t" style={{ 'border-color': 'rgba(255,255,255,0.05)' }}>
+          <div class="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
             <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
             <span class="truncate">{version() ? `v${version()}` : 'Loading...'}</span>
           </div>
-        </Show>
+        </div>
       </div>
     </aside>
   );
