@@ -426,6 +426,8 @@ export const api = {
   },
   getServiceYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/service/yaml?name=${name}&namespace=${namespace}`),
+  getServiceDetails: (name: string, namespace: string) =>
+    fetchAPI<{ name: string; type: string; clusterIP: string; ports: string; portsDetails: any[]; selector: string; age: string }>(`/service/details?name=${name}&namespace=${namespace}`),
   updateService: (name: string, namespace: string, yaml: string) =>
     fetch(`${API_BASE}/service/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
       method: 'POST',
@@ -457,6 +459,23 @@ export const api = {
     fetchAPI<{ describe: string }>(`/ingress/describe?name=${name}&namespace=${namespace}`),
   deleteIngress: (name: string, namespace: string) =>
     deleteAPI(`/ingress/delete?name=${name}&namespace=${namespace}`),
+
+  // Network Policies
+  getNetworkPolicies: async (namespace?: string) => {
+    const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
+      ? `/networkpolicies?namespace=${namespace}`
+      : '/networkpolicies?namespace=';
+    const data = await fetchAPI<any[]>(endpoint);
+    return Array.isArray(data) ? data : [];
+  },
+  getNetworkPolicyYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string }>(`/networkpolicy/yaml?name=${name}&namespace=${namespace}`),
+  getNetworkPolicyDescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string }>(`/networkpolicy/describe?name=${name}&namespace=${namespace}`),
+  getNetworkPolicyDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/networkpolicy/details?name=${name}&namespace=${namespace}`),
+  deleteNetworkPolicy: (name: string, namespace: string) =>
+    deleteAPI(`/networkpolicy/delete?name=${name}&namespace=${namespace}`),
 
   // ============ Config ============
   // ConfigMaps

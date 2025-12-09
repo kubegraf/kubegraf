@@ -21,6 +21,7 @@ export interface ContainerInfo {
   reason?: string;
   message?: string;
   exitCode?: number;
+  ports?: number[];
 }
 
 export interface ContainerStatusSummary {

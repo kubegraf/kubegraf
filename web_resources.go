@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -594,6 +595,77 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(nodeList)
+}
+
+// handleNetworkPolicies returns network policy list
+func (ws *WebServer) handleNetworkPolicies(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	// Empty namespace means "all namespaces" in Kubernetes
+	if !r.URL.Query().Has("namespace") || namespace == "" || namespace == "All Namespaces" {
+		namespace = "" // Set to empty string for all namespaces
+	}
+
+	allPolicies := []networkingv1.NetworkPolicy{}
+	var continueToken string
+	for {
+		opts := metav1.ListOptions{}
+		if continueToken != "" {
+			opts.Continue = continueToken
+		}
+
+		policies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(namespace).List(ws.app.ctx, opts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		allPolicies = append(allPolicies, policies.Items...)
+
+		if policies.Continue == "" {
+			break
+		}
+		continueToken = policies.Continue
+	}
+
+	policyList := []map[string]interface{}{}
+	for _, np := range allPolicies {
+		// Count ingress and egress rules
+		ingressCount := len(np.Spec.Ingress)
+		egressCount := len(np.Spec.Egress)
+		
+		// Format pod selector
+		selector := ""
+		if len(np.Spec.PodSelector.MatchLabels) > 0 {
+			selectors := []string{}
+			for k, v := range np.Spec.PodSelector.MatchLabels {
+				selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
+			}
+			selector = strings.Join(selectors, ",")
+		} else if len(np.Spec.PodSelector.MatchExpressions) > 0 {
+			selector = "matchExpressions"
+		} else {
+			selector = "all pods"
+		}
+
+		policyList = append(policyList, map[string]interface{}{
+			"name":         np.Name,
+			"namespace":    np.Namespace,
+			"selector":     selector,
+			"ingress":      ingressCount,
+			"egress":       egressCount,
+			"policyTypes":  np.Spec.PolicyTypes,
+			"age":          formatAge(time.Since(np.CreationTimestamp.Time)),
+		})
+	}
+
+	json.NewEncoder(w).Encode(policyList)
 }
 
 // handleIngresses returns ingress list

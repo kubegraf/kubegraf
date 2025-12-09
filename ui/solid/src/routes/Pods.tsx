@@ -19,8 +19,10 @@ import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import ContainerStatusBadge from '../components/ContainerStatusBadge';
 import ContainerList from '../components/ContainerList';
+import ContainerTable from '../components/ContainerTable';
 import { ContainerInfo, ContainerType, isSidecarContainer } from '../utils/containerTypes';
 import { calculateContainerStatus } from '../utils/containerStatus';
+import { containersToTableRows, ContainerTableRow } from '../utils/containerTableUtils';
 
 interface Pod {
   name: string;
@@ -1378,7 +1380,7 @@ const Pods: Component = () => {
                   </div>
                 </div>
 
-                {/* Containers */}
+                {/* Containers Table */}
                 <div>
                   <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Containers</h3>
                   <Show when={!podDetails.loading && podDetails()?.containers} fallback={
@@ -1386,6 +1388,8 @@ const Pods: Component = () => {
                   }>
                     {(() => {
                       const containers = podDetails()?.containers || [];
+                      const metrics = podDetails()?.metrics as any;
+                      
                       // Convert to ContainerInfo[] if needed
                       const containerInfos: ContainerInfo[] = containers.map((c: any) => ({
                         name: c.name || (typeof c === 'string' ? c : ''),
@@ -1399,58 +1403,97 @@ const Pods: Component = () => {
                         reason: c.reason,
                         message: c.message,
                         exitCode: c.exitCode,
+                        ports: c.ports || [],
                       }));
-                      return <ContainerList containers={containerInfos} showAll={true} />;
+                      
+                      // Build container metrics map
+                      const containerMetricsMap: Record<string, { cpu: string; memory: string }> = {};
+                      if (metrics?.containerMetricsMap) {
+                        const metricsMap = metrics.containerMetricsMap as Record<string, any>;
+                        Object.keys(metricsMap).forEach(name => {
+                          const cm = metricsMap[name];
+                          containerMetricsMap[name] = {
+                            cpu: cm.cpu || '-',
+                            memory: cm.memory || '-',
+                          };
+                        });
+                      }
+                      
+                      // Build container ports map
+                      const containerPortsMap: Record<string, number[]> = {};
+                      containers.forEach((c: any) => {
+                        if (c.name && c.ports && Array.isArray(c.ports)) {
+                          containerPortsMap[c.name] = c.ports;
+                        }
+                      });
+                      
+                      // Convert to table rows
+                      const tableRows = containersToTableRows(
+                        containerInfos,
+                        containerMetricsMap,
+                        containerPortsMap
+                      );
+                      
+                      return (
+                        <div class="rounded-lg border" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                          <ContainerTable containers={tableRows} />
+                        </div>
+                      );
                     })()}
                   </Show>
                 </div>
 
                 {/* Actions */}
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4">
+                <div class="grid grid-cols-5 gap-2 pt-3">
                   <button
                     onClick={() => openShellInNewTab(selectedPod()!)}
-                    class="btn-primary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                    class="btn-primary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Shell"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    Shell
+                    <span>Shell</span>
                   </button>
                   <button
                     onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'portforward'); }}
-                    class="btn-primary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                    class="btn-primary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Port Forward"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    Port Forward
+                    <span class="text-center leading-tight">Port<br/>Forward</span>
                   </button>
                   <button
                     onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'logs'); }}
-                    class="btn-secondary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Logs"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    Logs
+                    <span>Logs</span>
                   </button>
                   <button
                     onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'yaml'); }}
-                    class="btn-secondary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                     </svg>
-                    YAML
+                    <span>YAML</span>
                   </button>
                   <button
                     onClick={() => { setShowDetails(false); openModal(selectedPod()!, 'describe'); }}
-                    class="btn-secondary flex items-center justify-center gap-2 px-4 py-3 rounded-lg"
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Describe
+                    <span>Describe</span>
                   </button>
                 </div>
               </div>
@@ -1460,38 +1503,41 @@ const Pods: Component = () => {
       </Modal>
 
       {/* Port Forward Modal */}
-      <Modal isOpen={showPortForward()} onClose={() => setShowPortForward(false)} title={`Port Forward: ${selectedPod()?.name}`} size="sm">
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Local Port</label>
-            <input
-              type="number"
-              min="1024"
-              max="65535"
-              value={localPort()}
-              onInput={(e) => setLocalPort(parseInt(e.currentTarget.value) || 8080)}
-              class="w-full px-4 py-2 rounded-lg"
-              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-            />
+      <Modal isOpen={showPortForward()} onClose={() => setShowPortForward(false)} title="Port Forward" size="xs">
+        <div class="space-y-3">
+          <div class="flex items-end gap-3">
+            <div class="flex-1">
+              <label class="block text-sm mb-1.5" style={{ color: 'var(--text-secondary)' }}>Local Port</label>
+              <input
+                type="number"
+                min="1024"
+                max="65535"
+                value={localPort()}
+                onInput={(e) => setLocalPort(parseInt(e.currentTarget.value) || 8080)}
+                class="w-full px-3 py-2 rounded text-sm"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              />
+            </div>
+            <div class="pb-3 text-gray-400 text-lg">→</div>
+            <div class="flex-1">
+              <label class="block text-sm mb-1.5" style={{ color: 'var(--text-secondary)' }}>Remote Port</label>
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={remotePort()}
+                onInput={(e) => setRemotePort(parseInt(e.currentTarget.value) || 80)}
+                class="w-full px-3 py-2 rounded text-sm"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              />
+            </div>
           </div>
-          <div>
-            <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Remote Port</label>
-            <input
-              type="number"
-              min="1"
-              max="65535"
-              value={remotePort()}
-              onInput={(e) => setRemotePort(parseInt(e.currentTarget.value) || 80)}
-              class="w-full px-4 py-2 rounded-lg"
-              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-            />
+          <div class="text-sm px-3 py-2 rounded text-center" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+            <span class="font-mono text-blue-400">localhost:{localPort()}</span> → <span class="font-mono text-green-400">{selectedPod()?.name}:{remotePort()}</span>
           </div>
-          <div class="p-3 rounded-lg text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-            This will forward <code class="px-1 rounded" style={{ background: 'var(--bg-secondary)' }}>localhost:{localPort()}</code> to <code class="px-1 rounded" style={{ background: 'var(--bg-secondary)' }}>{selectedPod()?.name}:{remotePort()}</code>
-          </div>
-          <div class="flex gap-2">
-            <button onClick={() => setShowPortForward(false)} class="btn-secondary flex-1">Cancel</button>
-            <button onClick={startPortForward} class="btn-primary flex-1">Start</button>
+          <div class="flex gap-3 pt-1">
+            <button onClick={() => setShowPortForward(false)} class="btn-secondary flex-1 px-4 py-2 text-sm">Cancel</button>
+            <button onClick={startPortForward} class="btn-primary flex-1 px-4 py-2 text-sm">Start</button>
           </div>
         </div>
       </Modal>
