@@ -2,6 +2,7 @@ import { Component, Show, createResource } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
 import { fetchBrainDataInParallel } from '../../services/brainService';
 import { settings } from '../../stores/settings';
+import { getTheme } from '../../stores/theme';
 import ClusterTimeline from './ClusterTimeline';
 import OOMInsights from './OOMInsights';
 import Suggestions from './Suggestions';
@@ -60,8 +61,8 @@ const BrainPanel: Component = () => {
           style={{
             transform: brainPanelOpen() ? 'translateX(0)' : 'translateX(100%)',
             borderLeft: '1px solid var(--border-color)',
-            background: 'var(--bg-card)',
-            color: 'var(--text-primary)',
+            background: getTheme().colors.bgCard,
+            color: getTheme().colors.textPrimary,
           }}
         >
           {/* Header */}
