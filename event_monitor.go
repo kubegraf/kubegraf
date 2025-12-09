@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strings"
@@ -81,14 +82,31 @@ type EventMonitor struct {
 	maxLogErrors     int
 	stopCh           chan struct{}
 	eventCallbacks   []func(MonitoredEvent)
-	httpErrorPattern *regexp.Regexp
+	httpErrorPatterns []*regexp.Regexp
 	correlator       *EventCorrelator
+	eventStorage     *EventStorage
 }
 
 // NewEventMonitor creates a new event monitor
 func NewEventMonitor(app *App) *EventMonitor {
-	// Pattern to match HTTP errors in logs: "POST /api/users 500" or "GET /api/data 502 Internal Server Error"
-	httpErrorPattern := regexp.MustCompile(`(?i)(GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)\s+(\d{3})(?:\s+.*)?`)
+	// Multiple patterns to match HTTP errors in various log formats
+	httpErrorPatterns := []*regexp.Regexp{
+		// Pattern 1: "POST /api/users 500" or "GET /api/data 502"
+		regexp.MustCompile(`(?i)(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+([^\s]+)\s+(\d{3})`),
+		// Pattern 2: "HTTP/1.1 500" or "HTTP/2 502"
+		regexp.MustCompile(`(?i)HTTP/[0-9.]+?\s+(\d{3})`),
+		// Pattern 3: "status=500" or "status_code=500" or "statusCode=500"
+		regexp.MustCompile(`(?i)(?:status|status_code|statusCode)[=:]\s*(\d{3})`),
+		// Pattern 4: JSON "status":500 or "statusCode":500
+		regexp.MustCompile(`(?i)"status(?:Code)?"\s*:\s*(\d{3})`),
+		// Pattern 5: "returned 500" or "returned status 500"
+		regexp.MustCompile(`(?i)returned\s+(?:status\s+)?(\d{3})`),
+		// Pattern 6: "500 Internal Server Error" or "502 Bad Gateway"
+		regexp.MustCompile(`(?i)(\d{3})\s+(?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|Not Found|Forbidden|Unauthorized|Bad Request)`),
+		// Pattern 7: Standalone status codes in HTTP context (avoid matching file line numbers)
+		// Only match if preceded by HTTP-related keywords or followed by HTTP-related text
+		regexp.MustCompile(`(?i)(?:HTTP|status|code|response|error|failed|returned).*?\b(4\d{2}|5\d{2})\b`),
+	}
 
 	return &EventMonitor{
 		app:              app,
@@ -98,15 +116,63 @@ func NewEventMonitor(app *App) *EventMonitor {
 		maxLogErrors:     500,
 		stopCh:           make(chan struct{}),
 		eventCallbacks:   make([]func(MonitoredEvent), 0),
-		httpErrorPattern: httpErrorPattern,
+		httpErrorPatterns: httpErrorPatterns,
 		correlator:       NewEventCorrelator(app),
+		eventStorage:     nil, // Will be set later if database is available
 	}
+}
+
+// SetEventStorage sets the event storage for persistent storage
+func (em *EventMonitor) SetEventStorage(storage *EventStorage) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	em.eventStorage = storage
 }
 
 // Start starts monitoring events and logs
 func (em *EventMonitor) Start(ctx context.Context) {
 	go em.watchKubernetesEvents(ctx)
 	go em.scanPodLogs(ctx)
+}
+
+// fetchInitialEvents fetches existing Kubernetes events when starting
+func (em *EventMonitor) fetchInitialEvents(ctx context.Context) {
+	// Wait for cluster connection
+	for i := 0; i < 30; i++ {
+		if em.app.clientset != nil && em.app.connected {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	if em.app.clientset == nil || !em.app.connected {
+		log.Printf("[EventMonitor] Cluster not connected, skipping initial event fetch")
+		return
+	}
+
+	log.Printf("[EventMonitor] Fetching initial Kubernetes events...")
+	
+	// Fetch events from last hour
+	since := time.Now().Add(-1 * time.Hour)
+	events, err := em.app.clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Printf("[EventMonitor] Error fetching initial events: %v", err)
+		return
+	}
+
+	log.Printf("[EventMonitor] Found %d Kubernetes events, processing...", len(events.Items))
+	
+	count := 0
+	for i := range events.Items {
+		ev := &events.Items[i]
+		// Only process recent events (last hour)
+		if ev.LastTimestamp.Time.After(since) {
+			em.processKubernetesEvent(ev)
+			count++
+		}
+	}
+	
+	log.Printf("[EventMonitor] Processed %d recent events into monitored events", count)
 }
 
 // Stop stops monitoring
@@ -160,8 +226,18 @@ func (em *EventMonitor) processKubernetesEvent(ev *corev1.Event) {
 	// Determine if this is an important event
 	monitoredEvent := em.analyzeEvent(ev)
 	if monitoredEvent == nil {
+		// Log skipped events for debugging (only first few to avoid spam)
+		em.mu.RLock()
+		eventCount := len(em.monitoredEvents)
+		em.mu.RUnlock()
+		if eventCount < 5 {
+			log.Printf("[EventMonitor] Skipping event: %s/%s reason=%s type=%s", 
+				ev.InvolvedObject.Kind, ev.InvolvedObject.Name, ev.Reason, ev.Type)
+		}
 		return
 	}
+
+	log.Printf("[EventMonitor] Processing event: %s - %s", monitoredEvent.Title, monitoredEvent.Category)
 
 	// Add to monitored events
 	em.mu.Lock()
@@ -169,7 +245,13 @@ func (em *EventMonitor) processKubernetesEvent(ev *corev1.Event) {
 	if len(em.monitoredEvents) > em.maxEvents {
 		em.monitoredEvents = em.monitoredEvents[len(em.monitoredEvents)-em.maxEvents:]
 	}
+	storage := em.eventStorage
 	em.mu.Unlock()
+	
+	// Store in database if available
+	if storage != nil {
+		go storage.StoreMonitoredEvent(monitoredEvent)
+	}
 
 	// Trigger callbacks
 	em.mu.RLock()
@@ -284,9 +366,35 @@ func (em *EventMonitor) analyzeEvent(ev *corev1.Event) *MonitoredEvent {
 		}
 	}
 
-	// Only create monitored event if it's important
+	// If no specific category matched, create a generic event for Warning/Error types
 	if category == "" {
-		return nil
+		if eventType == "Warning" {
+			// Capture all Warning events as they might be important
+			category = "kubernetes_warning"
+			severity = EventSeverityMedium
+			title = fmt.Sprintf("%s %s: %s", kind, ev.InvolvedObject.Name, reason)
+			description = ev.Message
+		} else if eventType == "Normal" {
+			// For Normal events, only capture important ones
+			// Check if it's a significant action
+			significantReasons := []string{"Created", "Deleted", "Scaled", "Updated", "Scheduled", "Pulled", "Started"}
+			for _, sigReason := range significantReasons {
+				if strings.Contains(reason, sigReason) {
+					category = "kubernetes_action"
+					severity = EventSeverityInfo
+					title = fmt.Sprintf("%s %s: %s", kind, ev.InvolvedObject.Name, reason)
+					description = ev.Message
+					break
+				}
+			}
+			// If still no category, skip this event
+			if category == "" {
+				return nil
+			}
+		} else {
+			// Unknown event type, skip
+			return nil
+		}
 	}
 
 		// Determine severity based on event type if not already set
@@ -402,9 +510,12 @@ func (em *EventMonitor) scanAllPods(ctx context.Context) {
 		return
 	}
 
+	scannedPods := 0
+	scannedContainers := 0
+	
 	for _, ns := range namespaces.Items {
-		// Skip system namespaces for performance
-		if strings.HasPrefix(ns.Name, "kube-") || ns.Name == "default" {
+		// Skip only system namespaces for performance, but include default namespace
+		if strings.HasPrefix(ns.Name, "kube-") {
 			continue
 		}
 
@@ -412,6 +523,7 @@ func (em *EventMonitor) scanAllPods(ctx context.Context) {
 			Limit: 50, // Limit pods per namespace
 		})
 		if err != nil {
+			log.Printf("[EventMonitor] Error listing pods in namespace %s: %v", ns.Name, err)
 			continue
 		}
 
@@ -421,35 +533,50 @@ func (em *EventMonitor) scanAllPods(ctx context.Context) {
 				continue
 			}
 
+			scannedPods++
 			for _, container := range pod.Spec.Containers {
+				scannedContainers++
 				em.scanPodContainerLogs(ctx, pod.Name, ns.Name, container.Name)
 			}
 		}
 	}
+	
+	log.Printf("[EventMonitor] Scanned %d pods (%d containers) for log errors", scannedPods, scannedContainers)
 }
 
 // scanPodContainerLogs scans logs from a specific pod container
 func (em *EventMonitor) scanPodContainerLogs(ctx context.Context, podName, namespace, containerName string) {
-	// Get recent logs (last 100 lines)
+	// Get recent logs (last 200 lines, last 10 minutes for better coverage)
 	req := em.app.clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Container: containerName,
-		TailLines: int64Ptr(100),
-		SinceTime: &metav1.Time{Time: time.Now().Add(-5 * time.Minute)}, // Last 5 minutes
+		TailLines: int64Ptr(200),
+		SinceTime: &metav1.Time{Time: time.Now().Add(-10 * time.Minute)}, // Last 10 minutes
 	})
 
 	stream, err := req.Stream(ctx)
 	if err != nil {
+		// Silently skip if we can't get logs (pod might be starting/stopping)
 		return
 	}
 	defer stream.Close()
 
+	linesScanned := 0
+	errorsFound := 0
+	
 	scanner := bufio.NewScanner(stream)
 	for scanner.Scan() {
 		line := scanner.Text()
+		linesScanned++
 		logError := em.parseLogLine(line, podName, namespace, containerName)
 		if logError != nil {
+			errorsFound++
 			em.processLogError(*logError)
 		}
+	}
+	
+	if errorsFound > 0 {
+		log.Printf("[EventMonitor] Found %d log errors in %s/%s/%s (scanned %d lines)", 
+			errorsFound, namespace, podName, containerName, linesScanned)
 	}
 }
 
@@ -481,36 +608,113 @@ func (em *EventMonitor) parseLogLine(line, podName, namespace, containerName str
 		logTime = now
 	}
 
-	// Check for HTTP errors
-	matches := em.httpErrorPattern.FindStringSubmatch(line)
-	if len(matches) >= 4 {
-		method := matches[1]
-		path := matches[2]
-		statusCodeInt := 0
-		fmt.Sscanf(matches[3], "%d", &statusCodeInt)
-
-		// Only track 4xx and 5xx errors
-		if statusCodeInt >= 400 {
-			errorType := "http_error"
-			if statusCodeInt == 500 {
-				errorType = "http_500"
-			} else if statusCodeInt == 502 {
-				errorType = "http_502"
-			} else if method == "POST" && statusCodeInt >= 400 {
-				errorType = "failed_post"
+	// Check for HTTP errors using multiple patterns
+	var method string
+	var path string
+	var statusCodeInt int
+	var found bool
+	
+	// Try each pattern in order
+	for i, pattern := range em.httpErrorPatterns {
+		matches := pattern.FindStringSubmatch(line)
+		if len(matches) > 0 {
+			// Pattern 1: Method /path 500 (matches[1]=method, matches[2]=path, matches[3]=status)
+			if i == 0 && len(matches) >= 4 {
+				method = strings.ToUpper(matches[1])
+				path = matches[2]
+				fmt.Sscanf(matches[3], "%d", &statusCodeInt)
+				found = true
+				break
 			}
-
-			return &LogError{
-				Timestamp:  logTime,
-				Pod:        podName,
-				Namespace:  namespace,
-				Container:  containerName,
-				StatusCode: statusCodeInt,
-				Method:     method,
-				Path:       path,
-				Message:    line,
-				ErrorType:  errorType,
+			// Patterns 2-6: Extract status code from different positions
+			if i >= 1 && i <= 5 && len(matches) >= 2 {
+				fmt.Sscanf(matches[1], "%d", &statusCodeInt)
+				found = true
+				// Try to extract method and path from the line
+				methodMatch := regexp.MustCompile(`(?i)(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)`).FindString(line)
+				if methodMatch != "" {
+					method = strings.ToUpper(methodMatch)
+				} else {
+					method = "UNKNOWN"
+				}
+				pathMatch := regexp.MustCompile(`(?i)(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+([^\s]+)`).FindStringSubmatch(line)
+				if len(pathMatch) >= 2 {
+					path = pathMatch[1]
+				} else {
+					path = "/"
+				}
+				break
 			}
+			// Pattern 7: Standalone status codes in HTTP context
+			if i == 6 && len(matches) >= 2 {
+				fmt.Sscanf(matches[1], "%d", &statusCodeInt)
+				if statusCodeInt >= 400 {
+					found = true
+					// Try to extract method and path
+					methodMatch := regexp.MustCompile(`(?i)(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)`).FindString(line)
+					if methodMatch != "" {
+						method = strings.ToUpper(methodMatch)
+					} else {
+						method = "UNKNOWN"
+					}
+					pathMatch := regexp.MustCompile(`(?i)(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+([^\s]+)`).FindStringSubmatch(line)
+					if len(pathMatch) >= 2 {
+						path = pathMatch[1]
+					} else {
+						path = "/"
+					}
+					break
+				}
+			}
+		}
+	}
+	
+	// Only track valid HTTP status codes (100-599)
+	// Filter out invalid codes like 456 (not a real HTTP status code)
+	validHTTPStatusCodes := map[int]bool{
+		// 1xx: Informational
+		100: true, 101: true, 102: true, 103: true,
+		// 2xx: Success
+		200: true, 201: true, 202: true, 203: true, 204: true, 205: true, 206: true, 207: true, 208: true, 226: true,
+		// 3xx: Redirection
+		300: true, 301: true, 302: true, 303: true, 304: true, 305: true, 307: true, 308: true,
+		// 4xx: Client Error
+		400: true, 401: true, 402: true, 403: true, 404: true, 405: true, 406: true, 407: true, 408: true, 409: true,
+		410: true, 411: true, 412: true, 413: true, 414: true, 415: true, 416: true, 417: true, 418: true, 421: true,
+		422: true, 423: true, 424: true, 425: true, 426: true, 428: true, 429: true, 431: true, 451: true,
+		// 5xx: Server Error
+		500: true, 501: true, 502: true, 503: true, 504: true, 505: true, 506: true, 507: true, 508: true, 510: true, 511: true,
+	}
+	
+	// Only track valid 4xx and 5xx error codes
+	if found && statusCodeInt >= 400 && statusCodeInt <= 599 {
+		// Validate it's a real HTTP status code
+		if !validHTTPStatusCodes[statusCodeInt] {
+			// Skip invalid codes like 456 (matches file line numbers)
+			return nil
+		}
+		
+		errorType := "http_error"
+		if statusCodeInt == 500 {
+			errorType = "http_500"
+		} else if statusCodeInt == 502 {
+			errorType = "http_502"
+		} else if statusCodeInt == 503 {
+			errorType = "http_503"
+		} else if method == "POST" && statusCodeInt >= 400 {
+			errorType = "failed_post"
+		}
+
+		return &LogError{
+			Timestamp:  logTime,
+			Pod:        podName,
+			Namespace:  namespace,
+			Container:  containerName,
+			StatusCode: statusCodeInt,
+			Method:     method,
+			Path:       path,
+			Message:    line,
+			ErrorType:  errorType,
 		}
 	}
 
@@ -580,7 +784,13 @@ func (em *EventMonitor) processLogError(logError LogError) {
 	if len(em.logErrors) > em.maxLogErrors {
 		em.logErrors = em.logErrors[len(em.logErrors)-em.maxLogErrors:]
 	}
+	storage := em.eventStorage
 	em.logErrorsMu.Unlock()
+	
+	// Store in database if available
+	if storage != nil {
+		go storage.StoreLogError(&logError)
+	}
 
 	// Determine severity
 	severity := EventSeverityMedium

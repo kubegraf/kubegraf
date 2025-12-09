@@ -15,19 +15,57 @@
 package main
 
 import (
-	"encoding/json"
+	"log"
 	"net/http"
-	"strconv"
 	"time"
 )
 
 // RegisterEventHandlers registers event monitoring API handlers
 func (ws *WebServer) RegisterEventHandlers() {
+	// Ensure event monitor is initialized and started
+	if ws.app.eventMonitor == nil {
+		log.Printf("[EventMonitor] Initializing EventMonitor")
+		ws.app.eventMonitor = NewEventMonitor(ws.app)
+	}
+	
+	// Initialize event storage if database is available and not already set
+	if ws.db != nil && ws.app.eventMonitor != nil {
+		ws.app.eventMonitor.mu.RLock()
+		hasStorage := ws.app.eventMonitor.eventStorage != nil
+		ws.app.eventMonitor.mu.RUnlock()
+		
+		if !hasStorage {
+			eventStorage := NewEventStorage(ws.db)
+			ws.app.eventMonitor.SetEventStorage(eventStorage)
+			log.Printf("[EventMonitor] Event storage initialized with database")
+			
+			// Start cleanup routine for old events (keep last 7 days)
+			go func() {
+				ticker := time.NewTicker(1 * time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						if eventStorage != nil {
+							eventStorage.CleanupOldEvents(7 * 24 * time.Hour)
+						}
+					case <-ws.app.ctx.Done():
+						return
+					}
+				}
+			}()
+		}
+	}
+	
 	// Start event monitor if not already started
-	if ws.app.eventMonitor != nil && !ws.eventMonitorStarted {
+	if !ws.eventMonitorStarted {
+		log.Printf("[EventMonitor] Starting EventMonitor")
 		ws.app.eventMonitor.RegisterCallback(ws.broadcastMonitoredEvent)
 		ws.app.eventMonitor.Start(ws.app.ctx)
 		ws.eventMonitorStarted = true
+		
+		// Also fetch initial events from Kubernetes
+		go ws.app.eventMonitor.fetchInitialEvents(ws.app.ctx)
 	}
 
 	// Event monitoring endpoints
@@ -37,209 +75,5 @@ func (ws *WebServer) RegisterEventHandlers() {
 	http.HandleFunc("/api/events/grouped", ws.handleGroupedEvents)
 	http.HandleFunc("/api/events/clustered", ws.handleClusteredEvents)
 	http.HandleFunc("/api/events/http-errors-grouped", ws.handleHTTPErrorsGrouped)
-}
-
-// handleMonitoredEvents returns monitored events with filtering
-func (ws *WebServer) handleMonitoredEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.eventMonitor == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"events": []MonitoredEvent{},
-			"total":  0,
-		})
-		return
-	}
-
-	// Parse query parameters
-	filter := FilterOptions{
-		Type:      r.URL.Query().Get("type"),
-		Category:  r.URL.Query().Get("category"),
-		Severity:  r.URL.Query().Get("severity"),
-		Namespace: r.URL.Query().Get("namespace"),
-	}
-
-	// Parse since parameter
-	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
-		if since, err := time.Parse(time.RFC3339, sinceStr); err == nil {
-			filter.Since = since
-		}
-	}
-
-	// Parse limit
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
-			filter.Limit = limit
-		}
-	}
-
-	// Get events
-	events := ws.app.eventMonitor.GetEvents(filter)
-
-	// Apply limit if specified
-	if filter.Limit > 0 && len(events) > filter.Limit {
-		events = events[len(events)-filter.Limit:]
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"events": events,
-		"total":  len(events),
-	})
-}
-
-// handleLogErrors returns log errors with filtering
-func (ws *WebServer) handleLogErrors(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.eventMonitor == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"errors": []LogError{},
-			"total":  0,
-		})
-		return
-	}
-
-	// Parse query parameters
-	filter := FilterOptions{
-		Namespace: r.URL.Query().Get("namespace"),
-	}
-
-	// Parse since parameter
-	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
-		if since, err := time.Parse(time.RFC3339, sinceStr); err == nil {
-			filter.Since = since
-		}
-	}
-
-	// Parse limit
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
-			filter.Limit = limit
-		}
-	}
-
-	// Get log errors
-	errors := ws.app.eventMonitor.GetLogErrorsSimple()
-	// Apply filter manually
-	filteredErrors := []LogError{}
-	for _, err := range errors {
-		if filter.MatchesLogError(err) {
-			filteredErrors = append(filteredErrors, err)
-		}
-	}
-	errors = filteredErrors
-
-	// Apply limit if specified
-	if filter.Limit > 0 && len(errors) > filter.Limit {
-		errors = errors[len(errors)-filter.Limit:]
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"errors": errors,
-		"total":  len(errors),
-	})
-}
-
-// handleEventStats returns event statistics
-func (ws *WebServer) handleEventStats(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.eventMonitor == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"by_severity":  map[string]int{},
-			"by_type":      map[string]int{},
-			"by_category":  map[string]int{},
-			"total_events": 0,
-			"total_errors": 0,
-		})
-		return
-	}
-
-	// Get all events (no filter)
-	events := ws.app.eventMonitor.GetEvents(FilterOptions{})
-	logErrors := ws.app.eventMonitor.GetLogErrorsSimple()
-
-	// Calculate statistics
-	bySeverity := make(map[string]int)
-	byType := make(map[string]int)
-	byCategory := make(map[string]int)
-
-	for _, event := range events {
-		bySeverity[string(event.Severity)]++
-		byType[event.Type]++
-		byCategory[event.Category]++
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"by_severity":  bySeverity,
-		"by_type":      byType,
-		"by_category":  byCategory,
-		"total_events": len(events),
-		"total_errors": len(logErrors),
-	})
-}
-
-// handleGroupedEvents returns events grouped by time periods
-func (ws *WebServer) handleGroupedEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if ws.app.eventMonitor == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"groups": []map[string]interface{}{},
-		})
-		return
-	}
-
-	// Parse period parameter (default: 1 hour)
-	periodStr := r.URL.Query().Get("period")
-	if periodStr == "" {
-		periodStr = "1h"
-	}
-
-	period, err := time.ParseDuration(periodStr)
-	if err != nil {
-		period = time.Hour
-	}
-
-	// Get all events
-	events := ws.app.eventMonitor.GetEvents(FilterOptions{})
-
-	// Group by time
-	groups := GroupEventsByTime(events, period)
-
-	// Convert to response format
-	responseGroups := make([]map[string]interface{}, 0, len(groups))
-	for timeKey, groupEvents := range groups {
-		responseGroups = append(responseGroups, map[string]interface{}{
-			"time":    timeKey,
-			"events": groupEvents,
-			"count":  len(groupEvents),
-		})
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"groups": responseGroups,
-		"period": period.String(),
-	})
 }
 

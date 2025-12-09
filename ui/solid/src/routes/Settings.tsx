@@ -40,6 +40,15 @@ const Settings: Component = () => {
   } | null>(null);
   const [checkingUpdate, setCheckingUpdate] = createSignal(false);
   const [installingUpdate, setInstallingUpdate] = createSignal(false);
+  const [backupStatus, setBackupStatus] = createSignal<any>(null);
+  const [backupLoading, setBackupLoading] = createSignal(false);
+  const [backupCreating, setBackupCreating] = createSignal(false);
+  const [backupList, setBackupList] = createSignal<any[]>([]);
+  const [showRestoreDialog, setShowRestoreDialog] = createSignal(false);
+  const [selectedBackup, setSelectedBackup] = createSignal<string | null>(null);
+  const [restoring, setRestoring] = createSignal(false);
+  const [backupInterval, setBackupInterval] = createSignal<number>(6);
+  const [editingInterval, setEditingInterval] = createSignal(false);
 
   // Load current version from status
   createEffect(async () => {
@@ -50,6 +59,22 @@ const Settings: Component = () => {
       }
     } catch (err) {
       console.error('Failed to get version:', err);
+    }
+  });
+
+  // Load backup status and list
+  createEffect(async () => {
+    try {
+      const status = await api.database.getBackupStatus();
+      setBackupStatus(status);
+      if (status?.interval) {
+        setBackupInterval(status.interval);
+      }
+      
+      const list = await api.database.listBackups();
+      setBackupList(list.backups || []);
+    } catch (err) {
+      console.error('Failed to get backup status:', err);
     }
   });
 
@@ -208,6 +233,13 @@ const Settings: Component = () => {
           badgeColor: 'purple',
         },
       ],
+    },
+    {
+      title: 'Database Backup',
+      description: 'Configure automatic database backups and manage backup settings',
+      icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4',
+      items: [],
+      isBackupSection: true, // Special flag for custom rendering
     },
     {
       title: 'AI & ML Features',
@@ -620,11 +652,365 @@ const Settings: Component = () => {
             </button>
 
             <Show when={!isSectionCollapsed(section.title)}>
-              <div class="space-y-3">
-                <For each={section.items}>
-                  {(item) => <SettingItemComponent item={item} />}
-                </For>
-              </div>
+              <Show when={(section as any).isBackupSection}>
+                {/* Database Backup Section */}
+                <div class="space-y-4">
+                  {/* Information Banner */}
+                  <div class="card p-4 mb-4" style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                    <div class="flex items-start gap-3">
+                      <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          What gets backed up?
+                        </div>
+                        <div class="text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <p>KubeGraf stores all data locally on your device in a SQLite database. The backup includes:</p>
+                          <ul class="list-disc list-inside ml-2 space-y-0.5">
+                            <li>User accounts and authentication sessions</li>
+                            <li>Cloud provider credentials (encrypted)</li>
+                            <li>Cluster configurations and connections</li>
+                            <li>Event monitoring data and log errors</li>
+                            <li>Application settings and preferences</li>
+                          </ul>
+                          <p class="mt-2">
+                            <strong>Storage location:</strong> Backups are stored in <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>~/.kubegraf/backups/</code> on your local device. All data remains on your machine - nothing is sent to external servers.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="card p-6">
+                    <div class="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 class="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                          Automatic Backups
+                        </h3>
+                        <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
+                          Automatically backup your database at regular intervals
+                        </p>
+                      </div>
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={backupStatus()?.enabled ?? false}
+                          onChange={async (e) => {
+                            const target = e.target as HTMLInputElement;
+                            if (!target) return;
+                            
+                            const isEnabled = target.checked;
+                            setBackupLoading(true);
+                            try {
+                              await api.database.updateBackupConfig({
+                                enabled: isEnabled,
+                                interval: backupInterval(),
+                              });
+                              const status = await api.database.getBackupStatus();
+                              setBackupStatus(status);
+                              addNotification(
+                                isEnabled ? 'Automatic backups enabled' : 'Automatic backups disabled',
+                                'success'
+                              );
+                            } catch (err) {
+                              addNotification(`Failed to update backup settings: ${err}`, 'error');
+                            } finally {
+                              setBackupLoading(false);
+                            }
+                          }}
+                          disabled={backupLoading()}
+                          class="sr-only peer"
+                        />
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    <Show when={backupStatus()}>
+                      <div class="grid grid-cols-2 gap-4 mt-4">
+                        <div>
+                          <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                            Backup Interval
+                          </div>
+                          <Show when={!editingInterval()}>
+                            <div class="flex items-center gap-2">
+                              <div class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                {backupInterval()} {backupInterval() === 1 ? 'hour' : 'hours'}
+                              </div>
+                              <button
+                                onClick={() => setEditingInterval(true)}
+                                class="text-xs px-2 py-1 rounded hover:opacity-80 transition-opacity"
+                                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                                title="Edit interval"
+                              >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </button>
+                            </div>
+                          </Show>
+                          <Show when={editingInterval()}>
+                            <div class="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="168"
+                                value={backupInterval()}
+                                onInput={(e) => {
+                                  const value = parseInt(e.currentTarget.value);
+                                  if (!isNaN(value) && value >= 1 && value <= 168) {
+                                    setBackupInterval(value);
+                                  }
+                                }}
+                                class="w-20 px-2 py-1 rounded text-sm border"
+                                style={{ 
+                                  background: 'var(--bg-primary)', 
+                                  color: 'var(--text-primary)',
+                                  borderColor: 'var(--border-color)'
+                                }}
+                                autofocus
+                              />
+                              <span class="text-sm" style={{ color: 'var(--text-muted)' }}>hours</span>
+                              <button
+                                onClick={async () => {
+                                  setBackupLoading(true);
+                                  try {
+                                    await api.database.updateBackupConfig({
+                                      enabled: backupStatus()?.enabled ?? true,
+                                      interval: backupInterval(),
+                                    });
+                                    const status = await api.database.getBackupStatus();
+                                    setBackupStatus(status);
+                                    setEditingInterval(false);
+                                    addNotification(`Backup interval updated to ${backupInterval()} hours`, 'success');
+                                  } catch (err) {
+                                    addNotification(`Failed to update interval: ${err}`, 'error');
+                                  } finally {
+                                    setBackupLoading(false);
+                                  }
+                                }}
+                                disabled={backupLoading()}
+                                class="px-2 py-1 text-xs rounded hover:opacity-80 transition-opacity"
+                                style={{ background: 'var(--accent-primary)', color: '#000' }}
+                                title="Save"
+                              >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setBackupInterval(backupStatus()?.interval ?? 6);
+                                  setEditingInterval(false);
+                                }}
+                                disabled={backupLoading()}
+                                class="px-2 py-1 text-xs rounded hover:opacity-80 transition-opacity"
+                                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                                title="Cancel"
+                              >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          </Show>
+                          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            Range: 1-168 hours (1 week)
+                          </div>
+                          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            Backups stored in: <code class="px-1 py-0.5 rounded text-xs" style={{ background: 'var(--bg-tertiary)' }}>~/.kubegraf/backups/</code>
+                          </div>
+                        </div>
+                        <div>
+                          <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                            Total Backups
+                          </div>
+                          <div class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                            {backupStatus()?.backup_count ?? 0}
+                          </div>
+                        </div>
+                        <Show when={backupStatus()?.last_backup}>
+                          <div>
+                            <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                              Last Backup
+                            </div>
+                            <div class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                              {new Date(backupStatus()!.last_backup!).toLocaleString()}
+                            </div>
+                          </div>
+                        </Show>
+                        <Show when={backupStatus()?.next_backup}>
+                          <div>
+                            <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                              Next Backup
+                            </div>
+                            <div class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                              {new Date(backupStatus()!.next_backup!).toLocaleString()}
+                            </div>
+                          </div>
+                        </Show>
+                      </div>
+
+                      <div class="mt-4 flex gap-2">
+                        <button
+                          onClick={async () => {
+                            setBackupCreating(true);
+                            try {
+                              const result = await api.database.createBackup();
+                              addNotification('Backup created successfully', 'success');
+                              const status = await api.database.getBackupStatus();
+                              setBackupStatus(status);
+                              const list = await api.database.listBackups();
+                              setBackupList(list.backups || []);
+                            } catch (err) {
+                              addNotification(`Failed to create backup: ${err}`, 'error');
+                            } finally {
+                              setBackupCreating(false);
+                            }
+                          }}
+                          disabled={backupCreating() || !backupStatus()?.enabled}
+                          class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                          style={{ background: 'var(--accent-primary)', color: '#000' }}
+                        >
+                          <Show when={backupCreating()}>
+                            <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                          </Show>
+                          {backupCreating() ? 'Creating...' : 'Create Backup Now'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            const list = backupList();
+                            if (list.length === 0) {
+                              addNotification('No backups available to restore', 'warning');
+                              return;
+                            }
+                            setShowRestoreDialog(true);
+                          }}
+                          disabled={backupList().length === 0}
+                          class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+                          style={{ background: 'var(--error-color)', color: 'white' }}
+                        >
+                          Restore from Backup
+                        </button>
+                      </div>
+
+                      {/* Backup List */}
+                      <Show when={backupList().length > 0}>
+                        <div class="mt-4">
+                          <div class="text-sm font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+                            Available Backups
+                          </div>
+                          <div class="space-y-2 max-h-48 overflow-y-auto">
+                            <For each={backupList()}>
+                              {(backup) => (
+                                <div class="flex items-center justify-between p-2 rounded border" style={{ borderColor: 'var(--border-color)' }}>
+                                  <div class="flex-1">
+                                    <div class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                      {backup.name}
+                                    </div>
+                                    <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                      {new Date(backup.created_at).toLocaleString()} • {(backup.size / 1024 / 1024).toFixed(2)} MB
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedBackup(backup.path);
+                                      setShowRestoreDialog(true);
+                                    }}
+                                    class="px-3 py-1 text-xs rounded hover:opacity-80 transition-opacity"
+                                    style={{ background: 'var(--error-color)', color: 'white' }}
+                                  >
+                                    Restore
+                                  </button>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                    </Show>
+                  </div>
+
+                  {/* Restore Confirmation Dialog */}
+                  <Show when={showRestoreDialog()}>
+                    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowRestoreDialog(false)}>
+                      <div class="card p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                        <h3 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+                          Restore Database from Backup
+                        </h3>
+                        <p class="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+                          <strong class="text-red-500">WARNING:</strong> This will overwrite your current database with the selected backup. This action cannot be undone.
+                        </p>
+                        <Show when={selectedBackup()}>
+                          <div class="mb-4 p-3 rounded" style={{ background: 'var(--bg-tertiary)' }}>
+                            <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                              Selected Backup:
+                            </div>
+                            <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                              {selectedBackup()}
+                            </div>
+                          </div>
+                        </Show>
+                        <div class="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              const backupPath = selectedBackup() || (backupList().length > 0 ? backupList()[0].path : '');
+                              if (!backupPath) {
+                                addNotification('No backup selected', 'error');
+                                return;
+                              }
+                              if (!confirm('Are you absolutely sure you want to restore from this backup? This will overwrite your current database!')) {
+                                return;
+                              }
+                              setRestoring(true);
+                              try {
+                                await api.database.restoreBackup(backupPath);
+                                addNotification('Database restored successfully. Please restart the application.', 'success');
+                                setShowRestoreDialog(false);
+                                setSelectedBackup(null);
+                                // Reload page after a delay
+                                setTimeout(() => {
+                                  window.location.reload();
+                                }, 2000);
+                              } catch (err) {
+                                addNotification(`Failed to restore backup: ${err}`, 'error');
+                              } finally {
+                                setRestoring(false);
+                              }
+                            }}
+                            disabled={restoring() || !selectedBackup()}
+                            class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+                            style={{ background: 'var(--error-color)', color: 'white' }}
+                          >
+                            <Show when={restoring()}>
+                              <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                            </Show>
+                            {restoring() ? 'Restoring...' : 'Confirm Restore'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowRestoreDialog(false);
+                              setSelectedBackup(null);
+                            }}
+                            disabled={restoring()}
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+                            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+              <Show when={!(section as any).isBackupSection}>
+                <div class="space-y-3">
+                  <For each={section.items}>
+                    {(item) => <SettingItemComponent item={item} />}
+                  </For>
+                </div>
+              </Show>
             </Show>
           </div>
         )}
