@@ -118,7 +118,7 @@ docker-compose up -d
 
 ```bash
 # Install KubeGraf
-helm install kubegraf ./helm/kubegraf
+helm install kubegraf ./manifests/helm/kubegraf
 
 # Check status
 kubectl get pods -l app.kubernetes.io/name=kubegraf
@@ -132,7 +132,7 @@ kubectl port-forward svc/kubegraf 3000:3000
 #### With Ingress
 
 ```bash
-helm install kubegraf ./helm/kubegraf \
+helm install kubegraf ./manifests/helm/kubegraf \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=kubegraf.example.com \
   --set ingress.hosts[0].paths[0].path=/ \
@@ -142,14 +142,14 @@ helm install kubegraf ./helm/kubegraf \
 #### With LoadBalancer
 
 ```bash
-helm install kubegraf ./helm/kubegraf \
+helm install kubegraf ./manifests/helm/kubegraf \
   --set service.type=LoadBalancer
 ```
 
 #### With Custom Resources
 
 ```bash
-helm install kubegraf ./helm/kubegraf \
+helm install kubegraf ./manifests/helm/kubegraf \
   --set resources.limits.cpu=2000m \
   --set resources.limits.memory=2Gi \
   --set resources.requests.cpu=500m \
@@ -159,7 +159,7 @@ helm install kubegraf ./helm/kubegraf \
 #### With High Availability
 
 ```bash
-helm install kubegraf ./helm/kubegraf \
+helm install kubegraf ./manifests/helm/kubegraf \
   --set replicaCount=3 \
   --set autoscaling.enabled=true \
   --set autoscaling.minReplicas=2 \
@@ -225,17 +225,17 @@ env:
 Install:
 
 ```bash
-helm install kubegraf ./helm/kubegraf -f my-values.yaml
+helm install kubegraf ./manifests/helm/kubegraf -f my-values.yaml
 ```
 
 ### Upgrading
 
 ```bash
 # Upgrade to new version
-helm upgrade kubegraf ./helm/kubegraf --set image.tag=1.6.1
+helm upgrade kubegraf ./manifests/helm/kubegraf --set image.tag=1.6.1
 
 # Upgrade with new values
-helm upgrade kubegraf ./helm/kubegraf -f my-values.yaml
+helm upgrade kubegraf ./manifests/helm/kubegraf -f my-values.yaml
 ```
 
 ### Uninstalling
@@ -383,7 +383,7 @@ kubectl create secret docker-registry regcred \
   --docker-email=<email>
 
 # Update values to use secret
-helm upgrade kubegraf ./helm/kubegraf \
+helm upgrade kubegraf ./manifests/helm/kubegraf \
   --set imagePullSecrets[0].name=regcred
 ```
 

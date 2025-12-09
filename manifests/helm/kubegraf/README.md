@@ -18,7 +18,7 @@ helm repo add kubegraf https://kubegraf.github.io/kubegraf
 helm repo update
 
 # Install KubeGraf
-helm install kubegraf ./helm/kubegraf
+helm install kubegraf ./manifests/helm/kubegraf
 
 # Or install from repository
 helm install kubegraf kubegraf/kubegraf
@@ -28,7 +28,7 @@ helm install kubegraf kubegraf/kubegraf
 
 ```bash
 # Install with custom values
-helm install kubegraf ./helm/kubegraf \
+helm install kubegraf ./manifests/helm/kubegraf \
   --set image.tag=1.6.0 \
   --set service.type=LoadBalancer \
   --set ingress.enabled=true
@@ -59,7 +59,7 @@ resources:
 EOF
 
 # Install with custom values
-helm install kubegraf ./helm/kubegraf -f my-values.yaml
+helm install kubegraf ./manifests/helm/kubegraf -f my-values.yaml
 ```
 
 ## Configuration
@@ -162,10 +162,10 @@ env:
 
 ```bash
 # Upgrade with new values
-helm upgrade kubegraf ./helm/kubegraf -f my-values.yaml
+helm upgrade kubegraf ./manifests/helm/kubegraf -f my-values.yaml
 
 # Upgrade to a specific version
-helm upgrade kubegraf ./helm/kubegraf --set image.tag=1.6.0
+helm upgrade kubegraf ./manifests/helm/kubegraf --set image.tag=1.6.0
 ```
 
 ## Uninstallation
