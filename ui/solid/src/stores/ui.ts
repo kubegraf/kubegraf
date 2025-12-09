@@ -34,6 +34,8 @@ export type View =
   | 'networkpolicies'
   | 'storage'
   | 'rbac'
+  | 'serviceaccounts'
+  | 'customresources'
   | 'settings'
   | 'aiinsights'
   | 'deployapp'

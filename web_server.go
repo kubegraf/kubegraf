@@ -490,6 +490,12 @@ func (ws *WebServer) Start(port int) error {
 	// SRE Agent
 	ws.RegisterSREAgentHandlers()
 
+	// Access Control
+	ws.RegisterAccessControlHandlers()
+
+	// Custom Resources
+	ws.RegisterCustomResourcesHandlers()
+
 	// Incidents endpoint
 	http.HandleFunc("/api/incidents", ws.handleIncidents)
 
