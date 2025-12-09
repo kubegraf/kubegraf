@@ -1,0 +1,69 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Build artifacts
+kubegraf
+*.log
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node modules (will be installed in container)
+ui/solid/node_modules/
+ui/solid/dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+test/
+tests/
+
+# Backup files
+backups/
+*.backup
+*.bak
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Kiali (if present)
+kiali/
+
+# Logs
+logs/
+*.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+
