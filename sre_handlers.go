@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -45,42 +46,62 @@ func (ws *WebServer) handleSREAgentIncidents(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if ws.app.sreAgent == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"incidents": []Incident{},
-			"total":     0,
-		})
-		return
-	}
-
 	// Parse query parameters
 	status := r.URL.Query().Get("status")
 	severity := r.URL.Query().Get("severity")
 	limit := 50 // Default limit
 
-	ws.app.sreAgent.mu.RLock()
-	incidents := make([]*Incident, 0, len(ws.app.sreAgent.incidents))
-	
+	incidents := make([]*Incident, 0)
+
+	// Get incidents from SRE Agent storage
+	if ws.app.sreAgent != nil {
+		ws.app.sreAgent.mu.RLock()
+		for _, incident := range ws.app.sreAgent.incidents {
+			incidents = append(incidents, incident)
+		}
+		ws.app.sreAgent.mu.RUnlock()
+	}
+
+	// Also scan for current incidents from Kubernetes resources
+	if ws.app.clientset != nil && ws.app.connected {
+		scanner := NewIncidentScanner(ws.app)
+		k8sIncidents := scanner.ScanAllIncidents("")
+		
+		// Convert Kubernetes incidents to SRE incidents
+		existingIDs := make(map[string]bool)
+		for _, inc := range incidents {
+			existingIDs[inc.ID] = true
+		}
+
+		for _, k8sIncident := range k8sIncidents {
+			incidentID := fmt.Sprintf("k8s-%s", k8sIncident.ID)
+			if !existingIDs[incidentID] {
+				sreIncident := scanner.ConvertKubernetesIncidentToSREIncident(k8sIncident)
+				incidents = append(incidents, sreIncident)
+			}
+		}
+	}
+
 	// Filter incidents
-	for _, incident := range ws.app.sreAgent.incidents {
+	filtered := make([]*Incident, 0)
+	for _, incident := range incidents {
 		if status != "" && incident.Status != status {
 			continue
 		}
 		if severity != "" && incident.Severity != severity {
 			continue
 		}
-		incidents = append(incidents, incident)
+		filtered = append(filtered, incident)
 	}
-	ws.app.sreAgent.mu.RUnlock()
 
 	// Apply limit
-	if len(incidents) > limit {
-		incidents = incidents[len(incidents)-limit:]
+	if len(filtered) > limit {
+		filtered = filtered[len(filtered)-limit:]
 	}
 
 	// Convert to slice (not pointers) for JSON marshaling
-	incidentList := make([]Incident, len(incidents))
-	for i, inc := range incidents {
+	incidentList := make([]Incident, len(filtered))
+	for i, inc := range filtered {
 		incidentList[i] = *inc
 	}
 
@@ -133,22 +154,100 @@ func (ws *WebServer) handleSREAgentActions(w http.ResponseWriter, r *http.Reques
 
 	if ws.app.sreAgent == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"actions": []ActionHistory{},
+			"actions": []map[string]interface{}{},
 			"total":   0,
 		})
 		return
 	}
 
-	ws.app.sreAgent.mu.RLock()
-	actions := make([]ActionHistory, 0, len(ws.app.sreAgent.actions))
-	for _, action := range ws.app.sreAgent.actions {
-		actions = append(actions, *action)
+	// Collect all actions from all incidents (both stored and real-time scanned)
+	allActions := make([]map[string]interface{}, 0)
+	incidents := make([]*Incident, 0)
+	
+	// Get incidents from SRE Agent storage
+	if ws.app.sreAgent != nil {
+		ws.app.sreAgent.mu.RLock()
+		for _, incident := range ws.app.sreAgent.incidents {
+			incidents = append(incidents, incident)
+		}
+		ws.app.sreAgent.mu.RUnlock()
 	}
-	ws.app.sreAgent.mu.RUnlock()
+	
+	// Also get incidents from real-time scanning (same as incidents endpoint)
+	if ws.app.clientset != nil && ws.app.connected {
+		scanner := NewIncidentScanner(ws.app)
+		k8sIncidents := scanner.ScanAllIncidents("")
+		
+		// Convert Kubernetes incidents to SRE incidents
+		existingIDs := make(map[string]bool)
+		for _, inc := range incidents {
+			existingIDs[inc.ID] = true
+		}
+		
+		for _, k8sIncident := range k8sIncidents {
+			incidentID := fmt.Sprintf("k8s-%s", k8sIncident.ID)
+			if !existingIDs[incidentID] {
+				sreIncident := scanner.ConvertKubernetesIncidentToSREIncident(k8sIncident)
+				incidents = append(incidents, sreIncident)
+			}
+		}
+	}
+	
+	// Collect actions from all incidents
+	for _, incident := range incidents {
+		// Check if incident has actions
+		if len(incident.Actions) == 0 {
+			continue
+		}
+		
+		for _, action := range incident.Actions {
+			// Use CompletedAt if available, otherwise use StartedAt
+			timestamp := action.StartedAt
+			if action.CompletedAt != nil {
+				timestamp = *action.CompletedAt
+			}
+			
+			// Determine details - use Result if available, otherwise use Description
+			details := action.Result
+			if details == "" {
+				details = action.Description
+			}
+			if action.Error != "" {
+				details = action.Error
+			}
+			
+			actionData := map[string]interface{}{
+				"id":        action.ID,
+				"incidentID": incident.ID,
+				"action":    action.Description,
+				"timestamp": timestamp.Format(time.RFC3339),
+				"success":   action.Status == "completed" && action.Error == "",
+				"details":   details,
+				"automated": action.Type == "remediate" || action.Type == "analyze",
+			}
+			
+			allActions = append(allActions, actionData)
+		}
+	}
+
+	// Sort by timestamp (most recent first)
+	// Simple sort by timestamp string (RFC3339 is sortable)
+	for i := 0; i < len(allActions); i++ {
+		for j := i + 1; j < len(allActions); j++ {
+			if allActions[i]["timestamp"].(string) < allActions[j]["timestamp"].(string) {
+				allActions[i], allActions[j] = allActions[j], allActions[i]
+			}
+		}
+	}
+
+	// Limit to most recent 100 actions
+	if len(allActions) > 100 {
+		allActions = allActions[:100]
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"actions": actions,
-		"total":   len(actions),
+		"actions": allActions,
+		"total":   len(allActions),
 	})
 }
 
