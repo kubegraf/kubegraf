@@ -16,7 +16,6 @@ package validation
 
 import (
 	"fmt"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -270,7 +269,7 @@ func (pv *PodValidator) ValidatePodAge(pod *corev1.Pod, displayedAge string) Val
 		Warnings: []string{},
 	}
 
-	age, ageResult := pv.ValidateAgeCalculation(pod.CreationTimestamp)
+	_, ageResult := pv.ValidateAgeCalculation(pod.CreationTimestamp)
 	result.Errors = append(result.Errors, ageResult.Errors...)
 	result.Warnings = append(result.Warnings, ageResult.Warnings...)
 	if !ageResult.Valid {
