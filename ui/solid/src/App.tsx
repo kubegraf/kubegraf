@@ -56,6 +56,7 @@ import AutoFix from './routes/AutoFix';
 import AIAssistant from './routes/AIAssistant';
 import DeploymentProgress from './components/DeploymentProgress';
 import DockedTerminal from './components/DockedTerminal';
+import NotificationCenter from './components/NotificationCenter';
 import UIDemo from './components/UIDemo';
 // Wrapper components for Apps with different default tabs
 // Note: We removed defaultTab so tabs are always visible
@@ -487,6 +488,7 @@ const App: Component = () => {
           style={{ background: 'var(--bg-secondary)', 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}
         >
           <div class="flex items-center gap-4">
+            <NotificationCenter />
             <span class="flex items-center gap-1">
               <span class={`w-2 h-2 rounded-full ${connectionStatus()?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
               {connectionStatus()?.connected ? 'Connected' : 'Disconnected'}
@@ -511,34 +513,34 @@ const App: Component = () => {
       {/* Brain Panel */}
       <BrainPanel />
 
-      {/* Notifications */}
-      <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+      {/* Notifications - Positioned above deployment progress */}
+      <div class="fixed bottom-24 right-6 z-50 flex flex-col-reverse gap-3 max-w-sm">
         <For each={notifications()}>
           {(notification) => (
             <div
-              class="animate-slide-in px-4 py-3 rounded-lg shadow-lg border max-w-sm"
+              class="animate-slide-in px-4 py-3 rounded-lg shadow-lg border backdrop-blur-sm"
               style={{
-                background: notification.type === 'error' ? 'rgba(239, 68, 68, 0.1)' :
-                           notification.type === 'warning' ? 'rgba(245, 158, 11, 0.1)' :
-                           notification.type === 'success' ? 'rgba(34, 197, 94, 0.1)' :
-                           'rgba(6, 182, 212, 0.1)',
-                'border-color': notification.type === 'error' ? 'rgba(239, 68, 68, 0.3)' :
-                               notification.type === 'warning' ? 'rgba(245, 158, 11, 0.3)' :
-                               notification.type === 'success' ? 'rgba(34, 197, 94, 0.3)' :
-                               'rgba(6, 182, 212, 0.3)',
-                color: notification.type === 'error' ? 'var(--error-color)' :
-                       notification.type === 'warning' ? 'var(--warning-color)' :
-                       notification.type === 'success' ? 'var(--success-color)' :
-                       'var(--accent-primary)',
+                background: notification.type === 'error' ? 'rgba(239, 68, 68, 0.95)' :
+                           notification.type === 'warning' ? 'rgba(245, 158, 11, 0.95)' :
+                           notification.type === 'success' ? 'rgba(34, 197, 94, 0.95)' :
+                           'rgba(6, 182, 212, 0.95)',
+                'border-color': notification.type === 'error' ? 'rgba(239, 68, 68, 0.5)' :
+                               notification.type === 'warning' ? 'rgba(245, 158, 11, 0.5)' :
+                               notification.type === 'success' ? 'rgba(34, 197, 94, 0.5)' :
+                               'rgba(6, 182, 212, 0.5)',
+                color: notification.type === 'error' ? '#fff' :
+                       notification.type === 'warning' ? '#000' :
+                       notification.type === 'success' ? '#fff' :
+                       '#000',
               }}
             >
-              <div class="flex items-start gap-2">
-                <span>
+              <div class="flex items-start gap-2.5">
+                <span class="flex-shrink-0 text-base">
                   {notification.type === 'error' ? '❌' :
                    notification.type === 'warning' ? '⚠️' :
                    notification.type === 'success' ? '✓' : 'ℹ️'}
                 </span>
-                <span class="text-sm">{notification.message}</span>
+                <span class="text-sm break-words leading-relaxed">{notification.message}</span>
               </div>
             </div>
           )}

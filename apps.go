@@ -350,6 +350,43 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 	// Handle local cluster installers differently
 	if app.ChartRepo == "local-cluster" {
+		// Check Docker synchronously before starting installation
+		dockerAvailable := false
+		dockerError := ""
+		
+		if _, err := exec.LookPath("docker"); err == nil {
+			// Check if Docker daemon is running
+			checkCmd := exec.Command("docker", "info")
+			if err := checkCmd.Run(); err == nil {
+				dockerAvailable = true
+			} else {
+				dockerError = "Docker is installed but not running. Please start Docker Desktop and try again."
+			}
+		} else {
+			osType := runtime.GOOS
+			dockerURL := "https://docs.docker.com/get-docker/"
+			if osType == "windows" {
+				dockerURL = "https://www.docker.com/products/docker-desktop/"
+			} else if osType == "darwin" {
+				dockerURL = "https://www.docker.com/products/docker-desktop/"
+			}
+			dockerError = fmt.Sprintf("Docker is not installed or not running. Please install Docker Desktop from %s and start it before installing local clusters.", dockerURL)
+		}
+
+		if !dockerAvailable {
+			// Update installation record with error
+			if installationID > 0 {
+				ws.db.UpdateAppInstallation(installationID, "failed", 0, dockerError)
+			}
+			
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   dockerError,
+				"app":     app.Name,
+			})
+			return
+		}
+		
 		go ws.installLocalCluster(app, req.Namespace, req.ClusterName, installationID)
 	} else {
 		go ws.installHelmApp(app, req.Namespace, req.Values, installationID)

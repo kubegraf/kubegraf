@@ -14,6 +14,9 @@ import { marketplaceAppToLegacyApp, mapLegacyCategoryToNew, type LegacyApp } fro
 import { ClusterManager } from '../features/marketplace/clustering';
 import { VersionManager } from '../features/marketplace/versioning';
 import { installStatusTracker } from '../features/marketplace/install-status';
+import { addPersistentNotification } from '../stores/persistent-notifications';
+import { isLocalClusterApp, validateClusterName, generateDefaultClusterName } from '../utils/local-cluster-installer';
+import { formatDockerError } from '../utils/docker-detection';
 
 interface InstalledInstance {
   namespace: string;
@@ -68,7 +71,8 @@ const Apps: Component<AppsProps> = (props) => {
   const [showMLflowWizard, setShowMLflowWizard] = createSignal(false);
   const [showFeastWizard, setShowFeastWizard] = createSignal(false);
   const [installNamespace, setInstallNamespace] = createSignal('default');
-  const [clusterName, setClusterName] = createSignal('kubegraf-cluster'); // For local clusters
+  const [clusterName, setClusterName] = createSignal(generateDefaultClusterName()); // For local clusters
+  const [clusterNameError, setClusterNameError] = createSignal<string>('');
   const [installing, setInstalling] = createSignal(false);
   const [localClusters, setLocalClusters] = createSignal<any[]>([]);
   const [showLocalClusters, setShowLocalClusters] = createSignal(false);
@@ -240,7 +244,9 @@ const Apps: Component<AppsProps> = (props) => {
             delete next[appName];
             return next;
           });
-          addNotification(`${displayName} deployed successfully to ${targetNamespace}`, 'success');
+          const successMessage = `${displayName} deployed successfully to ${targetNamespace}`;
+          addPersistentNotification(successMessage, 'success');
+          addNotification(successMessage, 'success');
           refetchInstalled();
         }
       } catch (e) {
@@ -263,87 +269,175 @@ const Apps: Component<AppsProps> = (props) => {
     const app = selectedApp();
     if (!app) return;
 
+    const isLocalCluster = isLocalClusterApp(app.name);
+    
+    // Validate cluster name for local clusters
+    if (isLocalCluster) {
+      const validation = validateClusterName(clusterName());
+      if (!validation.valid) {
+        setClusterNameError(validation.error || 'Invalid cluster name');
+        return;
+      }
+      setClusterNameError('');
+    }
+
     setInstalling(true);
-    const targetNs = installNamespace() || 'default';
+    const targetNs = isLocalCluster ? 'default' : (installNamespace() || 'default');
+    const customClusterName = isLocalCluster ? clusterName() : undefined;
 
     // Create deployment progress tracker with tasks
+    const tasks = isLocalCluster 
+      ? ['Checking Docker', 'Preparing cluster', 'Installing cluster', 'Verifying installation']
+      : ['Validating namespace', 'Adding Helm repository', 'Fetching chart metadata', 'Installing resources', 'Verifying deployment'];
+    
     const deploymentId = addDeployment(
       app.displayName,
       app.version,
       targetNs,
-      [
-        'Validating namespace',
-        'Adding Helm repository',
-        'Fetching chart metadata',
-        'Installing resources',
-        'Verifying deployment'
-      ]
+      tasks
     );
 
     try {
-      // Task 1: Validating namespace
-      updateDeploymentTask(deploymentId, 'task-0', {
-        status: 'running',
-        progress: 30,
-        startTime: Date.now()
-      });
+      // Task 1: Check Docker for local clusters (CRITICAL - must pass before continuing)
+      if (isLocalCluster) {
+        updateDeploymentTask(deploymentId, 'task-0', {
+          status: 'running',
+          progress: 10,
+          startTime: Date.now(),
+          message: 'Checking Docker availability...'
+        });
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+        // Call the API - it will check Docker synchronously and return error if not available
+        const response = await api.installApp(app.name, targetNs, undefined, customClusterName);
+        
+        // Check if installation failed due to Docker
+        if (!response.success || response.error) {
+          const errorMessage = response.error || 'Docker check failed';
+          const dockerError = formatDockerError();
+          
+          // Fail the Docker check task immediately
+          updateDeploymentTask(deploymentId, 'task-0', {
+            status: 'failed',
+            progress: 0,
+            message: dockerError.message,
+            endTime: Date.now()
+          });
+          
+          // Add persistent notification
+          addPersistentNotification(
+            `${app.displayName} installation failed: ${dockerError.message}. Please install or start Docker Desktop first.`,
+            'error'
+          );
+          
+          // Show error notification
+          addNotification(
+            `Docker is not available. Please install or start Docker Desktop before installing local clusters.`,
+            'error'
+          );
+          
+          setShowInstallModal(false);
+          setInstalling(false);
+          return; // Stop immediately - don't continue with other tasks
+        }
+        
+        // Docker check passed - mark as completed
+        updateDeploymentTask(deploymentId, 'task-0', {
+          status: 'completed',
+          progress: 100,
+          endTime: Date.now()
+        });
+      } else {
+        // For regular apps, validate namespace
+        updateDeploymentTask(deploymentId, 'task-0', {
+          status: 'running',
+          progress: 10,
+          startTime: Date.now(),
+          message: 'Validating namespace...'
+        });
 
-      updateDeploymentTask(deploymentId, 'task-0', {
-        status: 'completed',
-        progress: 100
-      });
+        await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Task 2: Adding Helm repository
-      updateDeploymentTask(deploymentId, 'task-1', {
-        status: 'running',
-        progress: 40,
-        startTime: Date.now()
-      });
+        updateDeploymentTask(deploymentId, 'task-0', {
+          status: 'completed',
+          progress: 100,
+          endTime: Date.now()
+        });
+      }
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Task 2: Setup/preparation (only if Docker check passed for local clusters)
+      if (tasks.length > 1) {
+        updateDeploymentTask(deploymentId, 'task-1', {
+          status: 'running',
+          progress: 20,
+          startTime: Date.now(),
+          message: isLocalCluster ? 'Preparing cluster environment...' : 'Adding Helm repository...'
+        });
 
-      updateDeploymentTask(deploymentId, 'task-1', {
-        status: 'completed',
-        progress: 100
-      });
+        if (!isLocalCluster) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          updateDeploymentTask(deploymentId, 'task-1', {
+            status: 'completed',
+            progress: 100,
+            endTime: Date.now()
+          });
+        } else {
+          // For local clusters, mark preparation as completed quickly
+          await new Promise(resolve => setTimeout(resolve, 500));
+          updateDeploymentTask(deploymentId, 'task-1', {
+            status: 'completed',
+            progress: 100,
+            endTime: Date.now()
+          });
+        }
+      }
 
-      // Task 3: Fetching chart metadata
-      updateDeploymentTask(deploymentId, 'task-2', {
-        status: 'running',
-        progress: 50,
-        startTime: Date.now()
-      });
+      // Task 3: Fetching metadata (for regular apps only)
+      if (!isLocalCluster && tasks.length > 2) {
+        updateDeploymentTask(deploymentId, 'task-2', {
+          status: 'running',
+          progress: 30,
+          startTime: Date.now(),
+          message: 'Fetching chart metadata...'
+        });
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 500));
 
-      updateDeploymentTask(deploymentId, 'task-2', {
-        status: 'completed',
-        progress: 100
-      });
+        updateDeploymentTask(deploymentId, 'task-2', {
+          status: 'completed',
+          progress: 100,
+          endTime: Date.now()
+        });
+      }
 
-      // Task 4: Installing resources (actual installation)
-      updateDeploymentTask(deploymentId, 'task-3', {
-        status: 'running',
-        progress: 60,
-        startTime: Date.now(),
-        message: `Deploying ${app.displayName}...`
-      });
+      // Task 4: Actual installation (this is the real work)
+      const installTaskId = isLocalCluster ? 'task-2' : 'task-3';
+      
+      if (!isLocalCluster) {
+        // For regular apps, call the API now
+        updateDeploymentTask(deploymentId, installTaskId, {
+          status: 'running',
+          progress: 50,
+          startTime: Date.now(),
+          message: `Installing ${app.displayName}...`
+        });
 
-      await api.installApp(app.name, targetNs);
+        await api.installApp(app.name, targetNs);
 
-      updateDeploymentTask(deploymentId, 'task-3', {
-        status: 'completed',
-        progress: 100
-      });
-
-      // Task 5: Verifying deployment
-      updateDeploymentTask(deploymentId, 'task-4', {
-        status: 'running',
-        progress: 80,
-        startTime: Date.now()
-      });
+        updateDeploymentTask(deploymentId, installTaskId, {
+          status: 'running',
+          progress: 70,
+          message: `${app.displayName} installation in progress...`
+        });
+      } else {
+        // For local clusters, installation was already started in Docker check (task-0)
+        // Just update the task status to show installation is in progress
+        updateDeploymentTask(deploymentId, installTaskId, {
+          status: 'running',
+          progress: 40,
+          startTime: Date.now(),
+          message: `Installing ${app.displayName} cluster "${customClusterName}"...`
+        });
+      }
 
       // Mark as deploying
       setDeployingApps(prev => ({
@@ -351,31 +445,123 @@ const Apps: Component<AppsProps> = (props) => {
         [app.name]: { namespace: targetNs, startTime: Date.now() }
       }));
 
-      // Start polling for deployment status
-      checkDeploymentStatus(app.name, app.displayName, targetNs);
+      // For local clusters, we poll differently
+      if (isLocalCluster) {
+        // Poll for local cluster status
+        let pollCount = 0;
+        const maxPolls = 60; // 5 minutes max
+        const pollInterval = setInterval(async () => {
+          pollCount++;
+          try {
+            const installed = await api.getInstalledApps();
+            const isInstalled = installed?.some((inst: any) => 
+              inst.name === customClusterName || inst.name.includes(customClusterName || '')
+            );
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+            if (isInstalled || pollCount >= maxPolls) {
+              clearInterval(pollInterval);
+              updateDeploymentTask(deploymentId, installTaskId, {
+                status: 'completed',
+                progress: 100,
+                message: `${app.displayName} "${customClusterName}" installed successfully!`
+              });
 
-      updateDeploymentTask(deploymentId, 'task-4', {
-        status: 'completed',
-        progress: 100,
-        message: `${app.displayName} deployed successfully!`
-      });
+              // Final verification task
+              const verifyTaskId = 'task-3';
+              updateDeploymentTask(deploymentId, verifyTaskId, {
+                status: 'running',
+                progress: 90,
+                startTime: Date.now(),
+                message: 'Verifying cluster...'
+              });
 
-      addNotification(`${app.displayName} installed successfully in ${targetNs}`, 'success');
-      setShowInstallModal(false);
-    } catch (error) {
-      // Mark current task as failed
-      const tasks = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4'];
-      for (const taskId of tasks) {
-        // Find the first non-completed task and mark it as failed
-        updateDeploymentTask(deploymentId, taskId, {
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Unknown error'
+              await new Promise(resolve => setTimeout(resolve, 1000));
+
+              updateDeploymentTask(deploymentId, verifyTaskId, {
+                status: 'completed',
+                progress: 100,
+                message: 'Cluster verified and ready!'
+              });
+
+              const successMessage = `${app.displayName} "${customClusterName}" installed successfully!`;
+              addPersistentNotification(successMessage, 'success');
+              addNotification(successMessage, 'success');
+              setShowInstallModal(false);
+              refetchInstalled();
+            } else {
+              // Update progress based on poll count
+              const progress = Math.min(70 + (pollCount / maxPolls) * 20, 90);
+              updateDeploymentTask(deploymentId, installTaskId, {
+                progress,
+                message: `Installing... (${pollCount * 5}s)`
+              });
+            }
+          } catch (e) {
+            // Continue polling
+          }
+        }, 5000);
+      } else {
+        // For regular apps, use existing polling
+        checkDeploymentStatus(app.name, app.displayName, targetNs);
+
+        // Final verification task
+        const verifyTaskId = 'task-4';
+        updateDeploymentTask(deploymentId, verifyTaskId, {
+          status: 'running',
+          progress: 80,
+          startTime: Date.now(),
+          message: 'Verifying deployment...'
         });
-        break;
+
+        // Don't mark as completed immediately - wait for actual verification
+        // The checkDeploymentStatus will handle completion
+        setTimeout(() => {
+          updateDeploymentTask(deploymentId, verifyTaskId, {
+            status: 'running',
+            progress: 90,
+            message: 'Waiting for deployment to be ready...'
+          });
+        }, 2000);
       }
-      addNotification(`Failed to install ${app.displayName}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } catch (error: any) {
+      // Handle errors properly
+      const errorMessage = error?.message || error?.error || 'Unknown error';
+      
+      // Check if it's a Docker error
+      if (errorMessage.toLowerCase().includes('docker')) {
+        const dockerError = formatDockerError();
+        updateDeploymentTask(deploymentId, 'task-0', {
+          status: 'failed',
+          progress: 0,
+          message: dockerError.message
+        });
+        
+        addPersistentNotification(
+          `${app.displayName} installation failed: ${dockerError.message}. Click to install Docker Desktop.`,
+          'error'
+        );
+        
+        window.open(dockerError.installUrl, '_blank');
+        addNotification(`Docker not found. Opening Docker Desktop installation page...`, 'warning');
+      } else {
+        // Mark current task as failed
+        const tasks = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4'];
+        for (const taskId of tasks) {
+          updateDeploymentTask(deploymentId, taskId, {
+            status: 'failed',
+            message: errorMessage
+          });
+          break;
+        }
+        
+        addPersistentNotification(
+          `Failed to install ${app.displayName}: ${errorMessage}`,
+          'error'
+        );
+        addNotification(`Failed to install ${app.displayName}: ${errorMessage}`, 'error');
+      }
+      
+      setShowInstallModal(false);
     } finally {
       setInstalling(false);
     }
@@ -1158,19 +1344,54 @@ const Apps: Component<AppsProps> = (props) => {
             </div>
           </div>
 
-          <div>
-            <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-              Target Namespace
-            </label>
-            <input
-              type="text"
-              value={installNamespace()}
-              onInput={(e) => setInstallNamespace(e.currentTarget.value)}
-              class="w-full px-3 py-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-              placeholder="default"
-            />
-          </div>
+          {/* Cluster Name for Local Clusters */}
+          <Show when={selectedApp()?.name === 'k3d' || selectedApp()?.name === 'kind' || selectedApp()?.name === 'minikube'}>
+            <div>
+              <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                Cluster Name <span style={{ color: 'var(--error-color)' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={clusterName()}
+                onInput={(e) => {
+                  setClusterName(e.currentTarget.value);
+                  setClusterNameError('');
+                }}
+                class="w-full px-3 py-2 rounded-lg text-sm"
+                style={{ 
+                  background: 'var(--bg-secondary)', 
+                  color: 'var(--text-primary)', 
+                  border: `1px solid ${clusterNameError() ? 'var(--error-color)' : 'var(--border-color)'}` 
+                }}
+                placeholder="kubegraf-my-cluster"
+              />
+              <Show when={clusterNameError()}>
+                <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>
+                  {clusterNameError()}
+                </p>
+              </Show>
+              <p class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                Must start with "kubegraf-" followed by lowercase letters, numbers, or hyphens
+              </p>
+            </div>
+          </Show>
+
+          {/* Namespace for Regular Apps */}
+          <Show when={selectedApp()?.name !== 'k3d' && selectedApp()?.name !== 'kind' && selectedApp()?.name !== 'minikube'}>
+            <div>
+              <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                Target Namespace
+              </label>
+              <input
+                type="text"
+                value={installNamespace()}
+                onInput={(e) => setInstallNamespace(e.currentTarget.value)}
+                class="w-full px-3 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                placeholder="default"
+              />
+            </div>
+          </Show>
 
           <div class="flex justify-end gap-3 mt-6">
             <button
