@@ -174,6 +174,9 @@ func (agent *SREAgent) Start(ctx context.Context) {
 	// Start metrics reset timer
 	go agent.resetHourlyMetrics(ctx)
 
+	// Start periodic incident scanning
+	go agent.scanForIncidents(ctx)
+
 	log.Println("SRE Agent started")
 }
 
@@ -1109,6 +1112,64 @@ func (agent *SREAgent) sendEscalationNotification(incident *Incident) {
 // notifyRateLimitExceeded notifies about rate limit exceeded
 func (agent *SREAgent) notifyRateLimitExceeded(incident *Incident) {
 	log.Printf("SRE Agent Rate Limit Exceeded: Cannot auto-remediate incident %s due to rate limits", incident.ID)
+}
+
+// scanForIncidents periodically scans Kubernetes resources for incidents
+func (agent *SREAgent) scanForIncidents(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second) // Scan every 30 seconds
+	defer ticker.Stop()
+
+	// Do an initial scan
+	agent.performIncidentScan()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-agent.stopCh:
+			return
+		case <-ticker.C:
+			agent.performIncidentScan()
+		}
+	}
+}
+
+// performIncidentScan performs a single scan for incidents
+func (agent *SREAgent) performIncidentScan() {
+	if !agent.config.Enabled {
+		return
+	}
+
+	if agent.app.clientset == nil || !agent.app.connected {
+		return
+	}
+
+	// Use the incident scanner to find incidents
+	scanner := NewIncidentScanner(agent.app)
+	k8sIncidents := scanner.ScanAllIncidents("")
+
+	agent.mu.Lock()
+	defer agent.mu.Unlock()
+
+	// Convert Kubernetes incidents to SRE incidents and add them
+	for _, k8sIncident := range k8sIncidents {
+		// Check if we already have this incident
+		incidentID := fmt.Sprintf("k8s-%s", k8sIncident.ID)
+		if _, exists := agent.incidents[incidentID]; exists {
+			continue // Already have this incident
+		}
+
+		// Convert and add the incident
+		sreIncident := scanner.ConvertKubernetesIncidentToSREIncident(k8sIncident)
+		agent.incidents[incidentID] = sreIncident
+
+		// Update metrics
+		agent.metrics.mu.Lock()
+		agent.metrics.IncidentsDetected++
+		agent.metrics.mu.Unlock()
+
+		log.Printf("SRE Agent: Detected incident from scan: %s - %s", sreIncident.Title, sreIncident.Description)
+	}
 }
 
 // Helper functions
