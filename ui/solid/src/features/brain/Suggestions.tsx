@@ -9,7 +9,7 @@ const Suggestions: Component<SuggestionsProps> = (props) => {
   return (
     <div class="space-y-4">
       <h3 class="text-lg font-bold" style={{ 
-        background: 'linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%)',
+        background: 'var(--accent-gradient)',
         '-webkit-background-clip': 'text',
         '-webkit-text-fill-color': 'transparent',
         'background-clip': 'text'
@@ -19,26 +19,26 @@ const Suggestions: Component<SuggestionsProps> = (props) => {
 
       {/* Summary */}
       <div class="p-4 rounded-lg" style={{ 
-        background: 'rgba(14, 165, 233, 0.1)',
-        border: '1px solid rgba(14, 165, 233, 0.3)'
+        background: 'var(--glass-gradient)',
+        border: '1px solid var(--border-color)'
       }}>
-        <h4 class="text-sm font-semibold mb-2" style={{ color: '#0ea5e9' }}>
+        <h4 class="text-sm font-semibold mb-2" style={{ color: 'var(--accent-primary)' }}>
           Summary of Last 24h
         </h4>
-        <p class="text-sm" style={{ color: '#c9d1d9', 'line-height': '1.6' }}>
+        <p class="text-sm" style={{ color: 'var(--text-secondary)', 'line-height': '1.6' }}>
           {props.summary.last24hSummary}
         </p>
       </div>
 
       {/* Top Risk Areas */}
       <div>
-        <h4 class="text-sm font-semibold mb-3" style={{ color: '#0ea5e9' }}>
+        <h4 class="text-sm font-semibold mb-3" style={{ color: 'var(--accent-primary)' }}>
           Top 3 Risk Areas
         </h4>
         <Show 
           when={props.summary.topRiskAreas.length > 0}
           fallback={
-            <div class="text-sm" style={{ color: '#8b949e' }}>
+            <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
               No significant risk areas identified
             </div>
           }
@@ -49,17 +49,18 @@ const Suggestions: Component<SuggestionsProps> = (props) => {
                 <div 
                   class="flex items-start gap-3 p-3 rounded-lg"
                   style={{ 
-                    background: 'rgba(22, 27, 34, 0.5)',
-                    border: '1px solid #333333'
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)'
                   }}
                 >
                   <div class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ 
-                    background: 'rgba(239, 68, 68, 0.2)',
-                    color: '#ef4444'
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--error-color)',
+                    border: '1px solid var(--border-color)'
                   }}>
                     {index() + 1}
                   </div>
-                  <p class="text-sm flex-1" style={{ color: '#c9d1d9' }}>
+                  <p class="text-sm flex-1" style={{ color: 'var(--text-secondary)' }}>
                     {risk}
                   </p>
                 </div>
@@ -71,13 +72,13 @@ const Suggestions: Component<SuggestionsProps> = (props) => {
 
       {/* Recommended Actions */}
       <div>
-        <h4 class="text-sm font-semibold mb-3" style={{ color: '#0ea5e9' }}>
+        <h4 class="text-sm font-semibold mb-3" style={{ color: 'var(--accent-primary)' }}>
           Recommended Next Actions
         </h4>
         <Show 
           when={props.summary.recommendedActions.length > 0}
           fallback={
-            <div class="text-sm" style={{ color: '#8b949e' }}>
+            <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
               No specific actions recommended at this time
             </div>
           }
@@ -88,12 +89,12 @@ const Suggestions: Component<SuggestionsProps> = (props) => {
                 <div 
                   class="flex items-start gap-3 p-3 rounded-lg"
                   style={{ 
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    border: '1px solid rgba(34, 197, 94, 0.3)'
+                    background: 'var(--glass-gradient)',
+                    border: '1px solid var(--border-color)'
                   }}
                 >
-                  <div class="flex-shrink-0 mt-0.5">✓</div>
-                  <p class="text-sm flex-1" style={{ color: '#c9d1d9' }}>
+                  <div class="flex-shrink-0 mt-0.5" style={{ color: 'var(--success-color)' }}>✓</div>
+                  <p class="text-sm flex-1" style={{ color: 'var(--text-secondary)' }}>
                     {action}
                   </p>
                 </div>
@@ -103,7 +104,7 @@ const Suggestions: Component<SuggestionsProps> = (props) => {
         </Show>
       </div>
 
-      <div class="text-xs pt-2" style={{ color: '#6b7280' }}>
+      <div class="text-xs pt-2" style={{ color: 'var(--text-muted)' }}>
         Generated at {new Date(props.summary.generatedAt).toLocaleString()}
       </div>
     </div>
