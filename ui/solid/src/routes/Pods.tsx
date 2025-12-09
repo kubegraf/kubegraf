@@ -2,6 +2,7 @@ import { Component, For, Show, createMemo, createSignal, createResource, onMount
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import { getHighlightedPod, clearHighlightedPod, getPodForLogs, clearPodLogs, shouldHighlightPod } from '../utils/pod-selection';
 import {
   selectedCluster,
   selectedNamespaces,
@@ -277,6 +278,52 @@ const Pods: Component = () => {
       const rows = tableRef.querySelectorAll('tbody tr');
       if (rows[index]) {
         rows[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  });
+
+  // Handle pod highlighting from incidents navigation
+  createEffect(() => {
+    const highlighted = getHighlightedPod();
+    if (highlighted) {
+      const pods = podsCache();
+      if (pods && pods.length > 0) {
+        const pod = pods.find(p => p.name === highlighted.podName && p.namespace === highlighted.namespace);
+        if (pod) {
+          // Find index and scroll to it
+          const index = pods.indexOf(pod);
+          if (index !== -1) {
+            setTimeout(() => {
+              const rows = tableRef?.querySelectorAll('tbody tr');
+              if (rows && rows[index]) {
+                rows[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Highlight the row temporarily
+                (rows[index] as HTMLElement).style.background = 'var(--accent-primary)20';
+                setTimeout(() => {
+                  (rows[index] as HTMLElement).style.background = '';
+                }, 2000);
+              }
+            }, 500);
+          }
+          clearHighlightedPod();
+        }
+      }
+    }
+  });
+
+  // Handle auto-open logs from incidents
+  createEffect(() => {
+    const podForLogs = getPodForLogs();
+    if (podForLogs) {
+      const pods = podsCache();
+      if (pods && pods.length > 0) {
+        const pod = pods.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
+        if (pod) {
+          setSelectedPod(pod);
+          fetchLogs(pod, logsFollow());
+          setShowLogs(true);
+          clearPodLogs();
+        }
       }
     }
   });

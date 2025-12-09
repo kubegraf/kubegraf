@@ -1,10 +1,10 @@
 import { Component, createSignal, createResource, createMemo, Show } from 'solid-js';
 import { api } from '../services/api';
 import { addNotification } from '../stores/ui';
-import { setCurrentView } from '../stores/ui';
 import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
 import { Incident } from '../services/api';
+import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
 
 const Incidents: Component = () => {
   const [typeFilter, setTypeFilter] = createSignal('');
@@ -38,29 +38,16 @@ const Incidents: Component = () => {
   });
 
   const handleViewPod = (incident: Incident) => {
-    if (incident.resourceKind === 'Pod') {
-      const parts = incident.resourceName.split('/');
-      const podName = parts[0];
-      setCurrentView('pods');
-      addNotification(`Navigating to pod: ${podName}`, 'info');
-      // The pods view should handle highlighting/filtering
-    }
+    navigateToPod(incident);
   };
 
   const handleViewLogs = (incident: Incident) => {
-    if (incident.resourceKind === 'Pod') {
-      const parts = incident.resourceName.split('/');
-      const podName = parts[0];
-      setCurrentView('pods');
-      addNotification(`Opening logs for: ${podName}`, 'info');
-      // TODO: Open logs modal/view
-    }
+    // Store incident info for Pods component to pick up
+    openPodLogs(incident);
   };
 
   const handleViewEvents = (incident: Incident) => {
-    setCurrentView('events');
-    addNotification(`Viewing events for: ${incident.resourceName}`, 'info');
-    // TODO: Filter events by resource
+    navigateToEvent(incident);
   };
 
   const criticalCount = createMemo(() => 
