@@ -26,13 +26,13 @@ const MLTimeline: Component<MLTimelineProps> = (props) => {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'critical':
-        return '#ef4444';
+        return 'var(--error-color)';
       case 'warning':
-        return '#f59e0b';
+        return 'var(--warning-color)';
       case 'info':
-        return '#3b82f6';
+        return 'var(--info-color)';
       default:
-        return '#8b949e';
+        return 'var(--text-muted)';
     }
   };
 
@@ -52,17 +52,18 @@ const MLTimeline: Component<MLTimelineProps> = (props) => {
   return (
     <div>
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold" style={{ color: '#f0f6fc' }}>ML Timeline</h3>
+        <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>ML Timeline</h3>
         <span class="text-sm px-2 py-1 rounded" style={{ 
-          background: 'rgba(59, 130, 246, 0.2)', 
-          color: '#3b82f6' 
+          background: 'var(--glass-gradient)', 
+          color: 'var(--info-color)',
+          border: '1px solid var(--border-color)'
         }}>
           {props.events.length} events
         </span>
       </div>
 
       <Show when={props.events.length === 0}>
-        <div class="text-center py-8" style={{ color: '#8b949e' }}>
+        <div class="text-center py-8" style={{ color: 'var(--text-muted)' }}>
           <p>No ML events in the selected time range</p>
         </div>
       </Show>
@@ -70,50 +71,57 @@ const MLTimeline: Component<MLTimelineProps> = (props) => {
       <Show when={props.events.length > 0}>
         <div class="space-y-4">
           <For each={props.events}>
-            {(event) => (
-              <div class="flex gap-4 p-4 rounded-lg border" style={{
-                background: 'rgba(22, 27, 34, 0.5)',
-                borderColor: '#333333'
-              }}>
-                {/* Timeline line */}
-                <div class="flex flex-col items-center">
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center" style={{
-                    background: `rgba(${getSeverityColor(event.severity).replace('#', '')}, 0.2)`,
-                    border: `2px solid ${getSeverityColor(event.severity)}`
-                  }}>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{
-                      color: getSeverityColor(event.severity)
+            {(event) => {
+              const severityColor = getSeverityColor(event.severity);
+              return (
+                <div class="flex gap-4 p-4 rounded-lg border" style={{
+                  background: 'var(--bg-tertiary)',
+                  borderColor: 'var(--border-color)'
+                }}>
+                  {/* Timeline line */}
+                  <div class="flex flex-col items-center">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                      background: 'var(--bg-secondary)',
+                      border: `2px solid ${severityColor}`
                     }}>
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={getEventIcon(event.type)} />
-                    </svg>
-                  </div>
-                  <div class="flex-1 w-0.5 mt-2" style={{ background: '#333333' }} />
-                </div>
-
-                {/* Event content */}
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-start justify-between gap-2 mb-1">
-                    <h4 class="font-medium" style={{ color: '#f0f6fc' }}>{event.title}</h4>
-                    <span class="text-xs whitespace-nowrap" style={{ color: '#8b949e' }}>
-                      {formatTimestamp(event.timestamp)}
-                    </span>
-                  </div>
-                  <p class="text-sm mb-2" style={{ color: '#8b949e' }}>{event.description}</p>
-                  
-                  <Show when={event.resource}>
-                    <div class="flex items-center gap-2 text-xs" style={{ color: '#8b949e' }}>
-                      <span class="px-2 py-0.5 rounded" style={{ background: 'rgba(59, 130, 246, 0.2)' }}>
-                        {event.resource!.kind}
-                      </span>
-                      <span>{event.resource!.name}</span>
-                      <Show when={event.resource!.namespace}>
-                        <span>• {event.resource!.namespace}</span>
-                      </Show>
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{
+                        color: severityColor
+                      }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={getEventIcon(event.type)} />
+                      </svg>
                     </div>
-                  </Show>
+                    <div class="flex-1 w-0.5 mt-2" style={{ background: 'var(--border-color)' }} />
+                  </div>
+
+                  {/* Event content */}
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                      <h4 class="font-medium" style={{ color: 'var(--text-primary)' }}>{event.title}</h4>
+                      <span class="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                        {formatTimestamp(event.timestamp)}
+                      </span>
+                    </div>
+                    <p class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>{event.description}</p>
+                    
+                    <Show when={event.resource}>
+                      <div class="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <span class="px-2 py-0.5 rounded" style={{ 
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--info-color)',
+                          border: '1px solid var(--border-color)'
+                        }}>
+                          {event.resource!.kind}
+                        </span>
+                        <span>{event.resource!.name}</span>
+                        <Show when={event.resource!.namespace}>
+                          <span>• {event.resource!.namespace}</span>
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>
