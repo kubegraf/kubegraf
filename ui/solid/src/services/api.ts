@@ -840,10 +840,10 @@ export const api = {
   // ============ Apps Marketplace ============
   getApps: () => fetchAPI<any[]>('/apps'),
   getAppDetails: (name: string) => fetchAPI<any>(`/apps/${name}`),
-  installApp: (name: string, namespace: string, values?: Record<string, any>) =>
+  installApp: (name: string, namespace: string, values?: Record<string, any>, clusterName?: string) =>
     fetchAPI<any>('/apps/install', {
       method: 'POST',
-      body: JSON.stringify({ name, namespace, values }),
+      body: JSON.stringify({ name, namespace, values, clusterName }),
     }),
   uninstallApp: (name: string, namespace: string) =>
     fetchAPI<any>('/apps/uninstall', {

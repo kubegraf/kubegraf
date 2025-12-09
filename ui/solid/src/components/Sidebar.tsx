@@ -166,7 +166,7 @@ const SidebarUpdateButton: Component = () => {
 const Sidebar: Component = () => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [version, setVersion] = createSignal<string>('');
-  const [bottomSectionCollapsed, setBottomSectionCollapsed] = createSignal(false);
+  const [bottomSectionCollapsed, setBottomSectionCollapsed] = createSignal(true);
 
   // Fetch version function
   const fetchVersion = async () => {
