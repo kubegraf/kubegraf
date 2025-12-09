@@ -353,13 +353,18 @@ func (ws *WebServer) handleCostCluster(w http.ResponseWriter, r *http.Request) {
 	}
 	ws.costCacheMu.RUnlock()
 
-	// Cache miss - calculate cost (this is slow, ~100s)
-	estimator := NewCostEstimator(ws.app)
-	// Use background context to avoid request timeout
-	ctx := context.Background()
+	// Cache miss - calculate cost (this is slow, ~100s for large clusters)
+	// Use context with timeout to prevent hanging (2 minutes should be enough)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
+	estimator := NewCostEstimator(ws.app)
 	cost, err := estimator.EstimateClusterCost(ctx)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			http.Error(w, "Cost calculation timed out. The cluster may be too large. Please try again or contact support.", http.StatusRequestTimeout)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -984,7 +989,7 @@ func (ws *WebServer) handleMLRecommendationsStats(w http.ResponseWriter, r *http
 	if ws.app.clientset == nil || !ws.app.connected {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"totalSamples":    0,
-			"minRequired":    20,
+			"minRequired":     20,
 			"progress":        0,
 			"hasEnoughData":   false,
 			"remainingNeeded": 20,
@@ -1109,9 +1114,9 @@ func (ws *WebServer) handlePersistentVolumeClaims(w http.ResponseWriter, r *http
 		}
 
 		pvcs, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).List(ws.app.ctx, opts)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
-		return
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to list PersistentVolumeClaims: %v", err), http.StatusInternalServerError)
+			return
 		}
 
 		allPVCs = append(allPVCs, pvcs.Items...)
@@ -2063,14 +2068,14 @@ var (
 
 // AutoFixRule represents an AutoFix rule configuration
 type AutoFixRule struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	Type          string                `json:"type"` // "oom", "hpa_max", "security", "drift"
-	Enabled       bool                  `json:"enabled"`
-	Description   string                `json:"description"`
-	LastTriggered *time.Time            `json:"lastTriggered,omitempty"`
-	TriggerCount  int                   `json:"triggerCount"`
-	Settings      *AutoFixRuleSettings  `json:"settings,omitempty"`
+	ID            string               `json:"id"`
+	Name          string               `json:"name"`
+	Type          string               `json:"type"` // "oom", "hpa_max", "security", "drift"
+	Enabled       bool                 `json:"enabled"`
+	Description   string               `json:"description"`
+	LastTriggered *time.Time           `json:"lastTriggered,omitempty"`
+	TriggerCount  int                  `json:"triggerCount"`
+	Settings      *AutoFixRuleSettings `json:"settings,omitempty"`
 }
 
 // AutoFixRuleSettings contains configurable settings for each rule type
@@ -2102,7 +2107,7 @@ func initAutoFixRules() {
 
 	// Default settings
 	defaultHPAReplicas := int32(2)
-	defaultOOMMemory := int32(500) // 500 MiB
+	defaultOOMMemory := int32(500)      // 500 MiB
 	defaultMaxReplicasLimit := int32(0) // 0 = no limit
 
 	rules := []*AutoFixRule{
@@ -2206,8 +2211,8 @@ func (ws *WebServer) handleAutoFixRuleToggle(w http.ResponseWriter, r *http.Requ
 	}
 
 	var request struct {
-		RuleID  string                `json:"ruleId"`
-		Enabled bool                  `json:"enabled"`
+		RuleID   string               `json:"ruleId"`
+		Enabled  bool                 `json:"enabled"`
 		Settings *AutoFixRuleSettings `json:"settings,omitempty"`
 	}
 
@@ -2224,7 +2229,7 @@ func (ws *WebServer) handleAutoFixRuleToggle(w http.ResponseWriter, r *http.Requ
 
 	rule := value.(*AutoFixRule)
 	rule.Enabled = request.Enabled
-	
+
 	// Update settings if provided
 	if request.Settings != nil {
 		if rule.Settings == nil {
@@ -2240,7 +2245,7 @@ func (ws *WebServer) handleAutoFixRuleToggle(w http.ResponseWriter, r *http.Requ
 			rule.Settings.MaxReplicasLimit = request.Settings.MaxReplicasLimit
 		}
 	}
-	
+
 	autofixRules.Store(request.RuleID, rule)
 
 	w.Header().Set("Content-Type", "application/json")

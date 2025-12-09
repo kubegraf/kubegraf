@@ -38,7 +38,7 @@ export const CLOUD_PROVIDER_LOGOS: Record<string, CloudProviderLogoConfig> = {
   },
   azure: {
     name: 'Microsoft Azure',
-    logoUrl: 'https://docs.microsoft.com/media/logos/logo-azure.svg',
+    logoUrl: '', // Use SVG fallback to avoid CORS issues
     altText: 'Microsoft Azure',
     svgContent: `<svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
       <path d="M33.337 6.11L2.305 81.954h21.792L57.67 6.11H33.337z" fill="#0078D4"/>

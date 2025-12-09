@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/kubegraf/kubegraf/cost/pricing"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -49,178 +51,26 @@ type CloudInfo struct {
 // CostEstimator provides cost estimation for Kubernetes resources
 type CostEstimator struct {
 	app       *App
-	pricing   *PricingTable
+	pricing   *pricing.PricingTable
 	currency  string
 	cloudInfo *CloudInfo
 }
 
-// PricingTable contains hourly pricing for different resource types
-type PricingTable struct {
-	// Cloud provider name
-	Provider string
-	// Region
-	Region string
-	// CPU cost per core per hour
-	CPUPerCoreHour float64
-	// Memory cost per GB per hour
-	MemoryPerGBHour float64
-	// Storage cost per GB per month
-	StoragePerGBMonth float64
-	// Network egress cost per GB
-	NetworkEgressPerGB float64
-	// Spot/Preemptible discount factor (0.7 = 70% discount)
-	SpotDiscount float64
-	// Instance type pricing (optional, for more accurate estimates)
-	InstancePricing map[string]float64
-	// Spot instance pricing
-	SpotPricing map[string]float64
+// Legacy pricing functions - now delegate to pricing package
+func GCPPricingTable(region string) *pricing.PricingTable {
+	return pricing.GCPPricingTable(region)
 }
 
-// GCPPricingTable returns GCP pricing (europe-north1 region - Finland)
-func GCPPricingTable(region string) *PricingTable {
-	// GCP europe-north1 pricing (as of 2024)
-	// Reference: https://cloud.google.com/compute/vm-instance-pricing
-	return &PricingTable{
-		Provider:           "GCP",
-		Region:             region,
-		CPUPerCoreHour:     0.02399, // E2 predefined vCPU
-		MemoryPerGBHour:    0.00322, // E2 predefined memory
-		StoragePerGBMonth:  0.088,   // pd-balanced
-		NetworkEgressPerGB: 0.12,    // Internet egress (Europe)
-		SpotDiscount:       0.70,    // ~70% discount for spot/preemptible
-		InstancePricing: map[string]float64{
-			// E2 series (europe-north1) - on-demand
-			"e2-micro":       0.00838,
-			"e2-small":       0.01675,
-			"e2-medium":      0.03351,
-			"e2-standard-2":  0.06701,
-			"e2-standard-4":  0.13403,
-			"e2-standard-8":  0.26805,
-			"e2-standard-16": 0.53611,
-			"e2-highmem-2":   0.09044,
-			"e2-highmem-4":   0.18088,
-			"e2-highcpu-2":   0.04953,
-			"e2-highcpu-4":   0.09907,
-			// T2D series (AMD EPYC)
-			"t2d-standard-1":  0.04234,
-			"t2d-standard-2":  0.08467,
-			"t2d-standard-4":  0.16935,
-			"t2d-standard-8":  0.33869,
-			"t2d-standard-16": 0.67739,
-			// N2 series
-			"n2-standard-2": 0.09712,
-			"n2-standard-4": 0.19425,
-			"n2-standard-8": 0.38849,
-			"n2-highmem-2":  0.13112,
-			"n2-highcpu-2":  0.07182,
-			// N1 series (legacy)
-			"n1-standard-1": 0.04749,
-			"n1-standard-2": 0.09499,
-			"n1-standard-4": 0.18997,
-		},
-		SpotPricing: map[string]float64{
-			// Spot/Preemptible pricing (~60-80% discount)
-			"e2-standard-2":  0.02010, // ~70% off
-			"e2-standard-4":  0.04021,
-			"t2d-standard-1": 0.01270, // ~70% off
-			"t2d-standard-2": 0.02540,
-			"t2d-standard-4": 0.05081,
-			"n2-standard-2":  0.02914,
-			"n2-standard-4":  0.05827,
-		},
-	}
+func AWSPricingTable(region string) *pricing.PricingTable {
+	return pricing.AWSPricingTable(region)
 }
 
-// AWSPricingTable returns AWS pricing
-func AWSPricingTable(region string) *PricingTable {
-	// AWS pricing varies by region, using us-east-1 as baseline
-	return &PricingTable{
-		Provider:           "AWS",
-		Region:             region,
-		CPUPerCoreHour:     0.0336,
-		MemoryPerGBHour:    0.0045,
-		StoragePerGBMonth:  0.10, // gp3
-		NetworkEgressPerGB: 0.09,
-		SpotDiscount:       0.70,
-		InstancePricing: map[string]float64{
-			"t3.micro":   0.0104,
-			"t3.small":   0.0208,
-			"t3.medium":  0.0416,
-			"t3.large":   0.0832,
-			"t3.xlarge":  0.1664,
-			"t3.2xlarge": 0.3328,
-			"m5.large":   0.096,
-			"m5.xlarge":  0.192,
-			"m5.2xlarge": 0.384,
-			"m5.4xlarge": 0.768,
-			"m6i.large":  0.096,
-			"m6i.xlarge": 0.192,
-			"c5.large":   0.085,
-			"c5.xlarge":  0.17,
-			"c5.2xlarge": 0.34,
-			"c6i.large":  0.085,
-			"c6i.xlarge": 0.17,
-			"r5.large":   0.126,
-			"r5.xlarge":  0.252,
-			"r5.2xlarge": 0.504,
-		},
-		SpotPricing: map[string]float64{
-			"t3.medium": 0.0125,
-			"t3.large":  0.025,
-			"m5.large":  0.029,
-			"m5.xlarge": 0.058,
-			"c5.large":  0.026,
-			"c5.xlarge": 0.051,
-		},
-	}
+func AzurePricingTable(region string) *pricing.PricingTable {
+	return pricing.AzurePricingTable(region)
 }
 
-// AzurePricingTable returns Azure pricing
-func AzurePricingTable(region string) *PricingTable {
-	return &PricingTable{
-		Provider:           "Azure",
-		Region:             region,
-		CPUPerCoreHour:     0.0340,
-		MemoryPerGBHour:    0.0046,
-		StoragePerGBMonth:  0.12, // Premium SSD
-		NetworkEgressPerGB: 0.087,
-		SpotDiscount:       0.70,
-		InstancePricing: map[string]float64{
-			"Standard_B1s":    0.0104,
-			"Standard_B2s":    0.0416,
-			"Standard_B2ms":   0.0832,
-			"Standard_D2s_v3": 0.096,
-			"Standard_D4s_v3": 0.192,
-			"Standard_D8s_v3": 0.384,
-			"Standard_D2s_v5": 0.096,
-			"Standard_D4s_v5": 0.192,
-			"Standard_E2s_v3": 0.126,
-			"Standard_E4s_v3": 0.252,
-			"Standard_F2s_v2": 0.085,
-			"Standard_F4s_v2": 0.169,
-		},
-		SpotPricing: map[string]float64{
-			"Standard_D2s_v3": 0.029,
-			"Standard_D4s_v3": 0.058,
-			"Standard_D2s_v5": 0.029,
-			"Standard_D4s_v5": 0.058,
-		},
-	}
-}
-
-// DefaultPricingTable returns generic cloud pricing
-func DefaultPricingTable() *PricingTable {
-	return &PricingTable{
-		Provider:           "Generic",
-		Region:             "unknown",
-		CPUPerCoreHour:     0.0336,
-		MemoryPerGBHour:    0.0045,
-		StoragePerGBMonth:  0.10,
-		NetworkEgressPerGB: 0.09,
-		SpotDiscount:       0.70,
-		InstancePricing:    make(map[string]float64),
-		SpotPricing:        make(map[string]float64),
-	}
+func DefaultPricingTable() *pricing.PricingTable {
+	return pricing.DefaultPricingTable()
 }
 
 // ResourceCost represents the estimated cost for a resource
@@ -264,6 +114,8 @@ type ClusterCost struct {
 	Cloud *CloudInfo `json:"cloud,omitempty"`
 	// Pricing information
 	Pricing *PricingInfo `json:"pricing,omitempty"`
+	// Cost optimization recommendations
+	Recommendations []CostRecommendation `json:"recommendations,omitempty"`
 }
 
 // PricingInfo contains the pricing rates being used
@@ -720,7 +572,7 @@ func (c *CostEstimator) detectFromContextAndServer() *CloudInfo {
 func NewCostEstimator(app *App) *CostEstimator {
 	return &CostEstimator{
 		app:      app,
-		pricing:  DefaultPricingTable(),
+		pricing:  pricing.DefaultPricingTable(),
 		currency: "USD",
 	}
 }
@@ -738,25 +590,17 @@ func NewCostEstimatorWithDetection(ctx context.Context, app *App) *CostEstimator
 	if err == nil && cloudInfo != nil {
 		c.cloudInfo = cloudInfo
 
-		// Set appropriate pricing table based on detected cloud
-		switch cloudInfo.Provider {
-		case CloudGCP:
-			c.pricing = GCPPricingTable(cloudInfo.Region)
-		case CloudAWS:
-			c.pricing = AWSPricingTable(cloudInfo.Region)
-		case CloudAzure:
-			c.pricing = AzurePricingTable(cloudInfo.Region)
-		default:
-			c.pricing = DefaultPricingTable()
-		}
+		// Set appropriate pricing table based on detected cloud using new pricing package
+		providerName := string(cloudInfo.Provider)
+		c.pricing = pricing.GetPricingTable(providerName, cloudInfo.Region)
 	}
 
 	return c
 }
 
 // SetPricing allows custom pricing to be set
-func (c *CostEstimator) SetPricing(pricing *PricingTable) {
-	c.pricing = pricing
+func (c *CostEstimator) SetPricing(p *pricing.PricingTable) {
+	c.pricing = p
 }
 
 // EstimatePodCost calculates the estimated cost of a pod
@@ -867,15 +711,9 @@ func (c *CostEstimator) EstimateClusterCost(ctx context.Context) (*ClusterCost, 
 		cloudInfo, err := c.DetectCloudProvider(ctx)
 		if err == nil && cloudInfo != nil {
 			c.cloudInfo = cloudInfo
-			// Update pricing based on detected cloud
-			switch cloudInfo.Provider {
-			case CloudGCP:
-				c.pricing = GCPPricingTable(cloudInfo.Region)
-			case CloudAWS:
-				c.pricing = AWSPricingTable(cloudInfo.Region)
-			case CloudAzure:
-				c.pricing = AzurePricingTable(cloudInfo.Region)
-			}
+			// Update pricing based on detected cloud using new pricing package
+			providerName := string(cloudInfo.Provider)
+			c.pricing = pricing.GetPricingTable(providerName, cloudInfo.Region)
 		}
 	}
 
@@ -933,6 +771,10 @@ func (c *CostEstimator) EstimateClusterCost(ctx context.Context) (*ClusterCost, 
 		}
 	}
 
+	// Add control plane cost (for managed Kubernetes services)
+	controlPlaneCost := c.pricing.ControlPlaneCostPerHour
+	clusterCost.HourlyCost += controlPlaneCost
+
 	clusterCost.DailyCost = clusterCost.HourlyCost * 24
 	clusterCost.MonthlyCost = clusterCost.HourlyCost * 730
 
@@ -946,6 +788,15 @@ func (c *CostEstimator) EstimateClusterCost(ctx context.Context) (*ClusterCost, 
 		SpotNodesCount:     spotNodes,
 		OnDemandNodesCount: onDemandNodes,
 	}
+
+	// Get cost optimization recommendations (with timeout to avoid blocking)
+	recCtx, recCancel := context.WithTimeout(ctx, 30*time.Second)
+	recommendations, err := c.GetCostRecommendations(recCtx)
+	recCancel()
+	if err == nil {
+		clusterCost.Recommendations = recommendations
+	}
+	// Don't fail the entire request if recommendations fail
 
 	// Get all pods in a single call (OPTIMIZED - no per-namespace calls)
 	allPods, err := c.app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
