@@ -48,8 +48,8 @@ const BrainPanel: Component = () => {
           class="fixed inset-0 transition-opacity"
           onClick={() => !brainPanelPinned() && toggleBrainPanel()}
           style={{ 
-            background: 'rgba(0, 0, 0, 0.5)',
-            opacity: brainPanelOpen() ? 1 : 0,
+            background: 'var(--bg-primary)',
+            opacity: brainPanelOpen() ? 0.7 : 0,
             pointerEvents: brainPanelOpen() ? 'auto' : 'none'
           }}
         />
@@ -61,6 +61,7 @@ const BrainPanel: Component = () => {
             transform: brainPanelOpen() ? 'translateX(0)' : 'translateX(100%)',
             borderLeft: '1px solid var(--border-color)',
             background: 'var(--bg-card)',
+            color: 'var(--text-primary)',
           }}
         >
           {/* Header */}
