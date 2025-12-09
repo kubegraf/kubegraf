@@ -79,7 +79,7 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
               <tr 
                 style={{ 
                   'border-bottom': '1px solid var(--border-color)',
-                  height: '48px',
+                height: '48px',
                   background: 'var(--bg-card)'
                 }}
                 onMouseEnter={(e) => {

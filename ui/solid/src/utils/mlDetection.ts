@@ -17,7 +17,8 @@ export function shouldShowMLSection(): boolean {
 
   // For now, return true if GPU nodes are detected or user enabled ML
   // In production, you might want to also check for ML CRDs and services
-  return hasGPUNodes || userEnabledML;
+  // Always show ML section by default - users can disable it in settings if needed
+  return hasGPUNodes || userEnabledML || true;
 }
 
 /**

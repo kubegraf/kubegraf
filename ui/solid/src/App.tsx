@@ -37,6 +37,7 @@ import TrainingJobs from './routes/TrainingJobs';
 import InferenceServices from './routes/InferenceServices';
 import Feast from './routes/Feast';
 import GPUDashboard from './routes/GPUDashboard';
+import MLWorkflows from './routes/MLWorkflows';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Incidents from './routes/Incidents';
@@ -58,23 +59,8 @@ import UIDemo from './components/UIDemo';
 const Marketplace: Component = () => <Apps />;
 const CustomApps: Component = () => <Apps />;
 
-// Placeholder components for new features
-const DeployApp: Component = () => (
-  <Placeholder
-    title="Deploy App"
-    description="Deploy applications to your Kubernetes cluster with ease. Choose from templates, Helm charts, or custom YAML configurations."
-    icon="M12 6v6m0 0v6m0-6h6m-6 0H6"
-    comingSoon={true}
-    features={[
-      'Deploy from Helm charts',
-      'Deploy from YAML manifests',
-      'Application templates library',
-      'One-click deployment',
-      'Deployment validation',
-      'Rollback capabilities'
-    ]}
-  />
-);
+// DeployApp shows the Apps/Marketplace component
+const DeployApp: Component = () => <Apps />;
 
 const Releases: Component = () => (
   <Placeholder
@@ -181,6 +167,7 @@ const views: Record<string, Component> = {
   // ML (conditional)
   trainingjobs: TrainingJobs,
   inferenceservices: InferenceServices,
+  mlworkflows: MLWorkflows,
   mlflow: MLflow,
   feast: Feast,
   gpudashboard: GPUDashboard,
