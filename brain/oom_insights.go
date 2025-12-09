@@ -1,7 +1,7 @@
 // Copyright 2025 KubeGraf Contributors
 // Brain OOM Insights data generation utilities
 
-package main
+package brain
 
 import (
 	"context"
@@ -9,35 +9,38 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
-// OOMMetrics contains OOM and reliability insights
-type OOMMetrics struct {
-	Incidents24h   int                  `json:"incidents24h"`
-	CrashLoops24h  int                  `json:"crashLoops24h"`
-	TopProblematic []ProblematicWorkload `json:"topProblematic"`
+// OOMInsightsGenerator generates OOM insights from cluster data
+type OOMInsightsGenerator struct {
+	clientset       kubernetes.Interface
+	incidentScanner IncidentScanner
 }
 
-// ProblematicWorkload represents a workload with issues
-type ProblematicWorkload struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Kind      string `json:"kind"`
-	Issues    struct {
-		OOMKilled  int `json:"oomKilled"`
-		Restarts   int `json:"restarts"`
-		CrashLoops int `json:"crashLoops"`
-	} `json:"issues"`
-	Score int `json:"score"`
+// NewOOMInsightsGenerator creates a new OOM insights generator
+func NewOOMInsightsGenerator(clientset kubernetes.Interface, incidentScanner IncidentScanner) *OOMInsightsGenerator {
+	return &OOMInsightsGenerator{
+		clientset:       clientset,
+		incidentScanner: incidentScanner,
+	}
 }
 
-// GenerateBrainOOMInsights generates OOM insights from real cluster data
-func GenerateBrainOOMInsights(ctx context.Context, app *App) (*OOMMetrics, error) {
+// Generate generates OOM insights from real cluster data
+func (g *OOMInsightsGenerator) Generate(ctx context.Context) (*OOMMetrics, error) {
+	// Validate clientset
+	if err := ValidateClientset(g.clientset); err != nil {
+		return &OOMMetrics{
+			Incidents24h:   0,
+			CrashLoops24h:  0,
+			TopProblematic: []ProblematicWorkload{},
+		}, nil // Return empty metrics instead of error
+	}
+
 	cutoffTime := time.Now().Add(-24 * time.Hour)
 
 	// Get incidents from scanner
-	scanner := NewIncidentScanner(app)
-	incidents := scanner.ScanAllIncidents("")
+	incidents := g.incidentScanner.ScanAllIncidents("")
 
 	// Filter incidents from last 24h
 	var recentIncidents []KubernetesIncident
@@ -81,8 +84,8 @@ func GenerateBrainOOMInsights(ctx context.Context, app *App) (*OOMMetrics, error
 		workload.Issues.Restarts += inc.Count
 	}
 
-	// Also check pods directly for restarts
-	pods, err := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	// Also check pods directly for restarts (only if clientset is available)
+	pods, err := g.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, pod := range pods.Items {
 			for _, containerStatus := range pod.Status.ContainerStatuses {
@@ -126,4 +129,3 @@ func GenerateBrainOOMInsights(ctx context.Context, app *App) (*OOMMetrics, error
 		TopProblematic: topProblematic,
 	}, nil
 }
-
