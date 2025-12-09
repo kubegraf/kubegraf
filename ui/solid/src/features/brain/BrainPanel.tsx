@@ -1,8 +1,8 @@
-import { Component, Show, createResource } from 'solid-js';
+import { Component, Show, createResource, createMemo } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
 import { fetchBrainDataInParallel } from '../../services/brainService';
 import { settings } from '../../stores/settings';
-import { getTheme } from '../../stores/theme';
+import { getTheme, currentTheme } from '../../stores/theme';
 import ClusterTimeline from './ClusterTimeline';
 import OOMInsights from './OOMInsights';
 import Suggestions from './Suggestions';
@@ -12,6 +12,8 @@ import MLSummary from './MLSummary';
 import { BrainData } from '../../services/brainService';
 
 const BrainPanel: Component = () => {
+  // Make theme reactive
+  const theme = createMemo(() => getTheme());
   // Fetch all Brain data in parallel using a single resource
   const [brainData] = createResource<BrainData>(
     () => brainPanelOpen(),
@@ -61,8 +63,8 @@ const BrainPanel: Component = () => {
           style={{
             transform: brainPanelOpen() ? 'translateX(0)' : 'translateX(100%)',
             borderLeft: '1px solid var(--border-color)',
-            background: getTheme().colors.bgCard,
-            color: getTheme().colors.textPrimary,
+            background: theme().colors.bgCard,
+            color: theme().colors.textPrimary,
           }}
         >
           {/* Header */}
