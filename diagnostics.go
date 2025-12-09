@@ -137,9 +137,9 @@ func (e *DiagnosticsEngine) RunByCategory(ctx context.Context, category string) 
 	// Pre-fetch pods cache to share across all checks
 	_, _ = e.getPodsCache(ctx)
 
-	// Create a context with timeout (30 seconds max per rule) and pass engine reference
+	// Create a context with timeout (10 seconds max per rule for faster response) and pass engine reference
 	ruleCtx := context.WithValue(ctx, diagnosticsEngineKey, e)
-	ruleCtx, cancel := context.WithTimeout(ruleCtx, 30*time.Second)
+	ruleCtx, cancel := context.WithTimeout(ruleCtx, 10*time.Second)
 	defer cancel()
 
 	// Run rules for this category in parallel (limit to 20 concurrent goroutines)
