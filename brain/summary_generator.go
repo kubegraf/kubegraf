@@ -1,7 +1,7 @@
 // Copyright 2025 KubeGraf Contributors
 // Brain Summary data generation utilities
 
-package main
+package brain
 
 import (
 	"context"
@@ -10,23 +10,29 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
-// BrainSummary contains intelligent summary of cluster health
-type BrainSummary struct {
-	Last24hSummary    string   `json:"last24hSummary"`
-	TopRiskAreas     []string `json:"topRiskAreas"`
-	RecommendedActions []string `json:"recommendedActions"`
-	GeneratedAt      string   `json:"generatedAt"`
+// SummaryGenerator generates intelligent summary from cluster data
+type SummaryGenerator struct {
+	clientset       kubernetes.Interface
+	incidentScanner IncidentScanner
 }
 
-// GenerateBrainSummary generates intelligent summary from real cluster data
-func GenerateBrainSummary(ctx context.Context, app *App) (*BrainSummary, error) {
+// NewSummaryGenerator creates a new summary generator
+func NewSummaryGenerator(clientset kubernetes.Interface, incidentScanner IncidentScanner) *SummaryGenerator {
+	return &SummaryGenerator{
+		clientset:       clientset,
+		incidentScanner: incidentScanner,
+	}
+}
+
+// Generate generates intelligent summary from real cluster data
+func (g *SummaryGenerator) Generate(ctx context.Context) (*BrainSummary, error) {
 	cutoffTime := time.Now().Add(-24 * time.Hour)
 
-	// Get incidents from scanner
-	scanner := NewIncidentScanner(app)
-	incidents := scanner.ScanAllIncidents("")
+	// Get incidents from scanner (works even without clientset)
+	incidents := g.incidentScanner.ScanAllIncidents("")
 
 	// Filter incidents from last 24h
 	var recentIncidents []KubernetesIncident
@@ -61,21 +67,26 @@ func GenerateBrainSummary(ctx context.Context, app *App) (*BrainSummary, error) 
 		}
 	}
 
-	// Get pod metrics
-	pods, _ := app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
-	totalPods := len(pods.Items)
+	// Get pod metrics (only if clientset is available)
+	totalPods := 0
 	runningPods := 0
 	pendingPods := 0
 	failedPods := 0
 
-	for _, pod := range pods.Items {
-		switch pod.Status.Phase {
-		case corev1.PodRunning:
-			runningPods++
-		case corev1.PodPending:
-			pendingPods++
-		case corev1.PodFailed:
-			failedPods++
+	if err := ValidateClientset(g.clientset); err == nil {
+		pods, err := g.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+		if err == nil {
+			totalPods = len(pods.Items)
+			for _, pod := range pods.Items {
+				switch pod.Status.Phase {
+				case corev1.PodRunning:
+					runningPods++
+				case corev1.PodPending:
+					pendingPods++
+				case corev1.PodFailed:
+					failedPods++
+				}
+			}
 		}
 	}
 
@@ -85,7 +96,7 @@ func GenerateBrainSummary(ctx context.Context, app *App) (*BrainSummary, error) 
 		summary += fmt.Sprintf("%d critical and ", criticalCount)
 	}
 	summary += fmt.Sprintf("%d warning-level issues. ", warningCount)
-	
+
 	if oomCount > 0 {
 		summary += fmt.Sprintf("%d OOMKilled events occurred. ", oomCount)
 	}
@@ -97,8 +108,12 @@ func GenerateBrainSummary(ctx context.Context, app *App) (*BrainSummary, error) 
 	}
 
 	// Cluster health summary
-	summary += fmt.Sprintf("Cluster status: %d total pods (%d running, %d pending, %d failed).", 
-		totalPods, runningPods, pendingPods, failedPods)
+	if totalPods > 0 {
+		summary += fmt.Sprintf("Cluster status: %d total pods (%d running, %d pending, %d failed).",
+			totalPods, runningPods, pendingPods, failedPods)
+	} else {
+		summary += "Cluster connection unavailable for pod metrics."
+	}
 
 	// Top risk areas
 	riskAreas := []string{}
@@ -149,10 +164,10 @@ func GenerateBrainSummary(ctx context.Context, app *App) (*BrainSummary, error) 
 	}
 
 	return &BrainSummary{
-		Last24hSummary:    summary,
-		TopRiskAreas:     riskAreas[:min(3, len(riskAreas))],
+		Last24hSummary:     summary,
+		TopRiskAreas:       riskAreas[:min(3, len(riskAreas))],
 		RecommendedActions: actions[:min(5, len(actions))],
-		GeneratedAt:      time.Now().Format(time.RFC3339),
+		GeneratedAt:        time.Now().Format(time.RFC3339),
 	}, nil
 }
 
@@ -162,4 +177,3 @@ func min(a, b int) int {
 	}
 	return b
 }
-
