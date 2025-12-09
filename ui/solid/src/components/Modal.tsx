@@ -5,7 +5,7 @@ interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
   children: JSX.Element;
 }
 
@@ -35,6 +35,7 @@ const Modal: Component<ModalProps> = (props) => {
   });
 
   const sizeClasses = {
+    xs: 'max-w-[420px]',
     sm: 'max-w-md',
     md: 'max-w-lg',
     lg: 'max-w-2xl',
@@ -68,23 +69,25 @@ const Modal: Component<ModalProps> = (props) => {
             style={{
               margin: 'auto',
               position: 'relative',
+              width: props.size === 'xs' ? '420px' : undefined,
+              'max-width': props.size === 'xs' ? '420px !important' : undefined,
             }}
           >
             {/* Header */}
-            <div class="flex items-center justify-between p-4 border-b" style={{ 'border-color': 'var(--border-color)' }}>
-              <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{props.title}</h2>
+            <div class={`flex items-center justify-between border-b ${props.size === 'xs' ? 'p-3' : 'p-4'}`} style={{ 'border-color': 'var(--border-color)' }}>
+              <h2 class={`font-semibold ${props.size === 'xs' ? 'text-base' : 'text-lg'}`} style={{ color: 'var(--text-primary)' }}>{props.title}</h2>
               <button
                 onClick={props.onClose}
                 class="p-1 rounded-lg transition-colors hover:bg-[var(--bg-tertiary)]"
                 style={{ color: 'var(--text-secondary)' }}
               >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class={`${props.size === 'xs' ? 'w-5 h-5' : 'w-5 h-5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
             {/* Body */}
-            <div class={`p-4 overflow-auto ${props.size === 'full' ? 'max-h-[85vh]' : 'max-h-[70vh]'}`}>
+            <div class={`overflow-auto ${props.size === 'xs' ? 'p-3' : 'p-4'} ${props.size === 'full' ? 'max-h-[85vh]' : 'max-h-[70vh]'}`}>
               {props.children}
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -18,6 +18,9 @@ import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { LoadingSpinner } from '../components/Loading';
+import ServicePortForwardModal, { ServicePort } from '../components/ServicePortForwardModal';
+import ServicePortsList from '../components/ServicePortsList';
+import ServiceDetailsPanel from '../components/ServiceDetailsPanel';
 
 interface Service {
   name: string;
@@ -54,11 +57,9 @@ const Services: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [showPortForward, setShowPortForward] = createSignal(false);
-  const [localPort, setLocalPort] = createSignal(() => {
-    // Generate random port between 8000-9000
-    return Math.floor(Math.random() * 1000) + 8000;
-  });
-  const [remotePort, setRemotePort] = createSignal(80);
+  const [showDetails, setShowDetails] = createSignal(false);
+  const [selectedPort, setSelectedPort] = createSignal<ServicePort | null>(null);
+  const [activeTab, setActiveTab] = createSignal<'services' | 'portforward'>('services');
 
   // Font size selector with localStorage persistence
   const getInitialFontSize = (): number => {
@@ -245,14 +246,57 @@ const Services: Component = () => {
     </span>
   );
 
-  const startPortForward = async () => {
+  const [servicePorts, setServicePorts] = createSignal<ServicePort[]>([]);
+  const [serviceDetails] = createResource(
+    () => showPortForward() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    async (params) => {
+      if (!params) return null;
+      return await api.getServiceDetails(params.name, params.ns);
+    }
+  );
+
+  // Parse service ports when details are loaded
+  createEffect(() => {
+    const details = serviceDetails();
+    if (details && details.portsDetails) {
+      const ports: ServicePort[] = details.portsDetails.map((p: any) => ({
+        name: p.name || '',
+        port: p.port,
+        targetPort: p.targetPort || p.port,
+        protocol: p.protocol || 'TCP',
+        nodePort: p.nodePort || undefined,
+      }));
+      setServicePorts(ports);
+    }
+  });
+
+  const openPortForward = (svc: Service) => {
+    setSelected(svc);
+    setShowPortForward(true);
+  };
+
+  const handlePortForward = (port: ServicePort) => {
+    setSelectedPort(port);
+    setShowPortForward(true);
+  };
+
+  const startPortForward = async (localPort: number, remotePort: number, openInBrowser: boolean) => {
     const svc = selected();
     if (!svc) return;
+    
     try {
-      await api.startPortForward('service', svc.name, svc.namespace, localPort(), remotePort());
-      addNotification(`✅ Port forward started: localhost:${localPort()} → ${svc.name}:${remotePort()}`, 'success');
+      await api.startPortForward('service', svc.name, svc.namespace, localPort, remotePort);
+      addNotification(`✅ Port forward started: localhost:${localPort} → ${svc.name}:${remotePort}`, 'success');
       setShowPortForward(false);
+      setSelectedPort(null);
       refetchPF();
+      
+      // Open in browser if requested
+      if (openInBrowser) {
+        setTimeout(() => {
+          window.open(`http://localhost:${localPort}`, '_blank');
+        }, 500); // Small delay to ensure port forward is ready
+      }
     } catch (error) {
       console.error('Failed to start port forward:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -270,21 +314,6 @@ const Services: Component = () => {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       addNotification(`❌ Failed to stop port forward: ${errorMsg}`, 'error');
     }
-  };
-
-  const openPortForward = (svc: Service) => {
-    setSelected(svc);
-    // Generate new random local port each time
-    setLocalPort(Math.floor(Math.random() * 1000) + 8000);
-    // Safely parse port from ports string
-    const portsStr = svc.ports;
-    if (typeof portsStr === 'string' && portsStr.trim() !== '' && portsStr !== '-') {
-      const portMatch = portsStr.match(/(\d+)/);
-      if (portMatch) {
-        setRemotePort(parseInt(portMatch[1]));
-      }
-    }
-    setShowPortForward(true);
   };
 
   const deleteService = async (svc: Service) => {
@@ -306,6 +335,43 @@ const Services: Component = () => {
         <div>
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Services</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Network services and load balancers</p>
+        </div>
+        
+        {/* Tabs */}
+        <div class="flex gap-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
+          <button
+            onClick={() => setActiveTab('services')}
+            class={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab() === 'services' 
+                ? 'border-b-2' 
+                : 'opacity-60 hover:opacity-100'
+            }`}
+            style={{
+              color: activeTab() === 'services' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              'border-color': activeTab() === 'services' ? 'var(--accent-primary)' : 'transparent',
+            }}
+          >
+            Services
+          </button>
+          <button
+            onClick={() => setActiveTab('portforward')}
+            class={`px-4 py-2 text-sm font-medium transition-colors relative ${
+              activeTab() === 'portforward' 
+                ? 'border-b-2' 
+                : 'opacity-60 hover:opacity-100'
+            }`}
+            style={{
+              color: activeTab() === 'portforward' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              'border-color': activeTab() === 'portforward' ? 'var(--accent-primary)' : 'transparent',
+            }}
+          >
+            Port Forward
+            {(portForwards() || []).length > 0 && (
+              <span class="ml-2 px-1.5 py-0.5 rounded-full text-xs" style={{ background: 'var(--accent-primary)', color: 'white' }}>
+                {(portForwards() || []).length}
+              </span>
+            )}
+          </button>
         </div>
         <div class="flex items-center gap-3">
           <button
@@ -426,37 +492,8 @@ const Services: Component = () => {
         </select>
       </div>
 
-      {/* Active Port Forwards */}
-      <Show when={(portForwards() || []).length > 0}>
-        <div class="card p-4">
-          <h3 class="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            Active Port Forwards
-          </h3>
-          <div class="flex flex-wrap gap-2">
-            <For each={portForwards() || []}>
-              {(pf: PortForward) => (
-                <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                  <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span style={{ color: 'var(--text-primary)' }}>{pf.name}</span>
-                  <span style={{ color: 'var(--text-muted)' }}>localhost:{pf.localPort} → {pf.remotePort}</span>
-                  <a href={`http://localhost:${pf.localPort}`} target="_blank" class="text-xs px-2 py-1 rounded" style={{ background: 'var(--accent-primary)', color: 'white' }}>
-                    Open
-                  </a>
-                  <button onClick={() => stopPortForward(pf)} class="text-red-400 hover:text-red-300">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
+      {/* Content based on active tab */}
+      <Show when={activeTab() === 'services'}>
       {/* Services table */}
       <div class="w-full" style={{ background: getThemeBackground(), margin: '0', padding: '0', border: `1px solid ${getThemeBorderColor()}`, 'border-radius': '4px' }}>
         <Show
@@ -519,14 +556,16 @@ const Services: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(svc); setShowDescribe(true); }}
+                          onClick={() => { setSelected(svc); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
                           {svc.name.length > 40 ? svc.name.slice(0, 37) + '...' : svc.name}
                         </button>
                       </td>
-                      <td style={{
+                      <td 
+                        onClick={() => { setSelected(svc); setShowDetails(true); }}
+                        style={{
                         padding: '0 8px',
                         'text-align': 'left',
                         color: textColor,
@@ -534,7 +573,8 @@ const Services: Component = () => {
                         'font-size': `${fontSize()}px`,
                         height: `${Math.max(24, fontSize() * 1.7)}px`,
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
-                        border: 'none'
+                        border: 'none',
+                        cursor: 'pointer'
                       }}>{svc.namespace}</td>
                       <td style={{
                         padding: '0 8px',
@@ -599,6 +639,7 @@ const Services: Component = () => {
                       }}>
                         <ActionMenu
                           actions={[
+                            { label: 'Describe', icon: 'info', onClick: () => { setSelected(svc); setShowDescribe(true); } },
                             { label: 'Port Forward', icon: 'portforward', onClick: () => openPortForward(svc) },
                             { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(svc); setShowYaml(true); } },
                             { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(svc); setShowEdit(true); } },
@@ -672,6 +713,7 @@ const Services: Component = () => {
           </Show>
         </Show>
       </div>
+      </Show>
 
       {/* YAML Modal */}
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
@@ -697,42 +739,105 @@ const Services: Component = () => {
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="service" name={selected()?.name || ''} namespace={selected()?.namespace} />
 
-      {/* Port Forward Modal */}
-      <Modal isOpen={showPortForward()} onClose={() => setShowPortForward(false)} title={`Port Forward: ${selected()?.name}`} size="sm">
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Local Port</label>
-            <input
-              type="number"
-              min="1024"
-              max="65535"
-              value={localPort()}
-              onInput={(e) => setLocalPort(parseInt(e.currentTarget.value) || 8080)}
-              class="w-full px-4 py-2 rounded-lg"
-              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-            />
+      {/* Service Details Panel */}
+      <ServiceDetailsPanel
+        isOpen={showDetails()}
+        onClose={() => setShowDetails(false)}
+        serviceName={selected()?.name || ''}
+        serviceNamespace={selected()?.namespace || ''}
+        onPortForwardChange={() => refetchPF()}
+      />
+
+      {/* Port Forward Modal - Show ports list */}
+      <Show when={showPortForward() && servicePorts().length > 0 && !selectedPort()}>
+        <Modal isOpen={showPortForward() && !selectedPort()} onClose={() => { setShowPortForward(false); setSelectedPort(null); }} title="Ports" size="xs">
+          <ServicePortsList
+            serviceName={selected()?.name || ''}
+            ports={servicePorts()}
+            onForward={handlePortForward}
+          />
+        </Modal>
+      </Show>
+      
+      <Show when={showPortForward() && servicePorts().length === 0}>
+        <Modal isOpen={showPortForward()} onClose={() => { setShowPortForward(false); setSelectedPort(null); }} title="Ports" size="xs">
+          <div class="flex items-center justify-center p-8">
+            <LoadingSpinner size="md" />
           </div>
-          <div>
-            <label class="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Remote Port</label>
-            <input
-              type="number"
-              min="1"
-              max="65535"
-              value={remotePort()}
-              onInput={(e) => setRemotePort(parseInt(e.currentTarget.value) || 80)}
-              class="w-full px-4 py-2 rounded-lg"
-              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-            />
-          </div>
-          <div class="p-3 rounded-lg text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-            This will forward <code>localhost:{localPort()}</code> to <code>{selected()?.name}:{remotePort()}</code>
-          </div>
-          <div class="flex gap-2">
-            <button onClick={() => setShowPortForward(false)} class="btn-secondary flex-1">Cancel</button>
-            <button onClick={startPortForward} class="btn-primary flex-1">Start</button>
-          </div>
+        </Modal>
+      </Show>
+      
+      {/* Port Forward Modal - Show forwarding dialog */}
+      <ServicePortForwardModal
+        isOpen={showPortForward() && selectedPort() !== null}
+        onClose={() => { setShowPortForward(false); setSelectedPort(null); }}
+        serviceName={selected()?.name || ''}
+        serviceNamespace={selected()?.namespace || ''}
+        port={selectedPort()}
+        onStart={startPortForward}
+      />
+
+      {/* Port Forward Tab */}
+      <Show when={activeTab() === 'portforward'}>
+        <div class="card p-4">
+          <h3 class="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Active Port Forwards
+          </h3>
+          <Show 
+            when={(portForwards() || []).length > 0} 
+            fallback={
+              <div class="text-center py-8 text-sm" style={{ color: 'var(--text-muted)' }}>
+                No active port forwards
+              </div>
+            }
+          >
+            <div class="space-y-2">
+              <For each={portForwards() || []}>
+                {(pf: PortForward) => (
+                  <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+                    <div class="flex items-center gap-2 flex-1">
+                      <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <div class="flex-1">
+                        <div class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {pf.name}
+                          {pf.type === 'service' && <span class="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }}>Service</span>}
+                          {pf.type === 'pod' && <span class="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }}>Pod</span>}
+                        </div>
+                        <div class="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                          localhost:{pf.localPort} → {pf.remotePort}
+                          {pf.namespace && <span class="ml-2">({pf.namespace})</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <a 
+                        href={`http://localhost:${pf.localPort}`} 
+                        target="_blank" 
+                        class="text-xs px-2 py-1 rounded transition-colors hover:opacity-80" 
+                        style={{ background: 'var(--accent-primary)', color: 'white' }}
+                      >
+                        Open
+                      </a>
+                      <button 
+                        onClick={() => stopPortForward(pf)} 
+                        class="p-1.5 rounded transition-colors hover:bg-red-500/20 text-red-400 hover:text-red-300"
+                        title="Stop Port Forward"
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
         </div>
-      </Modal>
+      </Show>
     </div>
   );
 };

@@ -621,6 +621,13 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 			"type":  "init",
 		}
 
+		// Extract ports
+		ports := []int32{}
+		for _, port := range ic.Ports {
+			ports = append(ports, port.ContainerPort)
+		}
+		containerInfo["ports"] = ports
+
 		// Find init container status
 		for _, ics := range pod.Status.InitContainerStatuses {
 			if ics.Name == ic.Name {
@@ -656,6 +663,13 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 			"image": c.Image,
 			"type":  "main",
 		}
+
+		// Extract ports
+		ports := []int32{}
+		for _, port := range c.Ports {
+			ports = append(ports, port.ContainerPort)
+		}
+		containerInfo["ports"] = ports
 
 		// Find container status
 		for _, cs := range pod.Status.ContainerStatuses {
@@ -760,6 +774,15 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
 				})
 			}
+			
+			// Create a map of container metrics by name for easy lookup
+			containerMetricsMap := make(map[string]map[string]interface{})
+			for _, cm := range containerMetrics {
+				if name, ok := cm["name"].(string); ok {
+					containerMetricsMap[name] = cm
+				}
+			}
+			podMetrics["containerMetricsMap"] = containerMetricsMap
 
 			podMetrics = map[string]interface{}{
 				"totalCPU":         fmt.Sprintf("%dm", totalCPU),

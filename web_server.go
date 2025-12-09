@@ -44,6 +44,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
 
@@ -367,6 +368,11 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/ingress/update", ws.handleIngressUpdate)
 	http.HandleFunc("/api/ingress/describe", ws.handleIngressDescribe)
 	http.HandleFunc("/api/ingress/delete", ws.handleIngressDelete)
+	http.HandleFunc("/api/networkpolicies", ws.handleNetworkPolicies)
+	http.HandleFunc("/api/networkpolicy/details", ws.handleNetworkPolicyDetails)
+	http.HandleFunc("/api/networkpolicy/yaml", ws.handleNetworkPolicyYAML)
+	http.HandleFunc("/api/networkpolicy/describe", ws.handleNetworkPolicyDescribe)
+	http.HandleFunc("/api/networkpolicy/delete", ws.handleNetworkPolicyDelete)
 	http.HandleFunc("/api/configmap/details", ws.handleConfigMapDetails)
 	http.HandleFunc("/api/configmap/yaml", ws.handleConfigMapYAML)
 	http.HandleFunc("/api/configmap/update", ws.handleConfigMapUpdate)
@@ -3198,36 +3204,114 @@ func (ws *WebServer) handleServiceDetails(w http.ResponseWriter, r *http.Request
 
 	// Format ports as string
 	portsList := []string{}
+	portsDetails := []map[string]interface{}{}
 	for _, port := range svc.Spec.Ports {
 		portStr := fmt.Sprintf("%d/%s", port.Port, port.Protocol)
 		if port.NodePort != 0 {
 			portStr += fmt.Sprintf(":%d", port.NodePort)
 		}
 		portsList = append(portsList, portStr)
+		
+		// Extract target port value
+		targetPortValue := int32(port.Port)
+		if port.TargetPort.Type == intstr.Int {
+			targetPortValue = port.TargetPort.IntVal
+		}
+		
+		portsDetails = append(portsDetails, map[string]interface{}{
+			"name":       port.Name,
+			"port":       port.Port,
+			"targetPort": targetPortValue,
+			"protocol":  string(port.Protocol),
+			"nodePort":   port.NodePort,
+		})
 	}
 	portsStr := strings.Join(portsList, ", ")
 	if portsStr == "" {
 		portsStr = "-"
 	}
 
-	// Format selector as string
-	selector := ""
-	if len(svc.Spec.Selector) > 0 {
-		selectors := []string{}
-		for k, v := range svc.Spec.Selector {
-			selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
+
+	// Get endpoints
+	endpoints, err := ws.app.clientset.CoreV1().Endpoints(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	endpointsList := []map[string]interface{}{}
+	if err == nil && endpoints != nil {
+		for _, subset := range endpoints.Subsets {
+			addresses := []string{}
+			for _, addr := range subset.Addresses {
+				for _, port := range subset.Ports {
+					addresses = append(addresses, fmt.Sprintf("%s:%d", addr.IP, port.Port))
+				}
+			}
+			if len(addresses) > 0 {
+				endpointsList = append(endpointsList, map[string]interface{}{
+					"name":      endpoints.Name,
+					"addresses": addresses,
+				})
+			}
 		}
-		selector = strings.Join(selectors, ",")
+	}
+
+	// Format labels
+	labels := map[string]string{}
+	for k, v := range svc.Labels {
+		labels[k] = v
+	}
+
+	// Format annotations
+	annotations := map[string]string{}
+	for k, v := range svc.Annotations {
+		annotations[k] = v
+	}
+
+	// Format selector
+	selectorMap := map[string]string{}
+	for k, v := range svc.Spec.Selector {
+		selectorMap[k] = v
+	}
+
+	// Get IP families
+	ipFamilies := []string{}
+	if len(svc.Spec.IPFamilies) > 0 {
+		for _, ipf := range svc.Spec.IPFamilies {
+			ipFamilies = append(ipFamilies, string(ipf))
+		}
+	}
+
+	// Get cluster IPs
+	clusterIPs := []string{}
+	if svc.Spec.ClusterIP != "" && svc.Spec.ClusterIP != "None" {
+		clusterIPs = append(clusterIPs, svc.Spec.ClusterIP)
+	}
+	if len(svc.Spec.ClusterIPs) > 0 {
+		clusterIPs = append(clusterIPs, svc.Spec.ClusterIPs...)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"name":      svc.Name,
-		"type":      string(svc.Spec.Type),
-		"clusterIP": svc.Spec.ClusterIP,
-		"ports":     portsStr,
-		"selector":  selector,
-		"age":       formatAge(time.Since(svc.CreationTimestamp.Time)),
+		"success":          true,
+		"name":             svc.Name,
+		"namespace":        svc.Namespace,
+		"created":          formatAge(time.Since(svc.CreationTimestamp.Time)),
+		"createdTimestamp": svc.CreationTimestamp.Format(time.RFC3339),
+		"labels":           labels,
+		"annotations":      annotations,
+		"finalizers":       svc.Finalizers,
+		"selector":         selectorMap,
+		"type":             string(svc.Spec.Type),
+		"sessionAffinity":  string(svc.Spec.SessionAffinity),
+		"clusterIP":        svc.Spec.ClusterIP,
+		"clusterIPs":       clusterIPs,
+		"ipFamilies":       ipFamilies,
+		"ipFamilyPolicy": func() string {
+			if svc.Spec.IPFamilyPolicy != nil {
+				return string(*svc.Spec.IPFamilyPolicy)
+			}
+			return ""
+		}(),
+		"externalIPs":      svc.Spec.ExternalIPs,
+		"ports":            portsStr,
+		"portsDetails":     portsDetails,
+		"endpoints":        endpointsList,
 	})
 }
 
@@ -3698,6 +3782,242 @@ func (ws *WebServer) handleIngressDescribe(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"describe": describe,
+	})
+}
+
+// handleNetworkPolicyYAML returns the YAML representation of a network policy
+func (ws *WebServer) handleNetworkPolicyYAML(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "network policy name required", http.StatusBadRequest)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	np, err := ws.app.clientset.NetworkingV1().NetworkPolicies(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Remove managed fields for cleaner YAML
+	np.ManagedFields = nil
+
+	yamlData, err := toKubectlYAML(np, schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "NetworkPolicy"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleNetworkPolicyDescribe returns kubectl describe output for a network policy
+func (ws *WebServer) handleNetworkPolicyDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Network policy name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	describe, err := runKubectlDescribe("networkpolicy", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleNetworkPolicyDelete deletes a network policy
+func (ws *WebServer) handleNetworkPolicyDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "DELETE" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Network policy name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.NetworkingV1().NetworkPolicies(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Network policy %s deleted successfully", name),
+	})
+}
+
+// handleNetworkPolicyDetails returns detailed information about a network policy
+func (ws *WebServer) handleNetworkPolicyDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Network policy name is required",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	np, err := ws.app.clientset.NetworkingV1().NetworkPolicies(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format pod selector
+	selector := map[string]string{}
+	for k, v := range np.Spec.PodSelector.MatchLabels {
+		selector[k] = v
+	}
+
+	// Format ingress rules
+	ingressRules := []map[string]interface{}{}
+	for _, rule := range np.Spec.Ingress {
+		ingressRule := map[string]interface{}{
+			"ports": []map[string]interface{}{},
+			"from":  []map[string]interface{}{},
+		}
+		for _, port := range rule.Ports {
+			portMap := map[string]interface{}{}
+			if port.Protocol != nil {
+				portMap["protocol"] = string(*port.Protocol)
+			}
+			if port.Port != nil {
+				if port.Port.Type == intstr.Int {
+					portMap["port"] = port.Port.IntVal
+				} else {
+					portMap["port"] = port.Port.StrVal
+				}
+			}
+			ingressRule["ports"] = append(ingressRule["ports"].([]map[string]interface{}), portMap)
+		}
+		for _, from := range rule.From {
+			fromMap := map[string]interface{}{}
+			if from.PodSelector != nil {
+				fromMap["podSelector"] = from.PodSelector.MatchLabels
+			}
+			if from.NamespaceSelector != nil {
+				fromMap["namespaceSelector"] = from.NamespaceSelector.MatchLabels
+			}
+			if from.IPBlock != nil {
+				fromMap["ipBlock"] = map[string]interface{}{
+					"cidr":   from.IPBlock.CIDR,
+					"except": from.IPBlock.Except,
+				}
+			}
+			ingressRule["from"] = append(ingressRule["from"].([]map[string]interface{}), fromMap)
+		}
+		ingressRules = append(ingressRules, ingressRule)
+	}
+
+	// Format egress rules
+	egressRules := []map[string]interface{}{}
+	for _, rule := range np.Spec.Egress {
+		egressRule := map[string]interface{}{
+			"ports": []map[string]interface{}{},
+			"to":    []map[string]interface{}{},
+		}
+		for _, port := range rule.Ports {
+			portMap := map[string]interface{}{}
+			if port.Protocol != nil {
+				portMap["protocol"] = string(*port.Protocol)
+			}
+			if port.Port != nil {
+				if port.Port.Type == intstr.Int {
+					portMap["port"] = port.Port.IntVal
+				} else {
+					portMap["port"] = port.Port.StrVal
+				}
+			}
+			egressRule["ports"] = append(egressRule["ports"].([]map[string]interface{}), portMap)
+		}
+		for _, to := range rule.To {
+			toMap := map[string]interface{}{}
+			if to.PodSelector != nil {
+				toMap["podSelector"] = to.PodSelector.MatchLabels
+			}
+			if to.NamespaceSelector != nil {
+				toMap["namespaceSelector"] = to.NamespaceSelector.MatchLabels
+			}
+			if to.IPBlock != nil {
+				toMap["ipBlock"] = map[string]interface{}{
+					"cidr":   to.IPBlock.CIDR,
+					"except": to.IPBlock.Except,
+				}
+			}
+			egressRule["to"] = append(egressRule["to"].([]map[string]interface{}), toMap)
+		}
+		egressRules = append(egressRules, egressRule)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"name":          np.Name,
+		"namespace":     np.Namespace,
+		"created":       formatAge(time.Since(np.CreationTimestamp.Time)),
+		"createdTimestamp": np.CreationTimestamp.Format(time.RFC3339),
+		"labels":        np.Labels,
+		"annotations":   np.Annotations,
+		"podSelector":   selector,
+		"policyTypes":   np.Spec.PolicyTypes,
+		"ingress":       ingressRules,
+		"egress":        egressRules,
 	})
 }
 
