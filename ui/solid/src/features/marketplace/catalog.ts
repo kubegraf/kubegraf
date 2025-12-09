@@ -7,6 +7,7 @@ import { securityApps } from './apps/security';
 import { serviceMeshApps } from './apps/service-mesh';
 import { machineLearningApps } from './apps/machine-learning';
 import { databaseApps } from './apps/database';
+import { localClusterApps } from './apps/local-cluster';
 
 /**
  * Complete marketplace catalog combining all categories
@@ -18,6 +19,7 @@ export const marketplaceCatalog: MarketplaceApp[] = [
   ...serviceMeshApps,
   ...machineLearningApps,
   ...databaseApps,
+  ...localClusterApps,
 ];
 
 /**

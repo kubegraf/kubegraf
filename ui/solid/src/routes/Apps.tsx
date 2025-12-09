@@ -1108,7 +1108,7 @@ const Apps: Component<AppsProps> = (props) => {
       </Switch>
 
       {/* Install Modal */}
-      <Modal isOpen={showInstallModal()} onClose={() => setShowInstallModal(false)} title={`Install ${selectedApp()?.displayName}`}>
+      <Modal isOpen={showInstallModal()} onClose={() => setShowInstallModal(false)} title={`Install ${selectedApp()?.displayName}`} size="xs">
         <div class="space-y-4">
           <p style={{ color: 'var(--text-secondary)' }}>
             {selectedApp()?.description}

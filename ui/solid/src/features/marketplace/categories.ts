@@ -45,6 +45,13 @@ export const marketplaceCategories: MarketplaceCategoryInfo[] = [
     color: '#10b981',
     icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4',
   },
+  {
+    id: 'local-cluster',
+    name: 'Local Cluster',
+    description: 'Local Kubernetes cluster installers for development and testing',
+    color: '#10b981',
+    icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
+  },
 ];
 
 export const getCategoryById = (id: string): MarketplaceCategoryInfo | undefined => {

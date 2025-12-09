@@ -69,8 +69,8 @@ const Modal: Component<ModalProps> = (props) => {
             style={{
               margin: 'auto',
               position: 'relative',
-              width: props.size === 'xs' ? '420px' : undefined,
-              'max-width': props.size === 'xs' ? '420px !important' : undefined,
+              width: props.size === 'xs' ? '420px' : props.size === 'sm' ? '448px' : '100%',
+              'max-width': props.size === 'xs' ? '420px' : props.size === 'sm' ? '448px' : undefined,
             }}
           >
             {/* Header */}
