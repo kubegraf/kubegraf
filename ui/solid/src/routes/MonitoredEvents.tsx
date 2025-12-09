@@ -1,7 +1,11 @@
-import { Component, For, Show, createSignal, createMemo, onMount, onCleanup, createResource } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, onMount, onCleanup, createResource, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { wsService } from '../services/websocket';
 import { currentContext, refreshTrigger } from '../stores/cluster';
+import { getEventFilter, clearEventFilter, matchesEventFilter } from '../utils/event-filtering';
+import { deduplicateEvents, escalateSeverity } from '../utils/event-deduplication';
+import RealtimeEventsPanel from '../components/RealtimeEventsPanel';
+import EventSeverityBadge from '../components/EventSeverityBadge';
 
 interface MonitoredEvent {
   id: string;
@@ -251,6 +255,20 @@ const MonitoredEvents: Component = () => {
     }
   });
 
+  // Apply event filter from incidents navigation
+  createEffect(() => {
+    const filter = getEventFilter();
+    if (filter) {
+      // Set namespace filter
+      if (filter.namespace) {
+        setSelectedNamespaces([filter.namespace]);
+      }
+      // The filteredEvents memo will automatically filter by resource
+      // Clear the filter after applying
+      setTimeout(() => clearEventFilter(), 1000);
+    }
+  });
+
   // Subscribe to WebSocket for real-time updates
   onMount(() => {
     const unsubscribe = wsService.subscribe((msg) => {
@@ -331,6 +349,12 @@ const MonitoredEvents: Component = () => {
       evts = [];
     }
     
+    // Apply severity escalation (production-grade)
+    evts = evts.map(e => ({
+      ...e,
+      severity: escalateSeverity(e),
+    }));
+    
     // Apply severity filter
     const severity = severityFilter();
     if (severity !== 'all') {
@@ -349,7 +373,18 @@ const MonitoredEvents: Component = () => {
       evts = evts.filter(e => namespaces.includes(e.namespace || ''));
     }
     
-    return evts;
+    // Apply event filter from incidents navigation
+    const eventFilter = getEventFilter();
+    if (eventFilter) {
+      evts = evts.filter(e => 
+        matchesEventFilter(e.resource, e.namespace || '', e.type)
+      );
+    }
+    
+    // Deduplicate events (production-grade: group similar events)
+    const deduplicated = deduplicateEvents(evts, 5); // 5 minute window
+    
+    return deduplicated;
   });
 
   return (
@@ -359,6 +394,10 @@ const MonitoredEvents: Component = () => {
         <div>
           <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>Event Monitor</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Production environment events and alerts</p>
+          <div class="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span>📊 Historical analysis & pattern detection | </span>
+            <span>⚡ Real-time stream shows events as they happen</span>
+          </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           {/* Namespace Selector */}
@@ -640,142 +679,167 @@ const MonitoredEvents: Component = () => {
         </div>
       </div>
 
-      {/* Timeline View */}
-      <Show when={viewMode() === 'timeline'}>
-        <Show when={eventsData.loading}>
-          <div class="card p-8 text-center">
-            <div class="spinner mx-auto mb-2" />
-            <span style={{ color: 'var(--text-muted)' }}>Loading events...</span>
-          </div>
-        </Show>
-        <Show when={!eventsData.loading}>
-          <div class="space-y-4">
-            <For each={filteredEvents()}>
-            {(event) => (
-              <div class="card p-4 border-l-4" style={{ 'border-left-color': getSeverityColor(event.severity) }}>
-                <div class="flex items-start justify-between gap-4">
+      {/* Main Content with Real-time Events Panel */}
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Events Content */}
+        <div class="lg:col-span-2">
+          {/* Timeline View */}
+          <Show when={viewMode() === 'timeline'}>
+            <Show when={eventsData.loading}>
+              <div class="card p-8 text-center">
+                <div class="spinner mx-auto mb-2" />
+                <span style={{ color: 'var(--text-muted)' }}>Loading events...</span>
+              </div>
+            </Show>
+            <Show when={!eventsData.loading}>
+              <div class="space-y-4">
+                <For each={filteredEvents()}>
+                {(event) => (
+                  <div class="card p-4 border-l-4" style={{ 'border-left-color': getSeverityColor(event.severity) }}>
+                    <div class="flex items-start justify-between gap-4">
                   <div class="flex-1">
                     <div class="flex items-center gap-2 mb-2">
-                      {getSeverityBadge(event.severity)}
+                      <EventSeverityBadge severity={event.severity} count={(event as any).duplicateCount || event.count} showCount={true} />
                       <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{event.title}</span>
+                      <Show when={(event as any).duplicateCount && (event as any).duplicateCount > 1}>
+                        <span class="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                          {((event as any).duplicateCount || event.count)} similar events grouped
+                        </span>
+                      </Show>
                     </div>
                     <p class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>{event.description}</p>
                     <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
                       <span>{event.resource}</span>
                       <span>{event.namespace || 'cluster-wide'}</span>
-                      <span>{formatRelativeTime(event.timestamp)}</span>
+                      <Show when={(event as any).firstSeen && (event as any).lastSeen && (event as any).firstSeen !== (event as any).lastSeen}>
+                        <span title={`First: ${formatTime((event as any).firstSeen)}, Last: ${formatTime((event as any).lastSeen)}`}>
+                          {formatRelativeTime((event as any).lastSeen || event.timestamp)}
+                        </span>
+                      </Show>
+                      <Show when={!(event as any).firstSeen || (event as any).firstSeen === (event as any).lastSeen}>
+                        <span>{formatRelativeTime(event.timestamp)}</span>
+                      </Show>
                       <span>{event.source}</span>
                     </div>
                   </div>
                   <div class="text-right">
-                    <div class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{event.count}x</div>
+                    <div class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {(event as any).duplicateCount || event.count}x
+                    </div>
                     <div class="text-xs" style={{ color: 'var(--text-muted)' }}>{formatTime(event.timestamp)}</div>
                   </div>
-                </div>
-              </div>
-            )}
-            </For>
-            <Show when={filteredEvents().length === 0}>
-              <div class="card p-8 text-center">
-                <p style={{ color: 'var(--text-muted)' }}>No events found</p>
-              </div>
-            </Show>
-          </div>
-        </Show>
-      </Show>
-
-      {/* Grouped View */}
-      <Show when={viewMode() === 'grouped'}>
-        <Show when={groupedData.loading}>
-          <div class="card p-8 text-center">
-            <div class="spinner mx-auto mb-2" />
-            <span style={{ color: 'var(--text-muted)' }}>Loading grouped events...</span>
-          </div>
-        </Show>
-        <Show when={!groupedData.loading}>
-          <div class="space-y-6">
-            <For each={groupedData() || []}>
-            {(group) => (
-              <div class="card p-4">
-                <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {new Date(group.time).toLocaleString()}
-                  </h3>
-                  <span class="px-3 py-1 rounded-full text-sm" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                    {group.count} events
-                  </span>
-                </div>
-                <div class="space-y-2">
-                  <For each={group.events}>
-                    {(event) => (
-                      <div class="p-3 rounded border-l-4" style={{ 'border-left-color': getSeverityColor(event.severity), background: 'var(--bg-secondary)' }}>
-                        <div class="flex items-center gap-2 mb-1">
-                          {getSeverityBadge(event.severity)}
-                          <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{event.title}</span>
-                        </div>
-                        <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>{event.resource}</p>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </div>
-            )}
-            </For>
-            <Show when={!groupedData() || groupedData()?.length === 0}>
-              <div class="card p-8 text-center">
-                <p style={{ color: 'var(--text-muted)' }}>No grouped events found</p>
-              </div>
-            </Show>
-          </div>
-        </Show>
-      </Show>
-
-      {/* Log Errors View */}
-      <Show when={viewMode() === 'errors'}>
-        <Show when={errorsData.loading}>
-          <div class="card p-8 text-center">
-            <div class="spinner mx-auto mb-2" />
-            <span style={{ color: 'var(--text-muted)' }}>Loading log errors...</span>
-          </div>
-        </Show>
-        <Show when={!errorsData.loading}>
-          <div class="space-y-4">
-            <For each={filteredLogErrors()}>
-              {(error) => (
-                <div class="card p-4 border-l-4" style={{ 'border-left-color': error.status_code >= 500 ? '#ef4444' : '#f59e0b' }}>
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="flex-1">
-                      <div class="flex items-center gap-2 mb-2">
-                        <span class="px-2 py-1 rounded text-xs font-medium" style={{ background: error.status_code >= 500 ? '#ef444420' : '#f59e0b20', color: error.status_code >= 500 ? '#ef4444' : '#f59e0b' }}>
-                          HTTP {error.status_code}
-                        </span>
-                        <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                          {error.method} {error.path}
-                        </span>
-                      </div>
-                      <p class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>{error.message}</p>
-                      <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        <span>Pod: {error.pod}</span>
-                        <span>Container: {error.container}</span>
-                        <span>{error.namespace}</span>
-                        <span>{formatRelativeTime(error.timestamp)}</span>
-                      </div>
-                    </div>
-                    <div class="text-right">
-                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>{formatTime(error.timestamp)}</div>
                     </div>
                   </div>
-                </div>
-              )}
-            </For>
-            <Show when={filteredLogErrors().length === 0}>
-              <div class="card p-8 text-center">
-                <p style={{ color: 'var(--text-muted)' }}>No log errors found</p>
+                )}
+                </For>
+                <Show when={filteredEvents().length === 0}>
+                  <div class="card p-8 text-center">
+                    <p style={{ color: 'var(--text-muted)' }}>No events found</p>
+                  </div>
+                </Show>
               </div>
             </Show>
-          </div>
-        </Show>
-      </Show>
+          </Show>
+
+          {/* Grouped View */}
+          <Show when={viewMode() === 'grouped'}>
+            <Show when={groupedData.loading}>
+              <div class="card p-8 text-center">
+                <div class="spinner mx-auto mb-2" />
+                <span style={{ color: 'var(--text-muted)' }}>Loading grouped events...</span>
+              </div>
+            </Show>
+            <Show when={!groupedData.loading}>
+              <div class="space-y-6">
+                <For each={groupedData() || []}>
+                {(group) => (
+                  <div class="card p-4">
+                    <div class="flex items-center justify-between mb-4">
+                      <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {new Date(group.time).toLocaleString()}
+                      </h3>
+                      <span class="px-3 py-1 rounded-full text-sm" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                        {group.count} events
+                      </span>
+                    </div>
+                    <div class="space-y-2">
+                      <For each={group.events}>
+                        {(event) => (
+                          <div class="p-3 rounded border-l-4" style={{ 'border-left-color': getSeverityColor(event.severity), background: 'var(--bg-secondary)' }}>
+                            <div class="flex items-center gap-2 mb-1">
+                              {getSeverityBadge(event.severity)}
+                              <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{event.title}</span>
+                            </div>
+                            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>{event.resource}</p>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                )}
+                </For>
+                <Show when={!groupedData() || groupedData()?.length === 0}>
+                  <div class="card p-8 text-center">
+                    <p style={{ color: 'var(--text-muted)' }}>No grouped events found</p>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </Show>
+
+          {/* Log Errors View */}
+          <Show when={viewMode() === 'errors'}>
+            <Show when={errorsData.loading}>
+              <div class="card p-8 text-center">
+                <div class="spinner mx-auto mb-2" />
+                <span style={{ color: 'var(--text-muted)' }}>Loading log errors...</span>
+              </div>
+            </Show>
+            <Show when={!errorsData.loading}>
+              <div class="space-y-4">
+                <For each={filteredLogErrors()}>
+                  {(error) => (
+                    <div class="card p-4 border-l-4" style={{ 'border-left-color': error.status_code >= 500 ? '#ef4444' : '#f59e0b' }}>
+                      <div class="flex items-start justify-between gap-4">
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2 mb-2">
+                            <span class="px-2 py-1 rounded text-xs font-medium" style={{ background: error.status_code >= 500 ? '#ef444420' : '#f59e0b20', color: error.status_code >= 500 ? '#ef4444' : '#f59e0b' }}>
+                              HTTP {error.status_code}
+                            </span>
+                            <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                              {error.method} {error.path}
+                            </span>
+                          </div>
+                          <p class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>{error.message}</p>
+                          <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            <span>Pod: {error.pod}</span>
+                            <span>Container: {error.container}</span>
+                            <span>{error.namespace}</span>
+                            <span>{formatRelativeTime(error.timestamp)}</span>
+                          </div>
+                        </div>
+                        <div class="text-right">
+                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>{formatTime(error.timestamp)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </For>
+                <Show when={filteredLogErrors().length === 0}>
+                  <div class="card p-8 text-center">
+                    <p style={{ color: 'var(--text-muted)' }}>No log errors found</p>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </Show>
+        </div>
+
+        {/* Real-time Events Panel Sidebar */}
+        <div class="lg:col-span-1">
+          <RealtimeEventsPanel maxEvents={50} showNamespace={true} />
+        </div>
+      </div>
     </div>
   );
 };

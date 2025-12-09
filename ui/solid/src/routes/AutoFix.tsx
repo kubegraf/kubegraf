@@ -1,6 +1,10 @@
-import { Component, createSignal, createResource, For, Show } from 'solid-js';
-import { api, type AutoFixRule, type AutoFixRuleSettings } from '../services/api';
+import { Component, createSignal, createResource, For, Show, createMemo } from 'solid-js';
+import { api, type AutoFixRule, type AutoFixRuleSettings, type Incident } from '../services/api';
 import { addNotification } from '../stores/ui';
+import { filterOOMEvents, getOOMEventSummary, type OOMEvent } from '../utils/autofix-events/oom-events';
+import { filterHPAMaxEvents, getHPAMaxEventSummary, type HPAMaxEvent } from '../utils/autofix-events/hpa-max-events';
+import { filterSecurityEvents, getSecurityEventSummary, type SecurityEvent } from '../utils/autofix-events/security-events';
+import { filterDriftEvents, getDriftEventSummary, type DriftEvent } from '../utils/autofix-events/drift-events';
 
 interface AutoFixAction {
   id: string;
@@ -46,6 +50,44 @@ const AutoFix: Component = () => {
       console.error('Failed to fetch auto-fix actions:', error);
       return [];
     }
+  });
+
+  // Fetch incidents for event display
+  const [incidents, { refetch: refetchIncidents }] = createResource(async () => {
+    try {
+      return await api.getIncidents();
+    } catch (error) {
+      console.error('Failed to fetch incidents:', error);
+      return [];
+    }
+  });
+
+  // Filter events by type
+  const oomEvents = createMemo(() => filterOOMEvents(incidents() || []));
+  const hpaMaxEvents = createMemo(() => filterHPAMaxEvents(incidents() || []));
+  const securityEvents = createMemo(() => filterSecurityEvents(incidents() || []));
+  const driftEvents = createMemo(() => filterDriftEvents(incidents() || []));
+
+  // Get filtered events based on selected type
+  const filteredEvents = createMemo(() => {
+    const type = selectedType();
+    if (type === 'all') {
+      return {
+        oom: oomEvents(),
+        hpaMax: hpaMaxEvents(),
+        security: securityEvents(),
+        drift: driftEvents(),
+      };
+    } else if (type === 'oom') {
+      return { oom: oomEvents(), hpaMax: [], security: [], drift: [] };
+    } else if (type === 'hpa_max') {
+      return { oom: [], hpaMax: hpaMaxEvents(), security: [], drift: [] };
+    } else if (type === 'security') {
+      return { oom: [], hpaMax: [], security: securityEvents(), drift: [] };
+    } else if (type === 'drift') {
+      return { oom: [], hpaMax: [], security: [], drift: driftEvents() };
+    }
+    return { oom: [], hpaMax: [], security: [], drift: [] };
   });
 
   const filteredRules = () => {
@@ -429,6 +471,225 @@ const AutoFix: Component = () => {
             )}
           </For>
         </div>
+      </div>
+
+      {/* Events Section */}
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Related Events
+          </h2>
+          <button
+            onClick={() => refetchIncidents()}
+            class="text-xs px-3 py-1 rounded"
+            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {/* OOM Events */}
+        <Show when={filteredEvents().oom.length > 0}>
+          <div class="mb-4">
+            <h3 class="text-sm font-medium mb-2 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <span class="px-2 py-0.5 rounded text-xs border bg-red-500/10 text-red-400 border-red-500/20">
+                OOM
+              </span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {filteredEvents().oom.length} event{filteredEvents().oom.length !== 1 ? 's' : ''}
+              </span>
+            </h3>
+            <div class="space-y-2">
+              <For each={filteredEvents().oom}>
+                {(event) => (
+                  <div
+                    class="p-3 rounded-lg border"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      'border-color': 'var(--border-color)',
+                      'border-left': `3px solid ${event.severity === 'critical' ? '#ef4444' : '#f59e0b'}`,
+                    }}
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          {event.podName}
+                          <Show when={event.containerName}>
+                            <span class="text-xs ml-2" style={{ color: 'var(--text-muted)' }}>
+                              / {event.containerName}
+                            </span>
+                          </Show>
+                        </div>
+                        <div class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                          {event.message}
+                        </div>
+                        <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span>{event.namespace}</span>
+                          <span>Count: {event.count}</span>
+                          <span>Last: {new Date(event.lastSeen).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* HPA Max Events */}
+        <Show when={filteredEvents().hpaMax.length > 0}>
+          <div class="mb-4">
+            <h3 class="text-sm font-medium mb-2 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <span class="px-2 py-0.5 rounded text-xs border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                HPA MAX
+              </span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {filteredEvents().hpaMax.length} event{filteredEvents().hpaMax.length !== 1 ? 's' : ''}
+              </span>
+            </h3>
+            <div class="space-y-2">
+              <For each={filteredEvents().hpaMax}>
+                {(event) => (
+                  <div
+                    class="p-3 rounded-lg border"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      'border-color': 'var(--border-color)',
+                      'border-left': `3px solid ${event.severity === 'critical' ? '#ef4444' : '#f59e0b'}`,
+                    }}
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          {event.deploymentName}
+                        </div>
+                        <div class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                          {event.message}
+                        </div>
+                        <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span>{event.namespace}</span>
+                          <span>Duration: {event.durationMinutes} min</span>
+                          <Show when={event.maxReplicas > 0}>
+                            <span>Max: {event.maxReplicas} replicas</span>
+                          </Show>
+                          <span>Last: {new Date(event.lastSeen).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* Security Events */}
+        <Show when={filteredEvents().security.length > 0}>
+          <div class="mb-4">
+            <h3 class="text-sm font-medium mb-2 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <span class="px-2 py-0.5 rounded text-xs border bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
+                SECURITY
+              </span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {filteredEvents().security.length} event{filteredEvents().security.length !== 1 ? 's' : ''}
+              </span>
+            </h3>
+            <div class="space-y-2">
+              <For each={filteredEvents().security}>
+                {(event) => (
+                  <div
+                    class="p-3 rounded-lg border"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      'border-color': 'var(--border-color)',
+                      'border-left': `3px solid ${event.severity === 'critical' ? '#ef4444' : '#f59e0b'}`,
+                    }}
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          {event.resourceName} ({event.resourceKind})
+                        </div>
+                        <div class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                          {event.message}
+                        </div>
+                        <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span>{event.namespace}</span>
+                          <span class="capitalize">{event.securityType.replace('_', ' ')}</span>
+                          <span>Last: {new Date(event.lastSeen).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* Drift Events */}
+        <Show when={filteredEvents().drift.length > 0}>
+          <div class="mb-4">
+            <h3 class="text-sm font-medium mb-2 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <span class="px-2 py-0.5 rounded text-xs border bg-purple-500/10 text-purple-400 border-purple-500/20">
+                DRIFT
+              </span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {filteredEvents().drift.length} event{filteredEvents().drift.length !== 1 ? 's' : ''}
+              </span>
+            </h3>
+            <div class="space-y-2">
+              <For each={filteredEvents().drift}>
+                {(event) => (
+                  <div
+                    class="p-3 rounded-lg border"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      'border-color': 'var(--border-color)',
+                      'border-left': `3px solid ${event.severity === 'critical' ? '#ef4444' : '#f59e0b'}`,
+                    }}
+                  >
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          {event.resourceName} ({event.resourceKind})
+                        </div>
+                        <div class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                          {event.message}
+                        </div>
+                        <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span>{event.namespace}</span>
+                          <span class="capitalize">{event.driftType}</span>
+                          <span>Last: {new Date(event.lastSeen).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* No Events Message */}
+        <Show when={
+          filteredEvents().oom.length === 0 &&
+          filteredEvents().hpaMax.length === 0 &&
+          filteredEvents().security.length === 0 &&
+          filteredEvents().drift.length === 0
+        }>
+          <div
+            class="p-8 text-center rounded-lg border"
+            style={{
+              background: 'var(--bg-secondary)',
+              'border-color': 'var(--border-color)',
+              color: 'var(--text-muted)',
+            }}
+          >
+            No events found for selected type
+          </div>
+        </Show>
       </div>
 
       {/* Recent Actions */}
