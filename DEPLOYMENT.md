@@ -383,7 +383,7 @@ kubectl create secret docker-registry regcred \
   --docker-email=<email>
 
 # Update values to use secret
-helm upgrade kubegraf ./helm/kubegraf \
+helm upgrade kubegraf ./manifests/helm/kubegraf \
   --set imagePullSecrets[0].name=regcred
 ```
 
