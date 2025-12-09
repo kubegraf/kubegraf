@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import ActionMenu from '../components/ActionMenu';
 
 interface CRD {
@@ -33,6 +34,7 @@ const CustomResources: Component = () => {
   const [selectedInstance, setSelectedInstance] = createSignal<CRInstance | null>(null);
   const [showInstances, setShowInstances] = createSignal(false);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [yamlContent, setYamlContent] = createSignal('');
   const [yamlLoading, setYamlLoading] = createSignal(false);
   const [activeTab, setActiveTab] = createSignal<'crds' | 'instances'>('crds');
@@ -74,10 +76,8 @@ const CustomResources: Component = () => {
     setActiveTab('instances');
   };
 
-  const handleViewYAML = async (instance: CRInstance, crd: CRD) => {
-    setSelectedInstance(instance);
+  const loadYAML = async (instance: CRInstance, crd: CRD) => {
     setYamlLoading(true);
-    setShowYaml(true);
     try {
       const params = new URLSearchParams({
         crd: crd.name,
@@ -95,6 +95,84 @@ const CustomResources: Component = () => {
       setYamlContent('');
     } finally {
       setYamlLoading(false);
+    }
+  };
+
+  const handleViewYAML = async (instance: CRInstance, crd: CRD) => {
+    setSelectedInstance(instance);
+    setShowYaml(true);
+    await loadYAML(instance, crd);
+  };
+
+  const handleEditYAML = async (instance: CRInstance, crd: CRD) => {
+    setSelectedInstance(instance);
+    setShowEdit(true);
+    await loadYAML(instance, crd);
+  };
+
+  const handleSaveYAML = async (yaml: string) => {
+    const instance = selectedInstance();
+    const crd = selectedCRD();
+    if (!instance || !crd) return;
+
+    try {
+      const params = new URLSearchParams({
+        crd: crd.name,
+        name: instance.name,
+      });
+      if (instance.namespace) {
+        params.append('namespace', instance.namespace);
+      }
+      const response = await fetch(`/api/crd/instance/update?${params.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/yaml' },
+        body: yaml,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Update failed' }));
+        throw new Error(errorData.error || 'Update failed');
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Update failed');
+      }
+
+      addNotification(`Successfully updated ${instance.name}`, 'success');
+      setShowEdit(false);
+      refetchInstances();
+    } catch (err: any) {
+      addNotification(`Failed to update: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDelete = async (instance: CRInstance, crd: CRD) => {
+    if (!confirm(`Are you sure you want to delete ${instance.name}?`)) {
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        crd: crd.name,
+        name: instance.name,
+      });
+      if (instance.namespace) {
+        params.append('namespace', instance.namespace);
+      }
+      const response = await fetch(`/api/crd/instance/delete?${params.toString()}`, {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Delete failed');
+      }
+
+      addNotification(`Successfully deleted ${instance.name}`, 'success');
+      refetchInstances();
+    } catch (err: any) {
+      addNotification(`Failed to delete: ${err.message}`, 'error');
     }
   };
 
@@ -199,9 +277,10 @@ const CustomResources: Component = () => {
                         <td class="py-3 px-4 text-sm opacity-70">{crd.age}</td>
                         <td class="py-3 px-4">
                           <ActionMenu
-                            items={[
+                            actions={[
                               {
                                 label: 'View Instances',
+                                icon: 'details',
                                 onClick: () => handleViewInstances(crd),
                               },
                             ]}
@@ -266,10 +345,23 @@ const CustomResources: Component = () => {
                         <td class="py-3 px-4 text-sm opacity-70">{instance.age}</td>
                         <td class="py-3 px-4">
                           <ActionMenu
-                            items={[
+                            actions={[
                               {
                                 label: 'View YAML',
+                                icon: 'yaml',
                                 onClick: () => handleViewYAML(instance, selectedCRD()!),
+                              },
+                              {
+                                label: 'Edit YAML',
+                                icon: 'edit',
+                                onClick: () => handleEditYAML(instance, selectedCRD()!),
+                              },
+                              {
+                                label: 'Delete',
+                                icon: 'delete',
+                                onClick: () => handleDelete(instance, selectedCRD()!),
+                                variant: 'danger',
+                                divider: true,
                               },
                             ]}
                           />
@@ -295,6 +387,24 @@ const CustomResources: Component = () => {
           title={`${selectedCRD()?.kind}: ${selectedInstance()?.name}`}
         >
           <Show when={yamlLoading()} fallback={<YAMLViewer content={yamlContent()} />}>
+            <div class="text-center py-8">
+              <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+            </div>
+          </Show>
+        </Modal>
+      </Show>
+
+      <Show when={showEdit() && selectedInstance()}>
+        <Modal
+          isOpen={showEdit()}
+          onClose={() => {
+            setShowEdit(false);
+            setYamlContent('');
+            setSelectedInstance(null);
+          }}
+          title={`Edit ${selectedCRD()?.kind}: ${selectedInstance()?.name}`}
+        >
+          <Show when={yamlLoading()} fallback={<YAMLEditor yaml={yamlContent()} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />}>
             <div class="text-center py-8">
               <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
             </div>

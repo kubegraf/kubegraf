@@ -4,6 +4,7 @@ import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import ActionMenu from '../components/ActionMenu';
 
 interface ServiceAccount {
@@ -17,8 +18,24 @@ interface ServiceAccount {
 const ServiceAccounts: Component = () => {
   const [selectedSA, setSelectedSA] = createSignal<ServiceAccount | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
-  const [yamlContent, setYamlContent] = createSignal('');
-  const [yamlLoading, setYamlLoading] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
+  
+  // Use createResource for automatic YAML loading like Deployments
+  const [yamlContent] = createResource(
+    () => (showYaml() || showEdit()) && selectedSA() ? { name: selectedSA()!.name, ns: selectedSA()!.namespace } : null,
+    async (params) => {
+      if (!params) return '';
+      try {
+        const response = await fetch(`/api/serviceaccount/yaml?name=${encodeURIComponent(params.name)}&namespace=${encodeURIComponent(params.ns)}`);
+        if (!response.ok) throw new Error('Failed to fetch YAML');
+        const data = await response.json();
+        return data.yaml || '';
+      } catch (err: any) {
+        addNotification(`Failed to load YAML: ${err.message}`, 'error');
+        return '';
+      }
+    }
+  );
 
   const [serviceAccounts, { refetch }] = createResource(
     () => namespace(),
@@ -38,24 +55,72 @@ const ServiceAccounts: Component = () => {
     }
   );
 
-  const handleViewYAML = async (sa: ServiceAccount) => {
+  const handleViewYAML = (sa: ServiceAccount) => {
     setSelectedSA(sa);
-    setYamlLoading(true);
     setShowYaml(true);
+  };
+
+  const handleEditYAML = (sa: ServiceAccount) => {
+    setSelectedSA(sa);
+    setShowEdit(true);
+  };
+
+  const handleSaveYAML = async (yaml: string) => {
+    const sa = selectedSA();
+    if (!sa) return;
+
     try {
       const params = new URLSearchParams({
         name: sa.name,
         namespace: sa.namespace,
       });
-      const response = await fetch(`/api/serviceaccount/yaml?${params.toString()}`);
-      if (!response.ok) throw new Error('Failed to fetch YAML');
-      const yaml = await response.text();
-      setYamlContent(yaml);
+      const response = await fetch(`/api/serviceaccount/update?${params.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/yaml' },
+        body: yaml,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Update failed' }));
+        throw new Error(errorData.error || 'Update failed');
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Update failed');
+      }
+
+      addNotification(`Successfully updated ${sa.name}`, 'success');
+      setShowEdit(false);
+      refetch();
     } catch (err: any) {
-      addNotification(`Failed to load YAML: ${err.message}`, 'error');
-      setYamlContent('');
-    } finally {
-      setYamlLoading(false);
+      addNotification(`Failed to update: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDelete = async (sa: ServiceAccount) => {
+    if (!confirm(`Are you sure you want to delete ServiceAccount ${sa.name}?`)) {
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        name: sa.name,
+        namespace: sa.namespace,
+      });
+      const response = await fetch(`/api/serviceaccount/delete?${params.toString()}`, {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Delete failed');
+      }
+
+      addNotification(`Successfully deleted ${sa.name}`, 'success');
+      refetch();
+    } catch (err: any) {
+      addNotification(`Failed to delete: ${err.message}`, 'error');
     }
   };
 
@@ -114,6 +179,18 @@ const ServiceAccounts: Component = () => {
                               icon: 'yaml',
                               onClick: () => handleViewYAML(sa),
                             },
+                            {
+                              label: 'Edit YAML',
+                              icon: 'edit',
+                              onClick: () => handleEditYAML(sa),
+                            },
+                            {
+                              label: 'Delete',
+                              icon: 'delete',
+                              onClick: () => handleDelete(sa),
+                              variant: 'danger',
+                              divider: true,
+                            },
                           ]}
                         />
                       </td>
@@ -131,14 +208,30 @@ const ServiceAccounts: Component = () => {
           isOpen={showYaml()}
           onClose={() => {
             setShowYaml(false);
-            setYamlContent('');
             setSelectedSA(null);
           }}
           title={`Service Account: ${selectedSA()?.name}`}
+          size="xl"
         >
-          <Show when={yamlLoading()} fallback={<YAMLViewer content={yamlContent()} />}>
-            <div class="text-center py-8">
-              <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+          <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+            <YAMLViewer yaml={yamlContent() || ''} title={selectedSA()?.name} />
+          </Show>
+        </Modal>
+      </Show>
+
+      <Show when={showEdit()}>
+        <Modal
+          isOpen={showEdit()}
+          onClose={() => {
+            setShowEdit(false);
+            setSelectedSA(null);
+          }}
+          title={`Edit Service Account: ${selectedSA()?.name}`}
+          size="xl"
+        >
+          <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+            <div style={{ height: '70vh' }}>
+              <YAMLEditor yaml={yamlContent() || ''} title={selectedSA()?.name} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />
             </div>
           </Show>
         </Modal>
