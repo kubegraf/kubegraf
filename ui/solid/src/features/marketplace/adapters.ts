@@ -82,7 +82,7 @@ export function mapLegacyCategoryToNew(category: string): string {
     'Security': 'security',
     'Data': 'database',
     'ML Apps': 'machine-learning',
-    'Local Cluster': 'kubernetes-essentials',
+    'Local Cluster': 'local-cluster',
   };
   
   return categoryMap[category] || category.toLowerCase().replace(/\s+/g, '-');

@@ -33,7 +33,8 @@ export type MarketplaceCategory =
   | 'security'
   | 'service-mesh'
   | 'machine-learning'
-  | 'database';
+  | 'database'
+  | 'local-cluster';
 
 export type InstallStatus = 
   | 'pending'
