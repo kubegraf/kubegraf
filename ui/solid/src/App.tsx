@@ -116,6 +116,8 @@ const GitOps: Component = () => (
 );
 
 import Settings from './routes/Settings';
+import Privacy from './routes/Privacy';
+import Documentation from './routes/Documentation';
 import AIChat from './components/AIChat';
 import BrainPanel from './features/brain/BrainPanel';
 import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen } from './stores/ui';
@@ -167,6 +169,8 @@ const views: Record<string, Component> = {
   plugins: Plugins,
   terminal: Terminal,
   settings: Settings,
+  privacy: Privacy,
+  documentation: Documentation,
   // Intelligence
   ai: AIAssistant,
   autofix: AutoFix,
