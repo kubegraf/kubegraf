@@ -467,6 +467,9 @@ func (ws *WebServer) Start(port int) error {
 	// Advanced features - AI, Diagnostics, Cost, Drift
 	ws.RegisterAdvancedHandlers()
 
+	// Accuracy testing
+	ws.RegisterAccuracyHandlers()
+
 	// Event monitoring
 	ws.RegisterEventHandlers()
 
