@@ -32,6 +32,16 @@ interface IdleResource {
   wastedCost: number;
 }
 
+interface CostRecommendation {
+  type: string;
+  title: string;
+  description: string;
+  impact: string;
+  savings: number;
+  action: string;
+  priority: number;
+}
+
 const Cost: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'overview' | 'namespaces' | 'idle'>('overview');
   const [selectedNamespace, setSelectedNamespace] = createSignal<string | null>(null);
@@ -332,6 +342,50 @@ const Cost: Component = () => {
               </p>
             </div>
           </div>
+
+          {/* Cost Optimization Recommendations */}
+          <Show when={(clusterCost()?.recommendations || []).length > 0}>
+            <div class="card p-6 col-span-full">
+              <h3 class="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Cost Optimization Recommendations
+              </h3>
+              <div class="space-y-4">
+                <For each={clusterCost()?.recommendations || []}>
+                  {(rec: CostRecommendation) => (
+                    <div class="p-4 rounded-lg border" style={{ 
+                      'border-color': rec.impact === 'high' ? 'var(--warning-color)' : rec.impact === 'medium' ? 'var(--accent-primary)' : 'var(--border-color)',
+                      background: rec.impact === 'high' ? 'rgba(245, 158, 11, 0.1)' : rec.impact === 'medium' ? 'rgba(6, 182, 212, 0.1)' : 'var(--bg-tertiary)'
+                    }}>
+                      <div class="flex items-start justify-between mb-2">
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2 mb-1">
+                            <h4 class="font-semibold" style={{ color: 'var(--text-primary)' }}>{rec.title}</h4>
+                            <span class="px-2 py-0.5 rounded text-xs font-medium" style={{
+                              background: rec.impact === 'high' ? 'var(--warning-color)' : rec.impact === 'medium' ? 'var(--accent-primary)' : 'var(--text-muted)',
+                              color: '#fff'
+                            }}>
+                              {rec.impact.toUpperCase()}
+                            </span>
+                          </div>
+                          <p class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>{rec.description}</p>
+                          <p class="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>{rec.action}</p>
+                        </div>
+                        <div class="text-right ml-4">
+                          <div class="text-2xl font-bold" style={{ color: 'var(--success-color)' }}>
+                            {formatCurrency(rec.savings)}
+                          </div>
+                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>monthly savings</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
         </div>
       </Show>
 
