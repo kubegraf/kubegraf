@@ -1,4 +1,4 @@
-import { Component, For, Show, createResource, createSignal, createEffect, onMount, createMemo } from 'solid-js';
+import { Component, For, Show, createResource, createSignal, createEffect, onMount, onCleanup, createMemo } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { settings } from '../stores/settings';
@@ -23,12 +23,42 @@ interface DiagnosticsSummary {
 }
 
 const Security: Component = () => {
-  const [selectedCategory, setSelectedCategory] = createSignal<string>('');
-  const [selectedSeverity, setSelectedSeverity] = createSignal<string>('');
+  // Check for filter from Dashboard navigation
+  const [initialFilter] = createSignal(() => {
+    try {
+      const stored = sessionStorage.getItem('securityFilter');
+      if (stored) {
+        const filter = JSON.parse(stored);
+        sessionStorage.removeItem('securityFilter'); // Clear after reading
+        return filter;
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+    return null;
+  });
+
+  const [selectedCategory, setSelectedCategory] = createSignal<string>(initialFilter()?.category || '');
+  const [selectedSeverity, setSelectedSeverity] = createSignal<string>(initialFilter()?.severity || '');
   const [diagnosticsPage, setDiagnosticsPage] = createSignal<number>(1);
   const [vulnPage, setVulnPage] = createSignal<number>(1);
   const [diagnosticsProgress, setDiagnosticsProgress] = createSignal<string>('');
   const itemsPerPage = 10;
+
+  // Listen for filter changes from Dashboard
+  onMount(() => {
+    const handleFilterChange = (event: CustomEvent) => {
+      const filter = event.detail;
+      if (filter.category) setSelectedCategory(filter.category);
+      if (filter.severity) setSelectedSeverity(filter.severity);
+    };
+    window.addEventListener('securityFilterChange', handleFilterChange as EventListener);
+    
+    // Cleanup on unmount
+    return () => {
+      window.removeEventListener('securityFilterChange', handleFilterChange as EventListener);
+    };
+  });
 
   // Check if features are enabled
   const isDiagnosticsEnabled = () => {
@@ -57,11 +87,27 @@ const Security: Component = () => {
       const cat = params.cat || undefined;
       try {
         setDiagnosticsProgress(cat ? `Running ${cat} checks in parallel...` : 'Running all diagnostic checks in parallel...');
-        const result = await api.runDiagnostics(ns, cat);
+        // Add timeout to frontend request (50 seconds to match backend)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 50000);
+        try {
+          const result = await api.runDiagnostics(ns, cat);
+          clearTimeout(timeoutId);
+          setDiagnosticsProgress('');
+          return result;
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError') {
+            throw new Error('Diagnostics request timed out. Please try again or select a specific category.');
+          }
+          throw fetchError;
+        }
+      } catch (error: any) {
         setDiagnosticsProgress('');
-        return result;
-      } catch (error) {
-        setDiagnosticsProgress('');
+        // Show user-friendly error message
+        if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
+          throw new Error('Diagnostics took too long. Try selecting a specific category or namespace.');
+        }
         throw error;
       }
     }

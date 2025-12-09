@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -117,25 +118,109 @@ func (app *App) predictLatencyTrends(ctx context.Context) ([]brain.MLPrediction,
 }
 
 // predictArtifactGrowth predicts growth in ML artifact storage
+// Only generates predictions if MLflow is actually installed and artifacts exist
 func (app *App) predictArtifactGrowth(ctx context.Context) ([]brain.MLPrediction, error) {
 	var predictions []brain.MLPrediction
 
-	// Get MLflow or similar artifact storage
-	// This is a placeholder - actual implementation would query artifact storage
-	predictions = append(predictions, brain.MLPrediction{
-		ID:          "artifact-growth-1",
-		Type:        "artifact_growth",
-		Severity:    "info",
-		Title:       "ML artifact storage growing",
-		Description: "Model artifacts and experiment data are growing, may need cleanup",
-		Timeframe:   "within 1 week",
-		Confidence:  0.5,
-		Resource: brain.MLResource{
-			Kind: "ArtifactStorage",
-			Name: "mlflow-artifacts",
-		},
-		Trend: "increasing",
+	// First, check if MLflow is actually installed
+	mlflowStatus, err := app.DetectMLflow(ctx)
+	if err != nil {
+		return predictions, nil // Silently skip if detection fails
+	}
+
+	// Only generate prediction if MLflow is installed
+	if !mlflowStatus.Installed {
+		return predictions, nil // No MLflow, no predictions
+	}
+
+	// Check for artifact storage (PVC, S3 buckets, etc.)
+	hasArtifacts := false
+	var artifactStorageName string
+	var artifactNamespace string = mlflowStatus.Namespace
+
+	// Check for PVC-based artifact storage
+	pvcs, err := app.clientset.CoreV1().PersistentVolumeClaims(mlflowStatus.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/name=mlflow",
 	})
+	if err == nil {
+		for _, pvc := range pvcs.Items {
+			// Check if PVC name contains "artifact" or "mlflow"
+			pvcNameLower := strings.ToLower(pvc.Name)
+			if strings.Contains(pvcNameLower, "artifact") || strings.Contains(pvcNameLower, "mlflow") {
+				hasArtifacts = true
+				artifactStorageName = pvc.Name
+				break
+			}
+		}
+	}
+
+	// Also check for MinIO or S3-based storage (via ConfigMaps or Secrets)
+	if !hasArtifacts {
+		configMaps, err := app.clientset.CoreV1().ConfigMaps(mlflowStatus.Namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/name=mlflow",
+		})
+		if err == nil {
+			for _, cm := range configMaps.Items {
+				// Check if artifact store is configured
+				if artifactURI, ok := cm.Data["default-artifact-root"]; ok && artifactURI != "" {
+					hasArtifacts = true
+					artifactStorageName = "mlflow-artifacts"
+					break
+				}
+			}
+		}
+	}
+
+	// Only generate prediction if artifacts actually exist
+	if !hasArtifacts {
+		return predictions, nil // No artifacts found, no predictions
+	}
+
+	// Check storage usage if PVC exists
+	if artifactStorageName != "" {
+		pvc, err := app.clientset.CoreV1().PersistentVolumeClaims(mlflowStatus.Namespace).Get(ctx, artifactStorageName, metav1.GetOptions{})
+		if err == nil {
+			// Get PVC status to check usage
+			// Note: Actual usage requires metrics server or storage provider API
+			// For now, we'll generate a prediction if PVC exists and is bound
+			if pvc.Status.Phase == "Bound" {
+				// Generate prediction with moderate confidence
+				// In production, you'd query actual storage usage metrics
+				predictions = append(predictions, brain.MLPrediction{
+					ID:          fmt.Sprintf("artifact-growth-%s", artifactStorageName),
+					Type:        "artifact_growth",
+					Severity:    "info",
+					Title:       "ML artifact storage growing",
+					Description: fmt.Sprintf("Model artifacts and experiment data are growing in %s, may need cleanup", artifactStorageName),
+					Timeframe:   "within 1 week",
+					Confidence:  0.5,
+					Resource: brain.MLResource{
+						Kind:      "ArtifactStorage",
+						Name:      artifactStorageName,
+						Namespace: artifactNamespace,
+					},
+					Trend: "increasing",
+				})
+			}
+		}
+	} else {
+		// S3/MinIO based storage - generate prediction
+		predictions = append(predictions, brain.MLPrediction{
+			ID:          fmt.Sprintf("artifact-growth-%s", artifactStorageName),
+			Type:        "artifact_growth",
+			Severity:    "info",
+			Title:       "ML artifact storage growing",
+			Description: fmt.Sprintf("Model artifacts and experiment data are growing in %s, may need cleanup", artifactStorageName),
+			Timeframe:   "within 1 week",
+			Confidence:  0.5,
+			Resource: brain.MLResource{
+				Kind:      "ArtifactStorage",
+				Name:      artifactStorageName,
+				Namespace: artifactNamespace,
+			},
+			Trend: "increasing",
+		})
+	}
 
 	return predictions, nil
 }

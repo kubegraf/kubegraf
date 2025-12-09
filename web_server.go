@@ -521,6 +521,11 @@ func (ws *WebServer) Start(port int) error {
 	// Incidents endpoint
 	http.HandleFunc("/api/incidents", ws.handleIncidents)
 
+	// Brain endpoints (real cluster data)
+	http.HandleFunc("/api/brain/timeline", ws.handleBrainTimeline)
+	http.HandleFunc("/api/brain/oom-insights", ws.handleBrainOOMInsights)
+	http.HandleFunc("/api/brain/summary", ws.handleBrainSummary)
+
 	// Brain ML Insights endpoints
 	http.HandleFunc("/api/brain/ml/timeline", ws.handleBrainMLTimeline)
 	http.HandleFunc("/api/brain/ml/predictions", ws.handleBrainMLPredictions)

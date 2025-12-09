@@ -203,11 +203,24 @@ func (ws *WebServer) handleDiagnosticsRun(w http.ResponseWriter, r *http.Request
 	category := r.URL.Query().Get("category")
 
 	engine := NewDiagnosticsEngine(ws.app)
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute) // 2 minute timeout
+	// Reduced timeout to 45 seconds for faster response
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 
 	var findings []Finding
 	var err error
+
+	// Check if cluster is connected
+	if ws.app.clientset == nil || !ws.app.connected {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"findings": []Finding{},
+			"total":    0,
+			"summary":  engine.GetSummary([]Finding{}),
+			"error":    "Cluster not connected",
+		})
+		return
+	}
 
 	if category != "" {
 		findings, err = engine.RunByCategory(ctx, category)
@@ -226,7 +239,19 @@ func (ws *WebServer) handleDiagnosticsRun(w http.ResponseWriter, r *http.Request
 		findings, err = engine.RunAll(ctx)
 	}
 
+	// Handle timeout or context cancellation gracefully
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			// Return partial results if timeout
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"findings": findings,
+				"total":    len(findings),
+				"summary":  engine.GetSummary(findings),
+				"warning":  "Diagnostics timed out. Partial results shown.",
+			})
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

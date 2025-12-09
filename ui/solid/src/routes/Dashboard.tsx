@@ -1,6 +1,7 @@
 import { Component, createSignal, createResource, For, Show, createMemo, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { setCurrentView } from '../stores/ui';
+import { navigateToSecurityCheck } from '../utils/security-navigation';
 import { currentContext, refreshTrigger, nodesResource } from '../stores/cluster';
 
 // Modern SVG Icons
@@ -164,13 +165,21 @@ const Dashboard: Component = () => {
   // Use the shared nodesResource from cluster store (already refreshes on cluster switch)
   const nodes = nodesResource;
   
-  const [events, { refetch: refetchEvents }] = createResource(
+  const [eventsResponse, { refetch: refetchEvents }] = createResource(
     () => {
       const ctx = currentContext();
       const refresh = refreshTrigger();
       return { context: ctx, refresh };
     },
-    async () => api.getEvents()
+    async () => {
+      try {
+        const response = await api.getEvents(undefined, 50); // Get up to 50 recent events
+        return response?.events || [];
+      } catch (error) {
+        console.error('Failed to fetch events:', error);
+        return [];
+      }
+    }
   );
   
   // Refresh cost when cluster changes
@@ -228,7 +237,7 @@ const Dashboard: Component = () => {
     return Array.isArray(nodeList) ? nodeList.length : 0;
   };
   const recentEvents = () => {
-    const eventList = events();
+    const eventList = eventsResponse();
     return Array.isArray(eventList) ? eventList.slice(0, 10) : [];
   };
 
@@ -726,8 +735,25 @@ const Dashboard: Component = () => {
             <div class="space-y-2">
               <For each={securityChecks()}>
                 {(check) => (
-                  <div class="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-                    <div class="flex items-center gap-2">
+                  <div 
+                    class={`flex items-center justify-between p-3 rounded-lg transition-all ${
+                      check.status !== 'pass' && check.count ? 'cursor-pointer hover:opacity-80 hover:scale-[1.02]' : ''
+                    }`}
+                    style={{ 
+                      background: 'var(--bg-secondary)',
+                      ...(check.status !== 'pass' && check.count ? { 
+                        border: '1px solid var(--accent-primary)',
+                        borderOpacity: 0.3 
+                      } : {})
+                    }}
+                    onClick={() => {
+                      if (check.status !== 'pass' && check.count) {
+                        navigateToSecurityCheck(check.name, check.severity);
+                      }
+                    }}
+                    title={check.status !== 'pass' && check.count ? `Click to view ${check.count} pods with ${check.name}` : ''}
+                  >
+                    <div class="flex items-center gap-2 flex-1">
                       <span class={`px-1.5 py-0.5 rounded text-xs font-medium ${
                         check.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
                         check.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
@@ -738,9 +764,17 @@ const Dashboard: Component = () => {
                       </span>
                       <span style={{ color: 'var(--text-primary)' }}>{check.name}</span>
                       <Show when={check.count}>
-                        <span class="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                        <span class="text-xs px-1.5 py-0.5 rounded font-medium" style={{ 
+                          background: check.status === 'fail' ? 'rgba(239, 68, 68, 0.2)' : 'var(--bg-tertiary)', 
+                          color: check.status === 'fail' ? 'var(--error-color)' : 'var(--text-muted)' 
+                        }}>
                           {check.count}
                         </span>
+                      </Show>
+                      <Show when={check.status !== 'pass' && check.count}>
+                        <svg class="w-4 h-4 ml-auto opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
                       </Show>
                     </div>
                     <span class={`flex items-center gap-1 text-sm ${
