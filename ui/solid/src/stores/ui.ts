@@ -50,7 +50,8 @@ export type View =
   | 'inferenceservices'
   | 'mlflow'
   | 'feast'
-  | 'gpudashboard';
+  | 'gpudashboard'
+  | 'mlworkflows';
 
 const [currentView, setCurrentView] = createSignal<View>('dashboard');
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);

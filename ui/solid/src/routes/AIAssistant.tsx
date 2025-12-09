@@ -22,13 +22,13 @@ const AIAssistant: Component = () => {
     <div class="h-full flex flex-col">
       <div class="mb-4 flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            AI Assistant
-          </h1>
-          <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Ask questions about your Kubernetes cluster and get AI-powered insights
-          </p>
-        </div>
+        <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          AI Assistant
+        </h1>
+        <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+          Ask questions about your Kubernetes cluster and get AI-powered insights
+        </p>
+      </div>
         <button
           onClick={handleClose}
           class="p-2 rounded-lg transition-colors border"
