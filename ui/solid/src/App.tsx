@@ -119,6 +119,7 @@ import { currentView, setCurrentView, aiPanelOpen, sidebarCollapsed, notificatio
 import { refreshClusterStatus } from './stores/clusterManager';
 import { clusterSwitching, clusterSwitchMessage } from './stores/cluster';
 import { wsService } from './services/websocket';
+import { backgroundPrefetch } from './services/backgroundPrefetch';
 import { createSignal, createResource } from 'solid-js';
 
 const views: Record<string, Component> = {
@@ -189,13 +190,17 @@ const App: Component = () => {
   const [wsConnected, setWsConnected] = createSignal(false);
 
   onMount(() => {
-    // Connect WebSocket for real-time updates
+    // Initialize background pre-fetching in parallel (non-blocking)
+    // This pre-fetches critical data to improve first-load performance
+    backgroundPrefetch.initialize();
+
+    // Connect WebSocket for real-time updates (in parallel)
     wsService.connect();
 
-    // Prime cluster manager status for header indicator
+    // Prime cluster manager status for header indicator (in parallel)
     refreshClusterStatus();
 
-    // Auto-check for updates silently on app load
+    // Auto-check for updates silently on app load (in parallel)
     api.autoCheckUpdate()
       .then((info) => {
         setUpdateInfo(info);

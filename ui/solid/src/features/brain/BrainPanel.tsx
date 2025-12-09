@@ -1,7 +1,6 @@
 import { Component, Show, createResource } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
-import { api } from '../../services/api';
-import { brainMLService } from '../../services/brainML';
+import { fetchBrainDataInParallel } from '../../services/brainService';
 import { settings } from '../../stores/settings';
 import ClusterTimeline from './ClusterTimeline';
 import OOMInsights from './OOMInsights';
@@ -9,77 +8,28 @@ import Suggestions from './Suggestions';
 import MLTimeline from './MLTimeline';
 import MLPredictions from './MLPredictions';
 import MLSummary from './MLSummary';
-import { TimelineEvent } from './types';
-import { OOMMetrics } from './types';
-import { BrainSummary } from './types';
+import { BrainData } from '../../services/brainService';
 
 const BrainPanel: Component = () => {
-  // Fetch timeline events
-  const [timelineEvents] = createResource<TimelineEvent[]>(
-    () => brainPanelOpen(),
-    async () => {
-      if (!brainPanelOpen()) return [];
-      return await api.getBrainTimeline(72);
-    }
-  );
-
-  // Fetch OOM insights
-  const [oomMetrics] = createResource<OOMMetrics>(
-    () => brainPanelOpen(),
-    async () => {
-      if (!brainPanelOpen()) return { incidents24h: 0, crashLoops24h: 0, topProblematic: [] };
-      return await api.getBrainOOMInsights();
-    }
-  );
-
-  // Fetch summary
-  const [summary] = createResource<BrainSummary>(
+  // Fetch all Brain data in parallel using a single resource
+  const [brainData] = createResource<BrainData>(
     () => brainPanelOpen(),
     async () => {
       if (!brainPanelOpen()) {
+        // Return empty data structure when panel is closed
         return {
-          last24hSummary: '',
-          topRiskAreas: [],
-          recommendedActions: [],
-          generatedAt: new Date().toISOString(),
+          timelineEvents: [],
+          oomMetrics: { incidents24h: 0, crashLoops24h: 0, topProblematic: [] },
+          summary: {
+            last24hSummary: '',
+            topRiskAreas: [],
+            recommendedActions: [],
+            generatedAt: new Date().toISOString(),
+          },
         };
       }
-      return await api.getBrainSummary();
-    }
-  );
-
-  // Fetch ML timeline (only if enabled in settings)
-  const [mlTimeline] = createResource(
-    () => brainPanelOpen() && settings().showMLTimelineInBrain,
-    async () => {
-      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) return { events: [], timeRange: '', total: 0 };
-      return await brainMLService.getTimeline(72);
-    }
-  );
-
-  // Fetch ML predictions (only if enabled in settings)
-  const [mlPredictions] = createResource(
-    () => brainPanelOpen() && settings().showMLTimelineInBrain,
-    async () => {
-      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) return { predictions: [], generatedAt: '', total: 0 };
-      return await brainMLService.getPredictions();
-    }
-  );
-
-  // Fetch ML summary (only if enabled in settings)
-  const [mlSummary] = createResource(
-    () => brainPanelOpen() && settings().showMLTimelineInBrain,
-    async () => {
-      if (!brainPanelOpen() || !settings().showMLTimelineInBrain) {
-        return {
-          summary: '',
-          keyInsights: [],
-          recommendations: [],
-          generatedAt: '',
-          timeRange: '',
-        };
-      }
-      return await brainMLService.getSummary(24);
+      // Fetch all data in parallel for faster loading
+      return await fetchBrainDataInParallel();
     }
   );
 
@@ -163,7 +113,7 @@ const BrainPanel: Component = () => {
             'scrollbar-color': '#333333 #000000'
           }}>
             <Show
-              when={!timelineEvents.loading && !oomMetrics.loading && !summary.loading}
+              when={!brainData.loading && brainData()}
               fallback={
                 <div class="flex items-center justify-center h-64">
                 <div class="text-center">
@@ -173,47 +123,44 @@ const BrainPanel: Component = () => {
                 </div>
               }
             >
-              <ClusterTimeline events={timelineEvents() || []} />
-              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                <OOMInsights metrics={oomMetrics() || { incidents24h: 0, crashLoops24h: 0, topProblematic: [] }} />
-              </div>
-              <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                <Suggestions summary={summary() || {
-                  last24hSummary: '',
-                  topRiskAreas: [],
-                  recommendedActions: [],
-                  generatedAt: new Date().toISOString(),
-                }} />
-              </div>
-              
-              {/* ML Insights Sections - Only show if enabled in settings */}
-              <Show when={settings().showMLTimelineInBrain}>
-                <Show when={!mlTimeline.loading && !mlPredictions.loading && !mlSummary.loading}>
-                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                    <MLTimeline events={mlTimeline()?.events || []} />
-                  </div>
-                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                    <MLPredictions predictions={mlPredictions()?.predictions || []} />
-                  </div>
-                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                    <MLSummary summary={mlSummary() || {
-                      summary: '',
-                      keyInsights: [],
-                      recommendations: [],
-                      generatedAt: new Date().toISOString(),
-                      timeRange: 'last 24 hours',
-                    }} />
-                  </div>
-                </Show>
-                <Show when={mlTimeline.loading || mlPredictions.loading || mlSummary.loading}>
-                  <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
-                    <div class="text-center py-4" style={{ color: '#8b949e' }}>
-                      <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                      <p class="text-sm">Loading ML insights...</p>
+              {(() => {
+                const data = brainData()!;
+                return (
+                  <>
+                    <ClusterTimeline events={data.timelineEvents || []} />
+                    <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                      <OOMInsights metrics={data.oomMetrics || { incidents24h: 0, crashLoops24h: 0, topProblematic: [] }} />
                     </div>
-                  </div>
-                </Show>
-              </Show>
+                    <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                      <Suggestions summary={data.summary || {
+                        last24hSummary: '',
+                        topRiskAreas: [],
+                        recommendedActions: [],
+                        generatedAt: new Date().toISOString(),
+                      }} />
+                    </div>
+                    
+                    {/* ML Insights Sections - Only show if enabled in settings */}
+                    <Show when={settings().showMLTimelineInBrain && data.mlTimeline && data.mlPredictions && data.mlSummary}>
+                      <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                        <MLTimeline events={data.mlTimeline?.events || []} />
+                      </div>
+                      <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                        <MLPredictions predictions={data.mlPredictions?.predictions || []} />
+                      </div>
+                      <div class="border-t pt-8" style={{ borderColor: '#333333' }}>
+                        <MLSummary summary={data.mlSummary || {
+                          summary: '',
+                          keyInsights: [],
+                          recommendations: [],
+                          generatedAt: new Date().toISOString(),
+                          timeRange: 'last 24 hours',
+                        }} />
+                      </div>
+                    </Show>
+                  </>
+                );
+              })()}
             </Show>
           </div>
         </div>
