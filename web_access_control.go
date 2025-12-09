@@ -5,11 +5,15 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/yaml"
 )
 
 // ServiceAccountInfo represents a ServiceAccount with details
@@ -150,14 +154,87 @@ func (ws *WebServer) handleServiceAccountYAML(w http.ResponseWriter, r *http.Req
 		Version: "v1",
 		Kind:    "ServiceAccount",
 	}
-	yaml, err := toKubectlYAML(sa, gvk)
+	sa.ManagedFields = nil
+	yamlData, err := toKubectlYAML(sa, gvk)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/yaml")
-	w.Write([]byte(yaml))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+}
+
+// handleServiceAccountUpdate updates a ServiceAccount from YAML
+func (ws *WebServer) handleServiceAccountUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		http.Error(w, "name and namespace required", http.StatusBadRequest)
+		return
+	}
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Not connected to cluster", http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var sa corev1.ServiceAccount
+	if err := yaml.Unmarshal(body, &sa); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	_, err = ws.app.clientset.CoreV1().ServiceAccounts(namespace).Update(ws.app.ctx, &sa, metav1.UpdateOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update ServiceAccount: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleServiceAccountDelete deletes a ServiceAccount
+func (ws *WebServer) handleServiceAccountDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "name and namespace required"})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Not connected to cluster"})
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().ServiceAccounts(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // Note: RBAC handlers (Roles, ClusterRoles, RoleBindings, ClusterRoleBindings) 
@@ -169,6 +246,8 @@ func (ws *WebServer) RegisterAccessControlHandlers() {
 	http.HandleFunc("/api/serviceaccounts", ws.handleServiceAccounts)
 	http.HandleFunc("/api/serviceaccount/details", ws.handleServiceAccountDetails)
 	http.HandleFunc("/api/serviceaccount/yaml", ws.handleServiceAccountYAML)
+	http.HandleFunc("/api/serviceaccount/update", ws.handleServiceAccountUpdate)
+	http.HandleFunc("/api/serviceaccount/delete", ws.handleServiceAccountDelete)
 
 	// Note: RBAC handlers (Roles, ClusterRoles, RoleBindings, ClusterRoleBindings)
 	// are already registered in ai_handlers.go via existing endpoints:

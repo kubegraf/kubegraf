@@ -43,8 +43,55 @@ const RBAC: Component = () => {
   const [selectedCRB, setSelectedCRB] = createSignal<any>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
-  const [yamlContent, setYamlContent] = createSignal('');
-  const [yamlLoading, setYamlLoading] = createSignal(false);
+  
+  // Use createResource for automatic YAML loading like Deployments
+  const [yamlContent] = createResource(
+    () => {
+      if (!(showYaml() || showEdit())) return null;
+      const tab = activeTab();
+      const resource = tab === 'roles' ? selectedRole() :
+                      tab === 'rolebindings' ? selectedRB() :
+                      tab === 'clusterroles' ? selectedCR() :
+                      selectedCRB();
+      if (!resource) return null;
+      
+      const type = tab === 'roles' ? 'role' :
+                   tab === 'rolebindings' ? 'rolebinding' :
+                   tab === 'clusterroles' ? 'clusterrole' :
+                   'clusterrolebinding';
+      
+      // For cluster-scoped resources, namespace is undefined
+      // Include it in the key to ensure proper reactivity
+      return {
+        type,
+        name: resource.name,
+        namespace: resource.namespace || undefined
+      };
+    },
+    async (params) => {
+      if (!params) return '';
+      try {
+        let url = '';
+        if (params.type === 'role') {
+          url = `/api/rbac/role/yaml?name=${encodeURIComponent(params.name)}&namespace=${encodeURIComponent(params.namespace || '')}`;
+        } else if (params.type === 'rolebinding') {
+          url = `/api/rbac/rolebinding/yaml?name=${encodeURIComponent(params.name)}&namespace=${encodeURIComponent(params.namespace || '')}`;
+        } else if (params.type === 'clusterrole') {
+          url = `/api/rbac/clusterrole/yaml?name=${encodeURIComponent(params.name)}`;
+        } else if (params.type === 'clusterrolebinding') {
+          url = `/api/rbac/clusterrolebinding/yaml?name=${encodeURIComponent(params.name)}`;
+        }
+        
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch YAML');
+        const data = await response.json();
+        return data.yaml || '';
+      } catch (err: any) {
+        addNotification(`Failed to load YAML: ${err.message}`, 'error');
+        return '';
+      }
+    }
+  );
 
   // Fetch Roles
   const [roles] = createResource(
@@ -106,32 +153,6 @@ const RBAC: Component = () => {
     }
   });
 
-  // Load YAML for a resource
-  const loadYAML = async (type: string, name: string, namespace?: string) => {
-    setYamlLoading(true);
-    try {
-      let url = '';
-      if (type === 'role') {
-        url = `/api/rbac/role/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
-      } else if (type === 'rb') {
-        url = `/api/rbac/rolebinding/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
-      } else if (type === 'cr') {
-        url = `/api/rbac/clusterrole/yaml?name=${encodeURIComponent(name)}`;
-      } else if (type === 'crb') {
-        url = `/api/rbac/clusterrolebinding/yaml?name=${encodeURIComponent(name)}`;
-      }
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Failed to fetch YAML');
-      const data = await response.json();
-      setYamlContent(data.yaml || '');
-    } catch (err: any) {
-      addNotification(`Failed to load YAML: ${err.message}`, 'error');
-      setYamlContent('');
-    } finally {
-      setYamlLoading(false);
-    }
-  };
 
   // Handle delete
   const handleDelete = async (type: string, name: string, namespace?: string) => {
@@ -143,11 +164,11 @@ const RBAC: Component = () => {
       let url = '';
       if (type === 'role') {
         url = `/api/rbac/role/delete?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
-      } else if (type === 'rb') {
+      } else if (type === 'rb' || type === 'rolebinding') {
         url = `/api/rbac/rolebinding/delete?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace || '')}`;
-      } else if (type === 'cr') {
+      } else if (type === 'cr' || type === 'clusterrole') {
         url = `/api/rbac/clusterrole/delete?name=${encodeURIComponent(name)}`;
-      } else if (type === 'crb') {
+      } else if (type === 'crb' || type === 'clusterrolebinding') {
         url = `/api/rbac/clusterrolebinding/delete?name=${encodeURIComponent(name)}`;
       }
 
@@ -160,9 +181,9 @@ const RBAC: Component = () => {
       
       // Refetch data
       if (type === 'role') roles.refetch();
-      else if (type === 'rb') roleBindings.refetch();
-      else if (type === 'cr') clusterRoles.refetch();
-      else if (type === 'crb') clusterRoleBindings.refetch();
+      else if (type === 'rb' || type === 'rolebinding') roleBindings.refetch();
+      else if (type === 'cr' || type === 'clusterrole') clusterRoles.refetch();
+      else if (type === 'crb' || type === 'clusterrolebinding') clusterRoleBindings.refetch();
     } catch (err: any) {
       addNotification(`Failed to delete: ${err.message}`, 'error');
     }
@@ -322,8 +343,8 @@ const RBAC: Component = () => {
                         <td class="px-4 py-3 text-sm">
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRole(role); loadYAML('role', role.name, role.namespace); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRole(role); loadYAML('role', role.name, role.namespace); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRole(role); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRole(role); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('role', role.name, role.namespace), variant: 'danger', divider: true },
                             ]}
                           />
@@ -376,8 +397,8 @@ const RBAC: Component = () => {
                         <td class="px-4 py-3 text-sm">
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRB(rb); loadYAML('rb', rb.name, rb.namespace); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRB(rb); loadYAML('rb', rb.name, rb.namespace); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRB(rb); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRB(rb); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('rb', rb.name, rb.namespace), variant: 'danger', divider: true },
                             ]}
                           />
@@ -426,8 +447,8 @@ const RBAC: Component = () => {
                         <td class="px-4 py-3 text-sm">
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCR(cr); loadYAML('cr', cr.name); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCR(cr); loadYAML('cr', cr.name); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCR(cr); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCR(cr); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('cr', cr.name), variant: 'danger', divider: true },
                             ]}
                           />
@@ -478,8 +499,8 @@ const RBAC: Component = () => {
                         <td class="px-4 py-3 text-sm">
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCRB(crb); loadYAML('crb', crb.name); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCRB(crb); loadYAML('crb', crb.name); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCRB(crb); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCRB(crb); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('crb', crb.name), variant: 'danger', divider: true },
                             ]}
                           />
@@ -495,36 +516,30 @@ const RBAC: Component = () => {
       </Show>
 
       {/* YAML Viewer Modal */}
-      <Show when={showYaml()}>
-        <Modal
-          size="large"
-          title={`View YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
-          onClose={() => { setShowYaml(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
-        >
-          <Show when={yamlLoading()} fallback={<YAMLViewer content={yamlContent()} />}>
-            <div class="p-8 text-center">
-              <div class="spinner mx-auto mb-2" />
-              <span style={{ color: 'var(--text-muted)' }}>Loading YAML...</span>
-            </div>
-          </Show>
-        </Modal>
-      </Show>
+      <Modal
+        isOpen={showYaml()}
+        size="xl"
+        title={`View YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
+        onClose={() => { setShowYaml(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+      >
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <YAMLViewer yaml={yamlContent() || ''} title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} />
+        </Show>
+      </Modal>
 
       {/* YAML Editor Modal */}
-      <Show when={showEdit()}>
-        <Modal
-          size="large"
-          title={`Edit YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
-          onClose={() => { setShowEdit(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
-        >
-          <Show when={yamlLoading()} fallback={<YAMLEditor content={yamlContent()} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />}>
-            <div class="p-8 text-center">
-              <div class="spinner mx-auto mb-2" />
-              <span style={{ color: 'var(--text-muted)' }}>Loading YAML...</span>
-            </div>
-          </Show>
-        </Modal>
-      </Show>
+      <Modal
+        isOpen={showEdit()}
+        size="xl"
+        title={`Edit YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
+        onClose={() => { setShowEdit(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+      >
+        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor yaml={yamlContent() || ''} title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />
+          </div>
+        </Show>
+      </Modal>
     </div>
   );
 };

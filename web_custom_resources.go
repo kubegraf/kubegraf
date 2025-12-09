@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/yaml"
 )
 
 // CRDInfo represents a CustomResourceDefinition
@@ -434,6 +436,185 @@ func (ws *WebServer) handleCustomResourceInstanceYAML(w http.ResponseWriter, r *
 	w.Write([]byte(yaml))
 }
 
+// handleCustomResourceInstanceUpdate updates a custom resource instance from YAML
+func (ws *WebServer) handleCustomResourceInstanceUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	crdName := r.URL.Query().Get("crd")
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if crdName == "" || name == "" {
+		http.Error(w, "crd and name parameters required", http.StatusBadRequest)
+		return
+	}
+
+	if ws.app.clientset == nil {
+		http.Error(w, "Not connected to cluster", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create apiextensions client
+	apiextensionsClient, err := apiextensionsclientset.NewForConfig(ws.app.config)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create API extensions client: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Get the CRD
+	crd, err := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ws.app.ctx, crdName, metav1.GetOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("CRD not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Get the served version
+	var version string
+	for _, v := range crd.Spec.Versions {
+		if v.Served {
+			version = v.Name
+			if version == "v1" {
+				break
+			}
+		}
+	}
+	if version == "" && len(crd.Spec.Versions) > 0 {
+		version = crd.Spec.Versions[0].Name
+	}
+
+	// Create dynamic client
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create dynamic client: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    crd.Spec.Group,
+		Version:  version,
+		Resource: crd.Spec.Names.Plural,
+	}
+
+	// Read YAML body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Unmarshal YAML to unstructured
+	var obj unstructured.Unstructured
+	if err := yaml.Unmarshal(body, &obj.Object); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to unmarshal YAML: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Update the resource
+	var updated *unstructured.Unstructured
+	if crd.Spec.Scope == apiextensionsv1.NamespaceScoped {
+		if namespace == "" {
+			http.Error(w, "namespace required for namespaced CRD", http.StatusBadRequest)
+			return
+		}
+		updated, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(ws.app.ctx, &obj, metav1.UpdateOptions{})
+	} else {
+		updated, err = dynamicClient.Resource(gvr).Update(ws.app.ctx, &obj, metav1.UpdateOptions{})
+	}
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update instance: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "name": updated.GetName()})
+}
+
+// handleCustomResourceInstanceDelete deletes a custom resource instance
+func (ws *WebServer) handleCustomResourceInstanceDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	crdName := r.URL.Query().Get("crd")
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if crdName == "" || name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "crd and name parameters required"})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Not connected to cluster"})
+		return
+	}
+
+	// Create apiextensions client
+	apiextensionsClient, err := apiextensionsclientset.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("Failed to create API extensions client: %v", err)})
+		return
+	}
+
+	// Get the CRD
+	crd, err := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ws.app.ctx, crdName, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("CRD not found: %v", err)})
+		return
+	}
+
+	// Get the served version
+	var version string
+	for _, v := range crd.Spec.Versions {
+		if v.Served {
+			version = v.Name
+			if version == "v1" {
+				break
+			}
+		}
+	}
+	if version == "" && len(crd.Spec.Versions) > 0 {
+		version = crd.Spec.Versions[0].Name
+	}
+
+	// Create dynamic client
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("Failed to create dynamic client: %v", err)})
+		return
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    crd.Spec.Group,
+		Version:  version,
+		Resource: crd.Spec.Names.Plural,
+	}
+
+	// Delete the resource
+	if crd.Spec.Scope == apiextensionsv1.NamespaceScoped {
+		if namespace == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "namespace required for namespaced CRD"})
+			return
+		}
+		err = dynamicClient.Resource(gvr).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	} else {
+		err = dynamicClient.Resource(gvr).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	}
+
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 // handleOtherResources returns Kubernetes resources not already in the sidebar
 func (ws *WebServer) handleOtherResources(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -549,6 +730,8 @@ func (ws *WebServer) RegisterCustomResourcesHandlers() {
 	http.HandleFunc("/api/crd/instances", ws.handleCustomResourceInstances)
 	http.HandleFunc("/api/crd/instance/details", ws.handleCustomResourceInstanceDetails)
 	http.HandleFunc("/api/crd/instance/yaml", ws.handleCustomResourceInstanceYAML)
+	http.HandleFunc("/api/crd/instance/update", ws.handleCustomResourceInstanceUpdate)
+	http.HandleFunc("/api/crd/instance/delete", ws.handleCustomResourceInstanceDelete)
 
 	// Other Kubernetes resources not in sidebar
 	http.HandleFunc("/api/resources/other", ws.handleOtherResources)
