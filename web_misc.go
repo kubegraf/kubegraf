@@ -610,12 +610,51 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build containers info
+	// Build containers info (init containers first, then main containers)
 	containers := []map[string]interface{}{}
+	
+	// Add init containers
+	for _, ic := range pod.Spec.InitContainers {
+		containerInfo := map[string]interface{}{
+			"name":  ic.Name,
+			"image": ic.Image,
+			"type":  "init",
+		}
+
+		// Find init container status
+		for _, ics := range pod.Status.InitContainerStatuses {
+			if ics.Name == ic.Name {
+				containerInfo["restartCount"] = ics.RestartCount
+				containerInfo["containerID"] = ics.ContainerID
+				if ics.State.Terminated != nil {
+					containerInfo["state"] = "Terminated"
+					containerInfo["ready"] = ics.State.Terminated.ExitCode == 0
+					containerInfo["exitCode"] = ics.State.Terminated.ExitCode
+					containerInfo["reason"] = ics.State.Terminated.Reason
+					containerInfo["startedAt"] = ics.State.Terminated.StartedAt.String()
+				} else if ics.State.Running != nil {
+					containerInfo["state"] = "Running"
+					containerInfo["ready"] = false
+					containerInfo["startedAt"] = ics.State.Running.StartedAt.String()
+				} else if ics.State.Waiting != nil {
+					containerInfo["state"] = "Waiting"
+					containerInfo["ready"] = false
+					containerInfo["reason"] = ics.State.Waiting.Reason
+					containerInfo["message"] = ics.State.Waiting.Message
+				}
+				break
+			}
+		}
+
+		containers = append(containers, containerInfo)
+	}
+
+	// Add main containers
 	for _, c := range pod.Spec.Containers {
 		containerInfo := map[string]interface{}{
 			"name":  c.Name,
 			"image": c.Image,
+			"type":  "main",
 		}
 
 		// Find container status
