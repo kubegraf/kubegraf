@@ -140,7 +140,7 @@ const MonitoredEvents: Component = () => {
     }),
     async ({ namespaces }) => {
       try {
-        const filters: any = { limit: 200 };
+        const filters: any = { limit: 200, critical_only: false }; // Show all errors, not just critical
         // If single namespace selected, use API filter
         if (namespaces.length === 1) {
           filters.namespace = namespaces[0];
@@ -199,9 +199,18 @@ const MonitoredEvents: Component = () => {
 
   createMemo(() => {
     const data = errorsData();
+    console.log('[MonitoredEvents] errorsData:', { 
+      data: data, 
+      loading: errorsData.loading, 
+      error: errorsData.error,
+      isArray: Array.isArray(data),
+      length: data?.length 
+    });
     if (data && Array.isArray(data)) {
+      console.log('[MonitoredEvents] Setting logErrors:', data.length);
       setLogErrors(data);
     } else if (!errorsData.loading && !errorsData.error) {
+      console.log('[MonitoredEvents] No data, setting empty array');
       setLogErrors([]);
     }
   });
@@ -211,6 +220,14 @@ const MonitoredEvents: Component = () => {
     if (data) {
       setStats(data);
     }
+  });
+
+  // Filtered log errors (only those with status_code > 0)
+  const filteredLogErrors = createMemo(() => {
+    const errors = logErrors() || [];
+    const filtered = errors.filter(e => e.status_code > 0);
+    console.log('[MonitoredEvents] Filtered log errors:', { total: errors.length, filtered: filtered.length });
+    return filtered;
   });
 
   // Auto-refresh
@@ -309,8 +326,30 @@ const MonitoredEvents: Component = () => {
   };
 
   const filteredEvents = createMemo(() => {
-    const evts = events();
-    return Array.isArray(evts) ? evts : [];
+    let evts = events();
+    if (!Array.isArray(evts)) {
+      evts = [];
+    }
+    
+    // Apply severity filter
+    const severity = severityFilter();
+    if (severity !== 'all') {
+      evts = evts.filter(e => e.severity === severity);
+    }
+    
+    // Apply type filter
+    const type = typeFilter();
+    if (type !== 'all') {
+      evts = evts.filter(e => e.type === type);
+    }
+    
+    // Apply namespace filter if namespaces are selected
+    const namespaces = selectedNamespaces();
+    if (namespaces.length > 0) {
+      evts = evts.filter(e => namespaces.includes(e.namespace || ''));
+    }
+    
+    return evts;
   });
 
   return (
@@ -506,26 +545,30 @@ const MonitoredEvents: Component = () => {
 
       {/* Stats Cards */}
       <Show when={stats()}>
-        {(statsData: () => any) => (
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="card p-4">
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Total Events</div>
-              <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{statsData().total_events || 0}</div>
+        {(statsData: () => any) => {
+          const stats = statsData();
+          const bySeverity = stats?.by_severity || {};
+          return (
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div class="card p-4">
+                <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Total Events</div>
+                <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{stats?.total_events || 0}</div>
+              </div>
+              <div class="card p-4">
+                <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical</div>
+                <div class="text-2xl font-bold" style={{ color: '#ef4444' }}>{bySeverity['critical'] || 0}</div>
+              </div>
+              <div class="card p-4">
+                <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>High</div>
+                <div class="text-2xl font-bold" style={{ color: '#f59e0b' }}>{bySeverity['high'] || 0}</div>
+              </div>
+              <div class="card p-4">
+                <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Log Errors</div>
+                <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{stats?.total_errors || 0}</div>
+              </div>
             </div>
-            <div class="card p-4">
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical</div>
-              <div class="text-2xl font-bold" style={{ color: '#ef4444' }}>{statsData().by_severity?.critical || 0}</div>
-            </div>
-            <div class="card p-4">
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>High</div>
-              <div class="text-2xl font-bold" style={{ color: '#f59e0b' }}>{statsData().by_severity?.high || 0}</div>
-            </div>
-            <div class="card p-4">
-              <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Log Errors</div>
-              <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{statsData().total_errors || 0}</div>
-            </div>
-          </div>
-        )}
+          );
+        }}
       </Show>
 
       {/* Filters and View Mode */}
@@ -697,7 +740,7 @@ const MonitoredEvents: Component = () => {
         </Show>
         <Show when={!errorsData.loading}>
           <div class="space-y-4">
-            <For each={(logErrors() || []).filter(e => e.status_code > 0)}>
+            <For each={filteredLogErrors()}>
               {(error) => (
                 <div class="card p-4 border-l-4" style={{ 'border-left-color': error.status_code >= 500 ? '#ef4444' : '#f59e0b' }}>
                   <div class="flex items-start justify-between gap-4">
@@ -725,7 +768,7 @@ const MonitoredEvents: Component = () => {
                 </div>
               )}
             </For>
-            <Show when={!logErrors() || logErrors().length === 0}>
+            <Show when={filteredLogErrors().length === 0}>
               <div class="card p-8 text-center">
                 <p style={{ color: 'var(--text-muted)' }}>No log errors found</p>
               </div>

@@ -516,30 +516,30 @@ const RBAC: Component = () => {
       </Show>
 
       {/* YAML Viewer Modal */}
-      <Modal
+        <Modal
         isOpen={showYaml()}
         size="xl"
-        title={`View YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
-        onClose={() => { setShowYaml(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
-      >
+          title={`View YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
+          onClose={() => { setShowYaml(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+        >
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <YAMLViewer yaml={yamlContent() || ''} title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} />
-        </Show>
-      </Modal>
+          </Show>
+        </Modal>
 
       {/* YAML Editor Modal */}
-      <Modal
+        <Modal
         isOpen={showEdit()}
         size="xl"
-        title={`Edit YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
-        onClose={() => { setShowEdit(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
-      >
+          title={`Edit YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
+          onClose={() => { setShowEdit(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+        >
         <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
           <div style={{ height: '70vh' }}>
             <YAMLEditor yaml={yamlContent() || ''} title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />
-          </div>
-        </Show>
-      </Modal>
+            </div>
+          </Show>
+        </Modal>
     </div>
   );
 };

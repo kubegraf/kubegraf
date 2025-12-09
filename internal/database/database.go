@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -22,6 +23,7 @@ type Database struct {
 	db      *sql.DB
 	gcm     cipher.AEAD
 	enabled bool
+	dbPath  string // Store database path for restore operations
 }
 
 // User represents a local user with RBAC
@@ -64,10 +66,24 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
-	// Open database
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
+	// Open database with corruption prevention settings
+	// WAL mode: Write-Ahead Logging for better concurrency and crash recovery
+	// busy_timeout: Wait up to 5 seconds for locks (prevents "database is locked" errors)
+	// foreign_keys: Enable foreign key constraints for data integrity
+	// synchronous: NORMAL mode balances safety and performance
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+	
+	// Set connection pool settings
+	db.SetMaxOpenConns(1) // SQLite works best with single connection
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0) // Don't close connections
+	
+	// Verify database integrity on startup
+	if err := verifyDatabaseIntegrity(db); err != nil {
+		return nil, fmt.Errorf("database integrity check failed: %w", err)
 	}
 
 	// Initialize encryption
@@ -86,6 +102,7 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 		db:      db,
 		gcm:     gcm,
 		enabled: true,
+		dbPath:  dbPath,
 	}
 
 	// Initialize schema
@@ -182,6 +199,37 @@ func (d *Database) initSchema() error {
 		updated_at DATETIME NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS monitored_events (
+		id TEXT PRIMARY KEY,
+		timestamp DATETIME NOT NULL,
+		type TEXT NOT NULL,
+		category TEXT NOT NULL,
+		severity TEXT NOT NULL,
+		title TEXT NOT NULL,
+		description TEXT,
+		namespace TEXT,
+		resource TEXT,
+		details TEXT,
+		count INTEGER NOT NULL DEFAULT 1,
+		group_id TEXT,
+		source TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS log_errors (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp DATETIME NOT NULL,
+		pod TEXT NOT NULL,
+		namespace TEXT NOT NULL,
+		container TEXT NOT NULL,
+		status_code INTEGER NOT NULL,
+		method TEXT,
+		path TEXT,
+		message TEXT,
+		error_type TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
@@ -190,6 +238,13 @@ func (d *Database) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_app_installations_app_name ON app_installations(app_name);
 	CREATE INDEX IF NOT EXISTS idx_clusters_connected ON clusters(connected);
 	CREATE INDEX IF NOT EXISTS idx_clusters_last_used ON clusters(last_used);
+	CREATE INDEX IF NOT EXISTS idx_monitored_events_timestamp ON monitored_events(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_monitored_events_severity ON monitored_events(severity);
+	CREATE INDEX IF NOT EXISTS idx_monitored_events_namespace ON monitored_events(namespace);
+	CREATE INDEX IF NOT EXISTS idx_log_errors_timestamp ON log_errors(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_log_errors_status_code ON log_errors(status_code);
+	CREATE INDEX IF NOT EXISTS idx_log_errors_namespace ON log_errors(namespace);
+	CREATE INDEX IF NOT EXISTS idx_log_errors_method ON log_errors(method);
 
 	INSERT OR IGNORE INTO workspace_context (id, payload, updated_at)
 	VALUES (1, '{"selectedNamespaces":[],"selectedCluster":"","filters":{}}', CURRENT_TIMESTAMP);
@@ -532,4 +587,205 @@ func generateSessionID() string {
 // This allows other packages to work with the database when needed
 func (d *Database) GetDB() *sql.DB {
 	return d.db
+}
+
+// verifyDatabaseIntegrity checks if the database is corrupted
+func verifyDatabaseIntegrity(db *sql.DB) error {
+	var result string
+	err := db.QueryRow("PRAGMA integrity_check").Scan(&result)
+	if err != nil {
+		return fmt.Errorf("integrity check query failed: %w", err)
+	}
+	
+	if result != "ok" {
+		return fmt.Errorf("database integrity check failed: %s", result)
+	}
+	
+	return nil
+}
+
+// CheckIntegrity performs an integrity check on the database
+func (d *Database) CheckIntegrity() error {
+	if d.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return verifyDatabaseIntegrity(d.db)
+}
+
+// Backup creates a backup of the database to the specified path
+// Uses VACUUM INTO for safe, atomic backup (SQLite 3.27+)
+func (d *Database) Backup(backupPath string) error {
+	if d.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	
+	// Create backup directory if needed
+	dir := filepath.Dir(backupPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create backup directory: %w", err)
+	}
+	
+	// Use VACUUM INTO for safe backup (SQLite 3.27+)
+	// This creates an atomic backup that's guaranteed to be consistent
+	_, err := d.db.Exec(fmt.Sprintf("VACUUM INTO %q", backupPath))
+	if err != nil {
+		// Fallback: use file copy if VACUUM INTO not supported
+		return d.fileCopyBackup(backupPath)
+	}
+	
+	// Verify backup integrity
+	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
+	if err != nil {
+		return fmt.Errorf("open backup for verification: %w", err)
+	}
+	defer backupDB.Close()
+	
+	if err := verifyDatabaseIntegrity(backupDB); err != nil {
+		os.Remove(backupPath) // Remove corrupted backup
+		return fmt.Errorf("backup integrity check failed: %w", err)
+	}
+	
+	return nil
+}
+
+// fileCopyBackup performs a file-based backup (fallback method)
+func (d *Database) fileCopyBackup(backupPath string) error {
+	// Get the database path from the connection string
+	// This is a simplified approach - in production you'd store the path
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	// Use SQLite backup API via connection
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("get database connection: %w", err)
+	}
+	defer conn.Close()
+	
+	// For now, we'll use a simple approach: create a checkpoint and copy
+	// In production, use sqlite3_backup API for proper backup
+	_, err = d.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	if err != nil {
+		return fmt.Errorf("checkpoint failed: %w", err)
+	}
+	
+	// Note: File copy backup requires knowing the source path
+	// This is a simplified implementation
+	return fmt.Errorf("file copy backup requires source path - use VACUUM INTO instead")
+}
+
+// RestoreFromBackup restores the database from a backup file
+// WARNING: This will overwrite the current database
+func (d *Database) RestoreFromBackup(backupPath, dbPath string) error {
+	// Verify backup integrity first
+	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
+	if err != nil {
+		return fmt.Errorf("open backup database: %w", err)
+	}
+	defer backupDB.Close()
+	
+	if err := verifyDatabaseIntegrity(backupDB); err != nil {
+		return fmt.Errorf("backup integrity check failed: %w", err)
+	}
+	
+	// Close current database connection
+	if err := d.db.Close(); err != nil {
+		return fmt.Errorf("close current database: %w", err)
+	}
+	
+	// Copy backup file to database location
+	sourceFile, err := os.Open(backupPath)
+	if err != nil {
+		return fmt.Errorf("open backup file: %w", err)
+	}
+	defer sourceFile.Close()
+	
+	// Remove existing database file if it exists
+	if _, err := os.Stat(dbPath); err == nil {
+		if err := os.Remove(dbPath); err != nil {
+			return fmt.Errorf("remove existing database: %w", err)
+		}
+	}
+	
+	destFile, err := os.Create(dbPath)
+	if err != nil {
+		return fmt.Errorf("create database file: %w", err)
+	}
+	defer destFile.Close()
+	
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return fmt.Errorf("copy backup file: %w", err)
+	}
+	
+	// Reopen database
+	newDB, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
+	if err != nil {
+		return fmt.Errorf("reopen database: %w", err)
+	}
+	
+	// Set connection pool settings
+	newDB.SetMaxOpenConns(1)
+	newDB.SetMaxIdleConns(1)
+	newDB.SetConnMaxLifetime(0)
+	
+	// Verify restored database
+	if err := verifyDatabaseIntegrity(newDB); err != nil {
+		return fmt.Errorf("restored database integrity check failed: %w", err)
+	}
+	
+	d.db = newDB
+	d.dbPath = dbPath
+	return nil
+}
+
+// AutoBackup creates automatic backups on a schedule
+func (d *Database) AutoBackup(ctx context.Context, backupDir string, interval time.Duration) error {
+	if err := os.MkdirAll(backupDir, 0700); err != nil {
+		return fmt.Errorf("create backup directory: %w", err)
+	}
+	
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			backupPath := filepath.Join(backupDir, fmt.Sprintf("backup-%s.db", time.Now().Format("20060102-150405")))
+			if err := d.Backup(backupPath); err != nil {
+				fmt.Printf("⚠️  Backup failed: %v\n", err)
+				continue
+			}
+			fmt.Printf("✅ Database backup created: %s\n", backupPath)
+			
+			// Clean up old backups (keep last 7 days)
+			d.cleanupOldBackups(backupDir, 7*24*time.Hour)
+		}
+	}
+}
+
+// cleanupOldBackups removes backup files older than the specified duration
+func (d *Database) cleanupOldBackups(backupDir string, olderThan time.Duration) {
+	files, err := os.ReadDir(backupDir)
+	if err != nil {
+		return
+	}
+	
+	cutoff := time.Now().Add(-olderThan)
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+		
+		if info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(backupDir, file.Name()))
+		}
+	}
 }

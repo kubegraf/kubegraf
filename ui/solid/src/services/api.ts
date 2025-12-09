@@ -666,11 +666,21 @@ export const api = {
     namespace?: string;
     since?: string;
     limit?: number;
+    critical_only?: boolean;
   }) => {
     const params = new URLSearchParams();
     if (filters?.namespace) params.append('namespace', filters.namespace);
     if (filters?.since) params.append('since', filters.since);
     if (filters?.limit) params.append('limit', filters.limit.toString());
+    // Explicitly set critical_only parameter
+    if (filters?.critical_only === false) {
+      params.append('critical_only', 'false');
+    } else if (filters?.critical_only === true) {
+      params.append('critical_only', 'true');
+    } else {
+      // Default to true if not specified
+      params.append('critical_only', 'true');
+    }
     const query = params.toString() ? `?${params.toString()}` : '';
     return fetchAPI<{ errors: any[]; total: number }>(`/events/log-errors${query}`);
   },
@@ -1187,6 +1197,58 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enabled }),
     });
+  },
+
+  // Database Backup Management
+  database: {
+    getBackupStatus: () => fetchAPI<{
+      enabled: boolean;
+      interval: number; // in hours
+      backup_dir: string;
+      last_backup?: string;
+      next_backup?: string;
+      backup_count: number;
+      total_size: number;
+      error?: string;
+    }>('/database/backup/status'),
+
+    updateBackupConfig: (config: {
+      enabled: boolean;
+      interval: number; // in hours
+      backup_dir?: string;
+    }) => fetchAPI<{ success: boolean; message: string }>('/database/backup/config', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
+    createBackup: () => fetchAPI<{
+      success: boolean;
+      message: string;
+      backup_path: string;
+      timestamp: string;
+    }>('/database/backup/now', {
+      method: 'POST',
+    }),
+
+    listBackups: () => fetchAPI<{
+      backups: Array<{
+        name: string;
+        path: string;
+        size: number;
+        created_at: string;
+      }>;
+      count: number;
+    }>('/database/backup/list'),
+
+    restoreBackup: (backupPath: string, dbPath?: string) => fetchAPI<{
+      success: boolean;
+      message: string;
+      backup_path: string;
+      db_path: string;
+    }>('/database/backup/restore', {
+      method: 'POST',
+      body: JSON.stringify({ backup_path: backupPath, db_path: dbPath }),
+    }),
   },
 };
 

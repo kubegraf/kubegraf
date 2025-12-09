@@ -225,6 +225,21 @@ func NewWebServer(app *App) *WebServer {
 		// Initialize cluster service if database is available
 		if ws.db != nil {
 			ws.clusterService = NewClusterService(app, ws.db)
+			
+		// Initialize backup configuration
+		backupDir = filepath.Join(kubegrafDir, "backups")
+		backupInterval = 6 * time.Hour
+		backupEnabled = true
+		
+		// Start automatic database backups
+		ctx, cancel := context.WithCancel(context.Background())
+		backupCancel = cancel
+		go func() {
+			if err := ws.db.AutoBackup(ctx, backupDir, backupInterval); err != nil {
+				fmt.Printf("⚠️  Database backup service stopped: %v\n", err)
+			}
+		}()
+		fmt.Printf("✅ Database automatic backups enabled (every %v, stored in %s)\n", backupInterval, backupDir)
 		}
 	}
 	
@@ -401,6 +416,13 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/auth/logout", ws.handleLogout)
 	http.HandleFunc("/api/auth/register", ws.handleRegister)
 	http.HandleFunc("/api/auth/me", ws.handleGetCurrentUser)
+
+	// Database backup endpoints
+	http.HandleFunc("/api/database/backup/status", ws.handleBackupStatus)
+	http.HandleFunc("/api/database/backup/config", ws.handleBackupConfig)
+	http.HandleFunc("/api/database/backup/now", ws.handleBackupNow)
+	http.HandleFunc("/api/database/backup/list", ws.handleBackupList)
+	http.HandleFunc("/api/database/backup/restore", ws.handleBackupRestore)
 
 	// Security analysis endpoint
 	http.HandleFunc("/api/security", ws.handleSecurityAnalysis)
