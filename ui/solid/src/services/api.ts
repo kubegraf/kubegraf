@@ -2,11 +2,17 @@
 
 const API_BASE = '/api';
 
-// Generic fetch wrapper with error handling
+  // Generic fetch wrapper with error handling
 export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   // Add timeout for long-running requests (like ML recommendations)
   // Cost API can take up to 2 minutes for large clusters
-  const defaultTimeout = endpoint.includes('/cost/') ? 120000 : 15000; // 2 minutes for cost, 15s for others
+  // History API can take up to 60 seconds for large clusters with many namespaces
+  let defaultTimeout = 15000; // 15s default
+  if (endpoint.includes('/cost/')) {
+    defaultTimeout = 120000; // 2 minutes for cost
+  } else if (endpoint.includes('/history/')) {
+    defaultTimeout = 60000; // 60 seconds for history
+  }
   const timeout = (options as any)?.timeout || defaultTimeout;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -1016,6 +1022,33 @@ export const api = {
     const endpoint = query ? `/incidents?${query}` : '/incidents';
     const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
     return data.incidents || [];
+  },
+
+  // ============ History/Timeline ============
+  getHistoryEvents: async (incidentId?: string, since?: string, until?: string) => {
+    const params = new URLSearchParams();
+    if (incidentId) params.append('incident_id', incidentId);
+    if (since) params.append('since', since);
+    if (until) params.append('until', until);
+    const query = params.toString();
+    const endpoint = query ? `/history/events?${query}` : '/history/events';
+    return fetchAPI<{
+      events: Array<{
+        timestamp: string;
+        type: string;
+        severity: string;
+        resourceKind: string;
+        resourceName: string;
+        namespace?: string;
+        eventType?: string;
+        message?: string;
+        metadata?: Record<string, any>;
+      }>;
+      total: number;
+      since: string;
+      until: string;
+      incidentId?: string;
+    }>(endpoint);
   },
 
   // ============ Brain ============
