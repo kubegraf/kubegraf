@@ -21,8 +21,8 @@ export function getRowHoverBackground(isSelected: boolean = false, isFailed: boo
     return 'rgba(239, 68, 68, 0.08)';
   }
   if (isPending) {
-    // Pending pods: very subtle orange tint that works in both themes
-    return 'rgba(245, 158, 11, 0.08)';
+    // Pending/Initializing pods: very subtle yellow tint that works in both themes
+    return 'rgba(251, 191, 36, 0.08)';
   }
   // Default hover: use secondary background (matches Deployments style)
   // This is subtle and works well in both light and dark themes

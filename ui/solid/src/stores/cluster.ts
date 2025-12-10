@@ -236,7 +236,12 @@ async function fetchNodes(): Promise<Node[]> {
   const res = await fetch('/api/nodes');
   if (!res.ok) throw new Error('Failed to fetch nodes');
   const data = await res.json();
-  return Array.isArray(data) ? data : (data.nodes || []);
+  // Handle both old format (array) and new format (object with nodes array)
+  if (Array.isArray(data)) {
+    return data;
+  }
+  // New format: { nodes: [...], total: X, healthy: Y, schedulable: Z, ... }
+  return data.nodes || [];
 }
 
 async function fetchClusterStatus(): Promise<ClusterStatus> {

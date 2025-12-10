@@ -43,6 +43,7 @@ func main() {
 
 	// Check for flags first (before splash)
 	webMode := false
+	ephemeralMode := false
 	port := 3000 // Default to 3000 for web UI
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -54,15 +55,15 @@ func main() {
 			return
 		case "--web", "web":
 			webMode = true
-			// Check for custom port - support both --port=3003 and --port 3003 formats
+			// Check for custom port and ephemeral flag
 			for i := 2; i < len(os.Args); i++ {
 				arg := os.Args[i]
 				if strings.HasPrefix(arg, "--port=") {
 					fmt.Sscanf(arg, "--port=%d", &port)
-					break
 				} else if arg == "--port" && i+1 < len(os.Args) {
 					fmt.Sscanf(os.Args[i+1], "%d", &port)
-					break
+				} else if arg == "--ephemeral" {
+					ephemeralMode = true
 				}
 			}
 		}
@@ -111,6 +112,12 @@ func main() {
 		webServer := NewWebServer(app)
 		webServer.clusterManager = clusterManager
 
+		// Enable ephemeral mode if requested
+		if ephemeralMode {
+			webServer.ephemeralMode.Enable()
+			fmt.Println("🗑️  Ephemeral mode enabled - data will be wiped on exit")
+		}
+
 		// Setup signal handling for graceful shutdown (silently)
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -147,6 +154,14 @@ func main() {
 					fmt.Printf("⚠️  Failed to update state: %v\n", err)
 				} else {
 					fmt.Println("✅ State updated successfully")
+				}
+			}
+			// Cleanup ephemeral mode if enabled
+			if ephemeralMode && webServer.ephemeralMode != nil {
+				if err := webServer.ephemeralMode.Cleanup(); err != nil {
+					fmt.Printf("⚠️  Failed to cleanup ephemeral data: %v\n", err)
+				} else {
+					fmt.Println("🗑️  Ephemeral data cleaned up")
 				}
 			}
 			fmt.Println("👋 Shutting down gracefully...")
@@ -238,6 +253,7 @@ EXAMPLES:
   kubegraf web                # Launch web UI at http://localhost:3000
   kubegraf --web              # Same as above (alternative syntax)
   kubegraf web --port=8080    # Launch web UI at custom port
+  kubegraf web --ephemeral    # Launch with ephemeral mode (data wiped on exit)
 
 KEYBOARD SHORTCUTS (Terminal UI):
   q, Ctrl+C    Quit application

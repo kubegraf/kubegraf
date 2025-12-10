@@ -182,7 +182,7 @@ const Dashboard: Component = () => {
     }
   );
   
-  // Refresh cost when cluster changes
+  // Refresh cost when cluster changes or connection is established
   const [clusterCost, { refetch: refetchCost }] = createResource(
     () => {
       const ctx = currentContext();
@@ -191,13 +191,42 @@ const Dashboard: Component = () => {
     },
     async () => {
       try {
-        return await api.getClusterCost();
+        const cost = await api.getClusterCost();
+        console.log('Dashboard: Cost fetched:', cost);
+        return cost;
       } catch (e) {
         console.error('Dashboard cost API error:', e);
+        // Return null instead of throwing to prevent UI crash
         return null;
       }
     }
   );
+  
+  // Refetch cost when refreshTrigger changes (connection established)
+  createEffect(() => {
+    const trigger = refreshTrigger();
+    const ctx = currentContext();
+    // When trigger changes and we have a context, try to fetch cost
+    if (trigger > 0 && ctx) {
+      // Small delay to ensure connection is ready
+      setTimeout(() => {
+        // Always refetch cost when connection is established
+        refetchCost();
+      }, 1500);
+    }
+  });
+  
+  // Debug: Log cost resource state
+  createEffect(() => {
+    console.log('Dashboard: Cost resource state:', {
+      loading: clusterCost.loading,
+      error: clusterCost.error,
+      hasData: !!clusterCost(),
+      data: clusterCost(),
+      context: currentContext(),
+      refresh: refreshTrigger(),
+    });
+  });
 
   // Debug: Log metrics resource state
   createEffect(() => {
@@ -213,8 +242,12 @@ const Dashboard: Component = () => {
 
   // Trigger initial fetch on mount
   onMount(() => {
-    console.log('Dashboard: Component mounted, refetching metrics');
+    console.log('Dashboard: Component mounted, refetching metrics and cost');
     refetchMetrics();
+    // Also try to fetch cost if not already loading
+    if (!clusterCost.loading && !clusterCost()) {
+      refetchCost();
+    }
   });
 
   // Calculate stats
@@ -228,13 +261,25 @@ const Dashboard: Component = () => {
     return Array.isArray(podList) ? podList.length : 0;
   };
   const healthyNodes = () => {
-    const nodeList = nodes();
-    if (!nodeList || !Array.isArray(nodeList)) return 0;
-    return nodeList.filter((n: any) => n.status === 'Ready').length;
+    try {
+      if (nodes.error) return 0;
+      const nodeList = nodes();
+      if (!nodeList || !Array.isArray(nodeList)) return 0;
+      return nodeList.filter((n: any) => n.status === 'Ready' || n.readyStatus === 'Ready').length;
+    } catch (err) {
+      console.error('Error calculating healthy nodes:', err);
+      return 0;
+    }
   };
   const totalNodes = () => {
-    const nodeList = nodes();
-    return Array.isArray(nodeList) ? nodeList.length : 0;
+    try {
+      if (nodes.error) return 0;
+      const nodeList = nodes();
+      return Array.isArray(nodeList) ? nodeList.length : 0;
+    } catch (err) {
+      console.error('Error calculating total nodes:', err);
+      return 0;
+    }
   };
   const recentEvents = () => {
     const eventList = eventsResponse();
@@ -548,15 +593,25 @@ const Dashboard: Component = () => {
         />
         <MetricCard
           label="Nodes"
-          value={nodes.loading ? '...' : `${healthyNodes()}/${totalNodes()}`}
+          value={
+            nodes.loading 
+              ? '...' 
+              : nodes.error 
+                ? 'Error' 
+                : `${healthyNodes()}/${totalNodes()}`
+          }
           subtext={
             nodes.loading 
               ? 'Loading...' 
+              : nodes.error
+                ? 'Connection required'
               : (healthyNodes() === totalNodes() && totalNodes() > 0 ? 'All healthy' : totalNodes() === 0 ? 'No nodes' : 'Some unhealthy')
           }
           color={
             nodes.loading 
               ? '#6b7280' 
+              : nodes.error
+                ? '#ef4444'
               : (healthyNodes() === totalNodes() && totalNodes() > 0 ? '#22c55e' : '#f59e0b')
           }
           icon={NodeIcon}
@@ -608,7 +663,15 @@ const Dashboard: Component = () => {
             onClick={() => setCurrentView('cost')}
           >
             <div class="text-3xl font-bold" style={{ color: '#f59e0b' }}>
-              ${clusterCost()?.monthlyCost?.toFixed(0) || '--'}
+              {(() => {
+                if (clusterCost.loading) return '...';
+                if (clusterCost.error) return 'Error';
+                const cost = clusterCost();
+                if (!cost) return '--';
+                const monthly = cost.monthlyCost;
+                if (monthly == null || monthly === undefined) return '--';
+                return `$${typeof monthly === 'number' ? monthly.toFixed(0) : monthly}`;
+              })()}
             </div>
             <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Est. Monthly Cost</div>
           </div>

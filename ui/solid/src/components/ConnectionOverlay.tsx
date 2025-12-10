@@ -1,5 +1,7 @@
-import { Component, Show } from 'solid-js';
-import { currentView, setCurrentView } from '../stores/ui';
+import { Component, Show, createSignal } from 'solid-js';
+import { setCurrentView } from '../stores/ui';
+import { api } from '../services/api';
+import { refreshAll } from '../stores/cluster';
 
 interface ConnectionOverlayProps {
   connectionStatus: () => any;
@@ -11,6 +13,58 @@ interface ConnectionOverlayProps {
  * Shows when cluster is not connected with options to connect or create cluster
  */
 export const ConnectionOverlay: Component<ConnectionOverlayProps> = (props) => {
+  const [isRetrying, setIsRetrying] = createSignal(false);
+  const [retryMessage, setRetryMessage] = createSignal('Connecting...');
+  
+  const checkConnectionStatus = async (attempt: number = 0) => {
+    const maxAttempts = 20; // Check for up to 20 seconds (20 * 1s intervals)
+    
+    if (attempt >= maxAttempts) {
+      setIsRetrying(false);
+      setRetryMessage('Connection timeout');
+      return;
+    }
+    
+    try {
+      // Refetch status to check if connected
+      props.refetchStatus();
+      
+      // Wait a bit before checking
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Check if we're now connected
+      const status = props.connectionStatus();
+      if (status?.connected) {
+        setIsRetrying(false);
+        setRetryMessage('Connected!');
+        // Refresh all resources
+        refreshAll();
+        // Clear message after a moment
+        setTimeout(() => setRetryMessage('Connecting...'), 2000);
+        return;
+      }
+      
+      // Update message based on attempt
+      if (attempt < 3) {
+        setRetryMessage('Initializing connection...');
+      } else if (attempt < 8) {
+        setRetryMessage('Verifying cluster access...');
+      } else if (attempt < 15) {
+        setRetryMessage('Loading cluster resources...');
+      } else {
+        setRetryMessage('Finalizing connection...');
+      }
+      
+      // Continue checking
+      checkConnectionStatus(attempt + 1);
+    } catch (err) {
+      console.error('Error checking connection:', err);
+      setIsRetrying(false);
+      setRetryMessage('Connection failed');
+      setTimeout(() => setRetryMessage('Connecting...'), 2000);
+    }
+  };
+  
   return (
     <div class="absolute inset-0 z-10 flex items-center justify-center p-8" style={{ background: 'var(--bg-primary)', 'pointer-events': 'auto' }}>
       <div class="max-w-3xl w-full">
@@ -65,17 +119,77 @@ export const ConnectionOverlay: Component<ConnectionOverlayProps> = (props) => {
               </li>
             </ul>
             <button
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                props.refetchStatus();
+                if (isRetrying()) return; // Prevent multiple clicks
+                
+                setIsRetrying(true);
+                setRetryMessage('Connecting...');
+                
+                try {
+                  // Trigger reconnection on backend
+                  await api.getStatus(true);
+                  
+                  // Start polling for connection status
+                  checkConnectionStatus(0);
+                } catch (err) {
+                  console.error('Retry connection failed:', err);
+                  setIsRetrying(false);
+                  setRetryMessage('Connection failed');
+                  props.refetchStatus();
+                  setTimeout(() => setRetryMessage('Connecting...'), 2000);
+                }
               }}
-              class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 flex items-center justify-center gap-2"
-              style={{ background: 'var(--accent-primary)', color: '#000' }}
+              disabled={isRetrying()}
+              class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 relative overflow-hidden"
+              style={{ 
+                background: isRetrying() ? 'var(--bg-tertiary)' : 'var(--accent-primary)', 
+                color: isRetrying() ? 'var(--text-secondary)' : '#000',
+                opacity: isRetrying() ? 0.8 : 1,
+                cursor: isRetrying() ? 'not-allowed' : 'pointer'
+              }}
             >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Retry Connection
+              {isRetrying() && (
+                <div 
+                  class="absolute inset-0 opacity-20"
+                  style={{
+                    background: 'linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.3), transparent)',
+                    animation: 'shimmer 2s infinite'
+                  }}
+                />
+              )}
+              {isRetrying() ? (
+                <>
+                  <svg 
+                    class="w-5 h-5 animate-spin" 
+                    fill="none" 
+                    viewBox="0 0 24 24"
+                    style={{ color: 'var(--accent-primary)' }}
+                  >
+                    <circle 
+                      class="opacity-25" 
+                      cx="12" 
+                      cy="12" 
+                      r="10" 
+                      stroke="currentColor" 
+                      stroke-width="4"
+                    />
+                    <path 
+                      class="opacity-75" 
+                      fill="currentColor" 
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  <span class="relative z-10">{retryMessage()}</span>
+                </>
+              ) : (
+                <>
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Retry Connection
+                </>
+              )}
             </button>
           </div>
 
@@ -156,14 +270,76 @@ export const ConnectionOverlay: Component<ConnectionOverlayProps> = (props) => {
 
         <div class="flex items-center justify-center gap-3">
           <button
-            onClick={() => location.reload()}
-            class="px-5 py-2.5 rounded-lg font-medium transition-all hover:opacity-90 flex items-center gap-2"
-            style={{ background: 'var(--error-color)', color: 'white' }}
+            onClick={async () => {
+              if (isRetrying()) return; // Prevent multiple clicks
+              
+              setIsRetrying(true);
+              setRetryMessage('Connecting...');
+              
+              try {
+                // Trigger reconnection on backend
+                await api.getStatus(true);
+                
+                // Start polling for connection status
+                checkConnectionStatus(0);
+              } catch (err) {
+                console.error('Retry connection failed:', err);
+                setIsRetrying(false);
+                setRetryMessage('Connection failed');
+                props.refetchStatus();
+                setTimeout(() => setRetryMessage('Connecting...'), 2000);
+              }
+            }}
+            disabled={isRetrying()}
+            class="px-5 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 relative overflow-hidden"
+            style={{ 
+              background: isRetrying() ? 'var(--bg-tertiary)' : 'var(--error-color)', 
+              color: isRetrying() ? 'var(--text-secondary)' : 'white',
+              opacity: isRetrying() ? 0.8 : 1,
+              cursor: isRetrying() ? 'not-allowed' : 'pointer'
+            }}
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Retry Connection
+            {isRetrying() && (
+              <div 
+                class="absolute inset-0 opacity-20"
+                style={{
+                  background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
+                  animation: 'shimmer 2s infinite'
+                }}
+              />
+            )}
+            {isRetrying() ? (
+              <>
+                <svg 
+                  class="w-5 h-5 animate-spin" 
+                  fill="none" 
+                  viewBox="0 0 24 24"
+                  style={{ color: 'white' }}
+                >
+                  <circle 
+                    class="opacity-25" 
+                    cx="12" 
+                    cy="12" 
+                    r="10" 
+                    stroke="currentColor" 
+                    stroke-width="4"
+                  />
+                  <path 
+                    class="opacity-75" 
+                    fill="currentColor" 
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                <span class="relative z-10">{retryMessage()}</span>
+              </>
+            ) : (
+              <>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Retry Connection
+              </>
+            )}
           </button>
           <a
             href="https://kubegraf.io/docs"

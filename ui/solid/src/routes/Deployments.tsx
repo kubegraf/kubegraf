@@ -340,6 +340,59 @@ const Deployments: Component = () => {
 
         <div class="flex-1" />
 
+        {/* Bulk Actions - Only show when a single namespace is selected */}
+        <Show when={getNamespaceParam() && getNamespaceParam() !== '_all' && getNamespaceParam() !== 'All Namespaces'}>
+          <div class="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                const ns = getNamespaceParam();
+                if (!ns || !confirm(`Are you sure you want to restart ALL deployments in namespace "${ns}"?`)) return;
+                try {
+                  const result = await api.bulkRestartDeployments(ns);
+                  if (result?.success) {
+                    addNotification(`✅ Restarted ${result.restarted?.length || 0}/${result.total || 0} deployments in ${ns}`, 'success');
+                    if (result.failed && result.failed.length > 0) {
+                      addNotification(`⚠️ ${result.failed.length} deployments failed to restart`, 'warning');
+                    }
+                  }
+                  setTimeout(() => deploymentsCache.refetch(), 1000);
+                } catch (error) {
+                  addNotification(`❌ Failed to restart deployments: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+                }
+              }}
+              class="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              title="Restart All Deployments in Namespace"
+            >
+              🔄 Restart All
+            </button>
+            <button
+              onClick={async () => {
+                const ns = getNamespaceParam();
+                if (!ns || !confirm(`⚠️ DANGER: Are you sure you want to DELETE ALL deployments in namespace "${ns}"? This cannot be undone!`)) return;
+                if (!confirm(`This will delete ALL ${deployments().filter((d: Deployment) => d.namespace === ns).length} deployments in "${ns}". Type the namespace name to confirm:`) || prompt('Type namespace name to confirm:') !== ns) return;
+                try {
+                  const result = await api.bulkDeleteDeployments(ns);
+                  if (result?.success) {
+                    addNotification(`✅ Deleted ${result.deleted?.length || 0}/${result.total || 0} deployments in ${ns}`, 'success');
+                    if (result.failed && result.failed.length > 0) {
+                      addNotification(`⚠️ ${result.failed.length} deployments failed to delete`, 'warning');
+                    }
+                  }
+                  setTimeout(() => deploymentsCache.refetch(), 1000);
+                } catch (error) {
+                  addNotification(`❌ Failed to delete deployments: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+                }
+              }}
+              class="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+              title="Delete All Deployments in Namespace"
+            >
+              🗑️ Delete All
+            </button>
+          </div>
+        </Show>
+
         {/* Font Size Selector */}
         <select
           value={fontSize()}

@@ -1,8 +1,8 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, createEffect, onMount } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
-import { selectedNamespaces } from '../stores/globalStore';
+import { setGlobalLoading } from '../stores/globalStore';
+import { createCachedResource } from '../utils/resourceCache';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
@@ -10,31 +10,29 @@ import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 
-interface DaemonSet {
+interface Namespace {
   name: string;
-  namespace: string;
-  desired: number;
-  current: number;
-  ready: number;
-  available: number;
+  status: string;
   age: string;
+  labels: Record<string, string>;
+  createdAt: string;
 }
 
-type SortField = 'name' | 'namespace' | 'ready' | 'age';
+type SortField = 'name' | 'status' | 'age';
 type SortDirection = 'asc' | 'desc';
 
-const DaemonSets: Component = () => {
+const Namespaces: Component = () => {
   const [search, setSearch] = createSignal('');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
   const [currentPage, setCurrentPage] = createSignal(1);
   const [pageSize, setPageSize] = createSignal(20);
-  const [selected, setSelected] = createSignal<DaemonSet | null>(null);
+  const [selected, setSelected] = createSignal<Namespace | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('daemonsets-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('daemonsets-font-family') || 'Monaco');
+  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('namespaces-font-size') || '14'));
+  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('namespaces-font-family') || 'Monaco');
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -49,44 +47,73 @@ const DaemonSets: Component = () => {
 
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('daemonsets-font-size', size.toString());
+    localStorage.setItem('namespaces-font-size', size.toString());
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('daemonsets-font-family', family);
+    localStorage.setItem('namespaces-font-family', family);
   };
 
-  // Determine namespace parameter from global store
-  const getNamespaceParam = (): string | undefined => {
-    const namespaces = selectedNamespaces();
-    if (namespaces.length === 0) return undefined; // All namespaces
-    if (namespaces.length === 1) return namespaces[0];
-    return namespaces[0];
-  };
+  // CACHED RESOURCE - Uses globalStore and cache
+  const namespacesCache = createCachedResource<Namespace[]>(
+    'namespaces',
+    async () => {
+      setGlobalLoading(true);
+      try {
+        const namespaces = await api.getNamespaces();
+        return namespaces;
+      } catch (error) {
+        console.error('[Namespaces] Error fetching namespaces:', error);
+        addNotification(`❌ Failed to fetch namespaces: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        throw error;
+      } finally {
+        setGlobalLoading(false);
+      }
+    },
+    {
+      ttl: 15000, // 15 seconds
+      backgroundRefresh: true,
+    }
+  );
 
-  const [daemonsets, { refetch }] = createResource(namespace, api.getDaemonSets);
+  // Get namespaces from cache
+  const namespaces = createMemo(() => {
+    const data = namespacesCache.data();
+    return data || [];
+  });
+  
+  // Refetch function for updates
+  const refetch = () => namespacesCache.refetch();
+  
+  // Initial load on mount
+  onMount(() => {
+    if (!namespacesCache.data()) {
+      namespacesCache.refetch();
+    }
+  });
+
   const [yamlContent] = createResource(
-    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name } : null,
     async (params) => {
       if (!params) return '';
-      const data = await api.getDaemonSetYAML(params.name, params.ns);
+      const data = await api.getNamespaceYAML(params.name);
       return data.yaml || '';
     }
   );
 
   const handleSaveYAML = async (yaml: string) => {
-    const ds = selected();
-    if (!ds) return;
+    const ns = selected();
+    if (!ns) return;
     try {
-      await api.updateDaemonSet(ds.name, ds.namespace, yaml);
-      addNotification(`✅ DaemonSet ${ds.name} updated successfully`, 'success');
+      await api.updateNamespace(ns.name, yaml);
+      addNotification(`✅ Namespace ${ns.name} updated successfully`, 'success');
       setShowEdit(false);
       setTimeout(() => refetch(), 500);
       setTimeout(() => refetch(), 2000);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update daemonset: ${errorMsg}`, 'error');
+      addNotification(`❌ Failed to update namespace: ${errorMsg}`, 'error');
       throw error;
     }
   };
@@ -105,31 +132,32 @@ const DaemonSets: Component = () => {
   };
 
   const filteredAndSorted = createMemo(() => {
-    let all = daemonsets() || [];
+    const data = namespaces();
+    if (!data || !Array.isArray(data)) {
+      return [];
+    }
+    let all = [...data];
     const query = search().toLowerCase();
 
     // Filter by search
     if (query) {
-      all = all.filter((d: DaemonSet) =>
-        d.name.toLowerCase().includes(query) ||
-        d.namespace.toLowerCase().includes(query)
+      all = all.filter((ns: Namespace) =>
+        ns.name.toLowerCase().includes(query) ||
+        ns.status.toLowerCase().includes(query)
       );
     }
 
     // Sort
     const field = sortField();
     const direction = sortDirection();
-    all = [...all].sort((a: DaemonSet, b: DaemonSet) => {
+    all = [...all].sort((a: Namespace, b: Namespace) => {
       let comparison = 0;
       switch (field) {
         case 'name':
           comparison = a.name.localeCompare(b.name);
           break;
-        case 'namespace':
-          comparison = a.namespace.localeCompare(b.namespace);
-          break;
-        case 'ready':
-          comparison = a.ready - b.ready;
+        case 'status':
+          comparison = a.status.localeCompare(b.status);
           break;
         case 'age':
           comparison = parseAge(a.age) - parseAge(b.age);
@@ -143,18 +171,17 @@ const DaemonSets: Component = () => {
 
   // Pagination
   const totalPages = createMemo(() => Math.ceil(filteredAndSorted().length / pageSize()));
-  const paginatedDaemonSets = createMemo(() => {
+  const paginatedNamespaces = createMemo(() => {
     const start = (currentPage() - 1) * pageSize();
     return filteredAndSorted().slice(start, start + pageSize());
   });
 
   const statusCounts = createMemo(() => {
-    const all = daemonsets() || [];
+    const all = namespaces() || [];
     return {
       total: all.length,
-      ready: all.filter((d: DaemonSet) => d.ready === d.desired && d.ready > 0).length,
-      partial: all.filter((d: DaemonSet) => d.ready !== d.desired && d.ready > 0).length,
-      unavailable: all.filter((d: DaemonSet) => d.ready === 0).length,
+      active: all.filter((ns: Namespace) => ns.status === 'Active').length,
+      terminating: all.filter((ns: Namespace) => ns.status === 'Terminating').length,
     };
   });
 
@@ -175,24 +202,15 @@ const DaemonSets: Component = () => {
     </span>
   );
 
-  const restart = async (ds: DaemonSet) => {
+  const deleteNamespace = async (ns: Namespace) => {
+    if (!confirm(`Are you sure you want to delete namespace "${ns.name}"? This will delete all resources in this namespace!`)) return;
     try {
-      await api.restartDaemonSet(ds.name, ds.namespace);
+      await api.deleteNamespace(ns.name);
+      addNotification(`Namespace ${ns.name} deleted successfully`, 'success');
       refetch();
     } catch (error) {
-      console.error('Failed to restart DaemonSet:', error);
-    }
-  };
-
-  const deleteDaemonSet = async (ds: DaemonSet) => {
-    if (!confirm(`Are you sure you want to delete DaemonSet "${ds.name}" in namespace "${ds.namespace}"?`)) return;
-    try {
-      await api.deleteDaemonSet(ds.name, ds.namespace);
-      addNotification(`DaemonSet ${ds.name} deleted successfully`, 'success');
-      refetch();
-    } catch (error) {
-      console.error('Failed to delete DaemonSet:', error);
-      addNotification(`Failed to delete DaemonSet: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      console.error('Failed to delete namespace:', error);
+      addNotification(`Failed to delete namespace: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -201,8 +219,8 @@ const DaemonSets: Component = () => {
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>DaemonSets</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Node-level workloads running on all or selected nodes</p>
+          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Namespaces</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>Cluster namespace management</p>
         </div>
         <div class="flex items-center gap-3">
           <select
@@ -244,7 +262,7 @@ const DaemonSets: Component = () => {
             }}
             class="icon-btn"
             style={{ background: 'var(--bg-secondary)' }}
-            title="Refresh DaemonSets"
+            title="Refresh Namespaces"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -260,72 +278,15 @@ const DaemonSets: Component = () => {
           <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
         <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Ready</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().ready}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Active</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().active}</span>
         </div>
         <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Partial</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().partial}</span>
-        </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--error-color)' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Unavailable</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().unavailable}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Terminating</span>
+          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().terminating}</span>
         </div>
 
         <div class="flex-1" />
-
-        {/* Bulk Actions - Only show when a single namespace is selected */}
-        <Show when={getNamespaceParam() && getNamespaceParam() !== '_all' && getNamespaceParam() !== 'All Namespaces'}>
-          <div class="flex items-center gap-2">
-            <button
-              onClick={async () => {
-                const ns = getNamespaceParam();
-                if (!ns || !confirm(`Are you sure you want to restart ALL DaemonSets in namespace "${ns}"?`)) return;
-                try {
-                  const result = await api.bulkRestartDaemonSets(ns);
-                  if (result?.success) {
-                    addNotification(`✅ Restarted ${result.restarted?.length || 0}/${result.total || 0} DaemonSets in ${ns}`, 'success');
-                    if (result.failed && result.failed.length > 0) {
-                      addNotification(`⚠️ ${result.failed.length} DaemonSets failed to restart`, 'warning');
-                    }
-                  }
-                  setTimeout(() => refetch(), 1000);
-                } catch (error) {
-                  addNotification(`❌ Failed to restart DaemonSets: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-                }
-              }}
-              class="px-3 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-              title="Restart All DaemonSets in Namespace"
-            >
-              🔄 Restart All
-            </button>
-            <button
-              onClick={async () => {
-                const ns = getNamespaceParam();
-                if (!ns || !confirm(`⚠️ DANGER: Are you sure you want to DELETE ALL DaemonSets in namespace "${ns}"? This cannot be undone!`)) return;
-                if (!confirm(`This will delete ALL ${daemonsets()?.filter((ds: DaemonSet) => ds.namespace === ns).length || 0} DaemonSets in "${ns}". Type the namespace name to confirm:`) || prompt('Type namespace name to confirm:') !== ns) return;
-                try {
-                  const result = await api.bulkDeleteDaemonSets(ns);
-                  if (result?.success) {
-                    addNotification(`✅ Deleted ${result.deleted?.length || 0}/${result.total || 0} DaemonSets in ${ns}`, 'success');
-                    if (result.failed && result.failed.length > 0) {
-                      addNotification(`⚠️ ${result.failed.length} DaemonSets failed to delete`, 'warning');
-                    }
-                  }
-                  setTimeout(() => refetch(), 1000);
-                } catch (error) {
-                  addNotification(`❌ Failed to delete DaemonSets: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-                }
-              }}
-              class="px-3 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}
-              title="Delete All DaemonSets in Namespace"
-            >
-              🗑️ Delete All
-            </button>
-          </div>
-        </Show>
 
         <input
           type="text"
@@ -348,14 +309,26 @@ const DaemonSets: Component = () => {
         </select>
       </div>
 
-      {/* DaemonSets table */}
+      {/* Error display */}
+      <Show when={namespacesCache.error()}>
+        <div class="card p-4 mb-4" style={{ background: 'var(--error-bg)', border: '1px solid var(--error-color)' }}>
+          <div class="flex items-center gap-2">
+            <span style={{ color: 'var(--error-color)' }}>❌</span>
+            <span style={{ color: 'var(--error-color)' }}>
+              Error loading namespaces: {namespacesCache.error()?.message || 'Unknown error'}
+            </span>
+          </div>
+        </div>
+      </Show>
+
+      {/* Namespaces table */}
       <div class="w-full" style={{ background: getThemeBackground(), margin: '0', padding: '0', border: `1px solid ${getThemeBorderColor()}`, 'border-radius': '4px' }}>
         <Show
-          when={!daemonsets.loading}
+          when={!namespacesCache.loading() || namespacesCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
-              <span style={{ color: 'var(--text-muted)' }}>Loading DaemonSets...</span>
+              <span style={{ color: 'var(--text-muted)' }}>Loading namespaces...</span>
             </div>
           }
         >
@@ -377,15 +350,9 @@ const DaemonSets: Component = () => {
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('namespace')}>
-                    <div class="flex items-center gap-1">Namespace <SortIcon field="namespace" /></div>
+                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('status')}>
+                    <div class="flex items-center gap-1">Status <SortIcon field="status" /></div>
                   </th>
-                  <th class="whitespace-nowrap">Desired</th>
-                  <th class="whitespace-nowrap">Current</th>
-                  <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('ready')}>
-                    <div class="flex items-center gap-1">Ready <SortIcon field="ready" /></div>
-                  </th>
-                  <th class="whitespace-nowrap">Available</th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('age')}>
                     <div class="flex items-center gap-1">Age <SortIcon field="age" /></div>
                   </th>
@@ -393,10 +360,10 @@ const DaemonSets: Component = () => {
                 </tr>
               </thead>
               <tbody>
-                <For each={paginatedDaemonSets()} fallback={
-                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No DaemonSets found</td></tr>
+                <For each={paginatedNamespaces()} fallback={
+                  <tr><td colspan="4" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No namespaces found</td></tr>
                 }>
-                  {(ds: DaemonSet) => {
+                  {(ns: Namespace) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
@@ -411,11 +378,11 @@ const DaemonSets: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(ds); setShowDescribe(true); }}
+                          onClick={() => { setSelected(ns); setShowDescribe(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
-                          {ds.name.length > 40 ? ds.name.slice(0, 37) + '...' : ds.name}
+                          {ns.name.length > 40 ? ns.name.slice(0, 37) + '...' : ns.name}
                         </button>
                       </td>
                       <td style={{
@@ -427,39 +394,11 @@ const DaemonSets: Component = () => {
                         height: `${Math.max(24, fontSize() * 1.7)}px`,
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
-                      }}>{ds.namespace}</td>
-                      <td style={{
-                        padding: '0 8px',
-                        'text-align': 'left',
-                        color: textColor,
-                        'font-weight': '900',
-                        'font-size': `${fontSize()}px`,
-                        height: `${Math.max(24, fontSize() * 1.7)}px`,
-                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
-                        border: 'none'
-                      }}>{ds.desired}</td>
-                      <td style={{
-                        padding: '0 8px',
-                        'text-align': 'left',
-                        color: textColor,
-                        'font-weight': '900',
-                        'font-size': `${fontSize()}px`,
-                        height: `${Math.max(24, fontSize() * 1.7)}px`,
-                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
-                        border: 'none'
-                      }}>{ds.current}</td>
-                      <td style={{
-                        padding: '0 8px',
-                        'text-align': 'left',
-                        color: textColor,
-                        'font-weight': '900',
-                        'font-size': `${fontSize()}px`,
-                        height: `${Math.max(24, fontSize() * 1.7)}px`,
-                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
-                        border: 'none'
                       }}>
-                        <span class={`badge ${ds.ready === ds.desired ? 'badge-success' : 'badge-warning'}`}>
-                          {ds.ready}
+                        <span class={`px-2 py-1 rounded text-xs font-medium ${
+                          ns.status === 'Active' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {ns.status}
                         </span>
                       </td>
                       <td style={{
@@ -471,17 +410,7 @@ const DaemonSets: Component = () => {
                         height: `${Math.max(24, fontSize() * 1.7)}px`,
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
-                      }}>{ds.available}</td>
-                      <td style={{
-                        padding: '0 8px',
-                        'text-align': 'left',
-                        color: textColor,
-                        'font-weight': '900',
-                        'font-size': `${fontSize()}px`,
-                        height: `${Math.max(24, fontSize() * 1.7)}px`,
-                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
-                        border: 'none'
-                      }}>{ds.age}</td>
+                      }}>{ns.age}</td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -491,10 +420,9 @@ const DaemonSets: Component = () => {
                       }}>
                         <ActionMenu
                           actions={[
-                            { label: 'Restart', icon: 'restart', onClick: () => restart(ds) },
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(ds); setShowYaml(true); } },
-                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(ds); setShowEdit(true); } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteDaemonSet(ds), variant: 'danger', divider: true },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(ns); setShowYaml(true); } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(ns); setShowEdit(true); } },
+                            { label: 'Delete', icon: 'delete', onClick: () => deleteNamespace(ns), variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -510,7 +438,7 @@ const DaemonSets: Component = () => {
           <Show when={totalPages() > 1 || filteredAndSorted().length > 0}>
             <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }}>
               <div style={{ color: 'var(--text-secondary)' }}>
-                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} DaemonSets
+                Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} namespaces
               </div>
               <div class="flex items-center gap-2">
                 <button
@@ -587,9 +515,9 @@ const DaemonSets: Component = () => {
       </Modal>
 
       {/* Describe Modal */}
-      <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="daemonset" name={selected()?.name || ''} namespace={selected()?.namespace} />
+      <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="namespace" name={selected()?.name || ''} />
     </div>
   );
 };
 
-export default DaemonSets;
+export default Namespaces;

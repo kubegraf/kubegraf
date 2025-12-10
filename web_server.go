@@ -55,6 +55,7 @@ import (
 	"github.com/kubegraf/kubegraf/internal/cache"
 	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/database"
+	"github.com/kubegraf/kubegraf/internal/security"
 	"github.com/kubegraf/kubegraf/mcp/server"
 )
 
@@ -181,6 +182,10 @@ type WebServer struct {
 	stateManager *StateManager
 	// Cluster manager for multi-cluster support
 	clusterManager *cluster.ClusterManager
+	// Security features
+	sessionTokenManager *security.SessionTokenManager
+	ephemeralMode       *security.EphemeralMode
+	secureMode          *security.SecureMode
 }
 
 // NewWebServer creates a new web server
@@ -201,6 +206,12 @@ func NewWebServer(app *App) *WebServer {
 		fmt.Printf("⚠️  Failed to register MCP tools: %v\n", err)
 	}
 
+	// Initialize security features
+	ws.sessionTokenManager = security.NewSessionTokenManager()
+	ws.sessionTokenManager.StartCleanup()
+	ws.ephemeralMode = security.NewEphemeralMode()
+	ws.secureMode = security.NewSecureMode("") // Will be set below
+
 	// Initialize database, cache, and IAM for production upgrades
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -214,14 +225,34 @@ func NewWebServer(app *App) *WebServer {
 		fmt.Printf("⚠️  Failed to create .kubegraf directory: %v\n", err)
 	}
 
-	// Initialize database
-	dbPath := filepath.Join(kubegrafDir, "db.sqlite")
-	encryptionKey := os.Getenv("KUBEGRAF_ENCRYPTION_KEY")
-	if encryptionKey == "" {
-		// Use a default key (not secure for production, but okay for development)
-		encryptionKey = "default-encryption-key-change-in-production"
+	// Update secure mode with kubegraf dir
+	ws.secureMode = security.NewSecureMode(kubegrafDir)
+
+	// Get or create master key (machine-based, no user interaction)
+	masterKey, err := security.GetOrCreateMasterKey(kubegrafDir)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to get master key: %v\n", err)
+		// Fallback to environment variable
+		encKey := os.Getenv("KUBEGRAF_ENCRYPTION_KEY")
+		if encKey == "" {
+			encKey = "default-encryption-key-change-in-production"
+		}
+		masterKey = []byte(encKey)
 	}
 
+	// Convert master key to string for database (first 32 bytes or pad)
+	encryptionKey := string(masterKey)
+	if len(encryptionKey) < 32 {
+		// Pad if needed
+		padding := make([]byte, 32-len(encryptionKey))
+		encryptionKey = encryptionKey + string(padding)
+	} else if len(encryptionKey) > 32 {
+		encryptionKey = encryptionKey[:32]
+	}
+
+	// Initialize database
+	normalDbPath := filepath.Join(kubegrafDir, "db.sqlite")
+	dbPath := ws.ephemeralMode.GetDBPath(normalDbPath)
 	db, err := NewDatabase(dbPath, encryptionKey)
 	if err != nil {
 		// Silent failure for production
@@ -380,6 +411,21 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/daemonset/describe", ws.handleDaemonSetDescribe)
 	http.HandleFunc("/api/daemonset/restart", ws.handleDaemonSetRestart)
 	http.HandleFunc("/api/daemonset/delete", ws.handleDaemonSetDelete)
+
+	// Bulk operations by namespace
+	http.HandleFunc("/api/deployments/bulk/restart", ws.handleBulkDeploymentRestart)
+	http.HandleFunc("/api/deployments/bulk/delete", ws.handleBulkDeploymentDelete)
+	http.HandleFunc("/api/statefulsets/bulk/restart", ws.handleBulkStatefulSetRestart)
+	http.HandleFunc("/api/statefulsets/bulk/delete", ws.handleBulkStatefulSetDelete)
+	http.HandleFunc("/api/daemonsets/bulk/restart", ws.handleBulkDaemonSetRestart)
+	http.HandleFunc("/api/daemonsets/bulk/delete", ws.handleBulkDaemonSetDelete)
+
+	// Namespace CRUD operations
+	http.HandleFunc("/api/namespace/details", ws.handleNamespaceDetails)
+	http.HandleFunc("/api/namespace/yaml", ws.handleNamespaceYAML)
+	http.HandleFunc("/api/namespace/update", ws.handleNamespaceUpdate)
+	http.HandleFunc("/api/namespace/describe", ws.handleNamespaceDescribe)
+	http.HandleFunc("/api/namespace/delete", ws.handleNamespaceDelete)
 	http.HandleFunc("/api/cronjob/details", ws.handleCronJobDetails)
 	http.HandleFunc("/api/cronjob/yaml", ws.handleCronJobYAML)
 	http.HandleFunc("/api/cronjob/update", ws.handleCronJobUpdate)
@@ -562,28 +608,44 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/brain/ml/predictions", ws.handleBrainMLPredictions)
 	http.HandleFunc("/api/brain/ml/summary", ws.handleBrainMLSummary)
 
+	// Session token validation endpoint
+	http.HandleFunc("/api/auth/validate-token", ws.handleValidateSessionToken)
+
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 
 	// Check if port is available, if not find next available port
 	actualPort := port
 	fmt.Printf("🔍 Checking port %d availability...\n", port)
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+
+	// Bind to localhost only for security (127.0.0.1 and ::1)
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		// Port is in use, find next available port
-		fmt.Printf("⚠️  Port %d is in use, searching for available port...\n", port)
-		actualPort, err = findAvailablePort(port)
+		// Try IPv6 localhost
+		listener, err = net.Listen("tcp", fmt.Sprintf("[::1]:%d", port))
 		if err != nil {
-			return fmt.Errorf("failed to find available port: %v", err)
+			// Port is in use, find next available port
+			fmt.Printf("⚠️  Port %d is in use, searching for available port...\n", port)
+			actualPort, err = findAvailablePortLocalhost(port)
+			if err != nil {
+				return fmt.Errorf("failed to find available port: %v", err)
+			}
+			fmt.Printf("✅ Found available port: %d\n", actualPort)
 		}
-		fmt.Printf("✅ Found available port: %d\n", actualPort)
 	}
 	if listener != nil {
 		listener.Close()
 	}
 
-	addr := fmt.Sprintf(":%d", actualPort)
-	fmt.Printf("🚀 Starting HTTP server on %s...\n", addr)
+	addr := fmt.Sprintf("127.0.0.1:%d", actualPort)
+	fmt.Printf("🚀 Starting HTTP server on %s (localhost only)...\n", addr)
+
+	// Open browser automatically
+	url := fmt.Sprintf("http://localhost:%d", actualPort)
+	go func() {
+		time.Sleep(500 * time.Millisecond) // Small delay to ensure server is ready
+		openBrowser(url)
+	}()
 
 	// Pre-warm the cost cache in background (waits for cluster connection)
 	go ws.prewarmCostCache()
@@ -601,7 +663,14 @@ func (ws *WebServer) Start(port int) error {
 	go ws.watchKubernetesEvents()
 
 	fmt.Printf("✅ Server starting, listening on %s\n", addr)
-	return http.ListenAndServe(addr, nil)
+
+	// Create server with localhost binding
+	server := &http.Server{
+		Addr:    addr,
+		Handler: nil,
+	}
+
+	return server.ListenAndServe()
 }
 
 // prewarmCostCache calculates cluster cost in background and caches the result
@@ -642,17 +711,7 @@ func (ws *WebServer) showStartupBanner(port int) {
 	fmt.Printf("🌐 Web UI running at: http://localhost:%d\n", port)
 	fmt.Println("🔄 Auto-updates enabled")
 	fmt.Println()
-
-	// Open browser automatically after a short delay
-	go func() {
-		time.Sleep(1 * time.Second) // Give server time to start
-		url := fmt.Sprintf("http://localhost:%d", port)
-		if err := openBrowser(url); err != nil {
-			// Silently fail - browser opening is optional
-		} else {
-			fmt.Println("✨ Opening browser...")
-		}
-	}()
+	// Note: Browser opening is handled in Start() method to avoid duplicate tabs
 }
 
 // openBrowser opens a URL in the default browser (cross-platform)
@@ -2992,7 +3051,12 @@ func (ws *WebServer) handleDeploymentDelete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.AppsV1().Deployments(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4956,7 +5020,12 @@ func (ws *WebServer) handleStatefulSetDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.AppsV1().StatefulSets(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -5160,7 +5229,12 @@ func (ws *WebServer) handleDaemonSetDelete(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	err := ws.app.clientset.AppsV1().DaemonSets(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -7098,3 +7172,742 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"installed": true,
 // 	})
 // }
+
+// findAvailablePortLocalhost finds an available port on localhost only
+func findAvailablePortLocalhost(startPort int) (int, error) {
+	for port := startPort; port < startPort+100; port++ {
+		// Try IPv4 localhost
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			listener.Close()
+			return port, nil
+		}
+		// Try IPv6 localhost
+		listener, err = net.Listen("tcp", fmt.Sprintf("[::1]:%d", port))
+		if err == nil {
+			listener.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+100)
+}
+
+// handleValidateSessionToken validates the initial session token and creates a session cookie
+func (ws *WebServer) handleValidateSessionToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		// Try from POST body
+		var req struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			token = req.Token
+		}
+	}
+
+	if token == "" {
+		http.Error(w, "token required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate and consume token
+	if !ws.sessionTokenManager.ValidateAndConsumeToken(token) {
+		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate session ID for cookie
+	sessionID := fmt.Sprintf("kubegraf_session_%d", time.Now().UnixNano())
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "kubegraf_session",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   86400, // 24 hours
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Session token validated",
+	})
+}
+
+// handleWithSessionToken wraps a handler with session token validation for initial access
+func (ws *WebServer) handleWithSessionToken(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Check if user already has a valid session cookie
+		cookie, err := r.Cookie("kubegraf_session")
+		if err == nil && cookie != nil && cookie.Value != "" {
+			// User has session cookie, allow access
+			next(w, r)
+			return
+		}
+
+		// Check for token in query parameter (initial access)
+		token := r.URL.Query().Get("token")
+		if token != "" {
+			// Validate token
+			if ws.sessionTokenManager.ValidateAndConsumeToken(token) {
+				// Generate session ID
+				sessionID := fmt.Sprintf("kubegraf_session_%d", time.Now().UnixNano())
+
+				// Set session cookie
+				http.SetCookie(w, &http.Cookie{
+					Name:     "kubegraf_session",
+					Value:    sessionID,
+					Path:     "/",
+					HttpOnly: true,
+					Secure:   false,
+					SameSite: http.SameSiteStrictMode,
+					MaxAge:   86400,
+				})
+
+				// Redirect to remove token from URL
+				redirectURL := r.URL.Path
+				if r.URL.RawQuery != "" {
+					// Remove token from query
+					values := r.URL.Query()
+					values.Del("token")
+					if len(values) > 0 {
+						redirectURL += "?" + values.Encode()
+					}
+				}
+				http.Redirect(w, r, redirectURL, http.StatusFound)
+				return
+			}
+		}
+
+		// For localhost access, be more lenient - allow access but set a session cookie
+		// This provides security while maintaining good UX
+		host := r.Host
+		if strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "[::1]") {
+			// Generate session ID for localhost access
+			sessionID := fmt.Sprintf("kubegraf_session_%d", time.Now().UnixNano())
+
+			// Set session cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "kubegraf_session",
+				Value:    sessionID,
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   false,
+				SameSite: http.SameSiteStrictMode,
+				MaxAge:   86400,
+			})
+
+			// Allow access for localhost
+			next(w, r)
+			return
+		}
+
+		// For non-localhost access, require token
+		http.Error(w, "Unauthorized: Valid session token required. Please access the app using the URL provided when starting the server.", http.StatusUnauthorized)
+	}
+}
+
+// ============ Bulk Operations ============
+
+// handleBulkDeploymentRestart restarts all deployments in a namespace
+func (ws *WebServer) handleBulkDeploymentRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace is required",
+		})
+		return
+	}
+
+	deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	restarted := []string{}
+	failed := []map[string]string{}
+	restartTime := time.Now().Format(time.RFC3339)
+
+	for _, dep := range deployments.Items {
+		annotations := make(map[string]string)
+		if dep.Spec.Template.Annotations != nil {
+			for k, v := range dep.Spec.Template.Annotations {
+				annotations[k] = v
+			}
+		}
+		annotations["kubectl.kubernetes.io/restartedAt"] = restartTime
+
+		patchData := map[string]interface{}{
+			"spec": map[string]interface{}{
+				"template": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"annotations": annotations,
+					},
+				},
+			},
+		}
+		patchBytes, _ := json.Marshal(patchData)
+
+		_, err := ws.app.clientset.AppsV1().Deployments(namespace).Patch(
+			ws.app.ctx,
+			dep.Name,
+			types.StrategicMergePatchType,
+			patchBytes,
+			metav1.PatchOptions{},
+		)
+		if err != nil {
+			failed = append(failed, map[string]string{
+				"name":  dep.Name,
+				"error": err.Error(),
+			})
+		} else {
+			restarted = append(restarted, dep.Name)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"restarted": restarted,
+		"failed":    failed,
+		"total":     len(deployments.Items),
+		"message":   fmt.Sprintf("Restarted %d/%d deployments in namespace %s", len(restarted), len(deployments.Items), namespace),
+	})
+}
+
+// handleBulkDeploymentDelete deletes all deployments in a namespace
+func (ws *WebServer) handleBulkDeploymentDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace is required",
+		})
+		return
+	}
+
+	deployments, err := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	deleted := []string{}
+	failed := []map[string]string{}
+
+	for _, dep := range deployments.Items {
+		err := ws.app.clientset.AppsV1().Deployments(namespace).Delete(ws.app.ctx, dep.Name, metav1.DeleteOptions{})
+		if err != nil {
+			failed = append(failed, map[string]string{
+				"name":  dep.Name,
+				"error": err.Error(),
+			})
+		} else {
+			deleted = append(deleted, dep.Name)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"deleted": deleted,
+		"failed":  failed,
+		"total":   len(deployments.Items),
+		"message": fmt.Sprintf("Deleted %d/%d deployments in namespace %s", len(deleted), len(deployments.Items), namespace),
+	})
+}
+
+// handleBulkStatefulSetRestart restarts all statefulsets in a namespace
+func (ws *WebServer) handleBulkStatefulSetRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace is required",
+		})
+		return
+	}
+
+	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	restarted := []string{}
+	failed := []map[string]string{}
+
+	for _, ss := range statefulsets.Items {
+		// For StatefulSets, delete pods to trigger restart
+		pods, err := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{})
+		if err != nil {
+			failed = append(failed, map[string]string{
+				"name":  ss.Name,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		podsDeleted := 0
+		for _, pod := range pods.Items {
+			for _, ownerRef := range pod.OwnerReferences {
+				if ownerRef.Kind == "StatefulSet" && ownerRef.Name == ss.Name {
+					err := ws.app.clientset.CoreV1().Pods(namespace).Delete(ws.app.ctx, pod.Name, metav1.DeleteOptions{})
+					if err == nil {
+						podsDeleted++
+					}
+					break
+				}
+			}
+		}
+
+		if podsDeleted > 0 {
+			restarted = append(restarted, ss.Name)
+		} else {
+			failed = append(failed, map[string]string{
+				"name":  ss.Name,
+				"error": "No pods found to restart",
+			})
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"restarted": restarted,
+		"failed":    failed,
+		"total":     len(statefulsets.Items),
+		"message":   fmt.Sprintf("Restarted %d/%d statefulsets in namespace %s", len(restarted), len(statefulsets.Items), namespace),
+	})
+}
+
+// handleBulkStatefulSetDelete deletes all statefulsets in a namespace
+func (ws *WebServer) handleBulkStatefulSetDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace is required",
+		})
+		return
+	}
+
+	statefulsets, err := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	deleted := []string{}
+	failed := []map[string]string{}
+
+	for _, ss := range statefulsets.Items {
+		err := ws.app.clientset.AppsV1().StatefulSets(namespace).Delete(ws.app.ctx, ss.Name, metav1.DeleteOptions{})
+		if err != nil {
+			failed = append(failed, map[string]string{
+				"name":  ss.Name,
+				"error": err.Error(),
+			})
+		} else {
+			deleted = append(deleted, ss.Name)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"deleted": deleted,
+		"failed":  failed,
+		"total":   len(statefulsets.Items),
+		"message": fmt.Sprintf("Deleted %d/%d statefulsets in namespace %s", len(deleted), len(statefulsets.Items), namespace),
+	})
+}
+
+// handleBulkDaemonSetRestart restarts all daemonsets in a namespace
+func (ws *WebServer) handleBulkDaemonSetRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace is required",
+		})
+		return
+	}
+
+	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	restarted := []string{}
+	failed := []map[string]string{}
+	restartTime := time.Now().Format(time.RFC3339)
+
+	for _, ds := range daemonsets.Items {
+		annotations := make(map[string]string)
+		if ds.Spec.Template.Annotations != nil {
+			for k, v := range ds.Spec.Template.Annotations {
+				annotations[k] = v
+			}
+		}
+		annotations["kubectl.kubernetes.io/restartedAt"] = restartTime
+
+		patchData := map[string]interface{}{
+			"spec": map[string]interface{}{
+				"template": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"annotations": annotations,
+					},
+				},
+			},
+		}
+		patchBytes, _ := json.Marshal(patchData)
+
+		_, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Patch(
+			ws.app.ctx,
+			ds.Name,
+			types.StrategicMergePatchType,
+			patchBytes,
+			metav1.PatchOptions{},
+		)
+		if err != nil {
+			failed = append(failed, map[string]string{
+				"name":  ds.Name,
+				"error": err.Error(),
+			})
+		} else {
+			restarted = append(restarted, ds.Name)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"restarted": restarted,
+		"failed":    failed,
+		"total":     len(daemonsets.Items),
+		"message":   fmt.Sprintf("Restarted %d/%d daemonsets in namespace %s", len(restarted), len(daemonsets.Items), namespace),
+	})
+}
+
+// handleBulkDaemonSetDelete deletes all daemonsets in a namespace
+func (ws *WebServer) handleBulkDaemonSetDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace is required",
+		})
+		return
+	}
+
+	daemonsets, err := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	deleted := []string{}
+	failed := []map[string]string{}
+
+	for _, ds := range daemonsets.Items {
+		err := ws.app.clientset.AppsV1().DaemonSets(namespace).Delete(ws.app.ctx, ds.Name, metav1.DeleteOptions{})
+		if err != nil {
+			failed = append(failed, map[string]string{
+				"name":  ds.Name,
+				"error": err.Error(),
+			})
+		} else {
+			deleted = append(deleted, ds.Name)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"deleted": deleted,
+		"failed":  failed,
+		"total":   len(daemonsets.Items),
+		"message": fmt.Sprintf("Deleted %d/%d daemonsets in namespace %s", len(deleted), len(daemonsets.Items), namespace),
+	})
+}
+
+// ============ Namespace CRUD Operations ============
+
+// handleNamespaceDetails returns detailed information about a namespace
+func (ws *WebServer) handleNamespaceDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace name is required",
+		})
+		return
+	}
+
+	ns, err := ws.app.clientset.CoreV1().Namespaces().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"name":        ns.Name,
+		"status":      string(ns.Status.Phase),
+		"labels":      ns.Labels,
+		"annotations": ns.Annotations,
+		"age":         formatAge(time.Since(ns.CreationTimestamp.Time)),
+		"createdAt":   ns.CreationTimestamp.Time.Format(time.RFC3339),
+	})
+}
+
+// handleNamespaceYAML returns the YAML representation of a namespace
+func (ws *WebServer) handleNamespaceYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace name is required",
+		})
+		return
+	}
+
+	ns, err := ws.app.clientset.CoreV1().Namespaces().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ns.ManagedFields = nil
+	yamlData, err := toKubectlYAML(ns, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
+}
+
+// handleNamespaceUpdate updates a namespace
+func (ws *WebServer) handleNamespaceUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace name is required",
+		})
+		return
+	}
+
+	// Read YAML from request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to read request body: %v", err),
+		})
+		return
+	}
+
+	var ns v1.Namespace
+	if err := yaml.Unmarshal(body, &ns); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to unmarshal YAML: %v", err),
+		})
+		return
+	}
+
+	// Ensure the name matches
+	if ns.Name != name {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace name in YAML does not match the name parameter",
+		})
+		return
+	}
+
+	_, err = ws.app.clientset.CoreV1().Namespaces().Update(ws.app.ctx, &ns, metav1.UpdateOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Namespace %s updated successfully", name),
+	})
+}
+
+// handleNamespaceDescribe returns kubectl describe output for a namespace
+func (ws *WebServer) handleNamespaceDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace name is required",
+		})
+		return
+	}
+
+	describe, err := runKubectlDescribe("namespace", name, "")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleNamespaceDelete deletes a namespace
+func (ws *WebServer) handleNamespaceDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Namespace name is required",
+		})
+		return
+	}
+
+	err := ws.app.clientset.CoreV1().Namespaces().Delete(ws.app.ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Namespace %s deleted successfully", name),
+	})
+}

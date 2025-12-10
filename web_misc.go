@@ -22,14 +22,43 @@ import (
 	"strconv"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // handleConnectionStatus checks and returns the current cluster connection status
+// If retry=true query parameter is present, it will attempt to reconnect
 func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Check if retry is requested
+	retry := r.URL.Query().Get("retry") == "true"
+
+	// If retry is requested and not connected, attempt to reconnect
+	if retry && !ws.app.connected {
+		// Attempt to reinitialize the connection synchronously (with timeout)
+		done := make(chan error, 1)
+		go func() {
+			initErr := ws.app.Initialize()
+			done <- initErr
+		}()
+		
+		// Wait up to 3 seconds for initialization to complete
+		select {
+		case err := <-done:
+			if err != nil {
+				ws.app.connectionError = err.Error()
+				ws.app.connected = false
+			} else {
+				ws.app.connected = true
+				ws.app.connectionError = ""
+			}
+		case <-time.After(3 * time.Second):
+			// Timeout - connection might still be in progress
+			// Check status below
+		}
+	}
 
 	// Actually test the connection by trying to list namespaces
 	connected := false
@@ -423,15 +452,13 @@ func (ws *WebServer) handleResourceMap(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleNamespaces returns list of all namespaces
+// handleNamespaces returns list of all namespaces with details
 func (ws *WebServer) handleNamespaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if ws.app.clientset == nil {
 		// Return empty list if client not initialized
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"namespaces": []string{},
-		})
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
 
@@ -441,15 +468,21 @@ func (ws *WebServer) handleNamespaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsList := []string{}
+	nsList := []map[string]interface{}{}
 	for _, ns := range namespaces.Items {
-		nsList = append(nsList, ns.Name)
+		// Get status phase
+		phase := string(ns.Status.Phase)
+
+		nsList = append(nsList, map[string]interface{}{
+			"name":      ns.Name,
+			"status":    phase,
+			"age":       formatAge(time.Since(ns.CreationTimestamp.Time)),
+			"labels":    ns.Labels,
+			"createdAt": ns.CreationTimestamp.Time.Format(time.RFC3339),
+		})
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":    true,
-		"namespaces": nsList,
-	})
+	json.NewEncoder(w).Encode(nsList)
 }
 
 // handleContexts returns list of all available kubeconfig contexts
@@ -612,7 +645,7 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 
 	// Build containers info (init containers first, then main containers)
 	containers := []map[string]interface{}{}
-	
+
 	// Add init containers
 	for _, ic := range pod.Spec.InitContainers {
 		containerInfo := map[string]interface{}{
@@ -774,7 +807,7 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
 				})
 			}
-			
+
 			// Create a map of container metrics by name for easy lookup
 			containerMetricsMap := make(map[string]map[string]interface{})
 			for _, cm := range containerMetrics {
