@@ -24,22 +24,95 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Stub handlers for legacy endpoints (to be implemented or removed)
+// handleClusters returns all cluster information (stored, discovered, contexts, status)
 func (ws *WebServer) handleClusters(w http.ResponseWriter, r *http.Request) {
-	// Redirect to new endpoint if cluster manager is available
-	if ws.clusterManager != nil {
-		ws.handleListClustersNew(w, r)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	http.Error(w, "Cluster manager not initialized", http.StatusServiceUnavailable)
+
+	if ws.clusterService == nil {
+		http.Error(w, "Cluster service not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get all the data
+	clusters, discovered, err := ws.clusterService.List()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list clusters: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	contexts := ws.clusterService.RuntimeContexts()
+	status := ws.clusterService.Status()
+
+	response := map[string]interface{}{
+		"clusters":   clusters,
+		"discovered": discovered,
+		"contexts":   contexts,
+		"status":     status,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func (ws *WebServer) handleClusterConnect(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "Not implemented - use cluster manager endpoints", http.StatusNotImplemented)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.clusterService == nil {
+		http.Error(w, "Cluster service not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req ClusterConnectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	entry, err := ws.clusterService.Connect(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to connect: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	status := ws.clusterService.Status()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"cluster": entry,
+		"status":  status,
+	})
 }
 
 func (ws *WebServer) handleClusterDisconnect(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "Not implemented - use cluster manager endpoints", http.StatusNotImplemented)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.clusterService == nil {
+		http.Error(w, "Cluster service not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	status, err := ws.clusterService.Disconnect()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to disconnect: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"status":  status,
+	})
 }
 
 func (ws *WebServer) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
