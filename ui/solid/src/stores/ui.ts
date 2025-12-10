@@ -24,6 +24,7 @@ export type View =
   | 'plugins'
   | 'cost'
   | 'drift'
+  | 'continuity'
   | 'ai'
   | 'autofix'
   | 'events'

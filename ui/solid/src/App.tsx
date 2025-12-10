@@ -42,6 +42,7 @@ import MLWorkflows from './routes/MLWorkflows';
 import Logs from './routes/Logs';
 import Anomalies from './routes/Anomalies';
 import Incidents from './routes/Incidents';
+import Continuity from './routes/Continuity';
 import Apps from './routes/Apps';
 import ClusterManager from './routes/ClusterManager';
 import Placeholder from './routes/Placeholder';
@@ -139,6 +140,7 @@ const views: Record<string, Component> = {
   security: Security,
   cost: Cost,
   drift: Drift,
+  continuity: Continuity,
   // Workloads
   pods: Pods,
   deployments: Deployments,
@@ -220,6 +222,31 @@ const App: Component = () => {
       .catch((err) => {
         // Silently fail - don't show error to user on auto-check
         console.debug('Auto-update check failed:', err);
+      });
+
+    // Check if user was away for > 24h and auto-redirect to Continuity page
+    api.getContinuitySummary('7d')
+      .then((summary) => {
+        try {
+          const lastSeenAt = new Date(summary.last_seen_at);
+          const now = new Date();
+          const diffHours = (now.getTime() - lastSeenAt.getTime()) / (1000 * 60 * 60);
+          
+          // If user was away for more than 24 hours, redirect to continuity page
+          if (diffHours > 24 && currentView() === 'dashboard') {
+            // Small delay to let the app finish initializing
+            setTimeout(() => {
+              setCurrentView('continuity');
+            }, 1000);
+          }
+        } catch (err) {
+          // Silently fail - don't block app loading
+          console.debug('Failed to check last seen time:', err);
+        }
+      })
+      .catch((err) => {
+        // Silently fail - don't block app loading if continuity API fails
+        console.debug('Failed to fetch continuity summary for auto-redirect:', err);
       });
 
     // Subscribe to connection state

@@ -1048,6 +1048,20 @@ export const api = {
     }>('/brain/summary');
   },
 
+  // ============ Continuity ============
+  getContinuitySummary: async (window: string = '7d') => {
+    return fetchAPI<{
+      incidents_count: number;
+      major_incidents_count: number;
+      deployments_with_failures: string[];
+      node_issues: string[];
+      window: string;
+      last_seen_at: string;
+    }>(`/continuity/summary?window=${window}`, {
+      timeout: 45000, // 45 seconds timeout for continuity API (can be slow with many namespaces)
+    } as any);
+  },
+
   // ============ Cluster Manager ============
   getClusters: () =>
     fetchAPI<ClusterManagerResponse>('/clusters'),

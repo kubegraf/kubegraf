@@ -16,11 +16,16 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fatih/color"
+
+	"github.com/kubegraf/kubegraf/internal/cluster"
 )
 
 func main() {
@@ -83,10 +88,47 @@ func main() {
 		// In web mode, start server immediately and connect to cluster in background
 		fmt.Println("🚀 Starting KubeGraf Daemon...")
 
+		// Initialize cluster manager with auto-discovery
+		fmt.Println("🔍 Discovering kubeconfig files...")
+		kubeconfigPaths, err := cluster.DiscoverKubeConfigs()
+		if err != nil {
+			log.Printf("⚠️  Failed to discover kubeconfigs: %v", err)
+		} else {
+			fmt.Printf("📁 Found %d kubeconfig file(s)\n", len(kubeconfigPaths))
+		}
+
+		// Load contexts from discovered kubeconfigs
+		var clusterManager *cluster.ClusterManager
+		if len(kubeconfigPaths) > 0 {
+			fmt.Println("📦 Loading Kubernetes contexts...")
+			contexts, err := cluster.LoadContextsFromFiles(kubeconfigPaths)
+			if err != nil {
+				log.Printf("⚠️  Failed to load contexts: %v", err)
+			} else {
+				fmt.Printf("✅ Loaded %d context(s)\n", len(contexts))
+				// Create cluster manager with pre-warming
+				clusterManager, err = cluster.NewClusterManager(contexts)
+				if err != nil {
+					log.Printf("⚠️  Failed to create cluster manager: %v", err)
+				} else {
+					fmt.Println("🔥 Cluster manager initialized with pre-warmed caches")
+				}
+			}
+		}
+
 		// Start web server immediately
+		fmt.Printf("📦 Creating WebServer instance...\n")
 		webServer := NewWebServer(app)
+		webServer.clusterManager = clusterManager
+		fmt.Printf("✅ WebServer created\n")
+
+		// Setup signal handling for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		fmt.Printf("✅ Signal handling configured\n")
 
 		// Initialize cluster connection in background
+		fmt.Printf("🔄 Starting cluster initialization goroutine...\n")
 		go func() {
 			initErr := app.Initialize()
 			if initErr != nil {
@@ -100,8 +142,34 @@ func main() {
 			}
 		}()
 
-		// Start web server (will auto-detect if port is in use and find available port)
-		if err := webServer.Start(port); err != nil {
+		// Start web server in a goroutine
+		fmt.Printf("🚀 About to start web server goroutine on port %d...\n", port)
+		serverErrChan := make(chan error, 1)
+		go func() {
+			fmt.Printf("🚀 Starting web server goroutine on port %d...\n", port)
+			if err := webServer.Start(port); err != nil {
+				fmt.Printf("❌ Web server error: %v\n", err)
+				serverErrChan <- err
+			}
+		}()
+		fmt.Printf("✅ Web server goroutine launched\n")
+
+		// Wait for signal or server error
+		select {
+		case sig := <-sigChan:
+			fmt.Printf("\n🛑 Received signal: %v\n", sig)
+			fmt.Println("💾 Updating last seen timestamp...")
+			// Update last_seen_at on clean shutdown
+			if webServer.stateManager != nil {
+				if err := webServer.stateManager.UpdateLastSeenAt(); err != nil {
+					fmt.Printf("⚠️  Failed to update state: %v\n", err)
+				} else {
+					fmt.Println("✅ State updated successfully")
+				}
+			}
+			fmt.Println("👋 Shutting down gracefully...")
+			os.Exit(0)
+		case err := <-serverErrChan:
 			fmt.Fprintf(os.Stderr, "❌ Web server error: %v\n", err)
 			os.Exit(1)
 		}
