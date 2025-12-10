@@ -1,7 +1,8 @@
-import { createSignal } from 'solid-js';
+import { createSignal, createEffect } from 'solid-js';
 import { api, type ClusterEntry, type DiscoveredKubeconfig, type ClusterManagerStatus, type ClusterConnectPayload, type RuntimeClusterContext } from '../services/api';
 import { addNotification, setCurrentView } from './ui';
 import { wsService } from '../services/websocket';
+import { clusterStatus } from './cluster';
 
 const [clusters, setClusters] = createSignal<ClusterEntry[]>([]);
 const [discoveredClusters, setDiscoveredClusters] = createSignal<DiscoveredKubeconfig[]>([]);
@@ -34,14 +35,24 @@ async function refreshClusterStatus() {
 }
 
 async function connectToCluster(payload: ClusterConnectPayload) {
+  console.log('[ClusterManager] connectToCluster called with:', payload);
   setClusterLoading(true);
   try {
+    console.log('[ClusterManager] Calling API connectCluster...');
     const result = await api.connectCluster(payload);
+    console.log('[ClusterManager] API result:', result);
     const targetName = result.cluster?.name || payload.name || 'cluster';
     addNotification(`Connected to ${targetName}`, 'success');
     setClusterManagerStatus(result.status || null);
     await refreshClusterData();
+
+    // Auto-redirect to Dashboard after successful connection
+    console.log('[ClusterManager] Redirecting to dashboard...');
+    setTimeout(() => {
+      setCurrentView('dashboard');
+    }, 500);
   } catch (err: any) {
+    console.error('[ClusterManager] Connect error:', err);
     addNotification(err?.message || 'Failed to connect to cluster', 'error');
     throw err;
   } finally {

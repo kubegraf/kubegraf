@@ -233,13 +233,8 @@ export const AppContent: Component<AppContentProps> = (props) => {
 
       {/* Main content area */}
       <main class="flex-1 overflow-auto p-6 relative">
-        <Show when={!props.isConnected() && currentView() !== 'settings'}>
-          <ConnectionOverlay
-            connectionStatus={props.connectionStatus}
-            refetchStatus={props.refetchStatus}
-          />
-        </Show>
-        <Show when={props.isConnected() || currentView() === 'settings' || currentView() === 'logs'}>
+        {/* Always allow Cluster Manager to be shown, even when not connected */}
+        <Show when={props.isConnected() || currentView() === 'clustermanager' || currentView() === 'settings' || currentView() === 'logs'}>
           {(() => {
             const view = currentView();
             const Component = views[view];
@@ -254,6 +249,13 @@ export const AppContent: Component<AppContentProps> = (props) => {
               return <div class="p-6" style="background: red; color: white;">Error rendering {view}: {String(error)}</div>;
             }
           })()}
+        </Show>
+        {/* Show ConnectionOverlay for dashboard and other views when not connected */}
+        <Show when={!props.isConnected() && currentView() !== 'clustermanager' && currentView() !== 'settings' && currentView() !== 'logs'}>
+          <ConnectionOverlay
+            connectionStatus={props.connectionStatus}
+            refetchStatus={props.refetchStatus}
+          />
         </Show>
       </main>
 

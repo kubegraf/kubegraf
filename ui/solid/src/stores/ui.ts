@@ -57,7 +57,25 @@ export type View =
   | 'gpudashboard'
   | 'mlworkflows';
 
-const [currentView, setCurrentView] = createSignal<View>('dashboard');
+// Initialize currentView - check sessionStorage, default to 'clustermanager'
+const [currentViewBase, setCurrentViewBase] = createSignal<View>(() => {
+  if (typeof sessionStorage !== 'undefined') {
+    const stored = sessionStorage.getItem('kubegraf-current-view');
+    if (stored) {
+      return stored as View;
+    }
+  }
+  return 'clustermanager';
+});
+
+// Export wrapper that also saves to sessionStorage
+const currentView = currentViewBase;
+const setCurrentView = (view: View) => {
+  setCurrentViewBase(view);
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.setItem('kubegraf-current-view', view);
+  }
+};
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
 const [aiPanelOpen, setAIPanelOpen] = createSignal(false);
 const [selectedResource, setSelectedResource] = createSignal<any>(null);

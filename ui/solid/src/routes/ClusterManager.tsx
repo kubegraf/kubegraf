@@ -6,12 +6,13 @@ import {
   clusterManagerStatus,
   clusterLoading,
   refreshClusterData,
+  refreshClusterStatus,
   connectToCluster,
   disconnectActiveCluster,
   setDefaultCluster,
 } from '../stores/clusterManager';
-import { switchContext } from '../stores/cluster';
-import { addNotification } from '../stores/ui';
+import { switchContext, clusterStatus } from '../stores/cluster';
+import { addNotification, setCurrentView } from '../stores/ui';
 
 const providerOptions = [
   { id: 'generic', label: 'Generic / Other' },
@@ -30,10 +31,18 @@ const ClusterManager: Component = () => {
   const [manualProvider, setManualProvider] = createSignal('generic');
 
   onMount(() => {
+    // Refresh both cluster data and status to ensure accurate connection state
     refreshClusterData();
+    // Also refresh cluster status to sync with header
+    refreshClusterStatus();
   });
 
-  const hasActiveCluster = createMemo(() => Boolean(clusterManagerStatus()?.connected));
+  // Use same logic as header: check clusterManagerStatus first, then fallback to clusterStatus
+  const hasActiveCluster = createMemo(() => {
+    const managerStatus = clusterManagerStatus()?.connected;
+    const status = clusterStatus().connected;
+    return Boolean(managerStatus ?? status);
+  });
 
   const handleSwitchContext = async (contextName: string) => {
     try {
@@ -132,32 +141,186 @@ const ClusterManager: Component = () => {
         </div>
       </div>
 
-      <Show when={!hasActiveCluster()}>
-        <div class="grid gap-4 lg:grid-cols-2">
-          <For each={guideCards}>
-            {(card) => (
-              <div class="p-4 rounded-xl border" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-                <h3 class="text-base font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>{card.title}</h3>
-                <p class="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>{card.description}</p>
+      {/* Show "Choose your cluster" message when kubeconfig files are found */}
+      <Show when={!hasActiveCluster() && (discoveredClusters().length > 0 || clusters().length > 0)}>
+        <div class="p-6 rounded-xl border mb-6" style={{ 
+          border: '1px solid var(--border-color)', 
+          background: 'var(--bg-card)',
+          'border-left': '4px solid var(--accent-primary)'
+        }}>
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0">
+              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div class="flex-1">
+              <h2 class="text-xl font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                Choose your cluster to connect
+              </h2>
+              <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                {discoveredClusters().length > 0 && clusters().length > 0
+                  ? `Found ${discoveredClusters().length} discovered kubeconfig${discoveredClusters().length > 1 ? 's' : ''} and ${clusters().length} saved cluster${clusters().length > 1 ? 's' : ''}. Select one below to connect.`
+                  : discoveredClusters().length > 0
+                  ? `Found ${discoveredClusters().length} kubeconfig${discoveredClusters().length > 1 ? 's' : ''}. Select one below to connect.`
+                  : `You have ${clusters().length} saved cluster${clusters().length > 1 ? 's' : ''}. Select one below to connect.`}
+              </p>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* Show ConnectionOverlay-style content when NO kubeconfig files are found */}
+      <Show when={!hasActiveCluster() && discoveredClusters().length === 0 && clusters().length === 0 && !clusterLoading()}>
+        <div class="flex items-center justify-center min-h-[60vh] p-8">
+          <div class="max-w-3xl w-full">
+            <div class="text-center mb-8">
+              <div class="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.15)' }}>
+                <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </div>
+              <h2 class="text-3xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
+                No Cluster Connected
+              </h2>
+              <p class="text-base mb-8" style={{ color: 'var(--text-secondary)' }}>
+                Connect to an existing Kubernetes cluster or create a local one to get started
+              </p>
+            </div>
+
+            {/* Two options: Connect or Create */}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* Option 1: Connect via kubeconfig */}
+              <div class="card p-6 hover:border-cyan-500/50 transition-all cursor-pointer" style={{ border: '2px solid var(--border-color)' }}
+                onClick={() => {
+                  // Show instructions for connecting via kubeconfig
+                  alert('To connect to an existing cluster:\n\n1. Ensure your kubeconfig is set up (~/.kube/config)\n2. Verify access: kubectl cluster-info\n3. Click "Auto-detect" button above or refresh the page\n\nKubeGraf will automatically detect and connect to your cluster.');
+                }}
+              >
+                <div class="flex items-center gap-3 mb-4">
+                  <div class="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.1)' }}>
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Connect via kubeconfig
+                  </h3>
+                </div>
+                <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                  Connect to an existing Kubernetes cluster using your kubeconfig file
+                </p>
+                <ul class="text-xs space-y-2 mb-4" style={{ color: 'var(--text-muted)' }}>
+                  <li class="flex items-start gap-2">
+                    <span class="mt-1">•</span>
+                    <span>Ensure kubeconfig is at <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>~/.kube/config</code></span>
+                  </li>
+                  <li class="flex items-start gap-2">
+                    <span class="mt-1">•</span>
+                    <span>Verify with: <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>kubectl cluster-info</code></span>
+                  </li>
+                  <li class="flex items-start gap-2">
+                    <span class="mt-1">•</span>
+                    <span>Click "Retry Connection" below</span>
+                  </li>
+                </ul>
                 <button
-                  class="px-3 py-1.5 rounded-md text-sm"
-                  style={{ 
-                    background: card.primary ? 'var(--accent-primary)' : 'var(--bg-tertiary)', 
-                    color: card.primary ? '#000' : 'var(--text-primary)' 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    refreshClusterData();
                   }}
-                  onClick={() => {
-                    if (card.link) {
-                      window.open(card.link, '_blank', 'noopener');
-                    } else if (card.action) {
-                      card.action();
-                    }
+                  class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 relative overflow-hidden"
+                  style={{ 
+                    background: 'var(--accent-primary)', 
+                    color: '#000',
                   }}
                 >
-                  {card.button}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Retry Connection
                 </button>
               </div>
-            )}
-          </For>
+
+              {/* Option 2: Create local cluster */}
+              <div class="card p-6 hover:border-cyan-500/50 transition-all cursor-pointer" style={{ border: '2px solid var(--border-color)' }}
+                onClick={() => {
+                  setCurrentView('apps');
+                  sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
+                }}
+              >
+                <div class="flex items-center gap-3 mb-4">
+                  <div class="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: '#22c55e' }}>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Create Local Cluster
+                  </h3>
+                </div>
+                <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                  Set up a local Kubernetes cluster using k3d, kind, or minikube
+                </p>
+                <ul class="text-xs space-y-2 mb-4" style={{ color: 'var(--text-muted)' }}>
+                  <li class="flex items-start gap-2">
+                    <span class="mt-1">•</span>
+                    <span>Requires Docker Desktop installed and running</span>
+                  </li>
+                  <li class="flex items-start gap-2">
+                    <span class="mt-1">•</span>
+                    <span>Choose from k3d, kind, or minikube</span>
+                  </li>
+                  <li class="flex items-start gap-2">
+                    <span class="mt-1">•</span>
+                    <span>Automatically connects after creation</span>
+                  </li>
+                </ul>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
+                    sessionStorage.setItem('kubegraf-default-tab', 'marketplace');
+                    setCurrentView('apps');
+                  }}
+                  class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 flex items-center justify-center gap-2"
+                  style={{ background: '#22c55e', color: '#000' }}
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Go to Marketplace
+                </button>
+              </div>
+            </div>
+            
+            <div class="flex items-center justify-center gap-3">
+              <button
+                onClick={() => refreshClusterData()}
+                class="px-5 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2"
+                style={{ 
+                  background: 'var(--accent-primary)', 
+                  color: '#000',
+                }}
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Retry Connection
+              </button>
+              <a
+                href="https://kubegraf.io/docs"
+                target="_blank"
+                class="px-5 py-2.5 rounded-lg font-medium transition-all hover:opacity-90 flex items-center gap-2"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                Documentation
+              </a>
+            </div>
+          </div>
         </div>
       </Show>
 
@@ -195,24 +358,40 @@ const ClusterManager: Component = () => {
                     </div>
                     <div class="flex flex-wrap gap-2">
                       <button
-                        class="px-3 py-1.5 text-sm rounded-md"
-                        style={{ background: 'var(--accent-primary)', color: '#000' }}
+                        class="px-3 py-1.5 text-sm rounded-md transition-all"
+                        style={{
+                          background: cluster.connected || clusterLoading() ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
+                          color: cluster.connected || clusterLoading() ? 'var(--text-muted)' : '#000',
+                          cursor: cluster.connected || clusterLoading() ? 'not-allowed' : 'pointer',
+                          opacity: cluster.connected || clusterLoading() ? 0.5 : 1
+                        }}
                         disabled={cluster.connected || clusterLoading()}
-                        onClick={() => connectToCluster({ name: cluster.name, provider: cluster.provider, kubeconfigPath: cluster.kubeconfigPath })}
+                        onClick={() => {
+                          console.log('Connect button clicked:', cluster.name);
+                          connectToCluster({ name: cluster.name, provider: cluster.provider, kubeconfigPath: cluster.kubeconfigPath });
+                        }}
                       >
                         Connect
                       </button>
                       <button
-                        class="px-3 py-1.5 text-sm rounded-md"
-                        style={{ border: '1px solid var(--border-color)' }}
+                        class="px-3 py-1.5 text-sm rounded-md transition-all"
+                        style={{
+                          border: '1px solid var(--border-color)',
+                          cursor: !cluster.connected || clusterLoading() ? 'not-allowed' : 'pointer',
+                          opacity: !cluster.connected || clusterLoading() ? 0.5 : 1
+                        }}
                         disabled={!cluster.connected || clusterLoading()}
                         onClick={() => disconnectActiveCluster()}
                       >
                         Disconnect
                       </button>
                       <button
-                        class="px-3 py-1.5 text-sm rounded-md"
-                        style={{ border: '1px solid var(--border-color)' }}
+                        class="px-3 py-1.5 text-sm rounded-md transition-all"
+                        style={{
+                          border: '1px solid var(--border-color)',
+                          cursor: cluster.isDefault || clusterLoading() ? 'not-allowed' : 'pointer',
+                          opacity: cluster.isDefault || clusterLoading() ? 0.5 : 1
+                        }}
                         disabled={cluster.isDefault || clusterLoading()}
                         onClick={() => setDefaultCluster(cluster)}
                       >
@@ -301,10 +480,18 @@ const ClusterManager: Component = () => {
                       <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Contexts: {item.contexts.join(', ')}</p>
                     </div>
                     <button
-                      class="px-3 py-1.5 text-sm rounded-md"
-                      style={{ background: 'var(--accent-primary)', color: '#000' }}
+                      class="px-3 py-1.5 text-sm rounded-md transition-all hover:opacity-90"
+                      style={{
+                        background: clusterLoading() ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
+                        color: clusterLoading() ? 'var(--text-muted)' : '#000',
+                        cursor: clusterLoading() ? 'not-allowed' : 'pointer',
+                        opacity: clusterLoading() ? 0.5 : 1
+                      }}
                       disabled={clusterLoading()}
-                      onClick={() => connectToCluster({ name: item.name, provider: item.provider, kubeconfigPath: item.path })}
+                      onClick={() => {
+                        console.log('Connect button clicked (discovered):', item.name, item.path);
+                        connectToCluster({ name: item.name, provider: item.provider, kubeconfigPath: item.path });
+                      }}
                     >
                       Connect
                     </button>

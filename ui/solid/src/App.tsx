@@ -1,4 +1,4 @@
-import { Component, Show, onMount, For } from 'solid-js';
+import { Component, Show, onMount, For, createSignal } from 'solid-js';
 import AppShell from './components/AppShell';
 import { AppContent } from './components/AppContent';
 import { setUpdateInfo } from './stores/globalStore';
@@ -11,7 +11,7 @@ import { aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
 import { refreshClusterStatus } from './stores/clusterManager';
 import { wsService } from './services/websocket';
 import { backgroundPrefetch } from './services/backgroundPrefetch';
-import { createSignal, createResource } from 'solid-js';
+import { createResource } from 'solid-js';
 import { currentView, setCurrentView } from './stores/ui';
 
 const App: Component = () => {
@@ -20,7 +20,6 @@ const App: Component = () => {
 
   onMount(() => {
     // Initialize background pre-fetching in parallel (non-blocking)
-    // This pre-fetches critical data to improve first-load performance
     backgroundPrefetch.initialize();
 
     // WebSocket connection is now handled by WebSocketProvider
@@ -28,6 +27,26 @@ const App: Component = () => {
 
     // Prime cluster manager status for header indicator (in parallel)
     refreshClusterStatus();
+
+    // Simple: If not connected and viewing a view that requires connection, redirect to Cluster Manager
+    setTimeout(() => {
+      const status = connectionStatus();
+      const view = currentView();
+
+      // If connected, no need to redirect
+      if (status?.connected) {
+        return;
+      }
+
+      // Views that don't require connection
+      const noConnectionViews = ['clustermanager', 'settings', 'logs', 'privacy', 'documentation'];
+
+      // If not connected and viewing a view that requires connection, redirect to Cluster Manager
+      if (!noConnectionViews.includes(view)) {
+        console.log('[App] Not connected - redirecting to Cluster Manager');
+        setCurrentView('clustermanager');
+      }
+    }, 500);
 
     // Auto-check for updates silently on app load (in parallel)
     api.autoCheckUpdate()
