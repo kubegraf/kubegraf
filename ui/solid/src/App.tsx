@@ -3,8 +3,11 @@ import { Dynamic } from 'solid-js/web';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import UpdateBanner from './components/UpdateNotification';
+import AppShell from './components/AppShell';
 import { setUpdateInfo } from './stores/globalStore';
 import { api } from './services/api';
+import { QueryClientProvider } from './providers/QueryClientProvider';
+import { WebSocketProvider } from './providers/WebSocketProvider';
 import Dashboard from './routes/Dashboard';
 import Topology from './routes/Topology';
 import ClusterOverview from './routes/ClusterOverview';
@@ -210,8 +213,8 @@ const App: Component = () => {
     // This pre-fetches critical data to improve first-load performance
     backgroundPrefetch.initialize();
 
-    // Connect WebSocket for real-time updates (in parallel)
-    wsService.connect();
+    // WebSocket connection is now handled by WebSocketProvider
+    // wsService.connect() is called in WebSocketProvider
 
     // Prime cluster manager status for header indicator (in parallel)
     refreshClusterStatus();
@@ -267,18 +270,20 @@ const App: Component = () => {
   const isConnected = () => connectionStatus()?.connected !== false;
 
   return (
-    <div class="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
-      {/* Update Banner */}
-      <UpdateBanner />
-      
-      <div class="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar />
+    <QueryClientProvider>
+      <WebSocketProvider>
+        <div class="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+          {/* Update Banner */}
+          <UpdateBanner />
+          
+          <div class="flex flex-1 overflow-hidden">
+            {/* Sidebar */}
+            <Sidebar />
 
-        {/* Main content */}
-        <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-52'}`}>
-          {/* Header */}
-          <Header />
+            {/* Main content */}
+            <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-52'}`}>
+              {/* Header */}
+              <Header />
 
         {/* Connection status banner - simplified */}
         <Show when={!isConnected()}>
@@ -597,8 +602,10 @@ const App: Component = () => {
         isOpen={terminalOpen()}
         onClose={() => setTerminalOpen(false)}
       />
+        </div>
       </div>
-    </div>
+      </WebSocketProvider>
+    </QueryClientProvider>
   );
 };
 
