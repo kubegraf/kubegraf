@@ -75,12 +75,12 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	
+
 	// Set connection pool settings
 	db.SetMaxOpenConns(1) // SQLite works best with single connection
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(0) // Don't close connections
-	
+
 	// Verify database integrity on startup
 	if err := verifyDatabaseIntegrity(db); err != nil {
 		return nil, fmt.Errorf("database integrity check failed: %w", err)
@@ -110,7 +110,6 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 
-	fmt.Println("✅ SQLite database initialized with AES-256-GCM encryption")
 	return database, nil
 }
 
@@ -596,11 +595,11 @@ func verifyDatabaseIntegrity(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("integrity check query failed: %w", err)
 	}
-	
+
 	if result != "ok" {
 		return fmt.Errorf("database integrity check failed: %s", result)
 	}
-	
+
 	return nil
 }
 
@@ -618,13 +617,13 @@ func (d *Database) Backup(backupPath string) error {
 	if d.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
-	
+
 	// Create backup directory if needed
 	dir := filepath.Dir(backupPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create backup directory: %w", err)
 	}
-	
+
 	// Use VACUUM INTO for safe backup (SQLite 3.27+)
 	// This creates an atomic backup that's guaranteed to be consistent
 	_, err := d.db.Exec(fmt.Sprintf("VACUUM INTO %q", backupPath))
@@ -632,19 +631,19 @@ func (d *Database) Backup(backupPath string) error {
 		// Fallback: use file copy if VACUUM INTO not supported
 		return d.fileCopyBackup(backupPath)
 	}
-	
+
 	// Verify backup integrity
 	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("open backup for verification: %w", err)
 	}
 	defer backupDB.Close()
-	
+
 	if err := verifyDatabaseIntegrity(backupDB); err != nil {
 		os.Remove(backupPath) // Remove corrupted backup
 		return fmt.Errorf("backup integrity check failed: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -654,21 +653,21 @@ func (d *Database) fileCopyBackup(backupPath string) error {
 	// This is a simplified approach - in production you'd store the path
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	// Use SQLite backup API via connection
 	conn, err := d.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("get database connection: %w", err)
 	}
 	defer conn.Close()
-	
+
 	// For now, we'll use a simple approach: create a checkpoint and copy
 	// In production, use sqlite3_backup API for proper backup
 	_, err = d.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	if err != nil {
 		return fmt.Errorf("checkpoint failed: %w", err)
 	}
-	
+
 	// Note: File copy backup requires knowing the source path
 	// This is a simplified implementation
 	return fmt.Errorf("file copy backup requires source path - use VACUUM INTO instead")
@@ -683,57 +682,57 @@ func (d *Database) RestoreFromBackup(backupPath, dbPath string) error {
 		return fmt.Errorf("open backup database: %w", err)
 	}
 	defer backupDB.Close()
-	
+
 	if err := verifyDatabaseIntegrity(backupDB); err != nil {
 		return fmt.Errorf("backup integrity check failed: %w", err)
 	}
-	
+
 	// Close current database connection
 	if err := d.db.Close(); err != nil {
 		return fmt.Errorf("close current database: %w", err)
 	}
-	
+
 	// Copy backup file to database location
 	sourceFile, err := os.Open(backupPath)
 	if err != nil {
 		return fmt.Errorf("open backup file: %w", err)
 	}
 	defer sourceFile.Close()
-	
+
 	// Remove existing database file if it exists
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Remove(dbPath); err != nil {
 			return fmt.Errorf("remove existing database: %w", err)
 		}
 	}
-	
+
 	destFile, err := os.Create(dbPath)
 	if err != nil {
 		return fmt.Errorf("create database file: %w", err)
 	}
 	defer destFile.Close()
-	
+
 	_, err = io.Copy(destFile, sourceFile)
 	if err != nil {
 		return fmt.Errorf("copy backup file: %w", err)
 	}
-	
+
 	// Reopen database
 	newDB, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
 	if err != nil {
 		return fmt.Errorf("reopen database: %w", err)
 	}
-	
+
 	// Set connection pool settings
 	newDB.SetMaxOpenConns(1)
 	newDB.SetMaxIdleConns(1)
 	newDB.SetConnMaxLifetime(0)
-	
+
 	// Verify restored database
 	if err := verifyDatabaseIntegrity(newDB); err != nil {
 		return fmt.Errorf("restored database integrity check failed: %w", err)
 	}
-	
+
 	d.db = newDB
 	d.dbPath = dbPath
 	return nil
@@ -744,10 +743,10 @@ func (d *Database) AutoBackup(ctx context.Context, backupDir string, interval ti
 	if err := os.MkdirAll(backupDir, 0700); err != nil {
 		return fmt.Errorf("create backup directory: %w", err)
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -759,7 +758,7 @@ func (d *Database) AutoBackup(ctx context.Context, backupDir string, interval ti
 				continue
 			}
 			fmt.Printf("✅ Database backup created: %s\n", backupPath)
-			
+
 			// Clean up old backups (keep last 7 days)
 			d.cleanupOldBackups(backupDir, 7*24*time.Hour)
 		}
@@ -772,18 +771,18 @@ func (d *Database) cleanupOldBackups(backupDir string, olderThan time.Duration) 
 	if err != nil {
 		return
 	}
-	
+
 	cutoff := time.Now().Add(-olderThan)
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
-		
+
 		info, err := file.Info()
 		if err != nil {
 			continue
 		}
-		
+
 		if info.ModTime().Before(cutoff) {
 			os.Remove(filepath.Join(backupDir, file.Name()))
 		}

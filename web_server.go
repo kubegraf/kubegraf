@@ -241,10 +241,9 @@ func NewWebServer(app *App) *WebServer {
 			backupCancel = cancel
 			go func() {
 				if err := ws.db.AutoBackup(ctx, backupDir, backupInterval); err != nil {
-					fmt.Printf("⚠️  Database backup service stopped: %v\n", err)
+					// Silent failure for backup service
 				}
 			}()
-			fmt.Printf("✅ Database automatic backups enabled (every %v, stored in %s)\n", backupInterval, backupDir)
 		}
 	}
 
@@ -275,28 +274,19 @@ func NewWebServer(app *App) *WebServer {
 
 // Start starts the web server
 func (ws *WebServer) Start(port int) error {
-	fmt.Printf("🚀 WebServer.Start() called with port %d\n", port)
-
-	// Read state on startup (last_seen_at)
+	// Read state on startup (last_seen_at) - silently
 	if ws.stateManager != nil {
-		state, err := ws.stateManager.ReadState()
-		if err == nil {
-			fmt.Printf("📅 Last seen at: %s\n", state.LastSeenAt)
-		}
+		ws.stateManager.ReadState()
 	}
 
-	fmt.Printf("📦 Getting embedded web filesystem...\n")
 	// Get the embedded web UI filesystem
 	webFS, err := GetWebFS()
 	if err != nil {
 		return fmt.Errorf("failed to get web filesystem: %v", err)
 	}
-	fmt.Printf("✅ Web filesystem loaded successfully\n")
 
-	fmt.Printf("📝 Starting handler registration...\n")
 	// Serve static files with SPA routing (must be registered last)
 	staticHandler := ws.handleStaticFiles(webFS)
-	fmt.Printf("📝 Registered basic handlers...\n")
 	http.HandleFunc("/api/status", ws.handleConnectionStatus)
 	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
 	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
@@ -527,52 +517,37 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/gpu/metrics", ws.handleGPUMetrics)
 	http.HandleFunc("/api/gpu/install", ws.handleGPUInstall)
 
-	// Initialize AutoFix rules
-	fmt.Printf("📝 Initializing AutoFix rules...\n")
+	// Initialize AutoFix rules (silently)
 	initAutoFixRules()
-	fmt.Printf("✅ AutoFix rules initialized\n")
 
 	// Advanced features - AI, Diagnostics, Cost, Drift
-	fmt.Printf("📝 Registering advanced handlers...\n")
 	ws.RegisterAdvancedHandlers()
-	fmt.Printf("✅ Advanced handlers registered\n")
 
 	// Accuracy testing
-	fmt.Printf("📝 Registering accuracy handlers...\n")
 	ws.RegisterAccuracyHandlers()
-	fmt.Printf("✅ Accuracy handlers registered\n")
 
 	// Event monitoring
-	fmt.Printf("📝 Registering event handlers...\n")
 	ws.RegisterEventHandlers()
-	fmt.Printf("✅ Event handlers registered\n")
+
+	// History/Timeline replay API
+	ws.RegisterHistoryHandlers()
 
 	// MCP (Model Context Protocol) Server for AI agents
 	if ws.mcpServer != nil {
-		fmt.Printf("📝 Registering MCP handler...\n")
 		http.HandleFunc("/api/mcp", ws.mcpServer.HandleRequest)
-		fmt.Printf("✅ MCP handler registered\n")
 	}
 
 	// Connectors
-	fmt.Printf("📝 Registering connector handlers...\n")
 	ws.RegisterConnectorHandlers()
-	fmt.Printf("✅ Connector handlers registered\n")
 
 	// SRE Agent
-	fmt.Printf("📝 Registering SRE agent handlers...\n")
 	ws.RegisterSREAgentHandlers()
-	fmt.Printf("✅ SRE agent handlers registered\n")
 
 	// Access Control
-	fmt.Printf("📝 Registering access control handlers...\n")
 	ws.RegisterAccessControlHandlers()
-	fmt.Printf("✅ Access control handlers registered\n")
 
 	// Custom Resources
-	fmt.Printf("📝 Registering custom resource handlers...\n")
 	ws.RegisterCustomResourcesHandlers()
-	fmt.Printf("✅ Custom resource handlers registered\n")
 
 	// Incidents endpoint
 	http.HandleFunc("/api/incidents", ws.handleIncidents)
@@ -588,9 +563,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/brain/ml/summary", ws.handleBrainMLSummary)
 
 	// Static files and SPA routing (must be last to not override API routes)
-	fmt.Printf("📝 Registering static file handler...\n")
 	http.HandleFunc("/", staticHandler)
-	fmt.Printf("✅ All HTTP handlers registered\n")
 
 	// Check if port is available, if not find next available port
 	actualPort := port

@@ -21,6 +21,7 @@ export type View =
   | 'security'
   | 'anomalies'
   | 'incidents'
+  | 'timeline'
   | 'plugins'
   | 'cost'
   | 'drift'

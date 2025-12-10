@@ -35,21 +35,61 @@ func NewHistoryQueryService(dataSource ClusterDataSource) *HistoryQueryService {
 
 // QueryHistory queries historical data for a given time window and returns normalized results
 func (s *HistoryQueryService) QueryHistory(ctx context.Context, window TimeWindow) (*HistoryQueryResult, error) {
-	// Fetch raw data from data source
-	events, err := s.dataSource.FetchEvents(ctx, window.Since, window.Until)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch events: %w", err)
+	// Fetch raw data from data source in parallel using goroutines for faster response
+	type eventsResult struct {
+		events []K8sEvent
+		err    error
+	}
+	type deploymentsResult struct {
+		deployments []DeploymentChange
+		err         error
+	}
+	type nodesResult struct {
+		nodes []NodeChange
+		err   error
 	}
 
-	deploymentChanges, err := s.dataSource.FetchDeployments(ctx, window.Since, window.Until)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch deployments: %w", err)
+	eventsChan := make(chan eventsResult, 1)
+	deploymentsChan := make(chan deploymentsResult, 1)
+	nodesChan := make(chan nodesResult, 1)
+
+	// Fetch events in parallel
+	go func() {
+		events, err := s.dataSource.FetchEvents(ctx, window.Since, window.Until)
+		eventsChan <- eventsResult{events: events, err: err}
+	}()
+
+	// Fetch deployments in parallel
+	go func() {
+		deployments, err := s.dataSource.FetchDeployments(ctx, window.Since, window.Until)
+		deploymentsChan <- deploymentsResult{deployments: deployments, err: err}
+	}()
+
+	// Fetch node changes in parallel
+	go func() {
+		nodes, err := s.dataSource.FetchNodeStatusChanges(ctx, window.Since, window.Until)
+		nodesChan <- nodesResult{nodes: nodes, err: err}
+	}()
+
+	// Collect results
+	evResult := <-eventsChan
+	if evResult.err != nil {
+		return nil, fmt.Errorf("failed to fetch events: %w", evResult.err)
 	}
 
-	nodeChanges, err := s.dataSource.FetchNodeStatusChanges(ctx, window.Since, window.Until)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch node changes: %w", err)
+	depResult := <-deploymentsChan
+	if depResult.err != nil {
+		return nil, fmt.Errorf("failed to fetch deployments: %w", depResult.err)
 	}
+
+	nodeResult := <-nodesChan
+	if nodeResult.err != nil {
+		return nil, fmt.Errorf("failed to fetch node changes: %w", nodeResult.err)
+	}
+
+	events := evResult.events
+	deploymentChanges := depResult.deployments
+	nodeChanges := nodeResult.nodes
 
 	// Convert to normalized ChangeEvents
 	changeEvents := s.normalizeToChangeEvents(events, deploymentChanges, nodeChanges)
@@ -76,7 +116,7 @@ func (s *HistoryQueryService) normalizeToChangeEvents(
 ) []ChangeEvent {
 	var changeEvents []ChangeEvent
 
-	// Convert K8s events
+	// Convert K8s events (both Normal and Warning)
 	for _, event := range events {
 		severity := "info"
 		if event.Type == "Warning" {
@@ -94,7 +134,9 @@ func (s *HistoryQueryService) normalizeToChangeEvents(
 			Reason:       event.Reason,
 			Message:      event.Message,
 			Metadata: map[string]interface{}{
-				"event_name": event.Name,
+				"event_name":      event.Name,
+				"event_type":      event.Type,
+				"first_timestamp": event.FirstTimestamp,
 			},
 		}
 		changeEvents = append(changeEvents, changeEvent)
@@ -363,4 +405,3 @@ func (s *HistoryQueryService) maxTime(times []time.Time) time.Time {
 	}
 	return max
 }
-

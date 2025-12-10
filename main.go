@@ -77,8 +77,6 @@ func main() {
 	// Show splash screen only for TUI mode
 	if !webMode {
 		showSplash()
-	} else {
-		fmt.Println("🚀 Initializing KubeGraf Web UI...")
 	}
 
 	// Create and initialize application
@@ -88,71 +86,55 @@ func main() {
 		// In web mode, start server immediately and connect to cluster in background
 		fmt.Println("🚀 Starting KubeGraf Daemon...")
 
-		// Initialize cluster manager with auto-discovery
-		fmt.Println("🔍 Discovering kubeconfig files...")
+		// Initialize cluster manager with auto-discovery (silently)
 		kubeconfigPaths, err := cluster.DiscoverKubeConfigs()
 		if err != nil {
 			log.Printf("⚠️  Failed to discover kubeconfigs: %v", err)
-		} else {
-			fmt.Printf("📁 Found %d kubeconfig file(s)\n", len(kubeconfigPaths))
 		}
 
-		// Load contexts from discovered kubeconfigs
+		// Load contexts from discovered kubeconfigs (silently)
 		var clusterManager *cluster.ClusterManager
 		if len(kubeconfigPaths) > 0 {
-			fmt.Println("📦 Loading Kubernetes contexts...")
 			contexts, err := cluster.LoadContextsFromFiles(kubeconfigPaths)
 			if err != nil {
 				log.Printf("⚠️  Failed to load contexts: %v", err)
 			} else {
-				fmt.Printf("✅ Loaded %d context(s)\n", len(contexts))
-				// Create cluster manager with pre-warming
+				// Create cluster manager with pre-warming (silently)
 				clusterManager, err = cluster.NewClusterManager(contexts)
 				if err != nil {
 					log.Printf("⚠️  Failed to create cluster manager: %v", err)
-				} else {
-					fmt.Println("🔥 Cluster manager initialized with pre-warmed caches")
 				}
 			}
 		}
 
-		// Start web server immediately
-		fmt.Printf("📦 Creating WebServer instance...\n")
+		// Start web server immediately (silently)
 		webServer := NewWebServer(app)
 		webServer.clusterManager = clusterManager
-		fmt.Printf("✅ WebServer created\n")
 
-		// Setup signal handling for graceful shutdown
+		// Setup signal handling for graceful shutdown (silently)
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-		fmt.Printf("✅ Signal handling configured\n")
 
-		// Initialize cluster connection in background
-		fmt.Printf("🔄 Starting cluster initialization goroutine...\n")
+		// Initialize cluster connection in background (silently)
 		go func() {
 			initErr := app.Initialize()
 			if initErr != nil {
 				app.connectionError = initErr.Error()
 				app.connected = false
 				fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
-				fmt.Println("📊 Web UI is running - you can view the connection error in the dashboard")
 			} else {
 				app.connected = true
-				fmt.Println("✅ Connected to cluster successfully")
 			}
 		}()
 
-		// Start web server in a goroutine
-		fmt.Printf("🚀 About to start web server goroutine on port %d...\n", port)
+		// Start web server in a goroutine (silently)
 		serverErrChan := make(chan error, 1)
 		go func() {
-			fmt.Printf("🚀 Starting web server goroutine on port %d...\n", port)
 			if err := webServer.Start(port); err != nil {
 				fmt.Printf("❌ Web server error: %v\n", err)
 				serverErrChan <- err
 			}
 		}()
-		fmt.Printf("✅ Web server goroutine launched\n")
 
 		// Wait for signal or server error
 		select {

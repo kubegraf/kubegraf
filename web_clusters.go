@@ -43,7 +43,43 @@ func (ws *WebServer) handleClusterDisconnect(w http.ResponseWriter, r *http.Requ
 }
 
 func (ws *WebServer) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "Not implemented - use cluster manager endpoints", http.StatusNotImplemented)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// Use cluster service if available
+	if ws.clusterService != nil {
+		status := ws.clusterService.Status()
+		// Convert ClusterStatusPayload to ClusterManagerStatus format
+		response := map[string]interface{}{
+			"connected": status.Connected,
+			"cluster":   status.Cluster,
+		}
+		if status.Error != "" {
+			response["error"] = status.Error
+		}
+		if status.Provider != "" {
+			response["provider"] = status.Provider
+		}
+		if status.DefaultCluster != "" {
+			response["defaultCluster"] = status.DefaultCluster
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Fallback: return basic status from app
+	status := map[string]interface{}{
+		"connected": ws.app.connected,
+		"cluster":   ws.app.cluster,
+	}
+	if ws.app.connectionError != "" {
+		status["error"] = ws.app.connectionError
+	}
+	json.NewEncoder(w).Encode(status)
 }
 
 // handleListClustersNew handles GET /api/clusters/list (new implementation with ClusterManager)
