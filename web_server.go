@@ -52,14 +52,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kubegraf/kubegraf/mcp/server"
 	"github.com/kubegraf/kubegraf/internal/cache"
+	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/database"
+	"github.com/kubegraf/kubegraf/mcp/server"
 )
 
 var (
-	NewDatabase = database.NewDatabase
-	NewCache    = cache.NewCache
+	NewDatabase     = database.NewDatabase
+	NewCache        = cache.NewCache
 	CacheBackendLRU = cache.CacheBackendLRU
 )
 
@@ -176,17 +177,21 @@ type WebServer struct {
 	db             *database.Database
 	iam            *IAM
 	clusterService *ClusterService
+	// State management for continuity tracking
+	stateManager *StateManager
+	// Cluster manager for multi-cluster support
+	clusterManager *cluster.ClusterManager
 }
 
 // NewWebServer creates a new web server
 func NewWebServer(app *App) *WebServer {
 	ws := &WebServer{
-		app:          app,
-		clients:      make(map[*websocket.Conn]bool),
-		portForwards: make(map[string]*PortForwardSession),
-		events:       make([]WebEvent, 0, 500),
-		stopCh:       make(chan struct{}),
-		costCache:    make(map[string]*ClusterCost),
+		app:           app,
+		clients:       make(map[*websocket.Conn]bool),
+		portForwards:  make(map[string]*PortForwardSession),
+		events:        make([]WebEvent, 0, 500),
+		stopCh:        make(chan struct{}),
+		costCache:     make(map[string]*ClusterCost),
 		costCacheTime: make(map[string]time.Time),
 	}
 	// Initialize MCP server for AI agents
@@ -195,20 +200,20 @@ func NewWebServer(app *App) *WebServer {
 	if err := ws.mcpServer.RegisterDefaultTools(); err != nil {
 		fmt.Printf("⚠️  Failed to register MCP tools: %v\n", err)
 	}
-	
+
 	// Initialize database, cache, and IAM for production upgrades
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		// Fallback to current directory
 		homeDir = "."
 	}
-	
+
 	// Create .kubegraf directory if it doesn't exist
 	kubegrafDir := filepath.Join(homeDir, ".kubegraf")
 	if err := os.MkdirAll(kubegrafDir, 0755); err != nil {
 		fmt.Printf("⚠️  Failed to create .kubegraf directory: %v\n", err)
 	}
-	
+
 	// Initialize database
 	dbPath := filepath.Join(kubegrafDir, "db.sqlite")
 	encryptionKey := os.Getenv("KUBEGRAF_ENCRYPTION_KEY")
@@ -216,7 +221,7 @@ func NewWebServer(app *App) *WebServer {
 		// Use a default key (not secure for production, but okay for development)
 		encryptionKey = "default-encryption-key-change-in-production"
 	}
-	
+
 	db, err := NewDatabase(dbPath, encryptionKey)
 	if err != nil {
 		// Silent failure for production
@@ -225,24 +230,24 @@ func NewWebServer(app *App) *WebServer {
 		// Initialize cluster service if database is available
 		if ws.db != nil {
 			ws.clusterService = NewClusterService(app, ws.db)
-			
-		// Initialize backup configuration
-		backupDir = filepath.Join(kubegrafDir, "backups")
-		backupInterval = 6 * time.Hour
-		backupEnabled = true
-		
-		// Start automatic database backups
-		ctx, cancel := context.WithCancel(context.Background())
-		backupCancel = cancel
-		go func() {
-			if err := ws.db.AutoBackup(ctx, backupDir, backupInterval); err != nil {
-				fmt.Printf("⚠️  Database backup service stopped: %v\n", err)
-			}
-		}()
-		fmt.Printf("✅ Database automatic backups enabled (every %v, stored in %s)\n", backupInterval, backupDir)
+
+			// Initialize backup configuration
+			backupDir = filepath.Join(kubegrafDir, "backups")
+			backupInterval = 6 * time.Hour
+			backupEnabled = true
+
+			// Start automatic database backups
+			ctx, cancel := context.WithCancel(context.Background())
+			backupCancel = cancel
+			go func() {
+				if err := ws.db.AutoBackup(ctx, backupDir, backupInterval); err != nil {
+					fmt.Printf("⚠️  Database backup service stopped: %v\n", err)
+				}
+			}()
+			fmt.Printf("✅ Database automatic backups enabled (every %v, stored in %s)\n", backupInterval, backupDir)
 		}
 	}
-	
+
 	// Initialize cache (use LRU backend by default)
 	cache, err := NewCache(CacheBackendLRU, "")
 	if err != nil {
@@ -250,26 +255,48 @@ func NewWebServer(app *App) *WebServer {
 	} else {
 		ws.cache = cache
 	}
-	
+
 	// Initialize IAM (enabled by default)
 	iamEnabled := true
 	if ws.db != nil {
 		ws.iam = NewIAM(ws.db, iamEnabled)
 	}
-	
+
+	// Initialize state manager for continuity tracking
+	stateMgr, err := NewStateManager()
+	if err != nil {
+		fmt.Printf("⚠️  Failed to initialize state manager: %v\n", err)
+	} else {
+		ws.stateManager = stateMgr
+	}
+
 	return ws
 }
 
 // Start starts the web server
 func (ws *WebServer) Start(port int) error {
+	fmt.Printf("🚀 WebServer.Start() called with port %d\n", port)
+
+	// Read state on startup (last_seen_at)
+	if ws.stateManager != nil {
+		state, err := ws.stateManager.ReadState()
+		if err == nil {
+			fmt.Printf("📅 Last seen at: %s\n", state.LastSeenAt)
+		}
+	}
+
+	fmt.Printf("📦 Getting embedded web filesystem...\n")
 	// Get the embedded web UI filesystem
 	webFS, err := GetWebFS()
 	if err != nil {
 		return fmt.Errorf("failed to get web filesystem: %v", err)
 	}
+	fmt.Printf("✅ Web filesystem loaded successfully\n")
 
+	fmt.Printf("📝 Starting handler registration...\n")
 	// Serve static files with SPA routing (must be registered last)
 	staticHandler := ws.handleStaticFiles(webFS)
+	fmt.Printf("📝 Registered basic handlers...\n")
 	http.HandleFunc("/api/status", ws.handleConnectionStatus)
 	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
 	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
@@ -302,10 +329,18 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
 
 	// Cluster manager endpoints
+	// Legacy cluster endpoints (keep for backward compatibility)
 	http.HandleFunc("/api/clusters", ws.handleClusters)
 	http.HandleFunc("/api/clusters/connect", ws.handleClusterConnect)
 	http.HandleFunc("/api/clusters/disconnect", ws.handleClusterDisconnect)
 	http.HandleFunc("/api/clusters/status", ws.handleClusterStatus)
+
+	// New cluster manager endpoints (fast, pre-warmed)
+	http.HandleFunc("/api/clusters/list", ws.handleListClustersNew)
+	http.HandleFunc("/api/clusters/namespaces", ws.handleGetClusterNamespacesNew)
+	http.HandleFunc("/api/clusters/pods", ws.handleGetClusterPodsNew)
+	http.HandleFunc("/api/clusters/events", ws.handleGetClusterEventsNew)
+	http.HandleFunc("/api/clusters/refresh", ws.handleRefreshClusters)
 
 	// Workspace context endpoint
 	http.HandleFunc("/api/workspace/context", ws.handleWorkspaceContext)
@@ -424,6 +459,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/database/backup/list", ws.handleBackupList)
 	http.HandleFunc("/api/database/backup/restore", ws.handleBackupRestore)
 
+	// Continuity tracking endpoint
+	http.HandleFunc("/api/continuity/summary", ws.handleContinuitySummary)
+
 	// Security analysis endpoint
 	http.HandleFunc("/api/security", ws.handleSecurityAnalysis)
 
@@ -451,7 +489,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/integrations/kiali/versions", ws.handleKialiVersions)
 	http.HandleFunc("/api/kiali/proxy/", ws.handleKialiProxy)
 	http.HandleFunc("/api/kiali/proxy", ws.handleKialiProxy)
-	
+
 	// Traffic metrics endpoint for live traffic visualization
 	http.HandleFunc("/api/traffic/metrics", ws.handleTrafficMetrics)
 
@@ -490,33 +528,51 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/gpu/install", ws.handleGPUInstall)
 
 	// Initialize AutoFix rules
+	fmt.Printf("📝 Initializing AutoFix rules...\n")
 	initAutoFixRules()
+	fmt.Printf("✅ AutoFix rules initialized\n")
 
 	// Advanced features - AI, Diagnostics, Cost, Drift
+	fmt.Printf("📝 Registering advanced handlers...\n")
 	ws.RegisterAdvancedHandlers()
+	fmt.Printf("✅ Advanced handlers registered\n")
 
 	// Accuracy testing
+	fmt.Printf("📝 Registering accuracy handlers...\n")
 	ws.RegisterAccuracyHandlers()
+	fmt.Printf("✅ Accuracy handlers registered\n")
 
 	// Event monitoring
+	fmt.Printf("📝 Registering event handlers...\n")
 	ws.RegisterEventHandlers()
+	fmt.Printf("✅ Event handlers registered\n")
 
 	// MCP (Model Context Protocol) Server for AI agents
 	if ws.mcpServer != nil {
+		fmt.Printf("📝 Registering MCP handler...\n")
 		http.HandleFunc("/api/mcp", ws.mcpServer.HandleRequest)
+		fmt.Printf("✅ MCP handler registered\n")
 	}
 
 	// Connectors
+	fmt.Printf("📝 Registering connector handlers...\n")
 	ws.RegisterConnectorHandlers()
+	fmt.Printf("✅ Connector handlers registered\n")
 
 	// SRE Agent
+	fmt.Printf("📝 Registering SRE agent handlers...\n")
 	ws.RegisterSREAgentHandlers()
+	fmt.Printf("✅ SRE agent handlers registered\n")
 
 	// Access Control
+	fmt.Printf("📝 Registering access control handlers...\n")
 	ws.RegisterAccessControlHandlers()
+	fmt.Printf("✅ Access control handlers registered\n")
 
 	// Custom Resources
+	fmt.Printf("📝 Registering custom resource handlers...\n")
 	ws.RegisterCustomResourcesHandlers()
+	fmt.Printf("✅ Custom resource handlers registered\n")
 
 	// Incidents endpoint
 	http.HandleFunc("/api/incidents", ws.handleIncidents)
@@ -532,27 +588,33 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/brain/ml/summary", ws.handleBrainMLSummary)
 
 	// Static files and SPA routing (must be last to not override API routes)
+	fmt.Printf("📝 Registering static file handler...\n")
 	http.HandleFunc("/", staticHandler)
+	fmt.Printf("✅ All HTTP handlers registered\n")
 
 	// Check if port is available, if not find next available port
 	actualPort := port
+	fmt.Printf("🔍 Checking port %d availability...\n", port)
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		// Port is in use, find next available port
+		fmt.Printf("⚠️  Port %d is in use, searching for available port...\n", port)
 		actualPort, err = findAvailablePort(port)
 		if err != nil {
 			return fmt.Errorf("failed to find available port: %v", err)
 		}
+		fmt.Printf("✅ Found available port: %d\n", actualPort)
 	}
 	if listener != nil {
 		listener.Close()
 	}
 
 	addr := fmt.Sprintf(":%d", actualPort)
+	fmt.Printf("🚀 Starting HTTP server on %s...\n", addr)
 
 	// Pre-warm the cost cache in background (waits for cluster connection)
 	go ws.prewarmCostCache()
-	
+
 	// Show startup banner
 	ws.showStartupBanner(actualPort)
 
@@ -565,6 +627,7 @@ func (ws *WebServer) Start(port int) error {
 	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
 	go ws.watchKubernetesEvents()
 
+	fmt.Printf("✅ Server starting, listening on %s\n", addr)
 	return http.ListenAndServe(addr, nil)
 }
 
@@ -606,7 +669,7 @@ func (ws *WebServer) showStartupBanner(port int) {
 	fmt.Printf("🌐 Web UI running at: http://localhost:%d\n", port)
 	fmt.Println("🔄 Auto-updates enabled")
 	fmt.Println()
-	
+
 	// Open browser automatically after a short delay
 	go func() {
 		time.Sleep(1 * time.Second) // Give server time to start
@@ -676,9 +739,6 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 // handleInstallUpdate downloads and installs the latest version
 
 // handleMetrics returns cluster metrics
-
-
-
 
 // handleTopology returns topology data for visualization
 
@@ -812,23 +872,23 @@ type ImpactAnalysis struct {
 // func (ws *WebServer) handleImpactAnalysis(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
 // 	w.Header().Set("Access-Control-Allow-Origin", "*")
-// 
+//
 // 	resourceType := r.URL.Query().Get("type")
 // 	resourceName := r.URL.Query().Get("name")
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	if namespace == "" || namespace == "All Namespaces" {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	if resourceType == "" || resourceName == "" {
 // 		http.Error(w, "Missing required parameters: type and name", http.StatusBadRequest)
 // 		return
 // 	}
-// 
+//
 // 	var analysis *ImpactAnalysis
 // 	var err error
-// 
+//
 // 	switch strings.ToLower(resourceType) {
 // 	case "service":
 // 		analysis, err = ws.analyzeServiceImpact(resourceName, namespace)
@@ -846,22 +906,22 @@ type ImpactAnalysis struct {
 // 		http.Error(w, fmt.Sprintf("Impact analysis not supported for resource type: %s", resourceType), http.StatusBadRequest)
 // 		return
 // 	}
-// 
+//
 // 	if err != nil {
 // 		http.Error(w, err.Error(), http.StatusInternalServerError)
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(analysis)
 // }
-// 
+//
 // analyzeServiceImpact analyzes what depends on a Service
 // func (ws *WebServer) analyzeServiceImpact(name, namespace string) (*ImpactAnalysis, error) {
 // 	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 
+//
 // 	analysis := &ImpactAnalysis{
 // 		Resource:        name,
 // 		ResourceType:    "Service",
@@ -869,7 +929,7 @@ type ImpactAnalysis struct {
 // 		ImpactedNodes:   []*ImpactNode{},
 // 		Recommendations: []string{},
 // 	}
-// 
+//
 // 	// Find Ingresses that route to this service
 // 	ingresses, _ := ws.app.clientset.NetworkingV1().Ingresses(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, ing := range ingresses.Items {
@@ -891,7 +951,7 @@ type ImpactAnalysis struct {
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Find Pods that this service selects (would lose endpoint)
 // 	if len(service.Spec.Selector) > 0 {
 // 		pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
@@ -909,29 +969,29 @@ type ImpactAnalysis struct {
 // 			analysis.MediumCount++
 // 		}
 // 	}
-// 
+//
 // 	// Calculate totals
 // 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
 // 	analysis.Summary = fmt.Sprintf("Deleting Service '%s' will affect %d resource(s): %d critical, %d high, %d medium, %d low",
 // 		name, analysis.TotalImpacted, analysis.CriticalCount, analysis.HighCount, analysis.MediumCount, analysis.LowCount)
-// 
+//
 // 	if analysis.CriticalCount > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Update Ingress configurations before deleting this Service")
 // 	}
 // 	if analysis.MediumCount > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Ensure pods have alternative network access or are not required")
 // 	}
-// 
+//
 // 	return analysis, nil
 // }
-// 
+//
 // analyzeConfigMapImpact analyzes what depends on a ConfigMap
 // func (ws *WebServer) analyzeConfigMapImpact(name, namespace string) (*ImpactAnalysis, error) {
 // 	_, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 
+//
 // 	analysis := &ImpactAnalysis{
 // 		Resource:        name,
 // 		ResourceType:    "ConfigMap",
@@ -939,13 +999,13 @@ type ImpactAnalysis struct {
 // 		ImpactedNodes:   []*ImpactNode{},
 // 		Recommendations: []string{},
 // 	}
-// 
+//
 // 	// Find Deployments that use this ConfigMap
 // 	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, dep := range deployments.Items {
 // 		usesConfigMap := false
 // 		var usageType string
-// 
+//
 // 		// Check volume mounts
 // 		for _, vol := range dep.Spec.Template.Spec.Volumes {
 // 			if vol.ConfigMap != nil && vol.ConfigMap.Name == name {
@@ -954,7 +1014,7 @@ type ImpactAnalysis struct {
 // 				break
 // 			}
 // 		}
-// 
+//
 // 		// Check env references
 // 		if !usesConfigMap {
 // 			for _, container := range dep.Spec.Template.Spec.Containers {
@@ -970,7 +1030,7 @@ type ImpactAnalysis struct {
 // 				}
 // 			}
 // 		}
-// 
+//
 // 		if usesConfigMap {
 // 			node := &ImpactNode{
 // 				Type:      "Deployment",
@@ -983,7 +1043,7 @@ type ImpactAnalysis struct {
 // 			analysis.CriticalCount++
 // 		}
 // 	}
-// 
+//
 // 	// Check StatefulSets
 // 	statefulsets, _ := ws.app.clientset.AppsV1().StatefulSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, sts := range statefulsets.Items {
@@ -1002,7 +1062,7 @@ type ImpactAnalysis struct {
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Check DaemonSets
 // 	daemonsets, _ := ws.app.clientset.AppsV1().DaemonSets(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, ds := range daemonsets.Items {
@@ -1021,25 +1081,25 @@ type ImpactAnalysis struct {
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
 // 	analysis.Summary = fmt.Sprintf("Deleting ConfigMap '%s' will affect %d workload(s)", name, analysis.TotalImpacted)
-// 
+//
 // 	if analysis.CriticalCount > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Update workloads to remove ConfigMap references before deletion")
 // 		analysis.Recommendations = append(analysis.Recommendations, "Consider creating a replacement ConfigMap with updated values first")
 // 	}
-// 
+//
 // 	return analysis, nil
 // }
-// 
+//
 // analyzeSecretImpact analyzes what depends on a Secret
 // func (ws *WebServer) analyzeSecretImpact(name, namespace string) (*ImpactAnalysis, error) {
 // 	_, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 
+//
 // 	analysis := &ImpactAnalysis{
 // 		Resource:        name,
 // 		ResourceType:    "Secret",
@@ -1047,13 +1107,13 @@ type ImpactAnalysis struct {
 // 		ImpactedNodes:   []*ImpactNode{},
 // 		Recommendations: []string{},
 // 	}
-// 
+//
 // 	// Find Deployments that use this Secret
 // 	deployments, _ := ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, dep := range deployments.Items {
 // 		usesSecret := false
 // 		var usageType string
-// 
+//
 // 		for _, vol := range dep.Spec.Template.Spec.Volumes {
 // 			if vol.Secret != nil && vol.Secret.SecretName == name {
 // 				usesSecret = true
@@ -1061,7 +1121,7 @@ type ImpactAnalysis struct {
 // 				break
 // 			}
 // 		}
-// 
+//
 // 		if !usesSecret {
 // 			for _, container := range dep.Spec.Template.Spec.Containers {
 // 				for _, env := range container.EnvFrom {
@@ -1084,7 +1144,7 @@ type ImpactAnalysis struct {
 // 				}
 // 			}
 // 		}
-// 
+//
 // 		// Check imagePullSecrets
 // 		if !usesSecret {
 // 			for _, ips := range dep.Spec.Template.Spec.ImagePullSecrets {
@@ -1095,7 +1155,7 @@ type ImpactAnalysis struct {
 // 				}
 // 			}
 // 		}
-// 
+//
 // 		if usesSecret {
 // 			node := &ImpactNode{
 // 				Type:      "Deployment",
@@ -1108,7 +1168,7 @@ type ImpactAnalysis struct {
 // 			analysis.CriticalCount++
 // 		}
 // 	}
-// 
+//
 // 	// Find ServiceAccounts that reference this secret
 // 	serviceAccounts, _ := ws.app.clientset.CoreV1().ServiceAccounts(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, sa := range serviceAccounts.Items {
@@ -1141,25 +1201,25 @@ type ImpactAnalysis struct {
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
 // 	analysis.Summary = fmt.Sprintf("Deleting Secret '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
-// 
+//
 // 	if analysis.CriticalCount > 0 || analysis.HighCount > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Ensure no workloads require this Secret before deletion")
 // 		analysis.Recommendations = append(analysis.Recommendations, "Consider rotating Secret with a new one before deleting the old")
 // 	}
-// 
+//
 // 	return analysis, nil
 // }
-// 
+//
 // analyzeDeploymentImpact analyzes what depends on a Deployment
 // func (ws *WebServer) analyzeDeploymentImpact(name, namespace string) (*ImpactAnalysis, error) {
 // 	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 
+//
 // 	analysis := &ImpactAnalysis{
 // 		Resource:        name,
 // 		ResourceType:    "Deployment",
@@ -1167,7 +1227,7 @@ type ImpactAnalysis struct {
 // 		ImpactedNodes:   []*ImpactNode{},
 // 		Recommendations: []string{},
 // 	}
-// 
+//
 // 	// Find Services that select this Deployment's pods
 // 	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, svc := range services.Items {
@@ -1185,7 +1245,7 @@ type ImpactAnalysis struct {
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Find HPA targeting this deployment
 // 	hpas, _ := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, hpa := range hpas.Items {
@@ -1201,7 +1261,7 @@ type ImpactAnalysis struct {
 // 			analysis.MediumCount++
 // 		}
 // 	}
-// 
+//
 // 	// Add running pods info
 // 	pods, _ := ws.app.clientset.CoreV1().Pods(namespace).List(ws.app.ctx, metav1.ListOptions{
 // 		LabelSelector: metav1.FormatLabelSelector(deployment.Spec.Selector),
@@ -1224,28 +1284,28 @@ type ImpactAnalysis struct {
 // 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
 // 		analysis.HighCount++
 // 	}
-// 
+//
 // 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
 // 	analysis.Summary = fmt.Sprintf("Deleting Deployment '%s' will affect %d resource(s) including %d running pods",
 // 		name, analysis.TotalImpacted, runningPods)
-// 
+//
 // 	if analysis.CriticalCount > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Update Service selectors before deleting this Deployment")
 // 	}
 // 	if runningPods > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Consider scaling down to 0 replicas first to gracefully terminate pods")
 // 	}
-// 
+//
 // 	return analysis, nil
 // }
-// 
+//
 // analyzePodImpact analyzes what depends on a Pod
 // func (ws *WebServer) analyzePodImpact(name, namespace string) (*ImpactAnalysis, error) {
 // 	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 
+//
 // 	analysis := &ImpactAnalysis{
 // 		Resource:        name,
 // 		ResourceType:    "Pod",
@@ -1253,7 +1313,7 @@ type ImpactAnalysis struct {
 // 		ImpactedNodes:   []*ImpactNode{},
 // 		Recommendations: []string{},
 // 	}
-// 
+//
 // 	// Find Services that select this Pod
 // 	services, _ := ws.app.clientset.CoreV1().Services(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	for _, svc := range services.Items {
@@ -1269,7 +1329,7 @@ type ImpactAnalysis struct {
 // 					severity = "critical"
 // 					impact = "This is the only pod for this Service - service will have no endpoints"
 // 				}
-// 
+//
 // 				node := &ImpactNode{
 // 					Type:      "Service",
 // 					Name:      svc.Name,
@@ -1286,7 +1346,7 @@ type ImpactAnalysis struct {
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Check if pod is managed by a controller
 // 	for _, ownerRef := range pod.OwnerReferences {
 // 		if ownerRef.Controller != nil && *ownerRef.Controller {
@@ -1301,27 +1361,27 @@ type ImpactAnalysis struct {
 // 			analysis.LowCount++
 // 		}
 // 	}
-// 
+//
 // 	analysis.TotalImpacted = len(analysis.ImpactedNodes)
 // 	analysis.Summary = fmt.Sprintf("Deleting Pod '%s' will affect %d resource(s)", name, analysis.TotalImpacted)
-// 
+//
 // 	if analysis.CriticalCount > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Ensure other pods are available for the Service before deleting")
 // 	}
 // 	if len(pod.OwnerReferences) == 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "This is an orphan pod - it will not be recreated after deletion")
 // 	}
-// 
+//
 // 	return analysis, nil
 // }
-// 
+//
 // analyzeNodeImpact analyzes what would be affected by a Node being unavailable
 // func (ws *WebServer) analyzeNodeImpact(nodeName string) (*ImpactAnalysis, error) {
 // 	_, err := ws.app.clientset.CoreV1().Nodes().Get(ws.app.ctx, nodeName, metav1.GetOptions{})
 // 	if err != nil {
 // 		return nil, err
 // 	}
-// 
+//
 // 	analysis := &ImpactAnalysis{
 // 		Resource:        nodeName,
 // 		ResourceType:    "Node",
@@ -1329,17 +1389,17 @@ type ImpactAnalysis struct {
 // 		ImpactedNodes:   []*ImpactNode{},
 // 		Recommendations: []string{},
 // 	}
-// 
+//
 // 	// Find all pods running on this node
 // 	pods, _ := ws.app.clientset.CoreV1().Pods("").List(ws.app.ctx, metav1.ListOptions{
 // 		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
 // 	})
-// 
+//
 // 	deploymentPods := make(map[string]int)
 // 	statefulsetPods := make(map[string]int)
 // 	daemonsetPods := make(map[string]int)
 // 	standalonePods := []string{}
-// 
+//
 // 	for _, pod := range pods.Items {
 // 		hasController := false
 // 		for _, ownerRef := range pod.OwnerReferences {
@@ -1371,7 +1431,7 @@ type ImpactAnalysis struct {
 // 			standalonePods = append(standalonePods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 // 		}
 // 	}
-// 
+//
 // 	// Add deployment impacts
 // 	for key, count := range deploymentPods {
 // 		parts := strings.Split(key, "/")
@@ -1386,7 +1446,7 @@ type ImpactAnalysis struct {
 // 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
 // 		analysis.MediumCount++
 // 	}
-// 
+//
 // 	// Add statefulset impacts
 // 	for key, count := range statefulsetPods {
 // 		parts := strings.Split(key, "/")
@@ -1401,7 +1461,7 @@ type ImpactAnalysis struct {
 // 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
 // 		analysis.HighCount++
 // 	}
-// 
+//
 // 	// Add daemonset impacts
 // 	for key := range daemonsetPods {
 // 		parts := strings.Split(key, "/")
@@ -1415,7 +1475,7 @@ type ImpactAnalysis struct {
 // 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
 // 		analysis.LowCount++
 // 	}
-// 
+//
 // 	// Add standalone pod impacts
 // 	if len(standalonePods) > 0 {
 // 		node := &ImpactNode{
@@ -1429,11 +1489,11 @@ type ImpactAnalysis struct {
 // 		analysis.ImpactedNodes = append(analysis.ImpactedNodes, node)
 // 		analysis.CriticalCount++
 // 	}
-// 
+//
 // 	analysis.TotalImpacted = len(pods.Items)
 // 	analysis.Summary = fmt.Sprintf("Node '%s' hosts %d pod(s) from %d workload(s)",
 // 		nodeName, len(pods.Items), len(analysis.ImpactedNodes))
-// 
+//
 // 	if len(standalonePods) > 0 {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Migrate standalone pods to Deployments before draining node")
 // 	}
@@ -1441,7 +1501,7 @@ type ImpactAnalysis struct {
 // 		analysis.Recommendations = append(analysis.Recommendations, "Verify PersistentVolumes are accessible from other nodes")
 // 	}
 // 	analysis.Recommendations = append(analysis.Recommendations, "Use 'kubectl drain' for graceful workload migration")
-// 
+//
 // 	return analysis, nil
 // }
 
@@ -1648,7 +1708,6 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 	return true
 // }
 
-
 // handleConfigMaps returns configmap list
 // func (ws *WebServer) handleConfigMaps(w http.ResponseWriter, r *http.Request) {
 // 	namespace := r.URL.Query().Get("namespace")
@@ -1660,7 +1719,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 		http.Error(w, err.Error(), http.StatusInternalServerError)
 // 		return
 // 	}
-// 
+//
 // 	cmList := []map[string]interface{}{}
 // 	for _, cm := range configmaps.Items {
 // 		cmList = append(cmList, map[string]interface{}{
@@ -1670,7 +1729,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			"namespace": cm.Namespace,
 // 		})
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(cmList)
 // }
 
@@ -1685,7 +1744,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 		http.Error(w, err.Error(), http.StatusInternalServerError)
 // 		return
 // 	}
-// 
+//
 // 	secretList := []map[string]interface{}{}
 // 	for _, secret := range secrets.Items {
 // 		secretList = append(secretList, map[string]interface{}{
@@ -1696,7 +1755,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			"namespace": secret.Namespace,
 // 		})
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(secretList)
 // }
 
@@ -1705,7 +1764,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // handlePodDetails returns detailed information about a specific pod
 // func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	if name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1714,12 +1773,12 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if !r.URL.Query().Has("namespace") {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	// Get pod
 // 	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
@@ -1729,7 +1788,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Build containers info
 // 	containers := []map[string]interface{}{}
 // 	for _, c := range pod.Spec.Containers {
@@ -1737,14 +1796,14 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			"name":  c.Name,
 // 			"image": c.Image,
 // 		}
-// 
+//
 // 		// Find container status
 // 		for _, cs := range pod.Status.ContainerStatuses {
 // 			if cs.Name == c.Name {
 // 				containerInfo["ready"] = cs.Ready
 // 				containerInfo["restartCount"] = cs.RestartCount
 // 				containerInfo["containerID"] = cs.ContainerID
-// 
+//
 // 				// State information
 // 				if cs.State.Running != nil {
 // 					containerInfo["state"] = "Running"
@@ -1761,10 +1820,10 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 				break
 // 			}
 // 		}
-// 
+//
 // 		containers = append(containers, containerInfo)
 // 	}
-// 
+//
 // 	// Build volumes info
 // 	volumes := []map[string]interface{}{}
 // 	for _, v := range pod.Spec.Volumes {
@@ -1787,7 +1846,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 		}
 // 		volumes = append(volumes, volumeInfo)
 // 	}
-// 
+//
 // 	// Build conditions
 // 	conditions := []map[string]interface{}{}
 // 	for _, c := range pod.Status.Conditions {
@@ -1798,12 +1857,12 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			"message": c.Message,
 // 		})
 // 	}
-// 
+//
 // 	// Get events
 // 	events, _ := ws.app.clientset.CoreV1().Events(ws.app.namespace).List(ws.app.ctx, metav1.ListOptions{
 // 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", name),
 // 	})
-// 
+//
 // 	eventList := []map[string]interface{}{}
 // 	for _, e := range events.Items {
 // 		eventList = append(eventList, map[string]interface{}{
@@ -1814,11 +1873,11 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			"age":     formatAge(time.Since(e.LastTimestamp.Time)),
 // 		})
 // 	}
-// 
+//
 // 	// Generate YAML (using kubectl-style format)
 // 	pod.ManagedFields = nil
 // 	yamlData, _ := toKubectlYAML(pod, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"})
-// 
+//
 // 	// Get real-time metrics if available
 // 	var podMetrics map[string]interface{}
 // 	if ws.app.metricsClient != nil {
@@ -1826,13 +1885,13 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			// Calculate total CPU and memory
 // 			var totalCPU, totalMemory int64
 // 			containerMetrics := []map[string]interface{}{}
-// 
+//
 // 			for _, cm := range metrics.Containers {
 // 				cpuMillis := cm.Usage.Cpu().MilliValue()
 // 				memoryBytes := cm.Usage.Memory().Value()
 // 				totalCPU += cpuMillis
 // 				totalMemory += memoryBytes
-// 
+//
 // 				containerMetrics = append(containerMetrics, map[string]interface{}{
 // 					"name":        cm.Name,
 // 					"cpuMillis":   cpuMillis,
@@ -1841,7 +1900,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 					"memory":      fmt.Sprintf("%.2fMi", float64(memoryBytes)/(1024*1024)),
 // 				})
 // 			}
-// 
+//
 // 			podMetrics = map[string]interface{}{
 // 				"totalCPU":         fmt.Sprintf("%dm", totalCPU),
 // 				"totalCPUMillis":   totalCPU,
@@ -1852,7 +1911,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Build response
 // 	details := map[string]interface{}{
 // 		"success":    true,
@@ -1872,7 +1931,7 @@ func (ws *WebServer) buildTopologyData(namespace string) map[string]interface{} 
 // 		"yaml":       string(yamlData),
 // 		"metrics":    podMetrics,
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(details)
 // }
 
@@ -3244,18 +3303,18 @@ func (ws *WebServer) handleServiceDetails(w http.ResponseWriter, r *http.Request
 			portStr += fmt.Sprintf(":%d", port.NodePort)
 		}
 		portsList = append(portsList, portStr)
-		
+
 		// Extract target port value
 		targetPortValue := int32(port.Port)
 		if port.TargetPort.Type == intstr.Int {
 			targetPortValue = port.TargetPort.IntVal
 		}
-		
+
 		portsDetails = append(portsDetails, map[string]interface{}{
 			"name":       port.Name,
 			"port":       port.Port,
 			"targetPort": targetPortValue,
-			"protocol":  string(port.Protocol),
+			"protocol":   string(port.Protocol),
 			"nodePort":   port.NodePort,
 		})
 	}
@@ -3263,7 +3322,6 @@ func (ws *WebServer) handleServiceDetails(w http.ResponseWriter, r *http.Request
 	if portsStr == "" {
 		portsStr = "-"
 	}
-
 
 	// Get endpoints
 	endpoints, err := ws.app.clientset.CoreV1().Endpoints(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
@@ -3341,10 +3399,10 @@ func (ws *WebServer) handleServiceDetails(w http.ResponseWriter, r *http.Request
 			}
 			return ""
 		}(),
-		"externalIPs":      svc.Spec.ExternalIPs,
-		"ports":            portsStr,
-		"portsDetails":     portsDetails,
-		"endpoints":        endpointsList,
+		"externalIPs":  svc.Spec.ExternalIPs,
+		"ports":        portsStr,
+		"portsDetails": portsDetails,
+		"endpoints":    endpointsList,
 	})
 }
 
@@ -4040,17 +4098,17 @@ func (ws *WebServer) handleNetworkPolicyDetails(w http.ResponseWriter, r *http.R
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":       true,
-		"name":          np.Name,
-		"namespace":     np.Namespace,
-		"created":       formatAge(time.Since(np.CreationTimestamp.Time)),
+		"success":          true,
+		"name":             np.Name,
+		"namespace":        np.Namespace,
+		"created":          formatAge(time.Since(np.CreationTimestamp.Time)),
 		"createdTimestamp": np.CreationTimestamp.Format(time.RFC3339),
-		"labels":        np.Labels,
-		"annotations":   np.Annotations,
-		"podSelector":   selector,
-		"policyTypes":   np.Spec.PolicyTypes,
-		"ingress":       ingressRules,
-		"egress":        egressRules,
+		"labels":           np.Labels,
+		"annotations":      np.Annotations,
+		"podSelector":      selector,
+		"policyTypes":      np.Spec.PolicyTypes,
+		"ingress":          ingressRules,
+		"egress":           egressRules,
 	})
 }
 
@@ -4180,57 +4238,57 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // handleCertificates returns certificate list (cert-manager CRD)
 // func (ws *WebServer) handleCertificates(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if !r.URL.Query().Has("namespace") {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	// Handle "_all" namespace
 // 	queryNs := namespace
 // 	if namespace == "_all" {
 // 		queryNs = ""
 // 	}
-// 
+//
 // 	// Create dynamic client for CRD access
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 // 		return
 // 	}
-// 
+//
 // 	certGVR := schema.GroupVersionResource{
 // 		Group:    "cert-manager.io",
 // 		Version:  "v1",
 // 		Resource: "certificates",
 // 	}
-// 
+//
 // 	certList, err := dynamicClient.Resource(certGVR).Namespace(queryNs).List(ws.app.ctx, metav1.ListOptions{})
-// 
+//
 // 	if err != nil {
 // 		// cert-manager may not be installed
 // 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 // 		return
 // 	}
-// 
+//
 // 	certs := []map[string]interface{}{}
 // 	for _, cert := range certList.Items {
 // 		metadata := cert.Object["metadata"].(map[string]interface{})
 // 		spec := cert.Object["spec"].(map[string]interface{})
-// 
+//
 // 		name := metadata["name"].(string)
 // 		ns := metadata["namespace"].(string)
-// 
+//
 // 		// Get creation time for age
 // 		creationTimeStr, _ := metadata["creationTimestamp"].(string)
 // 		var age string
 // 		if creationTime, err := time.Parse(time.RFC3339, creationTimeStr); err == nil {
 // 			age = formatAge(time.Since(creationTime))
 // 		}
-// 
+//
 // 		// Get secret name
 // 		secretName, _ := spec["secretName"].(string)
-// 
+//
 // 		// Get issuer ref
 // 		var issuer string
 // 		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
@@ -4241,7 +4299,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 			}
 // 			issuer = fmt.Sprintf("%s/%s", issuerKind, issuerName)
 // 		}
-// 
+//
 // 		// Get DNS names
 // 		var dnsNames []string
 // 		if dns, ok := spec["dnsNames"].([]interface{}); ok {
@@ -4251,7 +4309,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 				}
 // 			}
 // 		}
-// 
+//
 // 		// Get status
 // 		status := "Unknown"
 // 		var notBefore, notAfter, renewalTime string
@@ -4282,7 +4340,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 				renewalTime = rt
 // 			}
 // 		}
-// 
+//
 // 		certs = append(certs, map[string]interface{}{
 // 			"name":        name,
 // 			"namespace":   ns,
@@ -4296,14 +4354,14 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 			"age":         age,
 // 		})
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(certs)
 // }
-// 
+//
 // // handleCertificateYAML returns the YAML representation of a certificate
 // func (ws *WebServer) handleCertificateYAML(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	if name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4312,12 +4370,12 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if namespace == "" {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	// Create dynamic client for CRD access
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
@@ -4327,13 +4385,13 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	certGVR := schema.GroupVersionResource{
 // 		Group:    "cert-manager.io",
 // 		Version:  "v1",
 // 		Resource: "certificates",
 // 	}
-// 
+//
 // 	cert, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4342,10 +4400,10 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Remove managed fields for cleaner YAML
 // 	delete(cert.Object["metadata"].(map[string]interface{}), "managedFields")
-// 
+//
 // 	yamlData, err := yaml.Marshal(cert.Object)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4354,17 +4412,17 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success": true,
 // 		"yaml":    string(yamlData),
 // 	})
 // }
-// 
+//
 // // handleCertificateUpdate updates a certificate from YAML
 // func (ws *WebServer) handleCertificateUpdate(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if r.Method != "POST" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -4372,7 +4430,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	if name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4381,12 +4439,12 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if namespace == "" {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	// Read YAML from request body
 // 	body, err := io.ReadAll(r.Body)
 // 	if err != nil {
@@ -4396,7 +4454,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Create dynamic client for CRD access
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
@@ -4406,13 +4464,13 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	certGVR := schema.GroupVersionResource{
 // 		Group:    "cert-manager.io",
 // 		Version:  "v1",
 // 		Resource: "certificates",
 // 	}
-// 
+//
 // 	// Unmarshal YAML to unstructured object
 // 	var cert unstructured.Unstructured
 // 	if err := yaml.Unmarshal(body, &cert); err != nil {
@@ -4422,7 +4480,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Update the certificate
 // 	_, err = dynamicClient.Resource(certGVR).Namespace(namespace).Update(ws.app.ctx, &cert, metav1.UpdateOptions{})
 // 	if err != nil {
@@ -4432,17 +4490,17 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success": true,
 // 		"message": fmt.Sprintf("Certificate %s updated successfully", name),
 // 	})
 // }
-// 
+//
 // // handleCertificateDescribe returns kubectl describe output for a certificate
 // func (ws *WebServer) handleCertificateDescribe(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	if name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4451,12 +4509,12 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if namespace == "" {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	describe, err := runKubectlDescribe("certificate.cert-manager.io", name, namespace)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4465,17 +4523,17 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":  true,
 // 		"describe": describe,
 // 	})
 // }
-// 
+//
 // // handleCertificateDelete deletes a certificate
 // func (ws *WebServer) handleCertificateDelete(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if r.Method != "DELETE" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -4483,7 +4541,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	if name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4492,12 +4550,12 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if namespace == "" {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	// Create dynamic client for CRD access
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
@@ -4507,13 +4565,13 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	certGVR := schema.GroupVersionResource{
 // 		Group:    "cert-manager.io",
 // 		Version:  "v1",
 // 		Resource: "certificates",
 // 	}
-// 
+//
 // 	err = dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ws.app.ctx, name, metav1.DeleteOptions{})
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4522,7 +4580,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success": true,
 // 		"message": fmt.Sprintf("Certificate %s deleted successfully", name),
@@ -4540,7 +4598,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		http.Error(w, err.Error(), http.StatusInternalServerError)
 // 		return
 // 	}
-// 
+//
 // 	cjList := []map[string]interface{}{}
 // 	for _, cj := range cronjobs.Items {
 // 		// Get last schedule time
@@ -4548,10 +4606,10 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		if cj.Status.LastScheduleTime != nil {
 // 			lastSchedule = formatAge(time.Since(cj.Status.LastScheduleTime.Time)) + " ago"
 // 		}
-// 
+//
 // 		// Get active jobs count
 // 		activeJobs := len(cj.Status.Active)
-// 
+//
 // 		cjList = append(cjList, map[string]interface{}{
 // 			"name":         cj.Name,
 // 			"schedule":     cj.Spec.Schedule,
@@ -4562,7 +4620,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 			"namespace":    cj.Namespace,
 // 		})
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(cjList)
 // }
 
@@ -4577,7 +4635,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		http.Error(w, err.Error(), http.StatusInternalServerError)
 // 		return
 // 	}
-// 
+//
 // 	jobList := []map[string]interface{}{}
 // 	for _, job := range jobs.Items {
 // 		// Determine status
@@ -4587,13 +4645,13 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		} else if job.Status.Failed > 0 {
 // 			status = "Failed"
 // 		}
-// 
+//
 // 		// Get completions
 // 		completions := "?"
 // 		if job.Spec.Completions != nil {
 // 			completions = fmt.Sprintf("%d", *job.Spec.Completions)
 // 		}
-// 
+//
 // 		// Get duration
 // 		duration := "-"
 // 		if job.Status.CompletionTime != nil {
@@ -4601,7 +4659,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 		} else if job.Status.StartTime != nil {
 // 			duration = formatAge(time.Since(job.Status.StartTime.Time))
 // 		}
-// 
+//
 // 		jobList = append(jobList, map[string]interface{}{
 // 			"name":        job.Name,
 // 			"status":      status,
@@ -4611,7 +4669,7 @@ func (ws *WebServer) handleConfigMapDescribe(w http.ResponseWriter, r *http.Requ
 // 			"namespace":   job.Namespace,
 // 		})
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(jobList)
 // }
 
@@ -5655,11 +5713,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	Description string `json:"description"` // detailed description
 // 	Remediation string `json:"remediation"` // how to fix
 // }
-// 
+//
 // // handleSecurityAnalysis performs security best practices analysis
 // func (ws *WebServer) handleSecurityAnalysis(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.clientset == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -5667,19 +5725,19 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	findings := []SecurityFinding{}
 // 	namespace := r.URL.Query().Get("namespace")
 // 	if namespace == "" {
 // 		namespace = ws.app.namespace
 // 	}
-// 
+//
 // 	// Use empty string for all namespaces
 // 	listNamespace := namespace
 // 	if namespace == "_all" {
 // 		listNamespace = ""
 // 	}
-// 
+//
 // 	// 1. Check Pods for missing SecurityContext
 // 	pods, err := ws.app.clientset.CoreV1().Pods(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	if err == nil {
@@ -5688,13 +5746,13 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
 // 				continue
 // 			}
-// 
+//
 // 			hasSecurityContext := false
 // 			runAsNonRoot := false
 // 			readOnlyRootFS := false
 // 			privileged := false
 // 			allowPrivilegeEscalation := true // default is true
-// 
+//
 // 			// Check pod-level security context
 // 			if pod.Spec.SecurityContext != nil {
 // 				hasSecurityContext = true
@@ -5702,7 +5760,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 					runAsNonRoot = true
 // 				}
 // 			}
-// 
+//
 // 			// Check container-level security contexts
 // 			for _, container := range pod.Spec.Containers {
 // 				if container.SecurityContext != nil {
@@ -5721,7 +5779,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 					}
 // 				}
 // 			}
-// 
+//
 // 			// Finding: No SecurityContext at all
 // 			if !hasSecurityContext {
 // 				findings = append(findings, SecurityFinding{
@@ -5748,7 +5806,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 						Remediation: "Set securityContext.runAsNonRoot: true in the pod or container spec",
 // 					})
 // 				}
-// 
+//
 // 				if privileged {
 // 					findings = append(findings, SecurityFinding{
 // 						Severity:    "critical",
@@ -5761,7 +5819,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 						Remediation: "Remove privileged: true from the container securityContext unless absolutely necessary",
 // 					})
 // 				}
-// 
+//
 // 				if allowPrivilegeEscalation {
 // 					findings = append(findings, SecurityFinding{
 // 						Severity:    "medium",
@@ -5774,7 +5832,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 						Remediation: "Set securityContext.allowPrivilegeEscalation: false",
 // 					})
 // 				}
-// 
+//
 // 				if !readOnlyRootFS {
 // 					findings = append(findings, SecurityFinding{
 // 						Severity:    "low",
@@ -5790,7 +5848,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// 2. Check for missing NetworkPolicies
 // 	// Get all namespaces that have pods
 // 	namespacesWithPods := make(map[string]bool)
@@ -5799,7 +5857,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			namespacesWithPods[pod.Namespace] = true
 // 		}
 // 	}
-// 
+//
 // 	// Check which namespaces have NetworkPolicies
 // 	networkPolicies, err := ws.app.clientset.NetworkingV1().NetworkPolicies(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	namespacesWithNetPol := make(map[string]bool)
@@ -5808,7 +5866,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			namespacesWithNetPol[np.Namespace] = true
 // 		}
 // 	}
-// 
+//
 // 	// Report namespaces without NetworkPolicies
 // 	for ns := range namespacesWithPods {
 // 		if !namespacesWithNetPol[ns] {
@@ -5828,7 +5886,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			})
 // 		}
 // 	}
-// 
+//
 // 	// 3. Check Ingresses for insecure ports
 // 	ingresses, err := ws.app.clientset.NetworkingV1().Ingresses(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	if err == nil {
@@ -5838,11 +5896,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			8000: "Common development port",
 // 			3000: "Common development port",
 // 		}
-// 
+//
 // 		for _, ing := range ingresses.Items {
 // 			// Check if TLS is configured
 // 			hasTLS := len(ing.Spec.TLS) > 0
-// 
+//
 // 			for _, rule := range ing.Spec.Rules {
 // 				if rule.HTTP != nil {
 // 					for _, path := range rule.HTTP.Paths {
@@ -5866,7 +5924,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 					}
 // 				}
 // 			}
-// 
+//
 // 			// Check for missing TLS
 // 			if !hasTLS {
 // 				findings = append(findings, SecurityFinding{
@@ -5882,7 +5940,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// 4. Check Services for NodePort exposure
 // 	services, err := ws.app.clientset.CoreV1().Services(listNamespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	if err == nil {
@@ -5899,7 +5957,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 					Remediation: "Consider using LoadBalancer or Ingress with proper access controls instead of NodePort",
 // 				})
 // 			}
-// 
+//
 // 			if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
 // 				// Check if external traffic policy is set to Local
 // 				if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
@@ -5917,7 +5975,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Calculate summary statistics
 // 	summary := map[string]int{
 // 		"critical": 0,
@@ -5926,11 +5984,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"low":      0,
 // 		"total":    len(findings),
 // 	}
-// 
+//
 // 	for _, f := range findings {
 // 		summary[f.Severity]++
 // 	}
-// 
+//
 // 	// Calculate security score (0-100)
 // 	// Weight: critical=40, high=25, medium=10, low=5
 // 	totalWeight := summary["critical"]*40 + summary["high"]*25 + summary["medium"]*10 + summary["low"]*5
@@ -5939,7 +5997,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	if score < 0 {
 // 		score = 0
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":  true,
 // 		"findings": findings,
@@ -5958,11 +6016,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	AppVersion string `json:"appVersion"`
 // 	Updated    string `json:"updated"`
 // }
-// 
+//
 // // handleHelmReleases returns all Helm releases in the cluster
 // func (ws *WebServer) handleHelmReleases(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.clientset == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -5970,25 +6028,25 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	var releases []HelmRelease
-// 
+//
 // 	// Helm stores releases as secrets with owner=helm label
 // 	listOptions := metav1.ListOptions{
 // 		LabelSelector: "owner=helm",
 // 	}
-// 
+//
 // 	var secrets *v1.SecretList
 // 	var err error
-// 
+//
 // 	if namespace == "" || namespace == "All Namespaces" {
 // 		secrets, err = ws.app.clientset.CoreV1().Secrets("").List(ws.app.ctx, listOptions)
 // 	} else {
 // 		secrets, err = ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
 // 	}
-// 
+//
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -5996,23 +6054,23 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Parse Helm secrets to extract release information
 // 	releaseMap := make(map[string]*HelmRelease)
-// 
+//
 // 	for _, secret := range secrets.Items {
 // 		// Get release name from label
 // 		releaseName := secret.Labels["name"]
 // 		if releaseName == "" {
 // 			continue
 // 		}
-// 
+//
 // 		// Get status from label
 // 		status := secret.Labels["status"]
 // 		if status == "" {
 // 			status = "unknown"
 // 		}
-// 
+//
 // 		// Get version/revision
 // 		versionStr := secret.Labels["version"]
 // 		version := 1
@@ -6021,9 +6079,9 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 				version = v
 // 			}
 // 		}
-// 
+//
 // 		key := fmt.Sprintf("%s/%s", secret.Namespace, releaseName)
-// 
+//
 // 		// Keep only the latest revision
 // 		if existing, ok := releaseMap[key]; ok {
 // 			if version > existing.Revision {
@@ -6047,12 +6105,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Convert map to slice
 // 	for _, release := range releaseMap {
 // 		releases = append(releases, *release)
 // 	}
-// 
+//
 // 	// Sort by namespace then name
 // 	sort.Slice(releases, func(i, j int) bool {
 // 		if releases[i].Namespace != releases[j].Namespace {
@@ -6060,14 +6118,14 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		}
 // 		return releases[i].Name < releases[j].Name
 // 	})
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":  true,
 // 		"releases": releases,
 // 		"count":    len(releases),
 // 	})
 // }
-// 
+//
 // // extractChartName tries to extract chart name from Helm secret data
 // func extractChartName(data map[string][]byte) string {
 // 	// Helm 3 stores release data in a "release" key, gzip compressed and base64 encoded
@@ -6075,11 +6133,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	// Full implementation would decode and decompress the data
 // 	return "chart"
 // }
-// 
+//
 // // handleHelmReleaseDetails returns details for a specific Helm release
 // func (ws *WebServer) handleHelmReleaseDetails(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.clientset == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6087,10 +6145,10 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	if name == "" || namespace == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6098,12 +6156,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Get all secrets for this release
 // 	listOptions := metav1.ListOptions{
 // 		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
 // 	}
-// 
+//
 // 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6112,7 +6170,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	var history []map[string]interface{}
 // 	for _, secret := range secrets.Items {
 // 		versionStr := secret.Labels["version"]
@@ -6122,7 +6180,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 				version = v
 // 			}
 // 		}
-// 
+//
 // 		history = append(history, map[string]interface{}{
 // 			"revision":  version,
 // 			"status":    secret.Labels["status"],
@@ -6130,12 +6188,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			"createdAt": secret.CreationTimestamp,
 // 		})
 // 	}
-// 
+//
 // 	// Sort by revision descending
 // 	sort.Slice(history, func(i, j int) bool {
 // 		return history[i]["revision"].(int) > history[j]["revision"].(int)
 // 	})
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":   true,
 // 		"name":      name,
@@ -6143,11 +6201,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"history":   history,
 // 	})
 // }
-// 
+//
 // // handleHelmReleaseHistory returns the full history for a Helm release
 // func (ws *WebServer) handleHelmReleaseHistory(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.clientset == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6155,10 +6213,10 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	if name == "" || namespace == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6166,12 +6224,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Get all secrets for this release
 // 	listOptions := metav1.ListOptions{
 // 		LabelSelector: fmt.Sprintf("owner=helm,name=%s", name),
 // 	}
-// 
+//
 // 	secrets, err := ws.app.clientset.CoreV1().Secrets(namespace).List(ws.app.ctx, listOptions)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6180,7 +6238,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	var history []map[string]interface{}
 // 	for _, secret := range secrets.Items {
 // 		versionStr := secret.Labels["version"]
@@ -6190,19 +6248,19 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 				version = v
 // 			}
 // 		}
-// 
+//
 // 		// Get chart info from secret data
 // 		chart := "unknown"
 // 		appVersion := ""
 // 		description := ""
-// 
+//
 // 		// Try to decode the release data
 // 		if releaseData, ok := secret.Data["release"]; ok {
 // 			// Helm stores release data as base64 + gzip + protobuf
 // 			// For simplicity, we'll just get what we can from labels
 // 			_ = releaseData
 // 		}
-// 
+//
 // 		history = append(history, map[string]interface{}{
 // 			"revision":    version,
 // 			"status":      secret.Labels["status"],
@@ -6213,12 +6271,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			"createdAt":   secret.CreationTimestamp,
 // 		})
 // 	}
-// 
+//
 // 	// Sort by revision descending
 // 	sort.Slice(history, func(i, j int) bool {
 // 		return history[i]["revision"].(int) > history[j]["revision"].(int)
 // 	})
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":   true,
 // 		"name":      name,
@@ -6227,11 +6285,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"total":     len(history),
 // 	})
 // }
-// 
+//
 // // handleHelmRollback rolls back a Helm release to a specific revision
 // func (ws *WebServer) handleHelmRollback(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if r.Method != "POST" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6239,7 +6297,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	if ws.app.clientset == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6247,14 +6305,14 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Parse request body
 // 	var req struct {
 // 		Name      string `json:"name"`
 // 		Namespace string `json:"namespace"`
 // 		Revision  int    `json:"revision"`
 // 	}
-// 
+//
 // 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6262,7 +6320,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	if req.Name == "" || req.Namespace == "" || req.Revision == 0 {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6270,11 +6328,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Execute helm rollback command
 // 	cmd := exec.Command("helm", "rollback", req.Name, strconv.Itoa(req.Revision), "-n", req.Namespace)
 // 	output, err := cmd.CombinedOutput()
-// 
+//
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6282,7 +6340,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":  true,
 // 		"message":  fmt.Sprintf("Successfully rolled back %s to revision %d", req.Name, req.Revision),
@@ -6291,7 +6349,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"revision": req.Revision,
 // 	})
 // }
-// 
+//
 // // KustomizeResource represents a resource managed by Kustomize
 // type KustomizeResource struct {
 // 	Kind      string            `json:"kind"`
@@ -6300,11 +6358,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	Age       string            `json:"age"`
 // 	Labels    map[string]string `json:"labels"`
 // }
-// 
+//
 // // handleKustomizeResources returns resources managed by Kustomize
 // func (ws *WebServer) handleKustomizeResources(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.clientset == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6312,25 +6370,25 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	var resources []KustomizeResource
-// 
+//
 // 	// Query deployments with kustomize managed-by label
 // 	deploymentListOptions := metav1.ListOptions{
 // 		LabelSelector: "app.kubernetes.io/managed-by=kustomize",
 // 	}
-// 
+//
 // 	var deployments interface{}
 // 	var err error
-// 
+//
 // 	if namespace == "" || namespace == "All Namespaces" {
 // 		deployments, err = ws.app.clientset.AppsV1().Deployments("").List(ws.app.ctx, deploymentListOptions)
 // 	} else {
 // 		deployments, err = ws.app.clientset.AppsV1().Deployments(namespace).List(ws.app.ctx, deploymentListOptions)
 // 	}
-// 
+//
 // 	if err == nil {
 // 		if depList, ok := deployments.(*appsv1.DeploymentList); ok {
 // 			for _, dep := range depList.Items {
@@ -6344,7 +6402,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Query services with kustomize managed-by label
 // 	if namespace == "" || namespace == "All Namespaces" {
 // 		svcList, err := ws.app.clientset.CoreV1().Services("").List(ws.app.ctx, deploymentListOptions)
@@ -6373,7 +6431,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Query ConfigMaps with kustomize managed-by label
 // 	if namespace == "" || namespace == "All Namespaces" {
 // 		cmList, err := ws.app.clientset.CoreV1().ConfigMaps("").List(ws.app.ctx, deploymentListOptions)
@@ -6402,7 +6460,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Sort by namespace then kind then name
 // 	sort.Slice(resources, func(i, j int) bool {
 // 		if resources[i].Namespace != resources[j].Namespace {
@@ -6413,14 +6471,14 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		}
 // 		return resources[i].Name < resources[j].Name
 // 	})
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":   true,
 // 		"resources": resources,
 // 		"count":     len(resources),
 // 	})
 // }
-// 
+//
 // // ArgoCDApp represents an ArgoCD Application
 // type ArgoCDApp struct {
 // 	Name       string `json:"name"`
@@ -6434,11 +6492,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	Cluster    string `json:"cluster"`
 // 	Age        string `json:"age"`
 // }
-// 
+//
 // // handleArgoCDApps returns ArgoCD Applications
 // func (ws *WebServer) handleArgoCDApps(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.config == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success":   false,
@@ -6447,9 +6505,9 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	// Create dynamic client for CRD access
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
@@ -6460,23 +6518,23 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// ArgoCD Application GVR
 // 	appGVR := schema.GroupVersionResource{
 // 		Group:    "argoproj.io",
 // 		Version:  "v1alpha1",
 // 		Resource: "applications",
 // 	}
-// 
+//
 // 	var apps []ArgoCDApp
 // 	var appList *unstructured.UnstructuredList
-// 
+//
 // 	if namespace == "" || namespace == "All Namespaces" {
 // 		appList, err = dynamicClient.Resource(appGVR).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
 // 	} else {
 // 		appList, err = dynamicClient.Resource(appGVR).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 	}
-// 
+//
 // 	if err != nil {
 // 		// Check if ArgoCD is not installed
 // 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no matches") {
@@ -6496,31 +6554,31 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	for _, item := range appList.Items {
 // 		spec, _, _ := unstructured.NestedMap(item.Object, "spec")
 // 		status, _, _ := unstructured.NestedMap(item.Object, "status")
-// 
+//
 // 		syncStatus := "Unknown"
 // 		health := "Unknown"
-// 
+//
 // 		if syncStatusMap, ok := status["sync"].(map[string]interface{}); ok {
 // 			if s, ok := syncStatusMap["status"].(string); ok {
 // 				syncStatus = s
 // 			}
 // 		}
-// 
+//
 // 		if healthMap, ok := status["health"].(map[string]interface{}); ok {
 // 			if h, ok := healthMap["status"].(string); ok {
 // 				health = h
 // 			}
 // 		}
-// 
+//
 // 		project := "default"
 // 		if p, ok := spec["project"].(string); ok {
 // 			project = p
 // 		}
-// 
+//
 // 		repoURL := ""
 // 		path := ""
 // 		revision := ""
@@ -6535,7 +6593,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 				revision = rev
 // 			}
 // 		}
-// 
+//
 // 		cluster := ""
 // 		if dest, ok := spec["destination"].(map[string]interface{}); ok {
 // 			if s, ok := dest["server"].(string); ok {
@@ -6544,9 +6602,9 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 				cluster = n
 // 			}
 // 		}
-// 
+//
 // 		creationTime := item.GetCreationTimestamp()
-// 
+//
 // 		apps = append(apps, ArgoCDApp{
 // 			Name:       item.GetName(),
 // 			Namespace:  item.GetNamespace(),
@@ -6560,7 +6618,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			Age:        formatAge(time.Since(creationTime.Time)),
 // 		})
 // 	}
-// 
+//
 // 	// Sort by namespace then name
 // 	sort.Slice(apps, func(i, j int) bool {
 // 		if apps[i].Namespace != apps[j].Namespace {
@@ -6568,7 +6626,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		}
 // 		return apps[i].Name < apps[j].Name
 // 	})
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":   true,
 // 		"apps":      apps,
@@ -6576,11 +6634,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"installed": true,
 // 	})
 // }
-// 
+//
 // // handleArgoCDAppDetails returns details for a specific ArgoCD Application
 // func (ws *WebServer) handleArgoCDAppDetails(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.config == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6588,10 +6646,10 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	name := r.URL.Query().Get("name")
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	if name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6599,12 +6657,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Default to argocd namespace if not specified
 // 	if namespace == "" {
 // 		namespace = "argocd"
 // 	}
-// 
+//
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6613,13 +6671,13 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	appGVR := schema.GroupVersionResource{
 // 		Group:    "argoproj.io",
 // 		Version:  "v1alpha1",
 // 		Resource: "applications",
 // 	}
-// 
+//
 // 	app, err := dynamicClient.Resource(appGVR).Namespace(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6628,11 +6686,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Get detailed info
 // 	spec, _, _ := unstructured.NestedMap(app.Object, "spec")
 // 	status, _, _ := unstructured.NestedMap(app.Object, "status")
-// 
+//
 // 	// Extract sync history
 // 	var syncHistory []map[string]interface{}
 // 	if history, found, _ := unstructured.NestedSlice(status, "history"); found {
@@ -6647,7 +6705,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Extract resource status
 // 	var resources []map[string]interface{}
 // 	if res, found, _ := unstructured.NestedSlice(status, "resources"); found {
@@ -6663,7 +6721,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	// Get conditions
 // 	var conditions []map[string]interface{}
 // 	if conds, found, _ := unstructured.NestedSlice(status, "conditions"); found {
@@ -6677,7 +6735,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			}
 // 		}
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":      true,
 // 		"name":         app.GetName(),
@@ -6690,11 +6748,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"historyCount": len(syncHistory),
 // 	})
 // }
-// 
+//
 // // handleArgoCDSync triggers a sync for an ArgoCD Application
 // func (ws *WebServer) handleArgoCDSync(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if r.Method != "POST" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6702,7 +6760,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	if ws.app.config == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6710,14 +6768,14 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Parse request body
 // 	var req struct {
 // 		Name      string `json:"name"`
 // 		Namespace string `json:"namespace"`
 // 		Prune     bool   `json:"prune"`
 // 	}
-// 
+//
 // 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6725,7 +6783,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	if req.Name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6733,12 +6791,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Default to argocd namespace if not specified
 // 	if req.Namespace == "" {
 // 		req.Namespace = "argocd"
 // 	}
-// 
+//
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6747,13 +6805,13 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	appGVR := schema.GroupVersionResource{
 // 		Group:    "argoproj.io",
 // 		Version:  "v1alpha1",
 // 		Resource: "applications",
 // 	}
-// 
+//
 // 	// Get current app
 // 	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
 // 	if err != nil {
@@ -6763,7 +6821,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Set operation to trigger sync
 // 	operation := map[string]interface{}{
 // 		"sync": map[string]interface{}{
@@ -6771,7 +6829,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		},
 // 	}
 // 	unstructured.SetNestedMap(app.Object, operation, "operation")
-// 
+//
 // 	// Update the application to trigger sync
 // 	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
 // 	if err != nil {
@@ -6781,18 +6839,18 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success": true,
 // 		"message": fmt.Sprintf("Sync triggered for %s", req.Name),
 // 		"name":    req.Name,
 // 	})
 // }
-// 
+//
 // // handleArgoCDRefresh triggers a refresh for an ArgoCD Application
 // func (ws *WebServer) handleArgoCDRefresh(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if r.Method != "POST" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6800,7 +6858,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	if ws.app.config == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6808,14 +6866,14 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Parse request body
 // 	var req struct {
 // 		Name      string `json:"name"`
 // 		Namespace string `json:"namespace"`
 // 		Hard      bool   `json:"hard"`
 // 	}
-// 
+//
 // 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6823,7 +6881,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	if req.Name == "" {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success": false,
@@ -6831,12 +6889,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Default to argocd namespace if not specified
 // 	if req.Namespace == "" {
 // 		req.Namespace = "argocd"
 // 	}
-// 
+//
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6845,13 +6903,13 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	appGVR := schema.GroupVersionResource{
 // 		Group:    "argoproj.io",
 // 		Version:  "v1alpha1",
 // 		Resource: "applications",
 // 	}
-// 
+//
 // 	// Get current app
 // 	app, err := dynamicClient.Resource(appGVR).Namespace(req.Namespace).Get(ws.app.ctx, req.Name, metav1.GetOptions{})
 // 	if err != nil {
@@ -6861,20 +6919,20 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Update refresh annotation to trigger refresh
 // 	annotations := app.GetAnnotations()
 // 	if annotations == nil {
 // 		annotations = make(map[string]string)
 // 	}
-// 
+//
 // 	if req.Hard {
 // 		annotations["argocd.argoproj.io/refresh"] = "hard"
 // 	} else {
 // 		annotations["argocd.argoproj.io/refresh"] = "normal"
 // 	}
 // 	app.SetAnnotations(annotations)
-// 
+//
 // 	// Update the application to trigger refresh
 // 	_, err = dynamicClient.Resource(appGVR).Namespace(req.Namespace).Update(ws.app.ctx, app, metav1.UpdateOptions{})
 // 	if err != nil {
@@ -6884,12 +6942,12 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	refreshType := "normal"
 // 	if req.Hard {
 // 		refreshType = "hard"
 // 	}
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":     true,
 // 		"message":     fmt.Sprintf("Refresh (%s) triggered for %s", refreshType, req.Name),
@@ -6897,7 +6955,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		"refreshType": refreshType,
 // 	})
 // }
-// 
+//
 // // FluxResource represents a Flux resource (Kustomization, HelmRelease, GitRepository, etc.)
 // type FluxResource struct {
 // 	Kind      string `json:"kind"`
@@ -6909,11 +6967,11 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 	SourceRef string `json:"sourceRef,omitempty"`
 // 	Revision  string `json:"revision,omitempty"`
 // }
-// 
+//
 // // handleFluxResources returns Flux resources
 // func (ws *WebServer) handleFluxResources(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
-// 
+//
 // 	if ws.app.config == nil {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success":   false,
@@ -6922,9 +6980,9 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	namespace := r.URL.Query().Get("namespace")
-// 
+//
 // 	// Create dynamic client for CRD access
 // 	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
 // 	if err != nil {
@@ -6935,10 +6993,10 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	var resources []FluxResource
 // 	fluxInstalled := false
-// 
+//
 // 	// Flux CRD definitions
 // 	fluxCRDs := []struct {
 // 		group    string
@@ -6952,34 +7010,34 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		{"source.toolkit.fluxcd.io", "v1", "helmrepositories", "HelmRepository"},
 // 		{"source.toolkit.fluxcd.io", "v1", "ocirepositories", "OCIRepository"},
 // 	}
-// 
+//
 // 	for _, crd := range fluxCRDs {
 // 		gvr := schema.GroupVersionResource{
 // 			Group:    crd.group,
 // 			Version:  crd.version,
 // 			Resource: crd.resource,
 // 		}
-// 
+//
 // 		var list *unstructured.UnstructuredList
 // 		if namespace == "" || namespace == "All Namespaces" {
 // 			list, err = dynamicClient.Resource(gvr).Namespace("").List(ws.app.ctx, metav1.ListOptions{})
 // 		} else {
 // 			list, err = dynamicClient.Resource(gvr).Namespace(namespace).List(ws.app.ctx, metav1.ListOptions{})
 // 		}
-// 
+//
 // 		if err != nil {
 // 			// CRD not found, skip
 // 			continue
 // 		}
-// 
+//
 // 		fluxInstalled = true
-// 
+//
 // 		for _, item := range list.Items {
 // 			ready := "Unknown"
 // 			statusMsg := ""
 // 			revision := ""
 // 			sourceRef := ""
-// 
+//
 // 			// Get status conditions
 // 			if status, ok := item.Object["status"].(map[string]interface{}); ok {
 // 				if conditions, ok := status["conditions"].([]interface{}); ok {
@@ -7003,7 +7061,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 						}
 // 					}
 // 				}
-// 
+//
 // 				// Get last applied revision
 // 				if rev, ok := status["lastAppliedRevision"].(string); ok {
 // 					revision = rev
@@ -7013,7 +7071,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 					}
 // 				}
 // 			}
-// 
+//
 // 			// Get source reference for Kustomizations and HelmReleases
 // 			if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
 // 				if sr, ok := spec["sourceRef"].(map[string]interface{}); ok {
@@ -7022,9 +7080,9 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 					sourceRef = fmt.Sprintf("%s/%s", kind, name)
 // 				}
 // 			}
-// 
+//
 // 			creationTime := item.GetCreationTimestamp()
-// 
+//
 // 			resources = append(resources, FluxResource{
 // 				Kind:      crd.kind,
 // 				Name:      item.GetName(),
@@ -7037,7 +7095,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 			})
 // 		}
 // 	}
-// 
+//
 // 	if !fluxInstalled {
 // 		json.NewEncoder(w).Encode(map[string]interface{}{
 // 			"success":   true,
@@ -7048,7 +7106,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		})
 // 		return
 // 	}
-// 
+//
 // 	// Sort by kind then namespace then name
 // 	sort.Slice(resources, func(i, j int) bool {
 // 		if resources[i].Kind != resources[j].Kind {
@@ -7059,7 +7117,7 @@ func (ws *WebServer) handleNodeDescribe(w http.ResponseWriter, r *http.Request) 
 // 		}
 // 		return resources[i].Name < resources[j].Name
 // 	})
-// 
+//
 // 	json.NewEncoder(w).Encode(map[string]interface{}{
 // 		"success":   true,
 // 		"resources": resources,
