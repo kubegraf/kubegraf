@@ -2,6 +2,7 @@ import { Component, For, Show, createMemo, createSignal, createResource } from '
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
+import { selectedNamespaces } from '../stores/globalStore';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
@@ -69,6 +70,14 @@ const StatefulSets: Component = () => {
       case 'Courier': return 'Courier, "Courier New", monospace';
       default: return '"Courier New", Monaco, monospace';
     }
+  };
+
+  // Determine namespace parameter from global store
+  const getNamespaceParam = (): string | undefined => {
+    const namespaces = selectedNamespaces();
+    if (namespaces.length === 0) return undefined; // All namespaces
+    if (namespaces.length === 1) return namespaces[0];
+    return namespaces[0];
   };
 
   const [statefulsets, { refetch }] = createResource(namespace, api.getStatefulSets);
@@ -299,6 +308,59 @@ const StatefulSets: Component = () => {
         </div>
 
         <div class="flex-1" />
+
+        {/* Bulk Actions - Only show when a single namespace is selected */}
+        <Show when={getNamespaceParam() && getNamespaceParam() !== '_all' && getNamespaceParam() !== 'All Namespaces'}>
+          <div class="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                const ns = getNamespaceParam();
+                if (!ns || !confirm(`Are you sure you want to restart ALL StatefulSets in namespace "${ns}"?`)) return;
+                try {
+                  const result = await api.bulkRestartStatefulSets(ns);
+                  if (result?.success) {
+                    addNotification(`✅ Restarted ${result.restarted?.length || 0}/${result.total || 0} StatefulSets in ${ns}`, 'success');
+                    if (result.failed && result.failed.length > 0) {
+                      addNotification(`⚠️ ${result.failed.length} StatefulSets failed to restart`, 'warning');
+                    }
+                  }
+                  setTimeout(() => refetch(), 1000);
+                } catch (error) {
+                  addNotification(`❌ Failed to restart StatefulSets: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+                }
+              }}
+              class="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              title="Restart All StatefulSets in Namespace"
+            >
+              🔄 Restart All
+            </button>
+            <button
+              onClick={async () => {
+                const ns = getNamespaceParam();
+                if (!ns || !confirm(`⚠️ DANGER: Are you sure you want to DELETE ALL StatefulSets in namespace "${ns}"? This cannot be undone!`)) return;
+                if (!confirm(`This will delete ALL ${statefulsets()?.filter((sts: StatefulSet) => sts.namespace === ns).length || 0} StatefulSets in "${ns}". Type the namespace name to confirm:`) || prompt('Type namespace name to confirm:') !== ns) return;
+                try {
+                  const result = await api.bulkDeleteStatefulSets(ns);
+                  if (result?.success) {
+                    addNotification(`✅ Deleted ${result.deleted?.length || 0}/${result.total || 0} StatefulSets in ${ns}`, 'success');
+                    if (result.failed && result.failed.length > 0) {
+                      addNotification(`⚠️ ${result.failed.length} StatefulSets failed to delete`, 'warning');
+                    }
+                  }
+                  setTimeout(() => refetch(), 1000);
+                } catch (error) {
+                  addNotification(`❌ Failed to delete StatefulSets: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+                }
+              }}
+              class="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+              title="Delete All StatefulSets in Namespace"
+            >
+              🗑️ Delete All
+            </button>
+          </div>
+        </Show>
 
         {/* Font Size Selector */}
         <select

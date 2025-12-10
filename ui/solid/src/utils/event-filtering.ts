@@ -37,14 +37,17 @@ export function matchesEventFilter(
   if (!filter) return false;
   
   // Check if resource name matches (could be partial match)
+  // For pods, resource name might be "pod-name" or "pod-name/container-name"
   const resourceMatch = eventResource.includes(filter.resource) || 
-                       filter.resource.includes(eventResource);
+                       filter.resource.includes(eventResource) ||
+                       eventResource.split('/')[0] === filter.resource ||
+                       filter.resource.split('/')[0] === eventResource;
   
   // Check namespace match
   const namespaceMatch = eventNamespace === filter.namespace;
   
   // Check kind match if provided
-  const kindMatch = !eventKind || !filter.kind || eventKind === filter.kind;
+  const kindMatch = !eventKind || !filter.kind || eventKind === filter.kind || eventKind.toLowerCase() === filter.kind.toLowerCase();
   
   return resourceMatch && namespaceMatch && kindMatch;
 }

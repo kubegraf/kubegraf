@@ -54,7 +54,12 @@ const MonitoredEvents: Component = () => {
   // Fetch namespaces list
   const [namespacesData] = createResource(async () => {
     try {
-      return await api.getNamespaces();
+      const data = await api.getNamespaces();
+      // Handle both array of strings and array of objects with name property
+      if (data && data.length > 0) {
+        return data.map((ns: any) => typeof ns === 'string' ? ns : ns.name || ns);
+      }
+      return [];
     } catch (err) {
       console.error('[MonitoredEvents] Failed to fetch namespaces:', err);
       return [];
@@ -66,7 +71,7 @@ const MonitoredEvents: Component = () => {
     const namespaces = namespacesData() || [];
     const search = namespaceSearch().toLowerCase();
     if (!search) return namespaces;
-    return namespaces.filter(ns => ns.toLowerCase().includes(search));
+    return namespaces.filter((ns: string) => ns.toLowerCase().includes(search));
   });
 
   // Toggle namespace selection
@@ -266,6 +271,12 @@ const MonitoredEvents: Component = () => {
       // The filteredEvents memo will automatically filter by resource
       // Clear the filter after applying
       setTimeout(() => clearEventFilter(), 1000);
+    }
+    
+    // Also check if we're navigating from incidents - check sessionStorage for namespace
+    const incidentNamespace = sessionStorage.getItem('kubegraf-event-filter-namespace');
+    if (incidentNamespace && selectedNamespaces().length === 0) {
+      setSelectedNamespaces([incidentNamespace]);
     }
   });
 
@@ -489,7 +500,7 @@ const MonitoredEvents: Component = () => {
                     </div>
                   </Show>
                   <For each={filteredNamespaces()}>
-                    {(ns) => (
+                    {(ns: string) => (
                       <label class="flex items-center gap-2 p-2 hover:bg-opacity-50 cursor-pointer"
                         style={{ 
                           background: selectedNamespaces().includes(ns) ? 'var(--accent-color)' : 'transparent',
@@ -612,31 +623,81 @@ const MonitoredEvents: Component = () => {
 
       {/* Filters and View Mode */}
       <div class="flex items-center justify-between flex-wrap gap-4">
-        <div class="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('timeline')}
-            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode() === 'timeline' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
-            }`}
-          >
-            Timeline
-          </button>
-          <button
-            onClick={() => setViewMode('grouped')}
-            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode() === 'grouped' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
-            }`}
-          >
-            Grouped
-          </button>
-          <button
-            onClick={() => setViewMode('errors')}
-            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode() === 'errors' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
-            }`}
-          >
-            Log Errors
-          </button>
+        <div class="flex items-center gap-2 flex-wrap">
+          {/* View Mode Tabs */}
+          <div class="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode('timeline')}
+              class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                viewMode() === 'timeline' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
+            >
+              Timeline
+            </button>
+            <button
+              onClick={() => setViewMode('grouped')}
+              class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                viewMode() === 'grouped' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
+            >
+              Grouped
+            </button>
+            <button
+              onClick={() => setViewMode('errors')}
+              class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                viewMode() === 'errors' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
+            >
+              Log Errors
+            </button>
+          </div>
+          
+          {/* Namespace Tabs - Quick access to popular namespaces */}
+          <div class="flex items-center gap-2 ml-4 pl-4 border-l" style={{ borderColor: 'var(--border-color)' }}>
+            <span class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Namespace:</span>
+            <button
+              onClick={() => {
+                clearNamespaces();
+              }}
+              class={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                selectedNamespaces().length === 0
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              All
+            </button>
+            <For each={namespacesData()?.slice(0, 8) || []}>
+              {(ns: string) => (
+                <button
+                  onClick={() => {
+                    if (selectedNamespaces().includes(ns)) {
+                      setSelectedNamespaces(selectedNamespaces().filter(n => n !== ns));
+                    } else {
+                      setSelectedNamespaces([ns]);
+                    }
+                  }}
+                  class={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                    selectedNamespaces().includes(ns)
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                  title={`View events for namespace: ${ns}`}
+                >
+                  {ns}
+                </button>
+              )}
+            </For>
+            <Show when={(namespacesData()?.length || 0) > 8}>
+              <button
+                onClick={() => setNamespaceDropdownOpen(true)}
+                class="px-3 py-1.5 rounded text-xs font-medium bg-gray-200 text-gray-700 hover:bg-gray-300"
+                title="View more namespaces"
+              >
+                +{(namespacesData()?.length || 0) - 8} more
+              </button>
+            </Show>
+          </div>
         </div>
         <div class="flex items-center gap-2">
           <select

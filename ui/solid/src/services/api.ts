@@ -180,7 +180,10 @@ export interface AnomalyStats {
 
 export const api = {
   // Status
-  getStatus: () => fetchAPI<ClusterStatus>('/status'),
+  getStatus: (retry?: boolean) => {
+    const endpoint = retry ? '/status?retry=true' : '/status';
+    return fetchAPI<ClusterStatus>(endpoint);
+  },
   
   // Updates (legacy endpoints)
   checkForUpdates: () => fetchAPI<{
@@ -302,6 +305,10 @@ export const api = {
     fetchAPI<{ success: boolean; message?: string; error?: string }>(`/deployment/restart?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
   scaleDeployment: (name: string, namespace: string, replicas: number) =>
     fetchAPI<any>(`/deployment/scale?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}&replicas=${replicas}`, { method: 'POST' }),
+  bulkRestartDeployments: (namespace: string) =>
+    fetchAPI<any>(`/deployments/bulk/restart?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
+  bulkDeleteDeployments: (namespace: string) =>
+    fetchAPI<any>(`/deployments/bulk/delete?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
 
   // StatefulSets
   getStatefulSets: async (namespace?: string) => {
@@ -321,6 +328,10 @@ export const api = {
     fetchAPI<{ success: boolean; message?: string; error?: string }>(`/statefulset/restart?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
   scaleStatefulSet: (name: string, namespace: string, replicas: number) =>
     fetchAPI<any>(`/statefulset/scale?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}&replicas=${replicas}`, { method: 'POST' }),
+  bulkRestartStatefulSets: (namespace: string) =>
+    fetchAPI<any>(`/statefulsets/bulk/restart?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
+  bulkDeleteStatefulSets: (namespace: string) =>
+    fetchAPI<any>(`/statefulsets/bulk/delete?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
 
   // DaemonSets
   getDaemonSets: async (namespace?: string) => {
@@ -342,6 +353,12 @@ export const api = {
     fetchAPI<{ describe: string }>(`/daemonset/describe?name=${name}&namespace=${namespace}`),
   deleteDaemonSet: (name: string, namespace: string) =>
     deleteAPI(`/daemonset/delete?name=${name}&namespace=${namespace}`),
+  restartDaemonSet: (name: string, namespace: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/daemonset/restart?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
+  bulkRestartDaemonSets: (namespace: string) =>
+    fetchAPI<any>(`/daemonsets/bulk/restart?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
+  bulkDeleteDaemonSets: (namespace: string) =>
+    fetchAPI<any>(`/daemonsets/bulk/delete?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
 
   // CronJobs
   getCronJobs: async (namespace?: string) => {
@@ -468,6 +485,26 @@ export const api = {
   deleteIngress: (name: string, namespace: string) =>
     deleteAPI(`/ingress/delete?name=${name}&namespace=${namespace}`),
 
+  // ============ Namespaces ============
+  getNamespaces: async () => {
+    const data = await fetchAPI<any[]>('/namespaces');
+    return Array.isArray(data) ? data : [];
+  },
+  getNamespaceDetails: (name: string) =>
+    fetchAPI<any>(`/namespace/details?name=${name}`),
+  getNamespaceYAML: (name: string) =>
+    fetchAPI<{ yaml: string }>(`/namespace/yaml?name=${name}`),
+  updateNamespace: (name: string, yaml: string) =>
+    fetch(`${API_BASE}/namespace/update?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/yaml' },
+      body: yaml,
+    }).then(res => res.json()),
+  getNamespaceDescribe: (name: string) =>
+    fetchAPI<{ describe: string }>(`/namespace/describe?name=${name}`),
+  deleteNamespace: (name: string) =>
+    deleteAPI(`/namespace/delete?name=${name}`),
+
   // Network Policies
   getNetworkPolicies: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
@@ -552,8 +589,13 @@ export const api = {
   // ============ Cluster ============
   // Nodes
   getNodes: async () => {
-    const data = await fetchAPI<any[]>('/nodes');
-    return Array.isArray(data) ? data : [];
+    const data = await fetchAPI<any>('/nodes');
+    // Handle both old format (array) and new format (object with nodes array)
+    if (Array.isArray(data)) {
+      return data;
+    }
+    // New format: { nodes: [...], total: X, healthy: Y, schedulable: Z, ... }
+    return data.nodes || [];
   },
   getNodeDetails: (name: string) =>
     fetchAPI<any>(`/node/details?name=${name}`),

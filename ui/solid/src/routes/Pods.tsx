@@ -129,6 +129,7 @@ const Pods: Component = () => {
 
   // Keyboard navigation
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
+  const [selectedPodIndex, setSelectedPodIndex] = createSignal<number | null>(null); // Index in full filtered list
   let tableRef: HTMLTableElement | undefined;
 
   // Parse metric value to number for comparison
@@ -229,35 +230,59 @@ const Pods: Component = () => {
         return;
       }
       
-      const pods = paginatedPods();
-      if (pods.length === 0) return;
+      // Use full filtered list for navigation (not just current page)
+      const allPods = filteredAndSortedPods();
+      if (allPods.length === 0) return;
       
-      const currentIndex = selectedIndex();
+      const currentPodIndex = selectedPodIndex();
       
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedIndex(prev => {
-            if (prev === null) return 0;
-            return Math.min(prev + 1, pods.length - 1);
+          setSelectedPodIndex(prev => {
+            if (prev === null) {
+              // Start from first pod
+              const firstIndex = 0;
+              updatePageForIndex(firstIndex, allPods.length);
+              return firstIndex;
+            }
+            const nextIndex = Math.min(prev + 1, allPods.length - 1);
+            updatePageForIndex(nextIndex, allPods.length);
+            return nextIndex;
           });
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedIndex(prev => {
-            if (prev === null || prev === 0) return null;
-            return prev - 1;
+          setSelectedPodIndex(prev => {
+            if (prev === null || prev === 0) {
+              setSelectedIndex(null);
+              return null;
+            }
+            const prevIndex = prev - 1;
+            updatePageForIndex(prevIndex, allPods.length);
+            return prevIndex;
           });
           break;
         case 'Enter':
           e.preventDefault();
-          if (currentIndex !== null && pods[currentIndex]) {
-            openModal(pods[currentIndex], 'details');
+          if (currentPodIndex !== null && allPods[currentPodIndex]) {
+            openModal(allPods[currentPodIndex], 'details');
           }
           break;
         case 'Escape':
+          setSelectedPodIndex(null);
           setSelectedIndex(null);
           break;
+      }
+    };
+    
+    // Helper function to update page when navigating to a pod on a different page
+    const updatePageForIndex = (podIndex: number, totalPods: number) => {
+      const size = pageSize();
+      const targetPage = Math.floor(podIndex / size) + 1;
+      const totalPages = Math.ceil(totalPods / size);
+      if (targetPage !== currentPage() && targetPage >= 1 && targetPage <= totalPages) {
+        setCurrentPage(targetPage);
       }
     };
     
@@ -271,14 +296,54 @@ const Pods: Component = () => {
     if (keyboardHandler) document.removeEventListener('keydown', keyboardHandler);
   });
 
+  // Reset selection when filter/search changes
+  createEffect(() => {
+    // Track filtered pods to detect changes
+    filteredAndSortedPods();
+    // Reset selection when filters change
+    setSelectedPodIndex(null);
+    setSelectedIndex(null);
+  });
+
+  // Sync selectedPodIndex with selectedIndex when page changes
+  createEffect(() => {
+    const podIndex = selectedPodIndex();
+    const allPods = filteredAndSortedPods();
+    
+    if (podIndex !== null && allPods.length > 0 && podIndex < allPods.length) {
+      // Find the pod in the current page
+      const size = pageSize();
+      const start = (currentPage() - 1) * size;
+      const end = start + size;
+      
+      if (podIndex >= start && podIndex < end) {
+        // Pod is on current page, set the local index
+        const localIndex = podIndex - start;
+        setSelectedIndex(localIndex);
+      } else {
+        // Pod is not on current page, clear local selection
+        setSelectedIndex(null);
+      }
+    } else if (podIndex !== null && allPods.length > 0 && podIndex >= allPods.length) {
+      // Index is out of bounds, reset
+      setSelectedPodIndex(null);
+      setSelectedIndex(null);
+    } else {
+      setSelectedIndex(null);
+    }
+  });
+
   // Scroll selected row into view
   createEffect(() => {
     const index = selectedIndex();
     if (index !== null && tableRef) {
-      const rows = tableRef.querySelectorAll('tbody tr');
-      if (rows[index]) {
-        rows[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
+      // Small delay to ensure DOM is updated after page change
+      setTimeout(() => {
+        const rows = tableRef?.querySelectorAll('tbody tr');
+        if (rows && rows[index]) {
+          rows[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 50);
     }
   });
 
@@ -290,22 +355,63 @@ const Pods: Component = () => {
       if (pods && pods.length > 0) {
         const pod = pods.find(p => p.name === highlighted.podName && p.namespace === highlighted.namespace);
         if (pod) {
-          // Find index and scroll to it
-          const index = pods.indexOf(pod);
+          // Find index in filtered list
+          const filtered = filteredAndSortedPods();
+          const index = filtered.findIndex(p => p.name === highlighted.podName && p.namespace === highlighted.namespace);
           if (index !== -1) {
+            // Update page if needed
+            const size = pageSize();
+            const targetPage = Math.floor(index / size) + 1;
+            if (targetPage !== currentPage()) {
+              setCurrentPage(targetPage);
+            }
+            setSelectedPodIndex(index);
             setTimeout(() => {
               const rows = tableRef?.querySelectorAll('tbody tr');
-              if (rows && rows[index]) {
-                rows[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+              const localIndex = index - (targetPage - 1) * size;
+              if (rows && rows[localIndex]) {
+                rows[localIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
                 // Highlight the row temporarily
-                (rows[index] as HTMLElement).style.background = 'var(--accent-primary)20';
+                (rows[localIndex] as HTMLElement).style.background = 'var(--accent-primary)20';
                 setTimeout(() => {
-                  (rows[index] as HTMLElement).style.background = '';
+                  (rows[localIndex] as HTMLElement).style.background = '';
                 }, 2000);
               }
             }, 500);
           }
           clearHighlightedPod();
+        } else {
+          // Pod not found yet, wait a bit and retry
+          setTimeout(() => {
+            const podsRetry = podsCache();
+            if (podsRetry && podsRetry.length > 0) {
+              const podRetry = podsRetry.find(p => p.name === highlighted.podName && p.namespace === highlighted.namespace);
+              if (podRetry) {
+                const filtered = filteredAndSortedPods();
+                const index = filtered.findIndex(p => p.name === highlighted.podName && p.namespace === highlighted.namespace);
+                if (index !== -1) {
+                  const size = pageSize();
+                  const targetPage = Math.floor(index / size) + 1;
+                  if (targetPage !== currentPage()) {
+                    setCurrentPage(targetPage);
+                  }
+                  setSelectedPodIndex(index);
+                  setTimeout(() => {
+                    const rows = tableRef?.querySelectorAll('tbody tr');
+                    const localIndex = index - (targetPage - 1) * size;
+                    if (rows && rows[localIndex]) {
+                      rows[localIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      (rows[localIndex] as HTMLElement).style.background = 'var(--accent-primary)20';
+                      setTimeout(() => {
+                        (rows[localIndex] as HTMLElement).style.background = '';
+                      }, 2000);
+                    }
+                  }, 500);
+                }
+                clearHighlightedPod();
+              }
+            }
+          }, 1000);
         }
       }
     }
@@ -314,7 +420,8 @@ const Pods: Component = () => {
   // Handle auto-open logs from incidents
   createEffect(() => {
     const podForLogs = getPodForLogs();
-    if (podForLogs) {
+    const flag = sessionStorage.getItem('kubegraf-open-logs-flag');
+    if (podForLogs && flag === 'true') {
       const pods = podsCache();
       if (pods && pods.length > 0) {
         const pod = pods.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
@@ -323,6 +430,22 @@ const Pods: Component = () => {
           fetchLogs(pod, logsFollow());
           setShowLogs(true);
           clearPodLogs();
+          sessionStorage.removeItem('kubegraf-open-logs-flag');
+        } else {
+          // Pod not found yet, wait a bit and retry
+          setTimeout(() => {
+            const podsRetry = podsCache();
+            if (podsRetry && podsRetry.length > 0) {
+              const podRetry = podsRetry.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
+              if (podRetry) {
+                setSelectedPod(podRetry);
+                fetchLogs(podRetry, logsFollow());
+                setShowLogs(true);
+                clearPodLogs();
+                sessionStorage.removeItem('kubegraf-open-logs-flag');
+              }
+            }
+          }, 1000);
         }
       }
     }
@@ -446,7 +569,14 @@ const Pods: Component = () => {
       if (status === 'running') {
         allPods = allPods.filter((p: Pod) => p.status === 'Running');
       } else if (status === 'pending') {
-        allPods = allPods.filter((p: Pod) => p.status === 'Pending');
+        allPods = allPods.filter((p: Pod) => 
+          p.status === 'Pending' || 
+          p.status === 'Initializing' ||
+          p.status?.includes('ContainerCreating') ||
+          p.status?.includes('PodInitializing') ||
+          p.status?.includes('Init:') ||
+          p.status?.toLowerCase().includes('initializing')
+        );
       } else if (status === 'failed') {
         allPods = allPods.filter((p: Pod) => ['Failed', 'Error', 'CrashLoopBackOff'].includes(p.status));
       } else if (status === 'succeeded') {
@@ -499,7 +629,14 @@ const Pods: Component = () => {
     const all = pods() || [];
     return {
       running: all.filter((p: Pod) => p.status === 'Running').length,
-      pending: all.filter((p: Pod) => p.status === 'Pending').length,
+      pending: all.filter((p: Pod) => 
+        p.status === 'Pending' || 
+        p.status === 'Initializing' ||
+        p.status?.includes('ContainerCreating') ||
+        p.status?.includes('PodInitializing') ||
+        p.status?.includes('Init:') ||
+        p.status?.toLowerCase().includes('initializing')
+      ).length,
       failed: all.filter((p: Pod) => ['Failed', 'Error', 'CrashLoopBackOff'].includes(p.status)).length,
       total: all.length,
     };
@@ -1005,19 +1142,30 @@ const Pods: Component = () => {
                   {(pod: Pod, index) => {
                     const isSelected = () => selectedIndex() === index();
                     const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
-                    const isPending = pod.status === 'Pending';
+                    const isTerminating = pod.status === 'Terminating';
+                    // Check for pending or initializing statuses
+                    const isPending = pod.status === 'Pending' || 
+                                     pod.status === 'Initializing' ||
+                                     pod.status?.includes('ContainerCreating') ||
+                                     pod.status?.includes('PodInitializing') ||
+                                     pod.status?.includes('Init:') ||
+                                     pod.status?.toLowerCase().includes('initializing');
                     const [isHovered, setIsHovered] = createSignal(false);
 
                     // Text color based on status - terminal style colors
                     const getTextColor = () => {
-                      if (pod.status === 'Terminating') return '#ef4444'; // Red for terminating
+                      if (isTerminating) return '#a855f7'; // Purple/violet for terminating
                       if (isFailed) return '#ef4444'; // Red text for failed
-                      if (isPending) return '#f59e0b'; // Orange for pending
+                      if (isPending) return '#fbbf24'; // Yellow for pending/initializing
                       return '#0ea5e9'; // Sky blue for default/running
                     };
 
-                    // Background color only on hover - theme-aware
+                    // Background color - violet/purple for terminating pods, transparent or hover for others
                     const getRowBackground = () => {
+                      if (isTerminating) {
+                        // Entire row should be violet/purple for terminating pods
+                        return 'rgba(168, 85, 247, 0.15)'; // Purple/violet background
+                      }
                       if (!isHovered()) return 'transparent';
                       return getRowHoverBackground(isSelected(), isFailed, isPending);
                     };
@@ -1037,16 +1185,24 @@ const Pods: Component = () => {
                         'font-family': getFontFamilyCSS(),
                         padding: '0',
                         margin: '0',
-                        border: 'none',
+                        border: isTerminating ? '1px solid rgba(168, 85, 247, 0.3)' : 'none',
                         transition: 'background-color 0.15s ease'
                       }}
                       onClick={() => {
+                        const allPods = filteredAndSortedPods();
+                        const start = (currentPage() - 1) * pageSize();
+                        const globalIndex = start + index();
+                        setSelectedPodIndex(globalIndex);
                         setSelectedIndex(index());
                         openModal(pod, 'details');
                       }}
                       onMouseEnter={() => {
                         setIsHovered(true);
-                        if (selectedIndex() !== index()) {
+                        const allPods = filteredAndSortedPods();
+                        const start = (currentPage() - 1) * pageSize();
+                        const globalIndex = start + index();
+                        if (selectedPodIndex() !== globalIndex) {
+                          setSelectedPodIndex(globalIndex);
                           setSelectedIndex(index());
                         }
                       }}
@@ -1072,14 +1228,15 @@ const Pods: Component = () => {
                         border: 'none'
                       }}>
                         <span style={{
-                          color: pod.status === 'Running' ? '#22c55e' :
-                                 isPending ? '#f59e0b' :
+                          color: isTerminating ? '#a855f7' : // Purple/violet for terminating
+                                 pod.status === 'Running' ? '#22c55e' :
+                                 isPending ? '#fbbf24' : // Yellow for pending/initializing
                                  pod.status === 'Succeeded' ? '#06b6d4' :
                                  isFailed ? '#ef4444' : '#ef4444',
                           'font-weight': '900',
                           'font-size': `${fontSize()}px`
                         }}>
-                          {pod.status === 'Running' ? '●' : isPending ? '○' : isFailed ? '✗' : '○'} {pod.status}
+                          {isTerminating ? '◐' : pod.status === 'Running' ? '●' : isPending ? '○' : isFailed ? '✗' : '○'} {pod.status}
                         </span>
                       </td>
                       <td style={{
@@ -1379,7 +1536,17 @@ const Pods: Component = () => {
                   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Status</div>
-                      <div><span class={`badge ${selectedPod()?.status === 'Running' ? 'badge-success' : 'badge-warning'}`}>{selectedPod()?.status}</span></div>
+                      <div><span class={`badge ${
+                        selectedPod()?.status === 'Running' ? 'badge-success' : 
+                        (selectedPod()?.status === 'Pending' || 
+                         selectedPod()?.status === 'Initializing' ||
+                         selectedPod()?.status?.includes('ContainerCreating') ||
+                         selectedPod()?.status?.includes('PodInitializing') ||
+                         selectedPod()?.status?.includes('Init:') ||
+                         selectedPod()?.status?.toLowerCase().includes('initializing')) ? 'badge-warning' :
+                        selectedPod()?.status === 'Failed' || selectedPod()?.status === 'CrashLoopBackOff' || selectedPod()?.status === 'Error' ? 'badge-error' :
+                        'badge-warning'
+                      }`}>{selectedPod()?.status}</span></div>
                     </div>
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Ready</div>

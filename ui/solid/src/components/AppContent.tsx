@@ -20,6 +20,7 @@ import PDB from '../routes/PDB';
 import HPA from '../routes/HPA';
 import Services from '../routes/Services';
 import Ingresses from '../routes/Ingresses';
+import Namespaces from '../routes/Namespaces';
 import ConfigMaps from '../routes/ConfigMaps';
 import Secrets from '../routes/Secrets';
 import Certificates from '../routes/Certificates';
@@ -140,6 +141,7 @@ const views: Record<string, Component> = {
   services: Services,
   ingresses: Ingresses,
   networkpolicies: NetworkPolicies,
+  namespaces: Namespaces,
   configmaps: ConfigMaps,
   secrets: Secrets,
   certificates: Certificates,

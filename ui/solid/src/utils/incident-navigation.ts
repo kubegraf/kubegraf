@@ -3,6 +3,7 @@
 
 import { setNamespace } from '../stores/cluster';
 import { setCurrentView, addNotification } from '../stores/ui';
+import { setNamespaces } from '../stores/globalStore';
 import { Incident } from '../services/api';
 
 /**
@@ -19,8 +20,10 @@ export function navigateToPod(incident: Incident): void {
   const podName = parts[0];
   const namespace = incident.namespace || 'default';
 
-  // Set namespace first
+  // Set namespace in both stores
   setNamespace(namespace);
+  // Set namespace filter in globalStore so Pods view filters to this namespace
+  setNamespaces([namespace]);
 
   // Navigate to pods view
   setCurrentView('pods');
@@ -46,15 +49,18 @@ export function openPodLogs(incident: Incident, onOpenLogs?: (podName: string, n
   const podName = parts[0];
   const namespace = incident.namespace || 'default';
 
-  // Set namespace
+  // Set namespace in both stores
   setNamespace(namespace);
+  // Set namespace filter in globalStore so Pods view filters to this namespace
+  setNamespaces([namespace]);
 
   // Navigate to pods view
   setCurrentView('pods');
 
-  // Store pod info for logs modal
+  // Store pod info for logs modal - use a flag to trigger logs opening
   sessionStorage.setItem('kubegraf-open-logs-pod', podName);
   sessionStorage.setItem('kubegraf-open-logs-namespace', namespace);
+  sessionStorage.setItem('kubegraf-open-logs-flag', 'true'); // Flag to trigger logs modal
 
   // Call the callback if provided
   if (onOpenLogs) {
@@ -72,17 +78,23 @@ export function navigateToEvent(incident: Incident): void {
   const namespace = incident.namespace || 'default';
   const resourceKind = incident.resourceKind || 'Pod';
 
-  // Set namespace
+  // Parse pod name from resourceName (format: "pod-name/container-name" or just "pod-name")
+  const parts = resourceName.split('/');
+  const podName = parts[0];
+
+  // Set namespace in both stores
   setNamespace(namespace);
+  // Set namespace filter in globalStore so MonitoredEvents view filters to this namespace
+  setNamespaces([namespace]);
 
   // Navigate to events view (MonitoredEvents)
   setCurrentView('monitoredevents');
 
   // Store event filter info in sessionStorage
-  sessionStorage.setItem('kubegraf-event-filter-resource', resourceName);
+  sessionStorage.setItem('kubegraf-event-filter-resource', podName);
   sessionStorage.setItem('kubegraf-event-filter-namespace', namespace);
   sessionStorage.setItem('kubegraf-event-filter-kind', resourceKind);
 
-  addNotification(`Viewing events for ${resourceKind}: ${resourceName}`, 'info');
+  addNotification(`Viewing events for ${resourceKind}: ${podName} in namespace ${namespace}`, 'info');
 }
 

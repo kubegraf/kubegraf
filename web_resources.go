@@ -33,12 +33,12 @@ import (
 // handlePods returns pod list
 func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if ws.app.clientset == nil {
 		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	namespace := r.URL.Query().Get("namespace")
 	// Empty namespace means "all namespaces" in Kubernetes
 	// Only default to app.namespace if namespace param is not provided at all
@@ -117,11 +117,34 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		if pod.DeletionTimestamp != nil {
 			status = "Terminating"
 		} else if pod.Status.Phase == "Pending" {
-			// Check container statuses for more detail
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.State.Waiting != nil {
-					status = cs.State.Waiting.Reason
-					break
+			// Check init container statuses first
+			if len(pod.Status.InitContainerStatuses) > 0 {
+				initTotal := len(pod.Spec.InitContainers)
+				initCompleted := 0
+				for _, ics := range pod.Status.InitContainerStatuses {
+					if ics.State.Terminated != nil && ics.State.Terminated.ExitCode == 0 {
+						initCompleted++
+					}
+				}
+				// If init containers are still running, show Init:X/Y format
+				if initCompleted < initTotal {
+					status = fmt.Sprintf("Init:%d/%d", initCompleted, initTotal)
+				} else {
+					// All init containers completed, check main container status
+					for _, cs := range pod.Status.ContainerStatuses {
+						if cs.State.Waiting != nil {
+							status = cs.State.Waiting.Reason
+							break
+						}
+					}
+				}
+			} else {
+				// No init containers, check main container statuses
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.State.Waiting != nil {
+						status = cs.State.Waiting.Reason
+						break
+					}
 				}
 			}
 		} else if pod.Status.Phase == "Running" {
@@ -151,7 +174,7 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 
 		// Extract container information with types
 		containerInfo := []map[string]interface{}{}
-		
+
 		// Add init containers
 		for _, ic := range pod.Spec.InitContainers {
 			containerData := map[string]interface{}{
@@ -241,13 +264,13 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 // handlePodMetrics returns only CPU/memory metrics for pods (lightweight, for live updates)
 func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if ws.app.clientset == nil {
 		// Return empty metrics map if client not initialized
 		json.NewEncoder(w).Encode(map[string]map[string]string{})
 		return
 	}
-	
+
 	namespace := r.URL.Query().Get("namespace")
 	if !r.URL.Query().Has("namespace") {
 		namespace = ws.app.namespace
@@ -277,12 +300,12 @@ func (ws *WebServer) handlePodMetrics(w http.ResponseWriter, r *http.Request) {
 // handleDeployments returns deployment list
 func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if ws.app.clientset == nil {
 		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	namespace := r.URL.Query().Get("namespace")
 	// Empty namespace means "all namespaces" in Kubernetes
 	// Only default to app.namespace if namespace param is not provided at all
@@ -537,18 +560,42 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nodeList := []map[string]interface{}{}
+	healthyCount := 0
+	schedulableCount := 0
+
 	for _, node := range nodes.Items {
-		// Determine node status
-		status := "Unknown"
+		// Determine node ready status from conditions
+		readyStatus := "Unknown"
 		for _, condition := range node.Status.Conditions {
 			if condition.Type == v1.NodeReady {
 				if condition.Status == v1.ConditionTrue {
-					status = "Ready"
+					readyStatus = "Ready"
 				} else {
-					status = "NotReady"
+					readyStatus = "NotReady"
 				}
 				break
 			}
+		}
+
+		// Check if node is schedulable (not cordoned/drained)
+		isSchedulable := !node.Spec.Unschedulable
+
+		// Build full status string (matches kubectl get nodes output)
+		status := readyStatus
+		if !isSchedulable {
+			if status == "Ready" {
+				status = "Ready,SchedulingDisabled"
+			} else {
+				status = readyStatus + ",SchedulingDisabled"
+			}
+		}
+
+		// Count healthy and schedulable nodes
+		if readyStatus == "Ready" {
+			healthyCount++
+		}
+		if isSchedulable {
+			schedulableCount++
 		}
 
 		// Get node roles
@@ -582,19 +629,29 @@ func (ws *WebServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 		}
 
 		nodeList = append(nodeList, map[string]interface{}{
-			"name":        node.Name,
-			"status":      status,
-			"roles":       roles,
-			"version":     node.Status.NodeInfo.KubeletVersion,
-			"cpu":         cpu,
-			"cpuUsage":    cpuUsage,
-			"memory":      memory,
-			"memoryUsage": memoryUsage,
-			"age":         formatAge(time.Since(node.CreationTimestamp.Time)),
+			"name":          node.Name,
+			"status":        status,
+			"readyStatus":   readyStatus,
+			"isSchedulable": isSchedulable,
+			"roles":         roles,
+			"version":       node.Status.NodeInfo.KubeletVersion,
+			"cpu":           cpu,
+			"cpuUsage":      cpuUsage,
+			"memory":        memory,
+			"memoryUsage":   memoryUsage,
+			"age":           formatAge(time.Since(node.CreationTimestamp.Time)),
 		})
 	}
 
-	json.NewEncoder(w).Encode(nodeList)
+	// Return nodes with summary information
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"nodes":         nodeList,
+		"total":         len(nodeList),
+		"healthy":       healthyCount,
+		"schedulable":   schedulableCount,
+		"unschedulable": len(nodeList) - schedulableCount,
+		"notReady":      len(nodeList) - healthyCount,
+	})
 }
 
 // handleNetworkPolicies returns network policy list
@@ -639,7 +696,7 @@ func (ws *WebServer) handleNetworkPolicies(w http.ResponseWriter, r *http.Reques
 		// Count ingress and egress rules
 		ingressCount := len(np.Spec.Ingress)
 		egressCount := len(np.Spec.Egress)
-		
+
 		// Format pod selector
 		selector := ""
 		if len(np.Spec.PodSelector.MatchLabels) > 0 {
@@ -655,13 +712,13 @@ func (ws *WebServer) handleNetworkPolicies(w http.ResponseWriter, r *http.Reques
 		}
 
 		policyList = append(policyList, map[string]interface{}{
-			"name":         np.Name,
-			"namespace":    np.Namespace,
-			"selector":     selector,
-			"ingress":      ingressCount,
-			"egress":       egressCount,
-			"policyTypes":  np.Spec.PolicyTypes,
-			"age":          formatAge(time.Since(np.CreationTimestamp.Time)),
+			"name":        np.Name,
+			"namespace":   np.Namespace,
+			"selector":    selector,
+			"ingress":     ingressCount,
+			"egress":      egressCount,
+			"policyTypes": np.Spec.PolicyTypes,
+			"age":         formatAge(time.Since(np.CreationTimestamp.Time)),
 		})
 	}
 
@@ -801,12 +858,12 @@ func (ws *WebServer) handleSecrets(w http.ResponseWriter, r *http.Request) {
 // handleCronJobs returns cronjob list
 func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if ws.app.clientset == nil {
 		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	namespace := r.URL.Query().Get("namespace")
 	// Empty namespace means "all namespaces" in Kubernetes
 	// Only default to app.namespace if namespace param is not provided at all
@@ -817,7 +874,7 @@ func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 	if namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
 		namespace = "" // Set to empty string for all namespaces
 	}
-	
+
 	cronjobs, err := ws.app.clientset.BatchV1().CronJobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -852,12 +909,12 @@ func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 // handleJobs returns job list
 func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if ws.app.clientset == nil {
 		http.Error(w, "Kubernetes client not initialized. Please connect to a cluster first.", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	namespace := r.URL.Query().Get("namespace")
 	// Empty namespace means "all namespaces" in Kubernetes
 	// Only default to app.namespace if namespace param is not provided at all
@@ -868,7 +925,7 @@ func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 	if namespace == "" || namespace == "All Namespaces" || namespace == "_all" {
 		namespace = "" // Set to empty string for all namespaces
 	}
-	
+
 	jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

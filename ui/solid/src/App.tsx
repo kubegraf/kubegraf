@@ -15,7 +15,7 @@ import { createSignal, createResource } from 'solid-js';
 import { currentView, setCurrentView } from './stores/ui';
 
 const App: Component = () => {
-  const [connectionStatus, { refetch: refetchStatus }] = createResource(api.getStatus);
+  const [connectionStatus, { refetch: refetchStatus }] = createResource(() => api.getStatus());
   const [wsConnected, setWsConnected] = createSignal(false);
 
   onMount(() => {

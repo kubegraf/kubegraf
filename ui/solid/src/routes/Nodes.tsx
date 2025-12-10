@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createSignal, Match, Switch } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, Match, Switch, onMount, onCleanup, createEffect } from 'solid-js';
 import { nodesResource, refetchNodes } from '../stores/cluster';
 import { searchQuery } from '../stores/ui';
 import DescribeModal from '../components/DescribeModal';
@@ -6,6 +6,8 @@ import DescribeModal from '../components/DescribeModal';
 interface Node {
   name: string;
   status: string;
+  readyStatus?: string;
+  isSchedulable?: boolean;
   roles: string;
   age: string;
   version: string;
@@ -21,6 +23,8 @@ const Nodes: Component = () => {
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('nodes-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('nodes-font-family') || 'Monaco');
+  const [autoRefresh, setAutoRefresh] = createSignal(true);
+  const [refreshInterval, setRefreshInterval] = createSignal(30); // Default 30 seconds
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -56,12 +60,71 @@ const Nodes: Component = () => {
 
   const nodeSummary = createMemo(() => {
     const all = nodesResource() || [];
+    // Check for nodes that are ready (regardless of scheduling status)
+    const readyNodes = all.filter(n => {
+      const status = n.status || '';
+      return status.includes('Ready') && !status.includes('NotReady');
+    });
+    // Check for schedulable nodes (ready and not cordoned)
+    const schedulableNodes = all.filter(n => {
+      if (n.isSchedulable !== undefined) {
+        return n.isSchedulable && (n.readyStatus === 'Ready' || (n.status || '').includes('Ready'));
+      }
+      // Fallback: check if status doesn't include SchedulingDisabled
+      const status = n.status || '';
+      return status.includes('Ready') && !status.includes('SchedulingDisabled') && !status.includes('NotReady');
+    });
     return {
       total: all.length,
-      ready: all.filter(n => n.status === 'Ready').length,
-      notReady: all.filter(n => n.status !== 'Ready').length,
+      ready: readyNodes.length,
+      notReady: all.length - readyNodes.length,
+      schedulable: schedulableNodes.length,
+      unschedulable: all.length - schedulableNodes.length,
       controlPlane: all.filter(n => n.roles.includes('control-plane') || n.roles.includes('master')).length,
     };
+  });
+
+  // Auto-refresh nodes
+  let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  
+  onMount(() => {
+    const startRefresh = () => {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+      if (autoRefresh()) {
+        refreshTimer = setInterval(() => {
+          refetchNodes();
+        }, refreshInterval() * 1000);
+      }
+    };
+    
+    startRefresh();
+    
+    // Update timer when auto-refresh or interval changes
+    createEffect(() => {
+      // Access signals to track changes
+      const enabled = autoRefresh();
+      const interval = refreshInterval();
+      
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+      
+      if (enabled) {
+        refreshTimer = setInterval(() => {
+          refetchNodes();
+        }, interval * 1000);
+      }
+    });
+  });
+
+  onCleanup(() => {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
   });
 
   const ViewIcon = (props: { mode: ViewMode }) => (
@@ -89,12 +152,23 @@ const Nodes: Component = () => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <For each={nodes()}>
         {(node) => {
-          const isReady = node.status === 'Ready';
+          const status = node.status || '';
+          const isReady = status.includes('Ready') && !status.includes('NotReady');
+          const isSchedulable = node.isSchedulable !== undefined ? node.isSchedulable : !status.includes('SchedulingDisabled');
           const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
+          
+          // Determine status badge color
+          let statusColor = 'bg-red-500/20 text-red-400';
+          if (isReady && isSchedulable) {
+            statusColor = 'bg-green-500/20 text-green-400';
+          } else if (isReady && !isSchedulable) {
+            statusColor = 'bg-yellow-500/20 text-yellow-400';
+          }
+          
           return (
             <div class="border rounded-xl p-6 card-hover" style={{ 
               background: 'var(--bg-card)', 
-              'border-color': isReady ? 'var(--border-color)' : 'rgba(239, 68, 68, 0.3)'
+              'border-color': isReady ? (isSchedulable ? 'var(--border-color)' : 'rgba(234, 179, 8, 0.3)') : 'rgba(239, 68, 68, 0.3)'
             }}>
               <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
@@ -114,9 +188,7 @@ const Nodes: Component = () => {
                     <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>{node.roles || 'worker'}</p>
                   </div>
                 </div>
-                <span class={`px-2 py-1 rounded text-xs font-medium ${
-                  isReady ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                }`}>
+                <span class={`px-2 py-1 rounded text-xs font-medium ${statusColor}`}>
                   {node.status}
                 </span>
               </div>
@@ -180,9 +252,20 @@ const Nodes: Component = () => {
               <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No nodes found</td></tr>
             }>
               {(node) => {
-                const isReady = node.status === 'Ready';
+                const status = node.status || '';
+                const isReady = status.includes('Ready') && !status.includes('NotReady');
+                const isSchedulable = node.isSchedulable !== undefined ? node.isSchedulable : !status.includes('SchedulingDisabled');
                 const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
                 const textColor = '#0ea5e9';
+                
+                // Determine badge class
+                let badgeClass = 'badge-error';
+                if (isReady && isSchedulable) {
+                  badgeClass = 'badge-success';
+                } else if (isReady && !isSchedulable) {
+                  badgeClass = 'badge-warning';
+                }
+                
                 return (
                   <tr>
                     <td style={{
@@ -220,7 +303,7 @@ const Nodes: Component = () => {
                       'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                       border: 'none'
                     }}>
-                      <span class={`badge ${isReady ? 'badge-success' : 'badge-error'}`}>
+                      <span class={`badge ${badgeClass}`}>
                         {node.status}
                       </span>
                     </td>
@@ -395,26 +478,37 @@ const Nodes: Component = () => {
               )}
             </For>
           </div>
-          <button
-            onClick={(e) => {
-              const btn = e.currentTarget;
-              btn.classList.add('refreshing');
-              setTimeout(() => btn.classList.remove('refreshing'), 500);
-              refetchNodes();
-            }}
-            class="icon-btn"
-            style={{ background: 'var(--bg-secondary)' }}
-            title="Refresh Nodes"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={autoRefresh()}
+                onChange={(e) => setAutoRefresh(e.currentTarget.checked)}
+                class="rounded"
+              />
+              <span>Auto-refresh ({refreshInterval()}s)</span>
+            </label>
+            <button
+              onClick={(e) => {
+                const btn = e.currentTarget;
+                btn.classList.add('refreshing');
+                setTimeout(() => btn.classList.remove('refreshing'), 500);
+                refetchNodes();
+              }}
+              class="icon-btn"
+              style={{ background: 'var(--bg-secondary)' }}
+              title={`Refresh Nodes${autoRefresh() ? ` (Auto-refresh: ${refreshInterval()}s)` : ''}`}
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Node summary */}
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div class="bg-k8s-card border border-k8s-border rounded-lg p-4">
           <div class="text-gray-400 text-sm">Total Nodes</div>
           <div class="text-2xl font-bold text-white">{nodeSummary().total}</div>
@@ -422,6 +516,16 @@ const Nodes: Component = () => {
         <div class="bg-k8s-card border border-green-500/30 rounded-lg p-4">
           <div class="text-gray-400 text-sm">Ready</div>
           <div class="text-2xl font-bold text-green-400">{nodeSummary().ready}</div>
+        </div>
+        <div class="bg-k8s-card border border-green-500/30 rounded-lg p-4">
+          <div class="text-gray-400 text-sm">Schedulable</div>
+          <div class="text-2xl font-bold text-green-400">{nodeSummary().schedulable}</div>
+          <div class="text-xs text-gray-500 mt-1">Can schedule pods</div>
+        </div>
+        <div class="bg-k8s-card border border-yellow-500/30 rounded-lg p-4">
+          <div class="text-gray-400 text-sm">Cordoned/Drained</div>
+          <div class="text-2xl font-bold text-yellow-400">{nodeSummary().unschedulable}</div>
+          <div class="text-xs text-gray-500 mt-1">SchedulingDisabled</div>
         </div>
         <div class="bg-k8s-card border border-red-500/30 rounded-lg p-4">
           <div class="text-gray-400 text-sm">Not Ready</div>
