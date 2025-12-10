@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import UpdateBanner from './UpdateNotification';
 import { useWebSocket } from '../providers/WebSocketProvider';
+import { sidebarCollapsed } from '../stores/ui';
 
 interface AppShellProps {
   children: JSX.Element;
@@ -21,22 +22,12 @@ const AppShell: Component<AppShellProps> = (props) => {
         <Sidebar />
 
         {/* Main content */}
-        <div class="flex-1 flex flex-col overflow-hidden">
+        <div class={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed() ? 'ml-16' : 'ml-52'}`}>
           {/* Header - static, persistent */}
           <Header />
 
           {/* Main content area - only this changes on route transitions */}
-          <main class="flex-1 overflow-auto relative">
-            {/* Subtle loading overlay when fetching */}
-            <Show when={ws.connected()}>
-              <div class="absolute inset-0 pointer-events-none z-10">
-                {/* This can be enhanced with actual fetching state from queries */}
-              </div>
-            </Show>
-            
-            {/* Route content */}
-            {props.children}
-          </main>
+          {props.children}
         </div>
       </div>
     </div>

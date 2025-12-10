@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
 import { navSections, type NavSection } from '../config/navSections';
 import { shouldShowMLSection } from '../utils/mlDetection';
+import { prefetchView } from '../utils/sidebarPrefetch';
 
 // Collapsible Section Component
 const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean; onTerminalClick?: () => void }> = (props) => {
@@ -56,6 +57,8 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
                       setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
                       setHovered(true);
                     }
+                    // Prefetch data on hover for faster navigation
+                    prefetchView(item.id);
                   }}
                   onMouseLeave={() => setHovered(false)}
                   class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all ${
