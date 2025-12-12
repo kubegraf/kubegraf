@@ -1,123 +1,14 @@
 import { Component, For, Show, createSignal, createMemo, createEffect, onMount } from 'solid-js';
-import { Portal } from 'solid-js/web';
 import { currentView, setCurrentView, sidebarCollapsed, setSidebarCollapsed, toggleSidebar, sidebarAutoHide, toggleSidebarAutoHide, addNotification } from '../stores/ui';
 import { setUpdateInfo } from '../stores/globalStore';
 import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
-import { navSections, type NavSection } from '../config/navSections';
+import { navSections } from '../config/navSections';
 import { shouldShowMLSection } from '../utils/mlDetection';
-import { prefetchView } from '../utils/sidebarPrefetch';
 import { clusterStatus, currentContext } from '../stores/cluster';
 import { unreadInsightsEvents, clearInsightsUnread } from '../stores/insightsPulse';
-
-// Collapsible Section Component
-const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean; showPulse?: boolean }> = (props) => {
-  const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? true);
-
-  // Check if any item in this section is currently active
-  const hasActiveItem = () => props.section.items.some(item => currentView() === item.id);
-
-  return (
-    <div class="mb-2">
-      <Show when={!sidebarCollapsed()}>
-        <button
-          onClick={() => setExpanded(!expanded())}
-          class={`w-full flex items-center justify-between px-2.5 py-2 rounded-md hover:bg-white/5 transition-colors group sidebar-section-header ${
-            hasActiveItem() ? 'bg-white/5' : ''
-          }`}
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-bold uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>
-              {props.section.title}
-            </span>
-            <Show when={props.showPulse}>
-              <span class="sidebar-pulse-dot" style={{ background: 'var(--accent-primary)' }} />
-            </Show>
-          </div>
-          <svg
-            class={`w-3.5 h-3.5 transition-transform duration-200 ${expanded() ? '' : '-rotate-90'}`}
-            style={{ color: 'var(--text-muted)' }}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </Show>
-
-      <Show when={expanded() || sidebarCollapsed()}>
-        <div class={`space-y-px ${sidebarCollapsed() ? '' : 'mt-0.5'}`}>
-          <For each={props.section.items}>
-            {(item) => {
-              const [hovered, setHovered] = createSignal(false);
-              const [pos, setPos] = createSignal({ top: 0, left: 0 });
-              return (
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // Special handling for terminal - open as view instead of docked terminal
-                      setCurrentView(item.id);
-                  }}
-                  onMouseEnter={(e) => {
-                    if (sidebarCollapsed()) {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
-                      setHovered(true);
-                    }
-                    // Prefetch data on hover for faster navigation
-                    prefetchView(item.id);
-                  }}
-                  onMouseLeave={() => setHovered(false)}
-                  class={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all ${
-                    currentView() === item.id
-                      ? 'bg-white/10'
-                      : 'hover:bg-white/5'
-                  }`}
-                  style={{
-                    color: currentView() === item.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  }}
-                >
-                  <svg
-                    class="w-4 h-4 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    style={{ color: currentView() === item.id ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={item.icon} />
-                  </svg>
-                  <Show when={!sidebarCollapsed()}>
-                    <span class={`text-sm ${currentView() === item.id ? 'font-medium' : ''}`}>{item.label}</span>
-                  </Show>
-                  <Show when={sidebarCollapsed() && hovered()}>
-                    <Portal>
-                      <div
-                        class="fixed px-2 py-1 rounded text-xs font-medium whitespace-nowrap z-[9999]"
-                        style={{
-                          top: `${pos().top}px`,
-                          left: `${pos().left}px`,
-                          transform: 'translateY(-50%)',
-                          background: 'var(--bg-secondary)',
-                          color: 'var(--text-primary)',
-                          border: '1px solid var(--border-color)',
-                          'box-shadow': '0 2px 8px rgba(0,0,0,0.3)',
-                        }}
-                      >
-                        {item.label}
-                      </div>
-                    </Portal>
-                  </Show>
-                </button>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
-    </div>
-  );
-};
+import { AnimatedSection } from './sidebar/AnimatedSection';
+import { ensureSidebarSections } from './sidebar/sidebarSectionState';
 
 // Update button component for sidebar
 const SidebarUpdateButton: Component = () => {
@@ -277,32 +168,38 @@ const Sidebar: Component = () => {
     };
   });
 
-  // Filter sections based on search query and ML detection
+  // Sections available (ML conditional only). Used for persisted open/close defaults.
+  const availableSections = createMemo(() => {
+    const showML = shouldShowMLSection();
+    return navSections.filter((section) => !(section.conditional && !showML));
+  });
+
+  // Filter sections based on search query (without mutating the persisted open/close state)
   const filteredSections = createMemo(() => {
     const query = searchQuery().toLowerCase().trim();
-    const showML = shouldShowMLSection();
-    
-    // Filter sections based on ML detection and search
-    let sections = navSections.filter(section => {
-      // Hide ML section if not detected
-      if (section.conditional && !showML) {
-        return false;
-      }
-      return true;
-    });
+    let sections = availableSections();
 
-    // Apply search filter
     if (query) {
-      sections = sections.map(section => ({
-        ...section,
-        items: section.items.filter(item =>
-          item.label.toLowerCase().includes(query) ||
-          section.title.toLowerCase().includes(query)
-        )
-      })).filter(section => section.items.length > 0);
+      sections = sections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter(
+            (item) =>
+              item.label.toLowerCase().includes(query) ||
+              section.title.toLowerCase().includes(query)
+          ),
+        }))
+        .filter((section) => section.items.length > 0);
     }
 
     return sections;
+  });
+
+  // Ensure open/close state exists for all sections (persisted in sessionStorage)
+  createEffect(() => {
+    const titles = availableSections().map((s) => s.title);
+    const defaults = ['Overview', 'Insights', 'Workloads'].filter((t) => titles.includes(t));
+    ensureSidebarSections(titles, defaults);
   });
 
   return (
@@ -368,7 +265,7 @@ const Sidebar: Component = () => {
             </g>
           </svg>
           <Show when={!sidebarCollapsed()}>
-            <span class="font-bold text-lg gradient-text floating-text">KubeGraf</span>
+            <span class="font-bold text-base gradient-text floating-text">KubeGraf</span>
           </Show>
         </button>
         <button
@@ -441,19 +338,13 @@ const Sidebar: Component = () => {
       <nav class="p-1.5 overflow-y-auto" style={{ height: sidebarCollapsed() ? 'calc(100% - 3.5rem - 7rem)' : 'calc(100% - 3.5rem - 7rem - 3rem)' }}>
         <For each={filteredSections()}>
           {(section, index) => {
-            // Default expanded for first 3 sections (Overview, Insights, Workloads)
-            const defaultExpanded = index() < 3;
             const showInsightsPulse = section.title === 'Insights' && unreadInsightsEvents() > 0;
             return (
               <>
                 <Show when={index() !== 0}>
                   <div class="mx-2 my-2 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
                 </Show>
-                <CollapsibleSection
-                  section={section}
-                  defaultExpanded={defaultExpanded}
-                  showPulse={showInsightsPulse}
-                />
+                <AnimatedSection section={section} showPulse={showInsightsPulse} />
               </>
             );
           }}
