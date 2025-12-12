@@ -7,7 +7,6 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { Component, createSignal, createResource, createEffect, onCleanup, For, Show } from 'solid-js';
-import { namespace } from '../../stores/cluster';
 import * as d3 from 'd3';
 
 interface TrafficNode {
@@ -51,44 +50,51 @@ const LiveTrafficMap: Component = () => {
   let animationFrame: number | null = null;
   let trafficAnimation: any = null;
 
-  // Fetch traffic metrics
-  const [trafficData, { refetch }] = createResource(
-    () => namespace(),
-    async (ns) => {
+  // Fetch traffic metrics - simplified to fetch all namespaces
+  const [trafficData, { refetch, loading, error: trafficError }] = createResource(
+    async () => {
+      console.log('[LiveTrafficMap] Fetching traffic metrics');
+
       // Use AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
       try {
-        const response = await fetch(`/api/traffic/metrics?namespace=${ns === '_all' ? '' : ns}`, {
+        const url = `/api/traffic/metrics`;
+        console.log('[LiveTrafficMap] Fetch URL:', url);
+
+        const response = await fetch(url, {
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
-        
+
+        console.log('[LiveTrafficMap] Response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text().catch(() => 'Unknown error');
-          throw new Error(`Failed to fetch traffic metrics: ${errorText}`);
+          console.error('[LiveTrafficMap] Response error:', errorText);
+          throw new Error(`Failed to fetch traffic metrics (${response.status}): ${errorText}`);
         }
-        
+
         const data = await response.json();
-        
-        // Ensure we have valid data structure
-        if (!data || (!data.nodes && !data.edges)) {
-          console.warn('Traffic metrics returned empty data:', data);
-          return {
-            nodes: [],
-            edges: [],
-            timestamp: new Date().toISOString(),
-          } as TrafficMetrics;
-        }
-        
-        return data as TrafficMetrics;
+        console.log('[LiveTrafficMap] Received data:', {
+          nodeCount: data?.nodes?.length || 0,
+          edgeCount: data?.edges?.length || 0,
+          timestamp: data?.timestamp
+        });
+
+        // Always return valid structure
+        return {
+          nodes: data?.nodes || [],
+          edges: data?.edges || [],
+          timestamp: data?.timestamp || new Date().toISOString(),
+        } as TrafficMetrics;
       } catch (err: any) {
         clearTimeout(timeoutId);
+        console.error('[LiveTrafficMap] Error fetching traffic metrics:', err);
         if (err.name === 'AbortError') {
-          throw new Error('Request timed out. Please check if the cluster is accessible.');
+          throw new Error('Request timed out after 60 seconds. Please check if the cluster is accessible.');
         }
-        console.error('Error fetching traffic metrics:', err);
         throw err;
       }
     }
@@ -337,7 +343,9 @@ const LiveTrafficMap: Component = () => {
 
   // Setup visualization when data is ready
   createEffect(() => {
-    if (trafficData() && !trafficData.loading) {
+    const data = trafficData();
+    if (data && data.nodes && data.nodes.length > 0) {
+      console.log('[LiveTrafficMap] Data ready, setting up visualization');
       setTimeout(() => setupVisualization(), 100);
     }
   });
@@ -383,7 +391,7 @@ const LiveTrafficMap: Component = () => {
         </div>
       </div>
 
-      <Show when={trafficData.loading}>
+      {loading() && (
         <div class="flex items-center justify-center h-64">
           <div class="text-center">
             <div class="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
@@ -393,15 +401,15 @@ const LiveTrafficMap: Component = () => {
             </p>
           </div>
         </div>
-      </Show>
+      )}
 
-      <Show when={!trafficData.loading && trafficData.error}>
+      {!loading() && trafficError() && (
         <div class="flex items-center justify-center h-64">
           <div class="text-center p-4 rounded-lg max-w-md" style={{ background: 'var(--bg-secondary)' }}>
             <div class="text-red-500 mb-2 text-2xl">⚠️</div>
             <p class="font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Failed to load traffic data</p>
             <p class="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
-              {trafficData.error?.message || 'Unknown error occurred'}
+              {trafficError()?.message || 'Unknown error occurred'}
             </p>
             <button
               onClick={() => refetch()}
@@ -412,57 +420,57 @@ const LiveTrafficMap: Component = () => {
             </button>
           </div>
         </div>
-      </Show>
+      )}
 
-      <Show when={!trafficData.loading && trafficData()}>
-        <div
-          ref={containerRef}
-          class="rounded-lg border overflow-hidden"
-          style={{
-            background: 'var(--bg-card)',
-            borderColor: 'var(--border-color)',
-            minHeight: '600px',
-          }}
-        >
-          <svg ref={svgRef} class="w-full h-full" />
-        </div>
+      {!loading() && !trafficError() && trafficData() && (
+        <>
+          <div
+            ref={containerRef}
+            class="rounded-lg border overflow-hidden"
+            style={{
+              background: 'var(--bg-card)',
+              borderColor: 'var(--border-color)',
+              minHeight: '600px',
+            }}
+          >
+            <svg ref={svgRef} class="w-full h-full" />
+          </div>
 
-        {/* Legend */}
-        <div class="flex items-center gap-6 p-4 rounded-lg flex-wrap" style={{ background: 'var(--bg-secondary)' }}>
-          <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded-full" style={{ background: '#06b6d4' }} />
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Services</span>
+          {/* Legend */}
+          <div class="flex items-center gap-6 p-4 rounded-lg flex-wrap" style={{ background: 'var(--bg-secondary)' }}>
+            <div class="flex items-center gap-2">
+              <div class="w-4 h-4 rounded-full" style={{ background: '#06b6d4' }} />
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Services</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-4 h-4 rounded-full" style={{ background: '#3b82f6' }} />
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Deployments</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-4 h-4 rounded-full" style={{ background: '#22c55e' }} />
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Healthy Pods</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-4 h-4 rounded-full border-2" style={{ background: '#f59e0b', borderColor: '#f59e0b' }} />
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Degraded</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-4 h-4 rounded-full" style={{ background: '#ef4444' }} />
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Unhealthy</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4" style={{ color: '#22c55e' }}>
+                <line x1="0" y1="0" x2="20" y2="0" stroke="currentColor" stroke-width="3" />
+              </svg>
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Traffic Flow</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full animate-pulse" style={{ background: '#06b6d4' }} />
+              <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Live Traffic</span>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded-full" style={{ background: '#3b82f6' }} />
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Deployments</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded-full" style={{ background: '#22c55e' }} />
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Healthy Pods</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded-full border-2" style={{ background: '#f59e0b', borderColor: '#f59e0b' }} />
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Degraded</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded-full" style={{ background: '#ef4444' }} />
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Unhealthy</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <svg class="w-4 h-4" style={{ color: '#22c55e' }}>
-              <line x1="0" y1="0" x2="20" y2="0" stroke="currentColor" stroke-width="3" />
-            </svg>
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Traffic Flow</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full animate-pulse" style={{ background: '#06b6d4' }} />
-            <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>Live Traffic</span>
-          </div>
-        </div>
 
-        {/* Stats */}
-        <Show when={trafficData()}>
+          {/* Stats */}
           <div class="grid grid-cols-3 gap-4">
             <div class="p-4 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
               <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -483,14 +491,14 @@ const LiveTrafficMap: Component = () => {
               <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Total RPS</div>
             </div>
           </div>
-        </Show>
-      </Show>
+        </>
+      )}
 
-      <Show when={!trafficData.loading && trafficData() && trafficData()!.nodes.length === 0}>
+      {!loading() && !trafficError() && trafficData() && trafficData()!.nodes.length === 0 && (
         <div class="flex items-center justify-center h-64">
           <p style={{ color: 'var(--text-muted)' }}>No traffic data found in this namespace</p>
         </div>
-      </Show>
+      )}
     </div>
   );
 };

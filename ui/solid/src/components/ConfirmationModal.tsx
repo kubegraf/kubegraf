@@ -8,6 +8,7 @@ interface ConfirmationModalProps {
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'warning' | 'info';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
   details?: string | { label: string; value: string }[];
   onClose: () => void;
   onConfirm: () => void | Promise<void>;
@@ -48,7 +49,7 @@ const ConfirmationModal: Component<ConfirmationModalProps> = (props) => {
       isOpen={props.isOpen}
       onClose={props.onClose}
       title={props.title}
-      size="md"
+      size={props.size || "md"}
     >
       <div class="space-y-4">
         <div class="flex items-start gap-3">

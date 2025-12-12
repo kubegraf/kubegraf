@@ -67,12 +67,7 @@ func (ws *WebServer) handleApplyRecommendation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if !recommendation.AutoApply {
-		http.Error(w, "This recommendation cannot be auto-applied", http.StatusBadRequest)
-		return
-	}
-
-	// Apply the recommendation based on type
+	// Apply the recommendation based on type (user-initiated)
 	var result map[string]interface{}
 	switch recommendation.Type {
 	case "resource_optimization", "cost_saving":
@@ -111,10 +106,12 @@ func (ws *WebServer) applyResourceOptimization(ctx context.Context, rec *MLRecom
 		return ws.updateDeploymentResources(ctx, namespace, resourceName, recommendedCPU, recommendedMemory)
 	case "StatefulSet":
 		return ws.updateStatefulSetResources(ctx, namespace, resourceName, recommendedCPU, recommendedMemory)
+	case "DaemonSet":
+		return ws.updateDaemonSetResources(ctx, namespace, resourceName, recommendedCPU, recommendedMemory)
 	default:
 		return map[string]interface{}{
 			"success": false,
-			"error":   fmt.Sprintf("Unsupported resource type: %s", resourceType),
+			"error":   fmt.Sprintf("Unsupported resource type: %s. Only Deployment, StatefulSet, and DaemonSet are supported.", resourceType),
 		}
 	}
 }
@@ -262,6 +259,65 @@ func (ws *WebServer) updateStatefulSetResources(ctx context.Context, namespace, 
 	return map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Successfully updated resources for StatefulSet %s/%s", namespace, name),
+	}
+}
+
+// updateDaemonSetResources updates daemonset resource requests/limits
+func (ws *WebServer) updateDaemonSetResources(ctx context.Context, namespace, name string, cpu, memory string) map[string]interface{} {
+	daemonset, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to get daemonset: %v", err),
+		}
+	}
+
+	// Update all containers
+	for i := range daemonset.Spec.Template.Spec.Containers {
+		container := &daemonset.Spec.Template.Spec.Containers[i]
+		if container.Resources.Requests == nil {
+			container.Resources.Requests = make(corev1.ResourceList)
+		}
+		if container.Resources.Limits == nil {
+			container.Resources.Limits = make(corev1.ResourceList)
+		}
+
+		if cpu != "" {
+			cpuQty, err := resource.ParseQuantity(cpu)
+			if err == nil {
+				container.Resources.Requests[corev1.ResourceCPU] = cpuQty
+				// Set limit to 1.5x request for safety
+				limitCPU := cpuQty.DeepCopy()
+				limitCPU.Add(cpuQty)
+				limitCPU.Add(*resource.NewMilliQuantity(cpuQty.MilliValue()/2, resource.DecimalSI))
+				container.Resources.Limits[corev1.ResourceCPU] = limitCPU
+			}
+		}
+
+		if memory != "" {
+			memQty, err := resource.ParseQuantity(memory)
+			if err == nil {
+				container.Resources.Requests[corev1.ResourceMemory] = memQty
+				// Set limit to 1.5x request for safety
+				limitMem := memQty.DeepCopy()
+				limitMem.Add(memQty)
+				limitMem.Add(*resource.NewQuantity(memQty.Value()/2, resource.BinarySI))
+				container.Resources.Limits[corev1.ResourceMemory] = limitMem
+			}
+		}
+	}
+
+	_, err = ws.app.clientset.AppsV1().DaemonSets(namespace).Update(ctx, daemonset, metav1.UpdateOptions{})
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to update daemonset: %v", err),
+		}
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Successfully updated resources for DaemonSet %s/%s", namespace, name),
 	}
 }
 

@@ -7,11 +7,19 @@ export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Prom
   // Add timeout for long-running requests (like ML recommendations)
   // Cost API can take up to 2 minutes for large clusters
   // History API can take up to 60 seconds for large clusters with many namespaces
+  // ML recommendations can take up to 60 seconds to analyze metrics and generate recommendations
+  // Topology API can take up to 60 seconds for large clusters with many resources
   let defaultTimeout = 15000; // 15s default
   if (endpoint.includes('/cost/')) {
     defaultTimeout = 120000; // 2 minutes for cost
   } else if (endpoint.includes('/history/')) {
     defaultTimeout = 60000; // 60 seconds for history
+  } else if (endpoint.includes('/ml/recommendations')) {
+    defaultTimeout = 60000; // 60 seconds for ML recommendations
+  } else if (endpoint.includes('/anomalies/detect')) {
+    defaultTimeout = 60000; // 60 seconds for anomaly detection
+  } else if (endpoint.includes('/topology') || endpoint.includes('/traffic/metrics')) {
+    defaultTimeout = 60000; // 60 seconds for topology and traffic metrics
   }
   const timeout = (options as any)?.timeout || defaultTimeout;
   const controller = new AbortController();
@@ -486,10 +494,6 @@ export const api = {
     deleteAPI(`/ingress/delete?name=${name}&namespace=${namespace}`),
 
   // ============ Namespaces ============
-  getNamespaces: async () => {
-    const data = await fetchAPI<any[]>('/namespaces');
-    return Array.isArray(data) ? data : [];
-  },
   getNamespaceDetails: (name: string) =>
     fetchAPI<any>(`/namespace/details?name=${name}`),
   getNamespaceYAML: (name: string) =>

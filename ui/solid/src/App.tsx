@@ -117,8 +117,8 @@ const App: Component = () => {
         {/* Brain Panel */}
         <BrainPanel />
 
-        {/* Notifications - Positioned above deployment progress */}
-        <div class="fixed bottom-24 right-6 z-50 flex flex-col-reverse gap-3 max-w-sm">
+        {/* Notifications - Centered on page */}
+        <div class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 flex flex-col-reverse gap-3 max-w-md">
           <For each={notifications()}>
             {(notification) => (
               <div
