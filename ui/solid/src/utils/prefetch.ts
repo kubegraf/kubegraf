@@ -14,8 +14,7 @@ export const prefetch = {
     queryClient.prefetchQuery({
       queryKey: ['namespaces'],
       queryFn: async () => {
-        const namespaces = await api.getNamespaces();
-        return namespaces;
+        return await api.getNamespaceNames();
       },
       staleTime: 10_000,
     });

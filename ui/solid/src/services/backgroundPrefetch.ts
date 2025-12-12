@@ -47,7 +47,7 @@ class BackgroundPrefetchService {
         api.getStatus().catch(() => null),
 
         // 2. Namespaces (critical for namespace selector)
-        api.getNamespaces().catch(() => null),
+        api.getNamespaceNames().catch(() => null),
 
         // 3. Cloud info (for header badge)
         api.getCloudInfo().catch(() => null),
