@@ -205,17 +205,7 @@ async function setNamespace(value: string): Promise<void> {
 
 // API fetch functions
 async function fetchNamespaces(): Promise<string[]> {
-  const res = await fetch('/api/namespaces');
-  if (!res.ok) throw new Error('Failed to fetch namespaces');
-  const data = await res.json();
-  // API returns array of objects [{name, status, age, ...}, ...] or {namespaces: [...]}
-  if (Array.isArray(data)) {
-    // Extract namespace names from array of objects
-    return data.map((ns: { name?: string } | string) =>
-      typeof ns === 'string' ? ns : (ns.name || '')
-    ).filter(Boolean);
-  }
-  return data.namespaces || [];
+  return await api.getNamespaceNames();
 }
 
 async function fetchPods(): Promise<Pod[]> {
@@ -295,18 +285,10 @@ async function switchContext(contextName: string): Promise<void> {
     const ctxData = await fetchContexts();
     setContexts(ctxData);
 
-    const nsRes = await fetch('/api/namespaces');
-    if (nsRes.ok) {
-      const nsData = await nsRes.json();
-      // Handle both array of objects and {namespaces: [...]} format
-      if (Array.isArray(nsData)) {
-        setNamespaces(nsData.map((ns: { name?: string } | string) =>
-          typeof ns === 'string' ? ns : (ns.name || '')
-        ).filter(Boolean));
-      } else {
-        setNamespaces(nsData.namespaces || []);
-      }
-    }
+    // Refresh namespaces after switching contexts
+    api.getNamespaceNames()
+      .then((ns) => setNamespaces(ns))
+      .catch((err) => console.error('Failed to refresh namespaces after context switch', err));
 
     setClusterSwitchMessage(`Connected to ${contextName}`);
     setTimeout(() => {

@@ -17,13 +17,12 @@ import { installStatusTracker } from '../features/marketplace/install-status';
 import { addPersistentNotification } from '../stores/persistent-notifications';
 import { isLocalClusterApp, validateClusterName, generateDefaultClusterName } from '../utils/local-cluster-installer';
 import { formatDockerError } from '../utils/docker-detection';
-
-interface InstalledInstance {
-  namespace: string;
-  chart: string;
-  version: string;
-  releaseName: string;
-}
+import type { InstalledInstance as MarketplaceInstalledInstance } from '../features/marketplace/types';
+import type { InstalledHelmRelease } from '../features/marketplace/installedApps';
+import { formatInstalledNamespaces, getInstalledInstancesForApp, getInstalledNamespaces } from '../features/marketplace/installedApps';
+import NamespaceBadge from '../components/NamespaceBadge';
+import NamespaceBadges from '../components/NamespaceBadges';
+import { formatNamespacesForUninstall } from '../features/marketplace/uninstallFormatting';
 
 // Use LegacyApp type from adapters for backward compatibility
 type App = LegacyApp;
@@ -82,7 +81,11 @@ const Apps: Component<AppsProps> = (props) => {
   
   // Uninstall modal states
   const [showUninstallModal, setShowUninstallModal] = createSignal(false);
-  const [appToUninstall, setAppToUninstall] = createSignal<{ app: App; instance: InstalledInstance } | null>(null);
+  const [appToUninstall, setAppToUninstall] = createSignal<{
+    app: App;
+    instances: MarketplaceInstalledInstance[];
+    initialSelection?: MarketplaceInstalledInstance[];
+  } | null>(null);
   const [uninstalling, setUninstalling] = createSignal(false);
   
   // Custom app delete modal states
@@ -147,7 +150,7 @@ const Apps: Component<AppsProps> = (props) => {
 
   // Merge installed status with default apps and integrate tracking
   const apps = createMemo(() => {
-    const installed = installedApps() || [];
+    const installed = (installedApps() || []) as InstalledHelmRelease[];
     
     // Sync install status tracker with installed apps
     installStatusTracker.syncWithInstalled(installed.map((i: any) => ({
@@ -159,20 +162,7 @@ const Apps: Component<AppsProps> = (props) => {
     })));
     
     return defaultApps.map(app => {
-      // Find ALL instances of this app (by chart name or release name)
-      const instances = installed.filter((i: any) =>
-        i.name === app.name || // exact name match
-        (i.chart && i.chart.toLowerCase().includes(app.chartName.toLowerCase())) // or chart name match
-      ).map((i: any) => {
-        const statusInfo = installStatusTracker.getStatus(i.name, i.namespace);
-        return {
-          namespace: i.namespace,
-          chart: i.chart,
-          version: i.version,
-          releaseName: i.name,
-          status: statusInfo?.status || 'installed',
-        };
-      });
+      const instances = getInstalledInstancesForApp(app, installed);
 
       return {
         ...app,
@@ -569,25 +559,34 @@ const Apps: Component<AppsProps> = (props) => {
 
   // Navigate to pods for an installed app
   const navigateToPods = (app: App) => {
-    const ns = app.installedNamespace || 'default';
+    const ns = app.installedInstances && app.installedInstances.length > 0
+      ? (app.installedInstances[0] as any).namespace
+      : (app.installedNamespace || 'default');
     console.log('Navigating to pods for app:', app.name, 'in namespace:', ns);
     setNamespace(ns);
     setCurrentView('pods');
   };
 
-  const handleUninstall = (app: App, instance: InstalledInstance) => {
-    setAppToUninstall({ app, instance });
+  const handleUninstall = (app: App, instance?: MarketplaceInstalledInstance) => {
+    const instances = (app.installedInstances || []) as MarketplaceInstalledInstance[];
+    const initialSelection = instance ? [instance] : undefined;
+    setAppToUninstall({ app, instances, initialSelection });
     setShowUninstallModal(true);
   };
 
-  const confirmUninstall = async () => {
+  const confirmUninstall = async (instancesToUninstall: MarketplaceInstalledInstance[]) => {
     const uninstallData = appToUninstall();
     if (!uninstallData) return;
+    if (!instancesToUninstall || instancesToUninstall.length === 0) return;
 
     setUninstalling(true);
     try {
-      await api.uninstallApp(uninstallData.instance.releaseName, uninstallData.instance.namespace);
-      addNotification(`${uninstallData.app.displayName} uninstalled from ${uninstallData.instance.namespace}`, 'success');
+      for (const inst of instancesToUninstall) {
+        await api.uninstallApp(inst.releaseName, inst.namespace);
+      }
+
+      const summary = formatNamespacesForUninstall(instancesToUninstall.map((i) => i.namespace));
+      addNotification(`${uninstallData.app.displayName} uninstalled from ${summary}`, 'success');
       refetchInstalled();
       setShowUninstallModal(false);
       setAppToUninstall(null);
@@ -659,18 +658,9 @@ const Apps: Component<AppsProps> = (props) => {
 
   // Get all apps (marketplace + custom) with installed status
   const allApps = createMemo(() => {
-    const installed = installedApps() || [];
+    const installed = (installedApps() || []) as InstalledHelmRelease[];
     const marketplaceWithStatus = defaultApps.map(app => {
-      // Find ALL instances of this app
-      const instances = installed.filter((i: any) =>
-        i.name === app.name || // exact name match
-        (i.chart && i.chart.toLowerCase().includes(app.chartName.toLowerCase())) // or chart name match
-      ).map((i: any) => ({
-        namespace: i.namespace,
-        chart: i.chart,
-        version: i.version,
-        releaseName: i.name,
-      }));
+      const instances = getInstalledInstancesForApp(app, installed);
 
       return {
         ...app,
@@ -679,16 +669,7 @@ const Apps: Component<AppsProps> = (props) => {
     });
 
     const customWithStatus = customApps().map(app => {
-      // Find ALL instances of this app
-      const instances = installed.filter((i: any) =>
-        i.name === app.name || // exact name match
-        (i.chart && i.chart.toLowerCase().includes(app.chartName.toLowerCase())) // or chart name match
-      ).map((i: any) => ({
-        namespace: i.namespace,
-        chart: i.chart,
-        version: i.version,
-        releaseName: i.name,
-      }));
+      const instances = getInstalledInstancesForApp(app, installed);
 
       return {
         ...app,
@@ -867,6 +848,10 @@ const Apps: Component<AppsProps> = (props) => {
                     {/* Installed instances list */}
                     <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying()}>
                       <div class="mt-3 pt-3 border-t space-y-2" style={{ 'border-color': 'var(--border-color)' }}>
+                        <div class="text-xs flex items-center gap-2 flex-wrap">
+                          <span style={{ color: 'var(--text-muted)' }}>Installed in:</span>
+                          <NamespaceBadges namespaces={getInstalledNamespaces(app.installedInstances as any)} maxShown={6} />
+                        </div>
                         <div class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Installed Instances:</div>
                         <For each={app.installedInstances}>
                           {(instance) => (
@@ -876,7 +861,12 @@ const Apps: Component<AppsProps> = (props) => {
                                   {instance.releaseName}
                                 </div>
                                 <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                  {instance.namespace} • v{instance.version}
+                                  <span class="inline-flex items-center gap-2 flex-wrap">
+                                    <span>
+                                      {app.chartName}{instance.version ? ` • v${instance.version}` : ''}
+                                    </span>
+                                    <NamespaceBadge namespace={instance.namespace} />
+                                  </span>
                                 </div>
                               </div>
                               <div class="flex items-center gap-1 ml-2">
@@ -939,7 +929,7 @@ const Apps: Component<AppsProps> = (props) => {
             }>
               {(app) => {
                 const isDeploying = () => !!deployingApps()[app.name];
-                const deployInfo = () => deployingApps()[app.name];
+                const isInstalled = () => (app.installedInstances?.length || 0) > 0 && !isDeploying();
                 return (
                   <tr>
                     <td>
@@ -968,7 +958,7 @@ const Apps: Component<AppsProps> = (props) => {
                     <td class="font-mono text-sm">{app.chartName}</td>
                     <td>
                       <Show when={isDeploying()} fallback={
-                        <Show when={app.installed} fallback={
+                        <Show when={(app.installedInstances?.length || 0) > 0} fallback={
                           <span class="badge badge-default">Available</span>
                         }>
                           <span class="badge badge-success">Installed</span>
@@ -980,11 +970,15 @@ const Apps: Component<AppsProps> = (props) => {
                         </span>
                       </Show>
                     </td>
-                    <td class="text-sm">{app.installedNamespace || '-'}</td>
+                    <td class="text-sm">
+                      <Show when={app.installedInstances && app.installedInstances.length > 0} fallback="-">
+                        <NamespaceBadges namespaces={getInstalledNamespaces(app.installedInstances as any)} maxShown={3} badgeSize="sm" />
+                      </Show>
+                    </td>
                     <td>
                       <div class="flex items-center gap-2">
                         <Show when={!isDeploying()}>
-                          <Show when={app.installed} fallback={
+                          <Show when={(app.installedInstances?.length || 0) > 0} fallback={
                             <button
                               onClick={() => { 
                                 setSelectedApp(app);
@@ -1034,7 +1028,7 @@ const Apps: Component<AppsProps> = (props) => {
       <For each={displayedApps()}>
         {(app) => {
           const isDeploying = () => !!deployingApps()[app.name];
-          const isInstalled = () => app.installed && !isDeploying();
+          const isInstalled = () => (app.installedInstances?.length || 0) > 0 && !isDeploying();
           return (
             <button
               onClick={() => isInstalled() && navigateToPods(app)}
@@ -1577,14 +1571,14 @@ const Apps: Component<AppsProps> = (props) => {
       {/* App Uninstall Confirmation Modal */}
       <AppUninstallModal
         isOpen={showUninstallModal()}
-        appName={appToUninstall()?.instance.releaseName || ''}
         displayName={appToUninstall()?.app.displayName || ''}
-        namespace={appToUninstall()?.instance.namespace || ''}
+        instances={(appToUninstall()?.instances || []) as any}
+        initialSelection={(appToUninstall()?.initialSelection || []) as any}
         onClose={() => {
           setShowUninstallModal(false);
           setAppToUninstall(null);
         }}
-        onConfirm={confirmUninstall}
+        onConfirm={confirmUninstall as any}
         loading={uninstalling()}
       />
 

@@ -22,7 +22,7 @@ const LoginModal: Component<LoginModalProps> = (props) => {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3001/api/login', {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -55,7 +55,7 @@ const LoginModal: Component<LoginModalProps> = (props) => {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3001/api/register', {
+      const response = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

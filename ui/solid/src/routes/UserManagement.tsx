@@ -32,7 +32,7 @@ const UserManagement: Component = () => {
   checkAuth();
 
   const handleLogout = () => {
-    fetch('http://localhost:3001/api/logout', {
+    fetch('/api/logout', {
       method: 'POST',
       credentials: 'include',
     });

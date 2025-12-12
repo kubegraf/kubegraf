@@ -1,3 +1,5 @@
+import { extractNamespaceNames, normalizeNamespaceList, type NamespaceListItem } from '../utils/namespaceResponse';
+
 // Comprehensive API service for KubeGraf
 
 const API_BASE = '/api';
@@ -232,10 +234,20 @@ export const api = {
   getMetrics: () => fetchAPI<Metrics>('/metrics'),
 
   // Namespaces
-  getNamespaces: async () => {
-    const data = await fetchAPI<{ namespaces: string[]; success: boolean }>('/namespaces');
-    // Return array of namespace names (strings)
-    return (data.namespaces || []).map(ns => typeof ns === 'string' ? ns : (ns as any).name || ns);
+  getNamespaces: async (): Promise<NamespaceListItem[]> => {
+    const data = await fetchAPI<unknown>('/namespaces');
+    // Backend returns an array of namespace objects; some older callers expected { namespaces: [...] }.
+    // Normalize both into a sorted list of unique namespace objects (at least { name }).
+    return normalizeNamespaceList(data);
+  },
+
+  // Convenience for UI components that only need names (e.g. dropdowns)
+  getNamespaceNames: async (): Promise<string[]> => {
+    // IMPORTANT: Do not reference `api` from within the `api` object literal.
+    // Some bundler/minifier configurations can emit a TDZ-like runtime error (blank app)
+    // when a property initializer closes over the object variable.
+    const data = await fetchAPI<unknown>('/namespaces');
+    return extractNamespaceNames(data);
   },
 
   // ============ Workloads ============
