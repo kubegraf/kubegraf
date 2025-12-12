@@ -102,16 +102,20 @@ func (mlr *MLRecommender) GetMetricsHistoryStats() map[string]interface{} {
 
 // PredictResourceNeeds predicts future resource needs using time series forecasting
 func (mlr *MLRecommender) PredictResourceNeeds(ctx context.Context, namespace, deployment string, hoursAhead int) (cpuPrediction, memoryPrediction float64, err error) {
-	// Collect historical metrics for this deployment
+	// Collect historical metrics for this deployment/resource
 	mlr.mu.RLock()
 	history := make([]MetricSample, len(mlr.metricsHistory))
 	copy(history, mlr.metricsHistory)
 	mlr.mu.RUnlock()
 
-	// Filter by namespace and deployment
+	// Filter by namespace and deployment/owner name
 	var relevantSamples []MetricSample
 	for _, sample := range history {
-		if sample.Namespace == namespace && sample.Deployment == deployment {
+		// Try matching by OwnerName first (new field), fallback to Deployment (deprecated)
+		ownerMatch := sample.OwnerName == deployment
+		deploymentMatch := sample.Deployment == deployment
+
+		if sample.Namespace == namespace && (ownerMatch || deploymentMatch) {
 			relevantSamples = append(relevantSamples, sample)
 		}
 	}
@@ -243,124 +247,142 @@ func (mlr *MLRecommender) analyzeResourceOptimization(ctx context.Context) ([]ML
 		return recommendations, nil
 	}
 
-	// Add timeout to Kubernetes API call
-	apiCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	deployments, err := mlr.app.clientset.AppsV1().Deployments("").List(apiCtx, metav1.ListOptions{Limit: 50}) // Reduced limit for faster processing
-	if err != nil {
-		if err == context.DeadlineExceeded {
-			return recommendations, nil // Return empty on timeout
-		}
-		return nil, err
-	}
-
 	mlr.mu.RLock()
 	history := make([]MetricSample, len(mlr.metricsHistory))
 	copy(history, mlr.metricsHistory)
 	mlr.mu.RUnlock()
 
-	for _, deployment := range deployments.Items {
-		// Check context before processing each deployment
+	// Group samples by owner (OwnerKind/OwnerName)
+	ownerSamples := make(map[string][]MetricSample)
+	for _, sample := range history {
+		if sample.OwnerKind != "" && sample.OwnerName != "" {
+			key := fmt.Sprintf("%s/%s/%s", sample.Namespace, sample.OwnerKind, sample.OwnerName)
+			ownerSamples[key] = append(ownerSamples[key], sample)
+		}
+	}
+
+	// Analyze each owner resource
+	for key, samples := range ownerSamples {
+		// Check context before processing each resource
 		select {
 		case <-ctx.Done():
 			return recommendations, ctx.Err()
 		default:
 		}
 
-		for _, container := range deployment.Spec.Template.Spec.Containers {
-			// Get historical usage for this container
-			var containerSamples []MetricSample
-			for _, sample := range history {
-				if sample.Namespace == deployment.Namespace && sample.Deployment == deployment.Name {
-					containerSamples = append(containerSamples, sample)
-				}
+		if len(samples) < 20 {
+			continue // Need more data
+		}
+
+		// Parse key to get namespace, owner kind, and owner name
+		parts := make([]string, 0, 3)
+		lastIdx := 0
+		for i := 0; i < len(key); i++ {
+			if key[i] == '/' {
+				parts = append(parts, key[lastIdx:i])
+				lastIdx = i + 1
 			}
+		}
+		parts = append(parts, key[lastIdx:])
 
-			if len(containerSamples) < 20 {
-				continue // Need more data
+		if len(parts) != 3 {
+			continue
+		}
+
+		namespace := parts[0]
+		ownerKind := parts[1]
+		ownerName := parts[2]
+
+		// Only process supported resource types
+		if ownerKind != "Deployment" && ownerKind != "StatefulSet" && ownerKind != "DaemonSet" {
+			continue
+		}
+
+		// Calculate percentiles
+		cpuUsage := make([]float64, len(samples))
+		memUsage := make([]float64, len(samples))
+		for i, s := range samples {
+			cpuUsage[i] = s.CPUUsage
+			memUsage[i] = s.MemoryUsage
+		}
+
+		p95CPU := mlr.percentile(cpuUsage, 0.95)
+		p95Mem := mlr.percentile(memUsage, 0.95)
+		p99CPU := mlr.percentile(cpuUsage, 0.99)
+		p99Mem := mlr.percentile(memUsage, 0.99)
+
+		// Get average requests from samples
+		totalCPURequest := 0.0
+		totalMemRequest := 0.0
+		for _, s := range samples {
+			totalCPURequest += s.CPURequest
+			totalMemRequest += s.MemoryRequest
+		}
+		cpuRequest := totalCPURequest / float64(len(samples))
+		memRequest := totalMemRequest / float64(len(samples))
+
+		// Recommend if request is too high (waste) or too low (risk)
+		if cpuRequest > 0 {
+			recommendedCPU := math.Max(p95CPU*1.2, p99CPU*1.1) // 20% buffer over P95, or 10% over P99
+			if cpuRequest > recommendedCPU*1.5 {
+				// Over-provisioned by >50%
+				recommendations = append(recommendations, MLRecommendation{
+					ID:               fmt.Sprintf("cpu-opt-%s-%s-%s", namespace, ownerKind, ownerName),
+					Timestamp:        time.Now(),
+					Type:             "resource_optimization",
+					Severity:         "medium",
+					Namespace:        namespace,
+					Resource:         fmt.Sprintf("%s/%s", ownerKind, ownerName),
+					Title:            "CPU Request Optimization",
+					Description:      fmt.Sprintf("%s has CPU request set to %dm but typically uses only %dm (P95).", ownerKind, int(cpuRequest), int(p95CPU)),
+					CurrentValue:     fmt.Sprintf("CPU: %dm", int(cpuRequest)),
+					RecommendedValue: fmt.Sprintf("CPU: %dm", int(recommendedCPU)),
+					Confidence:       0.85,
+					Impact:           "medium",
+					Effort:           "low",
+					AutoApply:        false,
+				})
+			} else if cpuRequest < p95CPU*0.8 {
+				// Under-provisioned
+				recommendations = append(recommendations, MLRecommendation{
+					ID:               fmt.Sprintf("cpu-risk-%s-%s-%s", namespace, ownerKind, ownerName),
+					Timestamp:        time.Now(),
+					Type:             "resource_optimization",
+					Severity:         "high",
+					Namespace:        namespace,
+					Resource:         fmt.Sprintf("%s/%s", ownerKind, ownerName),
+					Title:            "CPU Request Too Low",
+					Description:      fmt.Sprintf("%s may experience throttling. Current request: %dm, P95 usage: %dm.", ownerKind, int(cpuRequest), int(p95CPU)),
+					CurrentValue:     fmt.Sprintf("CPU: %dm", int(cpuRequest)),
+					RecommendedValue: fmt.Sprintf("CPU: %dm", int(p95CPU*1.2)),
+					Confidence:       0.90,
+					Impact:           "high",
+					Effort:           "low",
+					AutoApply:        false,
+				})
 			}
+		}
 
-			// Calculate percentiles
-			cpuUsage := make([]float64, len(containerSamples))
-			memUsage := make([]float64, len(containerSamples))
-			for i, s := range containerSamples {
-				cpuUsage[i] = s.CPUUsage
-				memUsage[i] = s.MemoryUsage
-			}
-
-			p95CPU := mlr.percentile(cpuUsage, 0.95)
-			p95Mem := mlr.percentile(memUsage, 0.95)
-			p99CPU := mlr.percentile(cpuUsage, 0.99)
-			p99Mem := mlr.percentile(memUsage, 0.99)
-
-			// Get current requests
-			cpuRequest := float64(container.Resources.Requests.Cpu().MilliValue())
-			memRequest := float64(container.Resources.Requests.Memory().Value())
-
-			// Recommend if request is too high (waste) or too low (risk)
-			if cpuRequest > 0 {
-				recommendedCPU := math.Max(p95CPU*1.2, p99CPU*1.1) // 20% buffer over P95, or 10% over P99
-				if cpuRequest > recommendedCPU*1.5 {
-					// Over-provisioned by >50%
-					recommendations = append(recommendations, MLRecommendation{
-						ID:               fmt.Sprintf("cpu-opt-%s-%s", deployment.Namespace, deployment.Name),
-						Timestamp:        time.Now(),
-						Type:             "resource_optimization",
-						Severity:         "medium",
-						Namespace:        deployment.Namespace,
-						Resource:         fmt.Sprintf("Deployment/%s", deployment.Name),
-						Title:            "CPU Request Optimization",
-						Description:      fmt.Sprintf("Container %s has CPU request set to %dm but typically uses only %dm (P95).", container.Name, int(cpuRequest), int(p95CPU)),
-						CurrentValue:     fmt.Sprintf("%dm CPU", int(cpuRequest)),
-						RecommendedValue: fmt.Sprintf("%dm CPU", int(recommendedCPU)),
-						Confidence:       0.85,
-						Impact:           "medium",
-						Effort:           "low",
-						AutoApply:        false,
-					})
-				} else if cpuRequest < p95CPU*0.8 {
-					// Under-provisioned
-					recommendations = append(recommendations, MLRecommendation{
-						ID:               fmt.Sprintf("cpu-risk-%s-%s", deployment.Namespace, deployment.Name),
-						Timestamp:        time.Now(),
-						Type:             "resource_optimization",
-						Severity:         "high",
-						Namespace:        deployment.Namespace,
-						Resource:         fmt.Sprintf("Deployment/%s", deployment.Name),
-						Title:            "CPU Request Too Low",
-						Description:      fmt.Sprintf("Container %s may experience throttling. Current request: %dm, P95 usage: %dm.", container.Name, int(cpuRequest), int(p95CPU)),
-						CurrentValue:     fmt.Sprintf("%dm CPU", int(cpuRequest)),
-						RecommendedValue: fmt.Sprintf("%dm CPU", int(p95CPU*1.2)),
-						Confidence:       0.90,
-						Impact:           "high",
-						Effort:           "low",
-						AutoApply:        false,
-					})
-				}
-			}
-
-			// Similar for memory
-			if memRequest > 0 {
-				recommendedMem := math.Max(p95Mem*1.2, p99Mem*1.1)
-				if memRequest > recommendedMem*1.5 {
-					recommendations = append(recommendations, MLRecommendation{
-						ID:               fmt.Sprintf("mem-opt-%s-%s", deployment.Namespace, deployment.Name),
-						Timestamp:        time.Now(),
-						Type:             "resource_optimization",
-						Severity:         "medium",
-						Namespace:        deployment.Namespace,
-						Resource:         fmt.Sprintf("Deployment/%s", deployment.Name),
-						Title:            "Memory Request Optimization",
-						Description:      fmt.Sprintf("Container %s has memory request set to %s but typically uses only %s (P95).", container.Name, formatBytes(memRequest), formatBytes(p95Mem)),
-						CurrentValue:     formatBytes(memRequest),
-						RecommendedValue: formatBytes(recommendedMem),
-						Confidence:       0.85,
-						Impact:           "medium",
-						Effort:           "low",
-						AutoApply:        false,
-					})
-				}
+		// Similar for memory
+		if memRequest > 0 {
+			recommendedMem := math.Max(p95Mem*1.2, p99Mem*1.1)
+			if memRequest > recommendedMem*1.5 {
+				recommendations = append(recommendations, MLRecommendation{
+					ID:               fmt.Sprintf("mem-opt-%s-%s-%s", namespace, ownerKind, ownerName),
+					Timestamp:        time.Now(),
+					Type:             "resource_optimization",
+					Severity:         "medium",
+					Namespace:        namespace,
+					Resource:         fmt.Sprintf("%s/%s", ownerKind, ownerName),
+					Title:            "Memory Request Optimization",
+					Description:      fmt.Sprintf("%s has memory request set to %s but typically uses only %s (P95).", ownerKind, formatBytes(memRequest), formatBytes(p95Mem)),
+					CurrentValue:     fmt.Sprintf("Memory: %s", formatBytes(memRequest)),
+					RecommendedValue: fmt.Sprintf("Memory: %s", formatBytes(recommendedMem)),
+					Confidence:       0.85,
+					Impact:           "medium",
+					Effort:           "low",
+					AutoApply:        false,
+				})
 			}
 		}
 	}
@@ -454,15 +476,17 @@ func (mlr *MLRecommender) analyzeCostOptimization(ctx context.Context) ([]MLReco
 	copy(history, mlr.metricsHistory)
 	mlr.mu.RUnlock()
 
-	// Group by deployment
-	deploymentUsage := make(map[string][]MetricSample)
+	// Group by owner (OwnerKind/OwnerName)
+	ownerUsage := make(map[string][]MetricSample)
 	for _, sample := range history {
-		key := fmt.Sprintf("%s/%s", sample.Namespace, sample.Deployment)
-		deploymentUsage[key] = append(deploymentUsage[key], sample)
+		if sample.OwnerKind != "" && sample.OwnerName != "" {
+			key := fmt.Sprintf("%s/%s/%s", sample.Namespace, sample.OwnerKind, sample.OwnerName)
+			ownerUsage[key] = append(ownerUsage[key], sample)
+		}
 	}
 
-	for key, samples := range deploymentUsage {
-		// Check context before processing each deployment
+	for key, samples := range ownerUsage {
+		// Check context before processing each resource
 		select {
 		case <-ctx.Done():
 			return recommendations, ctx.Err()
@@ -472,6 +496,25 @@ func (mlr *MLRecommender) analyzeCostOptimization(ctx context.Context) ([]MLReco
 		if len(samples) < 50 {
 			continue
 		}
+
+		// Parse key to get namespace, owner kind, and owner name
+		parts := make([]string, 0, 3)
+		lastIdx := 0
+		for i := 0; i < len(key); i++ {
+			if key[i] == '/' {
+				parts = append(parts, key[lastIdx:i])
+				lastIdx = i + 1
+			}
+		}
+		parts = append(parts, key[lastIdx:])
+
+		if len(parts) != 3 {
+			continue
+		}
+
+		namespace := parts[0]
+		ownerKind := parts[1]
+		ownerName := parts[2]
 
 		// Calculate average utilization
 		avgCPU := 0.0
@@ -490,14 +533,14 @@ func (mlr *MLRecommender) analyzeCostOptimization(ctx context.Context) ([]MLReco
 		// If consistently low utilization, recommend downscaling
 		if avgCPU < 20 && avgMem < 20 {
 			recommendations = append(recommendations, MLRecommendation{
-				ID:               fmt.Sprintf("cost-%s", key),
+				ID:               fmt.Sprintf("cost-%s-%s-%s", namespace, ownerKind, ownerName),
 				Timestamp:        time.Now(),
 				Type:             "cost_saving",
 				Severity:         "low",
-				Namespace:        samples[0].Namespace,
-				Resource:         fmt.Sprintf("Deployment/%s", samples[0].Deployment),
+				Namespace:        namespace,
+				Resource:         fmt.Sprintf("%s/%s", ownerKind, ownerName),
 				Title:            "Low Resource Utilization",
-				Description:      fmt.Sprintf("Deployment shows consistently low utilization (CPU: %.1f%%, Memory: %.1f%%). Consider reducing replicas or resource requests to save costs.", avgCPU, avgMem),
+				Description:      fmt.Sprintf("%s shows consistently low utilization (CPU: %.1f%%, Memory: %.1f%%). Consider reducing replicas or resource requests to save costs.", ownerKind, avgCPU, avgMem),
 				CurrentValue:     fmt.Sprintf("CPU: %.1f%%, Memory: %.1f%%", avgCPU, avgMem),
 				RecommendedValue: "Reduce replicas or resource requests",
 				Confidence:       0.80,

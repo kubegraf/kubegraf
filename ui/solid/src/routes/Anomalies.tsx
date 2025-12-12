@@ -1,13 +1,17 @@
 import { Component, For, Show, createSignal, createResource, createMemo, onMount, createEffect } from 'solid-js';
 import { api, Anomaly, AnomalyStats } from '../services/api';
-import { setCurrentView, setSelectedResource } from '../stores/ui';
+import { setCurrentView, setSelectedResource, addNotification } from '../stores/ui';
 import { refreshTrigger, currentContext } from '../stores/cluster';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const Anomalies: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'anomalies' | 'recommendations'>('anomalies');
   const [selectedSeverity, setSelectedSeverity] = createSignal<string>('');
   const [scanKey, setScanKey] = createSignal(0);
   const [remediating, setRemediating] = createSignal<string | null>(null);
+  const [confirmModalOpen, setConfirmModalOpen] = createSignal(false);
+  const [pendingAction, setPendingAction] = createSignal<{ type: 'anomaly' | 'recommendation', data: any } | null>(null);
+  const [isApplying, setIsApplying] = createSignal(false);
 
   // Fetch anomalies - refresh when cluster changes
   const [anomaliesData, { refetch: refetchAnomalies }] = createResource(
@@ -77,25 +81,31 @@ const Anomalies: Component = () => {
   };
 
   const handleRemediateRecommendation = async (rec: any) => {
-    if (!rec.autoApply) {
-      alert('Auto-remediation is not available for this recommendation.');
-      return;
-    }
+    setPendingAction({ type: 'recommendation', data: rec });
+    setConfirmModalOpen(true);
+  };
 
-    if (!confirm(`Are you sure you want to apply this recommendation?\n\n${rec.title}\n\n${rec.description}\n\nRecommended: ${rec.recommendedValue}`)) {
-      return;
-    }
+  const confirmApply = async () => {
+    const action = pendingAction();
+    if (!action) return;
 
+    setIsApplying(true);
     try {
-      const result = await api.applyRecommendation(rec.id);
-      if (result?.success) {
-        alert('Recommendation applied successfully!');
-        refetchRecommendations();
-      } else {
-        alert(result?.error || 'Failed to apply recommendation.');
+      if (action.type === 'recommendation') {
+        const result = await api.applyRecommendation(action.data.id);
+        if (result?.success) {
+          setConfirmModalOpen(false);
+          setPendingAction(null);
+          addNotification(result?.message || 'Recommendation applied successfully!', 'success');
+          refetchRecommendations();
+        } else {
+          addNotification(result?.error || 'Failed to apply recommendation.', 'error');
+        }
       }
     } catch (err: any) {
-      alert(`Failed to apply: ${err.message}`);
+      addNotification(`Failed to apply: ${err.message}`, 'error');
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -587,15 +597,13 @@ const Anomalies: Component = () => {
                       >
                         View Resource
                       </button>
-                      <Show when={rec.autoApply}>
-                        <button
-                          onClick={() => handleRemediateRecommendation(rec)}
-                          class="px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
-                          style={{ background: 'var(--accent-primary)', color: 'white' }}
-                        >
-                          Auto-Remediate
-                        </button>
-                      </Show>
+                      <button
+                        onClick={() => handleRemediateRecommendation(rec)}
+                        class="px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                        style={{ background: 'var(--accent-primary)', color: 'white' }}
+                      >
+                        {rec.autoApply ? 'Auto-Apply' : 'Apply Recommendation'}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -604,6 +612,26 @@ const Anomalies: Component = () => {
           </div>
         </Show>
       </Show>
+
+      <ConfirmationModal
+        isOpen={confirmModalOpen()}
+        title="Apply Recommendation"
+        message="Are you sure you want to apply this recommendation?"
+        variant="info"
+        confirmText="Apply"
+        loading={isApplying()}
+        size="sm"
+        details={pendingAction() ? [
+          { label: 'Title', value: pendingAction()!.data.title },
+          { label: 'Description', value: pendingAction()!.data.description },
+          { label: 'Recommended Value', value: pendingAction()!.data.recommendedValue }
+        ] : undefined}
+        onClose={() => {
+          setConfirmModalOpen(false);
+          setPendingAction(null);
+        }}
+        onConfirm={confirmApply}
+      />
     </div>
   );
 };

@@ -820,6 +820,11 @@ func (ws *WebServer) handleAnomalyDetection(w http.ResponseWriter, r *http.Reque
 	// Calculate stats
 	stats := ws.app.anomalyDetector.GetAnomalyStats(anomalies)
 
+	// Ensure anomalies is never null - return empty array instead
+	if anomalies == nil {
+		anomalies = []Anomaly{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"anomalies": anomalies,
@@ -969,6 +974,11 @@ func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Requ
 
 	// Get metrics history stats
 	stats := ws.app.mlRecommender.GetMetricsHistoryStats()
+
+	// Ensure recommendations is never null - return empty array instead
+	if recommendations == nil {
+		recommendations = []MLRecommendation{}
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"recommendations": recommendations,

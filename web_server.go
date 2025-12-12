@@ -748,6 +748,25 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 			// Check if file exists in embedded FS
 			filePath := strings.TrimPrefix(upath, "/")
 			if _, err := fs.Stat(webFS, filePath); err == nil {
+				// Add cache-busting headers for JavaScript and CSS files
+				// Hash-named files (e.g., index-DTTyubyh.js) can be cached aggressively
+				// HTML files should not be cached
+				if strings.HasSuffix(filePath, ".js") || strings.HasSuffix(filePath, ".css") {
+					if strings.Contains(filePath, "-") && (strings.Contains(filePath, "/assets/") || strings.HasPrefix(filePath, "assets/")) {
+						// Hashed assets - cache for 1 year
+						w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					} else {
+						// Non-hashed JS/CSS - no cache
+						w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+						w.Header().Set("Pragma", "no-cache")
+						w.Header().Set("Expires", "0")
+					}
+				} else if strings.HasSuffix(filePath, ".html") {
+					// HTML files - no cache
+					w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+					w.Header().Set("Pragma", "no-cache")
+					w.Header().Set("Expires", "0")
+				}
 				fileServer.ServeHTTP(w, r)
 				return
 			}
@@ -759,7 +778,11 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
+		// No cache for index.html
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		w.Write(indexContent)
 	}
 }

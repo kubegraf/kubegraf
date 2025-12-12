@@ -30,11 +30,13 @@ type MetricSample struct {
 	Timestamp     time.Time `json:"timestamp"`
 	Namespace     string    `json:"namespace"`
 	PodName       string    `json:"podName"`
-	Deployment    string    `json:"deployment,omitempty"`
-	CPUUsage      float64   `json:"cpuUsage"`      // CPU usage in millicores
-	MemoryUsage   float64   `json:"memoryUsage"`   // Memory usage in bytes
-	CPURequest    float64   `json:"cpuRequest"`    // CPU request in millicores
-	MemoryRequest float64   `json:"memoryRequest"` // Memory request in bytes
+	Deployment    string    `json:"deployment,omitempty"` // Deprecated: use OwnerName
+	OwnerKind     string    `json:"ownerKind,omitempty"`  // e.g., "Deployment", "StatefulSet", "DaemonSet"
+	OwnerName     string    `json:"ownerName,omitempty"`  // Name of the owner resource
+	CPUUsage      float64   `json:"cpuUsage"`             // CPU usage in millicores
+	MemoryUsage   float64   `json:"memoryUsage"`          // Memory usage in bytes
+	CPURequest    float64   `json:"cpuRequest"`           // CPU request in millicores
+	MemoryRequest float64   `json:"memoryRequest"`        // Memory request in bytes
 	RestartCount  int32     `json:"restartCount"`
 	Phase         string    `json:"phase"`
 	Ready         bool      `json:"ready"`
@@ -129,13 +131,44 @@ func (ad *AnomalyDetector) CollectMetrics(ctx context.Context) ([]MetricSample, 
 
 	// Process each pod
 	for _, pod := range pods.Items {
-		// Get deployment name from labels
-		deployment := ""
-		if pod.Labels != nil {
+		// Get owner information from owner references
+		ownerKind := ""
+		ownerName := ""
+		deployment := "" // Deprecated but kept for backwards compatibility
+
+		if len(pod.OwnerReferences) > 0 {
+			// Get the first owner reference (typically the controller)
+			owner := pod.OwnerReferences[0]
+			ownerKind = owner.Kind
+			ownerName = owner.Name
+
+			// Handle ReplicaSet - need to find the Deployment that owns it
+			if ownerKind == "ReplicaSet" {
+				// Try to get the ReplicaSet to find its owner (Deployment)
+				rs, err := ad.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ownerName, metav1.GetOptions{})
+				if err == nil && len(rs.OwnerReferences) > 0 {
+					rsOwner := rs.OwnerReferences[0]
+					ownerKind = rsOwner.Kind
+					ownerName = rsOwner.Name
+				}
+			}
+
+			// Set deprecated Deployment field for backwards compatibility
+			if ownerKind == "Deployment" {
+				deployment = ownerName
+			}
+		}
+
+		// Fallback to labels if no owner reference found
+		if ownerName == "" && pod.Labels != nil {
 			if dep, ok := pod.Labels["app"]; ok {
 				deployment = dep
+				ownerName = dep
+				ownerKind = "Unknown" // We don't know the actual kind from labels
 			} else if dep, ok := pod.Labels["app.kubernetes.io/name"]; ok {
 				deployment = dep
+				ownerName = dep
+				ownerKind = "Unknown"
 			}
 		}
 
@@ -176,6 +209,8 @@ func (ad *AnomalyDetector) CollectMetrics(ctx context.Context) ([]MetricSample, 
 			Namespace:     pod.Namespace,
 			PodName:       pod.Name,
 			Deployment:    deployment,
+			OwnerKind:     ownerKind,
+			OwnerName:     ownerName,
 			CPUUsage:      float64(cpuUsage),
 			MemoryUsage:   float64(memUsage),
 			CPURequest:    float64(cpuRequest),
