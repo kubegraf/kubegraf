@@ -1,17 +1,52 @@
-import { Component, Show } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createEffect } from 'solid-js';
 import Modal from './Modal';
+import type { InstalledInstance } from '../features/marketplace/types';
+import NamespaceBadge from './NamespaceBadge';
+import NamespaceBadges from './NamespaceBadges';
 
 interface AppUninstallModalProps {
   isOpen: boolean;
-  appName: string;
   displayName: string;
-  namespace: string;
+  instances: InstalledInstance[];
+  // Optional pre-selection when user clicked a specific instance uninstall icon
+  initialSelection?: InstalledInstance[];
   onClose: () => void;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: (instancesToUninstall: InstalledInstance[]) => void | Promise<void>;
   loading?: boolean;
 }
 
 const AppUninstallModal: Component<AppUninstallModalProps> = (props) => {
+  const [selectedKeys, setSelectedKeys] = createSignal<Set<string>>(new Set());
+
+  const keyOf = (i: InstalledInstance) => `${i.releaseName}@@${i.namespace}`;
+
+  // Reset selection each time the modal opens
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const initial = props.initialSelection && props.initialSelection.length > 0
+      ? props.initialSelection
+      : (props.instances.length === 1 ? props.instances : []);
+    setSelectedKeys(new Set(initial.map(keyOf)));
+  });
+
+  const selectedInstances = createMemo(() => {
+    const keys = selectedKeys();
+    return props.instances.filter((i) => keys.has(keyOf(i)));
+  });
+
+  const selectedNamespaces = createMemo(() => selectedInstances().map((i) => i.namespace));
+
+  const toggle = (i: InstalledInstance) => {
+    const next = new Set(selectedKeys());
+    const k = keyOf(i);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    setSelectedKeys(next);
+  };
+
+  const selectAll = () => setSelectedKeys(new Set(props.instances.map(keyOf)));
+  const clearAll = () => setSelectedKeys(new Set());
+
   return (
     <Modal
       isOpen={props.isOpen}
@@ -28,18 +63,73 @@ const AppUninstallModal: Component<AppUninstallModalProps> = (props) => {
           </div>
           <div class="flex-1">
             <p class="text-sm mb-3" style={{ color: 'var(--text-primary)' }}>
-              Are you sure you want to uninstall <strong>{props.displayName}</strong> from <strong>{props.namespace}</strong>?
+              Choose where you want to uninstall <strong>{props.displayName}</strong> from:
             </p>
-            <div class="p-3 rounded-lg mb-4" style={{ background: 'var(--bg-tertiary)' }}>
-              <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                {props.displayName}
+            <div class="p-3 rounded-lg mb-4 space-y-2" style={{ background: 'var(--bg-tertiary)' }}>
+              <div class="flex items-center justify-between">
+                <div class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Installed Instances
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    class="text-xs px-2 py-1 rounded"
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                    onClick={selectAll}
+                    disabled={props.loading}
+                    title="Select all"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    class="text-xs px-2 py-1 rounded"
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                    onClick={clearAll}
+                    disabled={props.loading}
+                    title="Clear selection"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div class="space-y-2">
+                <For each={props.instances}>
+                  {(inst) => (
+                    <label
+                      class="flex items-center gap-3 p-2 rounded cursor-pointer"
+                      style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedKeys().has(keyOf(inst))}
+                        onInput={() => toggle(inst)}
+                        disabled={props.loading}
+                      />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                          {inst.releaseName}
+                        </div>
+                        <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span class="inline-flex items-center gap-2 flex-wrap">
+                            <NamespaceBadge namespace={inst.namespace} />
+                            <Show when={!!inst.version}>
+                              <span>v{inst.version}</span>
+                            </Show>
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  )}
+                </For>
               </div>
               <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Namespace: {props.namespace}
+                {selectedInstances().length} selected
               </div>
-              <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Release: {props.appName}
-              </div>
+              <Show when={selectedInstances().length > 0}>
+                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  Uninstalling from:{' '}
+                  <NamespaceBadges namespaces={selectedNamespaces()} maxShown={6} badgeSize="sm" />
+                </div>
+              </Show>
             </div>
             <p class="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
               This action cannot be undone. The application will be permanently uninstalled from the cluster.
@@ -59,8 +149,8 @@ const AppUninstallModal: Component<AppUninstallModalProps> = (props) => {
             Cancel
           </button>
           <button
-            onClick={props.onConfirm}
-            disabled={props.loading}
+            onClick={() => props.onConfirm(selectedInstances())}
+            disabled={props.loading || selectedInstances().length === 0}
             class="px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: 'var(--error-color)',
