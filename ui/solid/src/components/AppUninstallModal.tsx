@@ -131,9 +131,42 @@ const AppUninstallModal: Component<AppUninstallModalProps> = (props) => {
                 </div>
               </Show>
             </div>
-            <p class="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-              This action cannot be undone. The application will be permanently uninstalled from the cluster.
-            </p>
+            <div class="mt-4 p-4 rounded-lg border-l-4" style={{ 
+              background: 'rgba(239, 68, 68, 0.1)', 
+              'border-left-color': 'var(--error-color)',
+              border: '1px solid rgba(239, 68, 68, 0.2)'
+            }}>
+              <div class="flex items-start gap-3">
+                <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error-color)' }}>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div class="flex-1">
+                  <h4 class="text-sm font-semibold mb-2" style={{ color: 'var(--error-color)' }}>
+                    ⚠️ Disruptive Action - Permanent Removal
+                  </h4>
+                  <p class="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
+                    <strong>The selected application will be removed permanently from the cluster.</strong>
+                  </p>
+                  <ul class="text-xs space-y-1 mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    <li class="flex items-start gap-2">
+                      <span class="mt-0.5">•</span>
+                      <span>All application resources, configurations, and data will be permanently deleted</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <span class="mt-0.5">•</span>
+                      <span>This action <strong>cannot be undone</strong> and data <strong>cannot be retrieved</strong></span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <span class="mt-0.5">•</span>
+                      <span>Any running services or workloads will be terminated immediately</span>
+                    </li>
+                  </ul>
+                  <p class="text-xs font-medium" style={{ color: 'var(--error-color)' }}>
+                    Please ensure you have backups of any important data before proceeding.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="flex justify-end gap-3 pt-4 border-t" style={{ 'border-color': 'var(--border-color)' }}>
