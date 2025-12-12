@@ -24,6 +24,9 @@ import ContainerTable from '../components/ContainerTable';
 import { ContainerInfo, ContainerType, isSidecarContainer } from '../utils/containerTypes';
 import { calculateContainerStatus } from '../utils/containerStatus';
 import { containersToTableRows, ContainerTableRow } from '../utils/containerTableUtils';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface Pod {
   name: string;
@@ -51,6 +54,10 @@ const Pods: Component = () => {
   const [currentPage, setCurrentPage] = createSignal(1);
   const [pageSize, setPageSize] = createSignal(20);
   const [selectedPod, setSelectedPod] = createSignal<Pod | null>(null);
+
+  // Bulk selection
+  const bulk = useBulkSelection<Pod>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   // Modal states
   const [showYaml, setShowYaml] = createSignal(false);
@@ -618,6 +625,11 @@ const Pods: Component = () => {
     return allPods;
   });
 
+  // Create a memo for selected items to ensure reactivity in the modal
+  const selectedItemsForModal = createMemo(() => {
+    return bulk.getSelectedItems(filteredAndSortedPods());
+  });
+
   // Pagination
   const totalPages = createMemo(() => Math.ceil(filteredAndSortedPods().length / pageSize()));
   const paginatedPods = createMemo(() => {
@@ -920,6 +932,16 @@ const Pods: Component = () => {
           <span class="text-xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
         </div>
 
+        {/* Bulk Actions */}
+        <BulkActions
+          selectedCount={bulk.selectedCount()}
+          totalCount={filteredAndSortedPods().length}
+          onSelectAll={() => bulk.selectAll(filteredAndSortedPods())}
+          onDeselectAll={() => bulk.deselectAll()}
+          onDelete={() => setShowBulkDeleteModal(true)}
+          resourceType="pods"
+        />
+
         <div class="flex-1" />
 
         {/* Font Size Selector */}
@@ -1041,6 +1063,24 @@ const Pods: Component = () => {
                   'font-size': `${fontSize()}px`,
                   'line-height': `${Math.max(24, fontSize() * 1.7)}px`
                 }}>
+                  <th style={{
+                    padding: '0 8px',
+                    'text-align': 'center',
+                    width: '40px',
+                    border: 'none'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSortedPods().length && filteredAndSortedPods().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSortedPods().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSortedPods());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')} style={{
                     padding: '0 8px',
                     'text-align': 'left',
@@ -1137,7 +1177,7 @@ const Pods: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedPods()} fallback={
-                  <tr><td colspan="10" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No pods found</td></tr>
+                  <tr><td colspan="11" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No pods found</td></tr>
                 }>
                   {(pod: Pod, index) => {
                     const isSelected = () => selectedIndex() === index();
@@ -1208,6 +1248,17 @@ const Pods: Component = () => {
                       }}
                       onMouseLeave={() => setIsHovered(false)}
                     >
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'center',
+                        width: '40px',
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(pod)}
+                          onChange={() => bulk.toggleSelection(pod)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -1867,6 +1918,40 @@ const Pods: Component = () => {
           </Show>
         </div>
       </Modal>
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="Pods"
+        selectedItems={selectedItemsForModal()}
+        onConfirm={async () => {
+          const selectedPods = selectedItemsForModal();
+
+          // Delete each pod
+          for (const pod of selectedPods) {
+            try {
+              await api.deletePod(pod.name, pod.namespace);
+            } catch (error) {
+              console.error(`Failed to delete pod ${pod.namespace}/${pod.name}:`, error);
+              addNotification(
+                `Failed to delete pod ${pod.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          podsCache.refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedPods.length} pod${selectedPods.length !== 1 ? 's' : ''}`,
+            'success'
+          );
+        }}
+      />
     </div>
   );
 };

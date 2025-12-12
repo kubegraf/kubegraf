@@ -9,6 +9,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface Namespace {
   name: string;
@@ -33,6 +36,10 @@ const Namespaces: Component = () => {
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('namespaces-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('namespaces-font-family') || 'Monaco');
+
+  // Bulk selection
+  const bulk = useBulkSelection<Namespace>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -214,6 +221,19 @@ const Namespaces: Component = () => {
     }
   };
 
+  const handleBulkDelete = async () => {
+    const itemsToDelete = bulk.getSelectedItems(paginatedNamespaces());
+    try {
+      await Promise.all(itemsToDelete.map(ns => api.deleteNamespace(ns.name)));
+      addNotification(`Successfully deleted ${itemsToDelete.length} namespace(s)`, 'success');
+      bulk.deselectAll();
+      refetch();
+    } catch (error) {
+      console.error('Failed to delete namespaces:', error);
+      addNotification(`Failed to delete namespaces: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
   return (
     <div class="space-y-4">
       {/* Header */}
@@ -347,6 +367,19 @@ const Namespaces: Component = () => {
             >
               <thead>
                 <tr>
+                  <th class="whitespace-nowrap" style={{ width: '40px', padding: '0 8px' }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === paginatedNamespaces().length && paginatedNamespaces().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < paginatedNamespaces().length}
+                      onChange={() => {
+                        if (bulk.selectedCount() === paginatedNamespaces().length) {
+                          bulk.deselectAll();
+                        } else {
+                          bulk.selectAll(paginatedNamespaces());
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
@@ -361,12 +394,25 @@ const Namespaces: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedNamespaces()} fallback={
-                  <tr><td colspan="4" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No namespaces found</td></tr>
+                  <tr><td colspan="5" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No namespaces found</td></tr>
                 }>
                   {(ns: Namespace) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'center',
+                        width: '40px',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(ns)}
+                          onChange={() => bulk.toggleSelection(ns)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -516,6 +562,25 @@ const Namespaces: Component = () => {
 
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="namespace" name={selected()?.name || ''} />
+
+      {/* Bulk Actions Bar */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="namespaces"
+      />
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        onConfirm={handleBulkDelete}
+        resourceType="Namespaces"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+      />
     </div>
   );
 };

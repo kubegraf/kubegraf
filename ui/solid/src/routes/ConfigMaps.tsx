@@ -12,6 +12,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface ConfigMap {
   name: string;
@@ -31,6 +34,8 @@ const ConfigMaps: Component = () => {
   const [currentPage, setCurrentPage] = createSignal(1);
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<ConfigMap | null>(null);
+  const bulk = useBulkSelection<ConfigMap>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   // Modal states
   const [showYaml, setShowYaml] = createSignal(false);
@@ -214,6 +219,16 @@ const ConfigMaps: Component = () => {
 
   return (
     <div class="space-y-4">
+      {/* Bulk Actions */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="ConfigMaps"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -324,6 +339,26 @@ const ConfigMaps: Component = () => {
                   'font-size': `${fontSize()}px`,
                   'line-height': `${Math.max(24, fontSize() * 1.7)}px`
                 }}>
+                  <th style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': 'bold',
+                    'line-height': '24px',
+                    height: '24px',
+                    border: 'none'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSorted());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" style={{
                     padding: '0 8px',
                     'text-align': 'left',
@@ -386,12 +421,24 @@ const ConfigMaps: Component = () => {
               </thead>
               <tbody>
                 <For each={paginated()} fallback={
-                  <tr><td colspan="5" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ConfigMaps found</td></tr>
+                  <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ConfigMaps found</td></tr>
                 }>
                   {(cm: ConfigMap) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(cm)}
+                          onChange={() => bulk.toggleSelection(cm)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -568,6 +615,40 @@ const ConfigMaps: Component = () => {
         resourceType="configmap"
         name={selected()?.name || ''}
         namespace={selected()?.namespace}
+      />
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="ConfigMaps"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedConfigMaps = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each ConfigMap
+          for (const cm of selectedConfigMaps) {
+            try {
+              await api.deleteConfigMap(cm.name, cm.namespace);
+            } catch (error) {
+              console.error(`Failed to delete ConfigMap ${cm.namespace}/${cm.name}:`, error);
+              addNotification(
+                `Failed to delete ConfigMap ${cm.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedConfigMaps.length} ConfigMap(s)`,
+            'success'
+          );
+        }}
       />
     </div>
   );

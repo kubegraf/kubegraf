@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
 import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -6,6 +6,9 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface ServiceAccount {
   name: string;
@@ -19,6 +22,10 @@ const ServiceAccounts: Component = () => {
   const [selectedSA, setSelectedSA] = createSignal<ServiceAccount | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
+
+  // Bulk selection
+  const bulk = useBulkSelection<ServiceAccount>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
   
   // Use createResource for automatic YAML loading like Deployments
   const [yamlContent] = createResource(
@@ -124,6 +131,21 @@ const ServiceAccounts: Component = () => {
     }
   };
 
+  const handleBulkDelete = async () => {
+    const itemsToDelete = bulk.getSelectedItems(serviceAccounts());
+    try {
+      await Promise.all(
+        itemsToDelete.map(sa => api.deleteServiceAccount(sa.name, sa.namespace))
+      );
+      addNotification(`Successfully deleted ${itemsToDelete.length} ServiceAccount(s)`, 'success');
+      bulk.deselectAll();
+      refetch();
+    } catch (error) {
+      console.error('Failed to delete ServiceAccounts:', error);
+      addNotification(`Failed to delete ServiceAccounts: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
   return (
     <div class="p-6">
       <div class="mb-6 flex items-center justify-between">
@@ -154,6 +176,19 @@ const ServiceAccounts: Component = () => {
             <table class="w-full border-collapse">
               <thead>
                 <tr class="border-b border-white/10">
+                  <th class="text-left py-3 px-4 font-semibold text-sm" style={{ width: '40px' }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === (serviceAccounts() || []).length && (serviceAccounts() || []).length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < (serviceAccounts() || []).length}
+                      onChange={() => {
+                        if (bulk.selectedCount() === (serviceAccounts() || []).length) {
+                          bulk.deselectAll();
+                        } else {
+                          bulk.selectAll(serviceAccounts() || []);
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="text-left py-3 px-4 font-semibold text-sm">Name</th>
                   <th class="text-left py-3 px-4 font-semibold text-sm">Namespace</th>
                   <th class="text-left py-3 px-4 font-semibold text-sm">Secrets</th>
@@ -165,6 +200,12 @@ const ServiceAccounts: Component = () => {
                 <For each={serviceAccounts()}>
                   {(sa) => (
                     <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                      <td class="py-3 px-4 text-center" style={{ width: '40px' }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(sa)}
+                          onChange={() => bulk.toggleSelection(sa)}
+                        />
+                      </td>
                       <td class="py-3 px-4">
                         <div class="font-medium">{sa.name}</div>
                       </td>
@@ -236,6 +277,25 @@ const ServiceAccounts: Component = () => {
           </Show>
         </Modal>
       </Show>
+
+      {/* Bulk Actions Bar */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={(serviceAccounts() || []).length}
+        onSelectAll={() => bulk.selectAll(serviceAccounts() || [])}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="service accounts"
+      />
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        onConfirm={handleBulkDelete}
+        resourceType="Service Accounts"
+        selectedItems={bulk.getSelectedItems(serviceAccounts() || [])}
+      />
     </div>
   );
 };

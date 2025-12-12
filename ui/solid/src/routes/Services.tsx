@@ -21,6 +21,9 @@ import { LoadingSpinner } from '../components/Loading';
 import ServicePortForwardModal, { ServicePort } from '../components/ServicePortForwardModal';
 import ServicePortsList from '../components/ServicePortsList';
 import ServiceDetailsPanel from '../components/ServiceDetailsPanel';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface Service {
   name: string;
@@ -60,6 +63,8 @@ const Services: Component = () => {
   const [showDetails, setShowDetails] = createSignal(false);
   const [selectedPort, setSelectedPort] = createSignal<ServicePort | null>(null);
   const [activeTab, setActiveTab] = createSignal<'services' | 'portforward'>('services');
+  const bulk = useBulkSelection<Service>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   // Font size selector with localStorage persistence
   const getInitialFontSize = (): number => {
@@ -330,6 +335,16 @@ const Services: Component = () => {
 
   return (
     <div class="space-y-4">
+      {/* Bulk Actions */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="services"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -519,6 +534,26 @@ const Services: Component = () => {
             >
               <thead>
                 <tr>
+                  <th style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': 'bold',
+                    'line-height': '24px',
+                    height: '24px',
+                    border: 'none'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSorted());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
@@ -539,12 +574,24 @@ const Services: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedServices()} fallback={
-                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No services found</td></tr>
+                  <tr><td colspan="9" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No services found</td></tr>
                 }>
                   {(svc: Service) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(svc)}
+                          onChange={() => bulk.toggleSelection(svc)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -838,6 +885,40 @@ const Services: Component = () => {
           </Show>
         </div>
       </Show>
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="Services"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedServices = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each service
+          for (const svc of selectedServices) {
+            try {
+              await api.deleteService(svc.name, svc.namespace);
+            } catch (error) {
+              console.error(`Failed to delete service ${svc.namespace}/${svc.name}:`, error);
+              addNotification(
+                `Failed to delete service ${svc.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          servicesCache.refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedServices.length} service(s)`,
+            'success'
+          );
+        }}
+      />
     </div>
   );
 };

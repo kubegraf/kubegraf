@@ -13,6 +13,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface Ingress {
   name: string;
@@ -39,6 +42,8 @@ const Ingresses: Component = () => {
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('ingresses-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('ingresses-font-family') || 'Monaco');
+  const bulk = useBulkSelection<Ingress>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -240,6 +245,16 @@ const Ingresses: Component = () => {
 
   return (
     <div class="space-y-4">
+      {/* Bulk Actions */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="ingresses"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -375,6 +390,26 @@ const Ingresses: Component = () => {
             >
               <thead>
                 <tr>
+                  <th style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': 'bold',
+                    'line-height': '24px',
+                    height: '24px',
+                    border: 'none'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSorted());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
@@ -395,12 +430,24 @@ const Ingresses: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedIngresses()} fallback={
-                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ingresses found</td></tr>
+                  <tr><td colspan="9" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No ingresses found</td></tr>
                 }>
                   {(ing: Ingress) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(ing)}
+                          onChange={() => bulk.toggleSelection(ing)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -595,6 +642,40 @@ const Ingresses: Component = () => {
 
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="ingress" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="Ingresses"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedIngresses = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each ingress
+          for (const ing of selectedIngresses) {
+            try {
+              await api.deleteIngress(ing.name, ing.namespace);
+            } catch (error) {
+              console.error(`Failed to delete ingress ${ing.namespace}/${ing.name}:`, error);
+              addNotification(
+                `Failed to delete ingress ${ing.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedIngresses.length} ingress(es)`,
+            'success'
+          );
+        }}
+      />
     </div>
   );
 };

@@ -9,6 +9,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface StatefulSet {
   name: string;
@@ -34,6 +37,8 @@ const StatefulSets: Component = () => {
   const [showScale, setShowScale] = createSignal(false);
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
   const [restarting, setRestarting] = createSignal<string | null>(null); // Track which statefulset is restarting
+  const bulk = useBulkSelection<StatefulSet>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   // Font size selector with localStorage persistence
   const getInitialFontSize = (): number => {
@@ -263,6 +268,15 @@ const StatefulSets: Component = () => {
 
   return (
     <div class="space-y-4">
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="statefulsets"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -446,6 +460,25 @@ const StatefulSets: Component = () => {
                   'font-size': `${fontSize()}px`,
                   'line-height': `${Math.max(24, fontSize() * 1.7)}px`
                 }}>
+                  <th style={{
+                    padding: '0 8px',
+                    'text-align': 'center',
+                    'font-weight': '900',
+                    border: 'none',
+                    width: '40px'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSorted());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')} style={{
                     padding: '0 8px',
                     'text-align': 'left',
@@ -506,12 +539,25 @@ const StatefulSets: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedStatefulSets()} fallback={
-                  <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No StatefulSets found</td></tr>
+                  <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No StatefulSets found</td></tr>
                 }>
                   {(sts: StatefulSet) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'center',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none',
+                        width: '40px'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(sts)}
+                          onChange={() => bulk.toggleSelection(sts)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -710,6 +756,41 @@ const StatefulSets: Component = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="StatefulSets"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedStatefulSets = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each statefulset
+          for (const sts of selectedStatefulSets) {
+            try {
+              await api.deleteStatefulSet(sts.name, sts.namespace);
+            } catch (error) {
+              console.error(`Failed to delete statefulset ${sts.namespace}/${sts.name}:`, error);
+              addNotification(
+                `Failed to delete statefulset ${sts.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedStatefulSets.length} statefulset${selectedStatefulSets.length !== 1 ? 's' : ''}`,
+            'success'
+          );
+          setShowBulkDeleteModal(false);
+        }}
+      />
     </div>
   );
 };
