@@ -1,4 +1,4 @@
-import { Component, Show, onMount, For, createSignal } from 'solid-js';
+import { Component, Show, onMount, createSignal } from 'solid-js';
 import AppShell from './components/AppShell';
 import { AppContent } from './components/AppContent';
 import { setUpdateInfo } from './stores/globalStore';
@@ -7,7 +7,7 @@ import { QueryClientProvider } from './providers/QueryClientProvider';
 import { WebSocketProvider } from './providers/WebSocketProvider';
 import AIChat from './components/AIChat';
 import BrainPanel from './features/brain/BrainPanel';
-import { aiPanelOpen, sidebarCollapsed, notifications } from './stores/ui';
+import { aiPanelOpen, sidebarCollapsed } from './stores/ui';
 import { refreshClusterStatus } from './stores/clusterManager';
 import { wsService } from './services/websocket';
 import { backgroundPrefetch } from './services/backgroundPrefetch';
@@ -116,40 +116,6 @@ const App: Component = () => {
 
         {/* Brain Panel */}
         <BrainPanel />
-
-        {/* Notifications - Centered on page */}
-        <div class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 flex flex-col-reverse gap-3 max-w-md">
-          <For each={notifications()}>
-            {(notification) => (
-              <div
-                class="animate-slide-in px-4 py-3 rounded-lg shadow-lg border backdrop-blur-sm"
-                style={{
-                  background: notification.type === 'error' ? 'rgba(239, 68, 68, 0.95)' :
-                             notification.type === 'warning' ? 'rgba(245, 158, 11, 0.95)' :
-                             notification.type === 'success' ? 'rgba(34, 197, 94, 0.95)' :
-                             'rgba(6, 182, 212, 0.95)',
-                  'border-color': notification.type === 'error' ? 'rgba(239, 68, 68, 0.5)' :
-                                 notification.type === 'warning' ? 'rgba(245, 158, 11, 0.5)' :
-                                 notification.type === 'success' ? 'rgba(34, 197, 94, 0.5)' :
-                                 'rgba(6, 182, 212, 0.5)',
-                  color: notification.type === 'error' ? '#fff' :
-                         notification.type === 'warning' ? '#000' :
-                         notification.type === 'success' ? '#fff' :
-                         '#000',
-                }}
-              >
-                <div class="flex items-start gap-2.5">
-                  <span class="flex-shrink-0 text-base">
-                    {notification.type === 'error' ? '❌' :
-                     notification.type === 'warning' ? '⚠️' :
-                     notification.type === 'success' ? '✓' : 'ℹ️'}
-                  </span>
-                  <span class="text-sm break-words leading-relaxed">{notification.message}</span>
-                </div>
-              </div>
-            )}
-          </For>
-        </div>
 
         {/* WebSocket Status Indicator */}
         <div class="fixed bottom-4 z-50" style={{ left: '80px' }}>
