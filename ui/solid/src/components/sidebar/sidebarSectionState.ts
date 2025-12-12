@@ -11,7 +11,16 @@ function loadInitial(): Record<string, boolean> {
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
-    return parsed as Record<string, boolean>;
+    const next = parsed as Record<string, boolean>;
+
+    // Migrate old section title keys when titles change.
+    // The sidebar section open/close state is keyed by title.
+    if ('ML' in next && !('Machine learning' in next)) {
+      next['Machine learning'] = !!next['ML'];
+      delete next['ML'];
+    }
+
+    return next;
   } catch {
     return {};
   }
@@ -76,3 +85,5 @@ export function setSidebarSectionOpen(title: string, open: boolean) {
 }
 
 export { openSections };
+
+z
