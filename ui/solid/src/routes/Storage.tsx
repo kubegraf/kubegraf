@@ -8,6 +8,9 @@ import YAMLEditor from '../components/YAMLEditor';
 import ActionMenu from '../components/ActionMenu';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import { getTableHeaderCellStyle, getTableHeaderRowStyle } from '../utils/tableCellStyles';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface PersistentVolume {
   name: string;
@@ -49,6 +52,10 @@ const Storage: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [yamlContent, setYamlContent] = createSignal('');
   const [yamlLoading, setYamlLoading] = createSignal(false);
+
+  // Bulk selection for PVCs
+  const bulkPVC = useBulkSelection<PersistentVolumeClaim>();
+  const [showBulkDeleteModalPVC, setShowBulkDeleteModalPVC] = createSignal(false);
 
   // Font size selector with localStorage persistence
   const getInitialFontSize = (): number => {
@@ -184,7 +191,7 @@ const Storage: Component = () => {
         addNotification(`✅ PersistentVolume ${name} deleted successfully`, 'success');
         refetchPVs();
       } else if (type === 'pvc') {
-        await api.deletePVC(name, ns || 'default');
+        await api.deletePersistentVolumeClaim(ns || 'default', name);
         addNotification(`✅ PersistentVolumeClaim ${name} deleted successfully`, 'success');
         refetchPVCs();
       } else if (type === 'sc') {
@@ -194,6 +201,21 @@ const Storage: Component = () => {
       }
     } catch (err) {
       addNotification(`❌ Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const handleBulkDeletePVC = async () => {
+    const itemsToDelete = bulkPVC.getSelectedItems(pvcs() || []);
+    try {
+      await Promise.all(
+        itemsToDelete.map(pvc => api.deletePersistentVolumeClaim(pvc.namespace || 'default', pvc.name))
+      );
+      addNotification(`Successfully deleted ${itemsToDelete.length} PersistentVolumeClaim(s)`, 'success');
+      bulkPVC.deselectAll();
+      refetchPVCs();
+    } catch (error) {
+      console.error('Failed to delete PVCs:', error);
+      addNotification(`Failed to delete PVCs: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -461,6 +483,19 @@ const Storage: Component = () => {
               >
                 <thead>
                   <tr style={getTableHeaderRowStyle(fontSize())}>
+                    <th class="whitespace-nowrap" style={{ ...getTableHeaderCellStyle(fontSize()), width: '40px', padding: '0 8px' }}>
+                      <SelectAllCheckbox
+                        checked={bulkPVC.selectedCount() === (pvcs() || []).length && (pvcs() || []).length > 0}
+                        indeterminate={bulkPVC.selectedCount() > 0 && bulkPVC.selectedCount() < (pvcs() || []).length}
+                        onChange={() => {
+                          if (bulkPVC.selectedCount() === (pvcs() || []).length) {
+                            bulkPVC.deselectAll();
+                          } else {
+                            bulkPVC.selectAll(pvcs() || []);
+                          }
+                        }}
+                      />
+                    </th>
                     <th class="cursor-pointer select-none whitespace-nowrap" style={getTableHeaderCellStyle(fontSize())}>
                       <div class="flex items-center gap-1">Name</div>
                     </th>
@@ -479,6 +514,19 @@ const Storage: Component = () => {
                       const textColor = '#0ea5e9';
                       return (
                       <tr>
+                        <td style={{
+                          padding: '0 8px',
+                          'text-align': 'center',
+                          width: '40px',
+                          height: `${Math.max(24, fontSize() * 1.7)}px`,
+                          'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                          border: 'none'
+                        }}>
+                          <SelectionCheckbox
+                            checked={bulkPVC.isSelected(pvc)}
+                            onChange={() => bulkPVC.toggleSelection(pvc)}
+                          />
+                        </td>
                         <td style={{
                           padding: '0 8px',
                           'text-align': 'left',
@@ -742,6 +790,27 @@ const Storage: Component = () => {
             </div>
           </Show>
         </Modal>
+      </Show>
+
+      {/* Bulk Actions Bar for PVCs */}
+      <Show when={activeTab() === 'pvcs'}>
+        <BulkActions
+          selectedCount={bulkPVC.selectedCount()}
+          totalCount={(pvcs() || []).length}
+          onSelectAll={() => bulkPVC.selectAll(pvcs() || [])}
+          onDeselectAll={() => bulkPVC.deselectAll()}
+          onDelete={() => setShowBulkDeleteModalPVC(true)}
+          resourceType="PVCs"
+        />
+
+        {/* Bulk Delete Modal for PVCs */}
+        <BulkDeleteModal
+          isOpen={showBulkDeleteModalPVC()}
+          onClose={() => setShowBulkDeleteModalPVC(false)}
+          onConfirm={handleBulkDeletePVC}
+          resourceType="PersistentVolumeClaims"
+          selectedItems={bulkPVC.getSelectedItems(pvcs() || [])}
+        />
       </Show>
     </div>
   );

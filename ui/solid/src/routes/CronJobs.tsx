@@ -13,6 +13,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface CronJob {
   name: string;
@@ -39,6 +42,10 @@ const CronJobs: Component = () => {
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('cronjobs-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('cronjobs-font-family') || 'Monaco');
+
+  // Bulk selection
+  const bulk = useBulkSelection<CronJob>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -222,12 +229,25 @@ const CronJobs: Component = () => {
   const deleteCronJob = async (cj: CronJob) => {
     if (!confirm(`Are you sure you want to delete CronJob "${cj.name}" in namespace "${cj.namespace}"?`)) return;
     try {
-      await api.deleteCronJob(cj.name, cj.namespace);
+      await api.deleteCronJob(cj.namespace, cj.name);
       addNotification(`CronJob ${cj.name} deleted successfully`, 'success');
       refetch();
     } catch (error) {
       console.error('Failed to delete CronJob:', error);
       addNotification(`Failed to delete CronJob: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const itemsToDelete = bulk.getSelectedItems(paginatedCronJobs());
+    try {
+      await Promise.all(itemsToDelete.map(cj => api.deleteCronJob(cj.name, cj.namespace)));
+      addNotification(`Successfully deleted ${itemsToDelete.length} CronJob(s)`, 'success');
+      bulk.deselectAll();
+      refetch();
+    } catch (error) {
+      console.error('Failed to delete CronJobs:', error);
+      addNotification(`Failed to delete CronJobs: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -356,6 +376,19 @@ const CronJobs: Component = () => {
             >
               <thead>
                 <tr>
+                  <th class="whitespace-nowrap" style={{ width: '40px', padding: '0 8px' }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === paginatedCronJobs().length && paginatedCronJobs().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < paginatedCronJobs().length}
+                      onChange={() => {
+                        if (bulk.selectedCount() === paginatedCronJobs().length) {
+                          bulk.deselectAll();
+                        } else {
+                          bulk.selectAll(paginatedCronJobs());
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
@@ -376,12 +409,25 @@ const CronJobs: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedCronJobs()} fallback={
-                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No CronJobs found</td></tr>
+                  <tr><td colspan="9" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No CronJobs found</td></tr>
                 }>
                   {(cj: CronJob) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'center',
+                        width: '40px',
+                        height: `${Math.max(24, fontSize() * 1.7)}px`,
+                        'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(cj)}
+                          onChange={() => bulk.toggleSelection(cj)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -575,6 +621,25 @@ const CronJobs: Component = () => {
 
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="cronjob" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Bulk Actions Bar */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="cronjobs"
+      />
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        onConfirm={handleBulkDelete}
+        resourceType="CronJobs"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+      />
     </div>
   );
 };
