@@ -192,3 +192,4 @@
 - VirtualizedTable (component ready, not in Pods yet)
 
 **The infrastructure is working!** You'll notice the performance improvements, especially when navigating between pages you've already visited.
+

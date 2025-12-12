@@ -27,3 +27,4 @@ export const QueryClientProvider: Component<{ children: JSX.Element }> = (props)
 
 // Export queryClient for prefetching and manual cache access
 export { queryClient };
+

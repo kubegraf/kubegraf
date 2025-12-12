@@ -153,3 +153,4 @@ func ValidateCostData(cpuCores, memoryGB, hourlyCost, dailyCost, monthlyCost flo
 	return result
 }
 
+

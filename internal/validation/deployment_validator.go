@@ -258,3 +258,4 @@ func (dv *DeploymentValidator) validateDeploymentStatus(deployment *appsv1.Deplo
 	return result
 }
 
+

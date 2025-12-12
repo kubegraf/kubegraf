@@ -177,3 +177,4 @@ const Privacy: Component = () => {
 
 export default Privacy;
 
+

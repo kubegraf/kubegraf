@@ -98,3 +98,4 @@ type HistoryQueryResult struct {
 	TotalIncidents     int
 }
 
+

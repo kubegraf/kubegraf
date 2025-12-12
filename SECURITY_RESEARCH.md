@@ -96,3 +96,4 @@
 - ✅ Seamless experience by default
 - ✅ Optional features (secure mode, ephemeral) available for power users
 - ✅ Security should be invisible to the user
+

@@ -139,3 +139,4 @@ Check these in DevTools:
 **What's next**: Migrate components to use new hooks for full benefits
 
 The foundation is built and working! The app should feel faster, especially when navigating between pages you've already visited.
+

@@ -46,3 +46,4 @@ export function prefetchView(viewId: string): void {
 export function hasPrefetch(viewId: string): boolean {
   return viewId in prefetchMap;
 }
+

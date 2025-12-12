@@ -1,0 +1,320 @@
+{
+  "ai": {
+    "route": "ui/solid/src/routes/AIAssistant.tsx",
+    "doc": "docs/app_inventory/views/ai.md",
+    "closure_size": 4,
+    "tsx_files_with_controls": 2
+  },
+  "aiagents": {
+    "route": "ui/solid/src/routes/AIAgents.tsx",
+    "doc": "docs/app_inventory/views/aiagents.md",
+    "closure_size": 2,
+    "tsx_files_with_controls": 1
+  },
+  "anomalies": {
+    "route": "ui/solid/src/routes/Anomalies.tsx",
+    "doc": "docs/app_inventory/views/anomalies.md",
+    "closure_size": 6,
+    "tsx_files_with_controls": 2
+  },
+  "autofix": {
+    "route": "ui/solid/src/routes/AutoFix.tsx",
+    "doc": "docs/app_inventory/views/autofix.md",
+    "closure_size": 7,
+    "tsx_files_with_controls": 1
+  },
+  "certificates": {
+    "route": "ui/solid/src/routes/Certificates.tsx",
+    "doc": "docs/app_inventory/views/certificates.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "clustermanager": {
+    "route": "ui/solid/src/routes/ClusterManager.tsx",
+    "doc": "docs/app_inventory/views/clustermanager.md",
+    "closure_size": 6,
+    "tsx_files_with_controls": 1
+  },
+  "configmaps": {
+    "route": "ui/solid/src/routes/ConfigMaps.tsx",
+    "doc": "docs/app_inventory/views/configmaps.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "connectors": {
+    "route": "ui/solid/src/routes/Connectors.tsx",
+    "doc": "docs/app_inventory/views/connectors.md",
+    "closure_size": 2,
+    "tsx_files_with_controls": 1
+  },
+  "continuity": {
+    "route": "ui/solid/src/routes/Continuity.tsx",
+    "doc": "docs/app_inventory/views/continuity.md",
+    "closure_size": 3,
+    "tsx_files_with_controls": 1
+  },
+  "cost": {
+    "route": "ui/solid/src/routes/Cost.tsx",
+    "doc": "docs/app_inventory/views/cost.md",
+    "closure_size": 3,
+    "tsx_files_with_controls": 1
+  },
+  "cronjobs": {
+    "route": "ui/solid/src/routes/CronJobs.tsx",
+    "doc": "docs/app_inventory/views/cronjobs.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "customresources": {
+    "route": "ui/solid/src/routes/CustomResources.tsx",
+    "doc": "docs/app_inventory/views/customresources.md",
+    "closure_size": 8,
+    "tsx_files_with_controls": 4
+  },
+  "daemonsets": {
+    "route": "ui/solid/src/routes/DaemonSets.tsx",
+    "doc": "docs/app_inventory/views/daemonsets.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "dashboard": {
+    "route": "ui/solid/src/routes/Dashboard.tsx",
+    "doc": "docs/app_inventory/views/dashboard.md",
+    "closure_size": 5,
+    "tsx_files_with_controls": 1
+  },
+  "deployments": {
+    "route": "ui/solid/src/routes/Deployments.tsx",
+    "doc": "docs/app_inventory/views/deployments.md",
+    "closure_size": 11,
+    "tsx_files_with_controls": 5
+  },
+  "documentation": {
+    "route": "ui/solid/src/routes/Documentation.tsx",
+    "doc": "docs/app_inventory/views/documentation.md",
+    "closure_size": 1,
+    "tsx_files_with_controls": 1
+  },
+  "drift": {
+    "route": "ui/solid/src/routes/Drift.tsx",
+    "doc": "docs/app_inventory/views/drift.md",
+    "closure_size": 4,
+    "tsx_files_with_controls": 1
+  },
+  "events": {
+    "route": "ui/solid/src/routes/Events.tsx",
+    "doc": "docs/app_inventory/views/events.md",
+    "closure_size": 4,
+    "tsx_files_with_controls": 1
+  },
+  "feast": {
+    "route": "ui/solid/src/routes/Feast.tsx",
+    "doc": "docs/app_inventory/views/feast.md",
+    "closure_size": 5,
+    "tsx_files_with_controls": 2
+  },
+  "gpudashboard": {
+    "route": "ui/solid/src/routes/GPUDashboard.tsx",
+    "doc": "docs/app_inventory/views/gpudashboard.md",
+    "closure_size": 6,
+    "tsx_files_with_controls": 3
+  },
+  "hpa": {
+    "route": "ui/solid/src/routes/HPA.tsx",
+    "doc": "docs/app_inventory/views/hpa.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 6
+  },
+  "incidents": {
+    "route": "ui/solid/src/routes/Incidents.tsx",
+    "doc": "docs/app_inventory/views/incidents.md",
+    "closure_size": 9,
+    "tsx_files_with_controls": 4
+  },
+  "inferenceservices": {
+    "route": "ui/solid/src/routes/InferenceServices.tsx",
+    "doc": "docs/app_inventory/views/inferenceservices.md",
+    "closure_size": 7,
+    "tsx_files_with_controls": 3
+  },
+  "ingresses": {
+    "route": "ui/solid/src/routes/Ingresses.tsx",
+    "doc": "docs/app_inventory/views/ingresses.md",
+    "closure_size": 13,
+    "tsx_files_with_controls": 5
+  },
+  "jobs": {
+    "route": "ui/solid/src/routes/Jobs.tsx",
+    "doc": "docs/app_inventory/views/jobs.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "kiali": {
+    "route": "ui/solid/src/routes/Kiali.tsx",
+    "doc": "docs/app_inventory/views/kiali.md",
+    "closure_size": 6,
+    "tsx_files_with_controls": 2
+  },
+  "logs": {
+    "route": "ui/solid/src/routes/Logs.tsx",
+    "doc": "docs/app_inventory/views/logs.md",
+    "closure_size": 3,
+    "tsx_files_with_controls": 1
+  },
+  "mlflow": {
+    "route": "ui/solid/src/routes/MLflow.tsx",
+    "doc": "docs/app_inventory/views/mlflow.md",
+    "closure_size": 4,
+    "tsx_files_with_controls": 1
+  },
+  "mlworkflows": {
+    "route": "ui/solid/src/routes/MLWorkflows.tsx",
+    "doc": "docs/app_inventory/views/mlworkflows.md",
+    "closure_size": 2,
+    "tsx_files_with_controls": 2
+  },
+  "monitoredevents": {
+    "route": "ui/solid/src/routes/MonitoredEvents.tsx",
+    "doc": "docs/app_inventory/views/monitoredevents.md",
+    "closure_size": 8,
+    "tsx_files_with_controls": 3
+  },
+  "namespaces": {
+    "route": "ui/solid/src/routes/Namespaces.tsx",
+    "doc": "docs/app_inventory/views/namespaces.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "networkpolicies": {
+    "route": "ui/solid/src/routes/NetworkPolicies.tsx",
+    "doc": "docs/app_inventory/views/networkpolicies.md",
+    "closure_size": 11,
+    "tsx_files_with_controls": 4
+  },
+  "nodes": {
+    "route": "ui/solid/src/routes/Nodes.tsx",
+    "doc": "docs/app_inventory/views/nodes.md",
+    "closure_size": 6,
+    "tsx_files_with_controls": 2
+  },
+  "pdb": {
+    "route": "ui/solid/src/routes/PDB.tsx",
+    "doc": "docs/app_inventory/views/pdb.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 6
+  },
+  "plugins": {
+    "route": "ui/solid/src/routes/Plugins.tsx",
+    "doc": "docs/app_inventory/views/plugins.md",
+    "closure_size": 5,
+    "tsx_files_with_controls": 2
+  },
+  "pods": {
+    "route": "ui/solid/src/routes/Pods.tsx",
+    "doc": "docs/app_inventory/views/pods.md",
+    "closure_size": 19,
+    "tsx_files_with_controls": 5
+  },
+  "privacy": {
+    "route": "ui/solid/src/routes/Privacy.tsx",
+    "doc": "docs/app_inventory/views/privacy.md",
+    "closure_size": 1,
+    "tsx_files_with_controls": 1
+  },
+  "rbac": {
+    "route": "ui/solid/src/routes/RBAC.tsx",
+    "doc": "docs/app_inventory/views/rbac.md",
+    "closure_size": 8,
+    "tsx_files_with_controls": 4
+  },
+  "resourcemap": {
+    "route": "ui/solid/src/routes/ResourceMap.tsx",
+    "doc": "docs/app_inventory/views/resourcemap.md",
+    "closure_size": 5,
+    "tsx_files_with_controls": 1
+  },
+  "secrets": {
+    "route": "ui/solid/src/routes/Secrets.tsx",
+    "doc": "docs/app_inventory/views/secrets.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "security": {
+    "route": "ui/solid/src/routes/Security.tsx",
+    "doc": "docs/app_inventory/views/security.md",
+    "closure_size": 7,
+    "tsx_files_with_controls": 2
+  },
+  "serviceaccounts": {
+    "route": "ui/solid/src/routes/ServiceAccounts.tsx",
+    "doc": "docs/app_inventory/views/serviceaccounts.md",
+    "closure_size": 8,
+    "tsx_files_with_controls": 4
+  },
+  "services": {
+    "route": "ui/solid/src/routes/Services.tsx",
+    "doc": "docs/app_inventory/views/services.md",
+    "closure_size": 19,
+    "tsx_files_with_controls": 9
+  },
+  "settings": {
+    "route": "ui/solid/src/routes/Settings.tsx",
+    "doc": "docs/app_inventory/views/settings.md",
+    "closure_size": 6,
+    "tsx_files_with_controls": 1
+  },
+  "sreagent": {
+    "route": "ui/solid/src/routes/SREAgent.tsx",
+    "doc": "docs/app_inventory/views/sreagent.md",
+    "closure_size": 2,
+    "tsx_files_with_controls": 1
+  },
+  "statefulsets": {
+    "route": "ui/solid/src/routes/StatefulSets.tsx",
+    "doc": "docs/app_inventory/views/statefulsets.md",
+    "closure_size": 12,
+    "tsx_files_with_controls": 5
+  },
+  "storage": {
+    "route": "ui/solid/src/routes/Storage.tsx",
+    "doc": "docs/app_inventory/views/storage.md",
+    "closure_size": 11,
+    "tsx_files_with_controls": 4
+  },
+  "terminal": {
+    "route": "ui/solid/src/routes/Terminal.tsx",
+    "doc": "docs/app_inventory/views/terminal.md",
+    "closure_size": 2,
+    "tsx_files_with_controls": 1
+  },
+  "timeline": {
+    "route": "ui/solid/src/routes/Timeline.tsx",
+    "doc": "docs/app_inventory/views/timeline.md",
+    "closure_size": 2,
+    "tsx_files_with_controls": 1
+  },
+  "topology": {
+    "route": "ui/solid/src/routes/ClusterOverview.tsx",
+    "doc": "docs/app_inventory/views/topology.md",
+    "closure_size": 3,
+    "tsx_files_with_controls": 1
+  },
+  "trafficmap": {
+    "route": "ui/solid/src/routes/TrafficMapPage.tsx",
+    "doc": "docs/app_inventory/views/trafficmap.md",
+    "closure_size": 4,
+    "tsx_files_with_controls": 2
+  },
+  "trainingjobs": {
+    "route": "ui/solid/src/routes/TrainingJobs.tsx",
+    "doc": "docs/app_inventory/views/trainingjobs.md",
+    "closure_size": 8,
+    "tsx_files_with_controls": 3
+  },
+  "usermanagement": {
+    "route": "ui/solid/src/routes/UserManagement.tsx",
+    "doc": "docs/app_inventory/views/usermanagement.md",
+    "closure_size": 4,
+    "tsx_files_with_controls": 2
+  }
+}

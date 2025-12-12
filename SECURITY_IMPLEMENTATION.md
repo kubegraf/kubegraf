@@ -123,3 +123,4 @@ kubegraf/
 - Master key derivation is **automatic** - no user interaction
 - Session tokens are **auto-generated** - browser opens with token
 - Ephemeral mode is **optional** - only if user wants it
+

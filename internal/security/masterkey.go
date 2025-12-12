@@ -139,3 +139,4 @@ func getWindowsMachineID() (string, error) {
 	// In production, you might query WMI for actual machine GUID
 	return os.Hostname()
 }
+

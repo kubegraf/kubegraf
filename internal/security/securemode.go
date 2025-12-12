@@ -114,3 +114,4 @@ func GenerateSecureKey() ([]byte, error) {
 	}
 	return key, nil
 }
+

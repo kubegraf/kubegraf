@@ -470,3 +470,4 @@ func (cm *ClusterManager) GetCachedDeployments(contextName, namespace string) []
 	}
 	return cm.deploymentsCache[contextName][namespace]
 }
+

@@ -1,6 +1,7 @@
 import { createContext, useContext, JSX, createSignal, onCleanup, onMount } from 'solid-js';
 import { wsService } from '../services/websocket';
 import type { WebSocketMessage } from '../services/websocket';
+import { registerInsightEvent } from '../stores/insightsPulse';
 
 interface WebSocketContextValue {
   socket: () => WebSocket | null;
@@ -25,6 +26,11 @@ export function WebSocketProvider(props: { children: JSX.Element }) {
         setConnected(msg.data.connected);
         // Note: We don't have direct access to the WebSocket instance
         // The wsService manages it internally
+      }
+
+      // Insights pulse indicator: any event/monitored_event implies new activity
+      if (msg.type === 'event' || msg.type === 'monitored_event') {
+        registerInsightEvent(1);
       }
     });
 
@@ -56,3 +62,4 @@ export function useWebSocket() {
   }
   return context;
 }
+

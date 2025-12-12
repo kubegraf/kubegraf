@@ -1,0 +1,2070 @@
+{
+  "source": "web_server.go http.HandleFunc registrations",
+  "routes": [
+    {
+      "path": "/api/status",
+      "handler": "ws.handleConnectionStatus",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/stores/cluster.ts"
+      ]
+    },
+    {
+      "path": "/api/updates/check",
+      "handler": "ws.handleCheckUpdates",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/updates/install",
+      "handler": "ws.handleInstallUpdate",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/update/check",
+      "handler": "ws.handleCheckUpdates",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/update/auto-check",
+      "handler": "ws.handleAutoCheckUpdates",
+      "handler_def": {
+        "go_file": "web_update_handlers.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/metrics",
+      "handler": "ws.handleMetrics",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/namespaces",
+      "handler": "ws.handleNamespaces",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/stores/cluster.ts",
+        "ui/solid/src/stores/namespace.ts"
+      ]
+    },
+    {
+      "path": "/api/pods",
+      "handler": "ws.handlePods",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/routes/ClusterOverview.tsx",
+        "ui/solid/src/stores/cluster.ts"
+      ]
+    },
+    {
+      "path": "/api/pods/metrics",
+      "handler": "ws.handlePodMetrics",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployments",
+      "handler": "ws.handleDeployments",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/mlflow/MLflowPanel.tsx",
+        "ui/solid/src/routes/ClusterOverview.tsx",
+        "ui/solid/src/stores/cluster.ts"
+      ]
+    },
+    {
+      "path": "/api/statefulsets",
+      "handler": "ws.handleStatefulSets",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonsets",
+      "handler": "ws.handleDaemonSets",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/services",
+      "handler": "ws.handleServices",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/routes/ClusterOverview.tsx",
+        "ui/solid/src/stores/cluster.ts",
+        "ui/solid/src/utils/mlDetection.ts"
+      ]
+    },
+    {
+      "path": "/api/ingresses",
+      "handler": "ws.handleIngresses",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/configmaps",
+      "handler": "ws.handleConfigMaps",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/secrets",
+      "handler": "ws.handleSecrets",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/cronjobs",
+      "handler": "ws.handleCronJobs",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/jobs",
+      "handler": "ws.handleJobs",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pdbs",
+      "handler": "ws.handlePDBs",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/hpas",
+      "handler": "ws.handleHPAs",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/nodes",
+      "handler": "ws.handleNodes",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/routes/ClusterOverview.tsx",
+        "ui/solid/src/stores/cluster.ts"
+      ]
+    },
+    {
+      "path": "/api/topology",
+      "handler": "ws.handleTopology",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/utils/prefetch.ts"
+      ]
+    },
+    {
+      "path": "/api/resourcemap",
+      "handler": "ws.handleResourceMap",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/ws",
+      "handler": "ws.handleWebSocket",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/components/ShellModal.tsx",
+        "ui/solid/src/services/mlJobs.ts",
+        "ui/solid/src/services/websocket.ts"
+      ]
+    },
+    {
+      "path": "/api/contexts",
+      "handler": "ws.handleContexts",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/stores/cluster.ts"
+      ]
+    },
+    {
+      "path": "/api/contexts/current",
+      "handler": "ws.handleCurrentContext",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/contexts/switch",
+      "handler": "ws.handleSwitchContext",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/stores/cluster.ts"
+      ]
+    },
+    {
+      "path": "/api/clusters",
+      "handler": "ws.handleClusters",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/marketplace/clustering.ts"
+      ]
+    },
+    {
+      "path": "/api/clusters/connect",
+      "handler": "ws.handleClusterConnect",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/disconnect",
+      "handler": "ws.handleClusterDisconnect",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/status",
+      "handler": "ws.handleClusterStatus",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/list",
+      "handler": "ws.handleListClustersNew",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/namespaces",
+      "handler": "ws.handleGetClusterNamespacesNew",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/pods",
+      "handler": "ws.handleGetClusterPodsNew",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/events",
+      "handler": "ws.handleGetClusterEventsNew",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/clusters/refresh",
+      "handler": "ws.handleRefreshClusters",
+      "handler_def": {
+        "go_file": "web_clusters.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/workspace/context",
+      "handler": "ws.handleWorkspaceContext",
+      "handler_def": {
+        "go_file": "web_workspace.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/events",
+      "handler": "ws.handleEvents",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/apps",
+      "handler": "ws.handleApps",
+      "handler_def": {
+        "go_file": "apps.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/apps/installed",
+      "handler": "ws.handleInstalledApps",
+      "handler_def": {
+        "go_file": "apps.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/apps/install",
+      "handler": "ws.handleInstallApp",
+      "handler_def": {
+        "go_file": "apps.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/apps/uninstall",
+      "handler": "ws.handleUninstallApp",
+      "handler_def": {
+        "go_file": "apps.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/apps/local-clusters",
+      "handler": "ws.handleLocalClusters",
+      "handler_def": {
+        "go_file": "apps.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/impact",
+      "handler": "ws.handleImpactAnalysis",
+      "handler_def": {
+        "go_file": "web_handlers_impact.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pod/details",
+      "handler": "ws.handlePodDetails",
+      "handler_def": {
+        "go_file": "web_misc.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pod/yaml",
+      "handler": "ws.handlePodYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pod/update",
+      "handler": "ws.handlePodUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/services/api.ts"
+      ]
+    },
+    {
+      "path": "/api/pod/describe",
+      "handler": "ws.handlePodDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pod/exec",
+      "handler": "ws.handlePodExec",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "GET"
+        ]
+      },
+      "frontend_files": [
+        "ui/solid/src/routes/Pods.tsx"
+      ]
+    },
+    {
+      "path": "/api/pod/terminal",
+      "handler": "ws.handlePodTerminalWS",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "GET"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pod/logs",
+      "handler": "ws.handlePodLogs",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": [
+        "ui/solid/src/components/LogsModal.tsx",
+        "ui/solid/src/routes/Logs.tsx",
+        "ui/solid/src/routes/Pods.tsx"
+      ]
+    },
+    {
+      "path": "/api/local/terminal",
+      "handler": "ws.handleLocalTerminalWS",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": [
+        "ui/solid/src/components/LocalTerminal.tsx"
+      ]
+    },
+    {
+      "path": "/terminal",
+      "handler": "ws.handleLocalTerminalPage",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "GET"
+        ]
+      },
+      "frontend_files": [
+        "ui/solid/src/components/LocalTerminal.tsx"
+      ]
+    },
+    {
+      "path": "/api/pod/restart",
+      "handler": "ws.handlePodRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pod/delete",
+      "handler": "ws.handlePodDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployment/details",
+      "handler": "ws.handleDeploymentDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployment/yaml",
+      "handler": "ws.handleDeploymentYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployment/update",
+      "handler": "ws.handleDeploymentUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": [
+        "ui/solid/src/services/api.ts"
+      ]
+    },
+    {
+      "path": "/api/deployment/describe",
+      "handler": "ws.handleDeploymentDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployment/restart",
+      "handler": "ws.handleDeploymentRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployment/scale",
+      "handler": "ws.handleDeploymentScale",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployment/delete",
+      "handler": "ws.handleDeploymentDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/details",
+      "handler": "ws.handleStatefulSetDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/yaml",
+      "handler": "ws.handleStatefulSetYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/update",
+      "handler": "ws.handleStatefulSetUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/describe",
+      "handler": "ws.handleStatefulSetDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/restart",
+      "handler": "ws.handleStatefulSetRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/scale",
+      "handler": "ws.handleStatefulSetScale",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulset/delete",
+      "handler": "ws.handleStatefulSetDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonset/details",
+      "handler": "ws.handleDaemonSetDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonset/yaml",
+      "handler": "ws.handleDaemonSetYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonset/update",
+      "handler": "ws.handleDaemonSetUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonset/describe",
+      "handler": "ws.handleDaemonSetDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonset/restart",
+      "handler": "ws.handleDaemonSetRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonset/delete",
+      "handler": "ws.handleDaemonSetDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployments/bulk/restart",
+      "handler": "ws.handleBulkDeploymentRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/deployments/bulk/delete",
+      "handler": "ws.handleBulkDeploymentDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulsets/bulk/restart",
+      "handler": "ws.handleBulkStatefulSetRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/statefulsets/bulk/delete",
+      "handler": "ws.handleBulkStatefulSetDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonsets/bulk/restart",
+      "handler": "ws.handleBulkDaemonSetRestart",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/daemonsets/bulk/delete",
+      "handler": "ws.handleBulkDaemonSetDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/namespace/details",
+      "handler": "ws.handleNamespaceDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/namespace/yaml",
+      "handler": "ws.handleNamespaceYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/namespace/update",
+      "handler": "ws.handleNamespaceUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/namespace/describe",
+      "handler": "ws.handleNamespaceDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/namespace/delete",
+      "handler": "ws.handleNamespaceDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/cronjob/details",
+      "handler": "ws.handleCronJobDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/cronjob/yaml",
+      "handler": "ws.handleCronJobYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/cronjob/update",
+      "handler": "ws.handleCronJobUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/cronjob/describe",
+      "handler": "ws.handleCronJobDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/cronjob/delete",
+      "handler": "ws.handleCronJobDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/job/details",
+      "handler": "ws.handleJobDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/job/yaml",
+      "handler": "ws.handleJobYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/job/update",
+      "handler": "ws.handleJobUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/job/describe",
+      "handler": "ws.handleJobDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/job/delete",
+      "handler": "ws.handleJobDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pdb/yaml",
+      "handler": "ws.handlePDBYAML",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pdb/update",
+      "handler": "ws.handlePDBUpdate",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pdb/describe",
+      "handler": "ws.handlePDBDescribe",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/pdb/delete",
+      "handler": "ws.handlePDBDelete",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/hpa/yaml",
+      "handler": "ws.handleHPAYAML",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/hpa/update",
+      "handler": "ws.handleHPAUpdate",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/hpa/describe",
+      "handler": "ws.handleHPADescribe",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/hpa/delete",
+      "handler": "ws.handleHPADelete",
+      "handler_def": {
+        "go_file": "web_pdb_hpa.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/service/details",
+      "handler": "ws.handleServiceDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/service/yaml",
+      "handler": "ws.handleServiceYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/service/update",
+      "handler": "ws.handleServiceUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/service/describe",
+      "handler": "ws.handleServiceDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/service/delete",
+      "handler": "ws.handleServiceDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ingress/details",
+      "handler": "ws.handleIngressDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ingress/yaml",
+      "handler": "ws.handleIngressYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ingress/update",
+      "handler": "ws.handleIngressUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ingress/describe",
+      "handler": "ws.handleIngressDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ingress/delete",
+      "handler": "ws.handleIngressDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/networkpolicies",
+      "handler": "ws.handleNetworkPolicies",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/networkpolicy/details",
+      "handler": "ws.handleNetworkPolicyDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/networkpolicy/yaml",
+      "handler": "ws.handleNetworkPolicyYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/networkpolicy/describe",
+      "handler": "ws.handleNetworkPolicyDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/networkpolicy/delete",
+      "handler": "ws.handleNetworkPolicyDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/configmap/details",
+      "handler": "ws.handleConfigMapDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/configmap/yaml",
+      "handler": "ws.handleConfigMapYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/configmap/update",
+      "handler": "ws.handleConfigMapUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/configmap/describe",
+      "handler": "ws.handleConfigMapDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/configmap/delete",
+      "handler": "ws.handleConfigMapDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/secret/yaml",
+      "handler": "ws.handleSecretYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/secret/update",
+      "handler": "ws.handleSecretUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": [
+        "ui/solid/src/services/api.ts"
+      ]
+    },
+    {
+      "path": "/api/secret/describe",
+      "handler": "ws.handleSecretDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/secret/delete",
+      "handler": "ws.handleSecretDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/certificates",
+      "handler": "ws.handleCertificates",
+      "handler_def": {
+        "go_file": "web_resources.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/certificate/yaml",
+      "handler": "ws.handleCertificateYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/certificate/update",
+      "handler": "ws.handleCertificateUpdate",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE",
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/certificate/describe",
+      "handler": "ws.handleCertificateDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/certificate/delete",
+      "handler": "ws.handleCertificateDelete",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "DELETE"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/node/details",
+      "handler": "ws.handleNodeDetails",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/node/yaml",
+      "handler": "ws.handleNodeYAML",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/node/describe",
+      "handler": "ws.handleNodeDescribe",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/portforward/start",
+      "handler": "ws.handlePortForwardStart",
+      "handler_def": {
+        "go_file": "web_portforward.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/portforward/stop",
+      "handler": "ws.handlePortForwardStop",
+      "handler_def": {
+        "go_file": "web_portforward.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/portforward/list",
+      "handler": "ws.handlePortForwardList",
+      "handler_def": {
+        "go_file": "web_portforward.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/auth/login",
+      "handler": "ws.handleLogin",
+      "handler_def": {
+        "go_file": "iam.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/auth/logout",
+      "handler": "ws.handleLogout",
+      "handler_def": {
+        "go_file": "iam.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/auth/register",
+      "handler": "ws.handleRegister",
+      "handler_def": {
+        "go_file": "iam.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/auth/me",
+      "handler": "ws.handleGetCurrentUser",
+      "handler_def": {
+        "go_file": "iam.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/database/backup/status",
+      "handler": "ws.handleBackupStatus",
+      "handler_def": {
+        "go_file": "web_database_backup.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/database/backup/config",
+      "handler": "ws.handleBackupConfig",
+      "handler_def": {
+        "go_file": "web_database_backup.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/database/backup/now",
+      "handler": "ws.handleBackupNow",
+      "handler_def": {
+        "go_file": "web_database_backup.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/database/backup/list",
+      "handler": "ws.handleBackupList",
+      "handler_def": {
+        "go_file": "web_database_backup.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/database/backup/restore",
+      "handler": "ws.handleBackupRestore",
+      "handler_def": {
+        "go_file": "web_database_backup.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/continuity/summary",
+      "handler": "ws.handleContinuitySummary",
+      "handler_def": {
+        "go_file": "web_continuity.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/security",
+      "handler": "ws.handleSecurityAnalysis",
+      "handler_def": {
+        "go_file": "web_security.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/helm/releases",
+      "handler": "ws.handleHelmReleases",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/helm/release",
+      "handler": "ws.handleHelmReleaseDetails",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/helm/history",
+      "handler": "ws.handleHelmReleaseHistory",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/helm/rollback",
+      "handler": "ws.handleHelmRollback",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/kustomize/resources",
+      "handler": "ws.handleKustomizeResources",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/argocd/apps",
+      "handler": "ws.handleArgoCDApps",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/argocd/app",
+      "handler": "ws.handleArgoCDAppDetails",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/argocd/sync",
+      "handler": "ws.handleArgoCDSync",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/argocd/refresh",
+      "handler": "ws.handleArgoCDRefresh",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/plugins/flux/resources",
+      "handler": "ws.handleFluxResources",
+      "handler_def": {
+        "go_file": "web_gitops.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/integrations/kiali/status",
+      "handler": "ws.handleKialiStatus",
+      "handler_def": {
+        "go_file": "web_kiali.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/integrations/kiali/install",
+      "handler": "ws.handleKialiInstall",
+      "handler_def": {
+        "go_file": "web_kiali.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/integrations/kiali/versions",
+      "handler": "ws.handleKialiVersions",
+      "handler_def": {
+        "go_file": "web_kiali.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/kiali/proxy/",
+      "handler": "ws.handleKialiProxy",
+      "handler_def": {
+        "go_file": "web_kiali.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/kiali/KialiDashboard.tsx"
+      ]
+    },
+    {
+      "path": "/api/kiali/proxy",
+      "handler": "ws.handleKialiProxy",
+      "handler_def": {
+        "go_file": "web_kiali.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/kiali/KialiDashboard.tsx",
+        "ui/solid/src/services/kiali.ts"
+      ]
+    },
+    {
+      "path": "/api/traffic/metrics",
+      "handler": "ws.handleTrafficMetrics",
+      "handler_def": {
+        "go_file": "web_traffic_metrics.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/kiali/LiveTrafficMap.tsx"
+      ]
+    },
+    {
+      "path": "/api/mlflow/status",
+      "handler": "ws.handleMLflowStatus",
+      "handler_def": {
+        "go_file": "web_mlflow.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/mlflow/install",
+      "handler": "ws.handleMLflowInstall",
+      "handler_def": {
+        "go_file": "web_mlflow.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/mlflow/versions",
+      "handler": "ws.handleMLflowVersions",
+      "handler_def": {
+        "go_file": "web_mlflow.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/mlflow/upgrade",
+      "handler": "ws.handleMLflowUpgrade",
+      "handler_def": {
+        "go_file": "web_mlflow.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/mlflow/proxy/",
+      "handler": "ws.ProxyMLflowAPI",
+      "handler_def": {
+        "go_file": "mlflow_proxy.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/mlflow/MLflowPanel.tsx"
+      ]
+    },
+    {
+      "path": "/api/mlflow/proxy",
+      "handler": "ws.ProxyMLflowAPI",
+      "handler_def": {
+        "go_file": "mlflow_proxy.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/features/mlflow/MLflowPanel.tsx",
+        "ui/solid/src/services/mlflow.ts"
+      ]
+    },
+    {
+      "path": "/api/ml/jobs/create",
+      "handler": "ws.handleMLJobCreate",
+      "handler_def": {
+        "go_file": "web_ml_jobs.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ml/jobs/list",
+      "handler": "ws.handleMLJobList",
+      "handler_def": {
+        "go_file": "web_ml_jobs.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ml/jobs/get",
+      "handler": "ws.handleMLJobGet",
+      "handler_def": {
+        "go_file": "web_ml_jobs.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ml/jobs/delete",
+      "handler": "ws.handleMLJobDelete",
+      "handler_def": {
+        "go_file": "web_ml_jobs.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/ml/jobs/logs",
+      "handler": "ws.handleMLJobLogs",
+      "handler_def": {
+        "go_file": "web_ml_jobs.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/services/mlJobs.ts"
+      ]
+    },
+    {
+      "path": "/api/ml/jobs/logs/ws",
+      "handler": "ws.handleMLJobLogsWS",
+      "handler_def": {
+        "go_file": "web_ml_jobs.go",
+        "methods_hint": null
+      },
+      "frontend_files": [
+        "ui/solid/src/services/mlJobs.ts"
+      ]
+    },
+    {
+      "path": "/api/inference/create",
+      "handler": "ws.handleInferenceCreate",
+      "handler_def": {
+        "go_file": "web_inference.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/inference/list",
+      "handler": "ws.handleInferenceList",
+      "handler_def": {
+        "go_file": "web_inference.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/inference/get",
+      "handler": "ws.handleInferenceGet",
+      "handler_def": {
+        "go_file": "web_inference.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/inference/delete",
+      "handler": "ws.handleInferenceDelete",
+      "handler_def": {
+        "go_file": "web_inference.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/inference/test",
+      "handler": "ws.handleInferenceTest",
+      "handler_def": {
+        "go_file": "web_inference.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/inference/status",
+      "handler": "ws.handleInferenceGet",
+      "handler_def": {
+        "go_file": "web_inference.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/feast/status",
+      "handler": "ws.handleFeastStatus",
+      "handler_def": {
+        "go_file": "web_feast.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/feast/install",
+      "handler": "ws.handleFeastInstall",
+      "handler_def": {
+        "go_file": "web_feast.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/gpu/status",
+      "handler": "ws.handleGPUStatus",
+      "handler_def": {
+        "go_file": "web_gpu.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/gpu/nodes",
+      "handler": "ws.handleGPUNodes",
+      "handler_def": {
+        "go_file": "web_gpu.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/gpu/metrics",
+      "handler": "ws.handleGPUMetrics",
+      "handler_def": {
+        "go_file": "web_gpu.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/gpu/install",
+      "handler": "ws.handleGPUInstall",
+      "handler_def": {
+        "go_file": "web_gpu.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/mcp",
+      "handler": "ws.mcpServer.HandleRequest",
+      "handler_def": null,
+      "frontend_files": [
+        "ui/solid/src/routes/AIAgents.tsx"
+      ]
+    },
+    {
+      "path": "/api/incidents",
+      "handler": "ws.handleIncidents",
+      "handler_def": {
+        "go_file": "web_incidents.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/brain/timeline",
+      "handler": "ws.handleBrainTimeline",
+      "handler_def": {
+        "go_file": "web_brain.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/brain/oom-insights",
+      "handler": "ws.handleBrainOOMInsights",
+      "handler_def": {
+        "go_file": "web_brain.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/brain/summary",
+      "handler": "ws.handleBrainSummary",
+      "handler_def": {
+        "go_file": "web_brain.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/brain/ml/timeline",
+      "handler": "ws.handleBrainMLTimeline",
+      "handler_def": {
+        "go_file": "web_brain_ml.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/brain/ml/predictions",
+      "handler": "ws.handleBrainMLPredictions",
+      "handler_def": {
+        "go_file": "web_brain_ml.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/brain/ml/summary",
+      "handler": "ws.handleBrainMLSummary",
+      "handler_def": {
+        "go_file": "web_brain_ml.go",
+        "methods_hint": null
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/api/auth/validate-token",
+      "handler": "ws.handleValidateSessionToken",
+      "handler_def": {
+        "go_file": "web_server.go",
+        "methods_hint": [
+          "POST"
+        ]
+      },
+      "frontend_files": []
+    },
+    {
+      "path": "/",
+      "handler": "staticHandler",
+      "handler_def": null,
+      "frontend_files": [
+        "ui/solid/src/components/DescribeModal.tsx",
+        "ui/solid/src/components/DockedTerminal.tsx",
+        "ui/solid/src/components/LocalTerminal.tsx",
+        "ui/solid/src/components/LoginModal.tsx",
+        "ui/solid/src/components/LogsModal.tsx",
+        "ui/solid/src/components/ShellModal.tsx",
+        "ui/solid/src/features/kiali/KialiDashboard.tsx",
+        "ui/solid/src/features/kiali/LiveTrafficMap.tsx",
+        "ui/solid/src/features/marketplace/clustering.ts",
+        "ui/solid/src/features/mlflow/MLflowPanel.tsx",
+        "ui/solid/src/routes/AIAgents.tsx",
+        "ui/solid/src/routes/ClusterOverview.tsx",
+        "ui/solid/src/routes/Connectors.tsx",
+        "ui/solid/src/routes/CustomResources.tsx",
+        "ui/solid/src/routes/Logs.tsx",
+        "ui/solid/src/routes/Pods.tsx",
+        "ui/solid/src/routes/RBAC.tsx",
+        "ui/solid/src/routes/SREAgent.tsx",
+        "ui/solid/src/routes/ServiceAccounts.tsx",
+        "ui/solid/src/routes/Storage.tsx",
+        "ui/solid/src/routes/UserManagement.tsx",
+        "ui/solid/src/services/api.ts",
+        "ui/solid/src/services/kiali.ts",
+        "ui/solid/src/services/mlJobs.ts",
+        "ui/solid/src/services/mlflow.ts",
+        "ui/solid/src/services/websocket.ts",
+        "ui/solid/src/stores/ai.ts",
+        "ui/solid/src/stores/cluster.ts",
+        "ui/solid/src/stores/namespace.ts",
+        "ui/solid/src/utils/containerTypes.ts",
+        "ui/solid/src/utils/mlDetection.ts",
+        "ui/solid/src/utils/prefetch.ts"
+      ]
+    }
+  ]
+}

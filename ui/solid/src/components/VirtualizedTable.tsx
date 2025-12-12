@@ -120,3 +120,4 @@ export function VirtualizedTable<T>(props: VirtualizedTableProps<T>) {
     </div>
   );
 }
+

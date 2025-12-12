@@ -1,0 +1,514 @@
+{
+  "ui/solid/src/components/ActionMenu.tsx": {
+    "button_text": [],
+    "button_titles": [
+      "Actions"
+    ],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/AppContent.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "GitHub"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/components/AppUninstallModal.tsx": {
+    "button_text": [
+      "Cancel",
+      "Uninstalling..."
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/ConnectionOverlay.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Documentation"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/components/CustomAppDeleteModal.tsx": {
+    "button_text": [
+      "Cancel",
+      "Removing..."
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/DescribeModal.tsx": {
+    "button_text": [
+      "Copy"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/DockedTerminal.tsx": {
+    "button_text": [],
+    "button_titles": [
+      "Close"
+    ],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/ErrorModal.tsx": {
+    "button_text": [
+      "OK"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/Header.tsx": {
+    "button_text": [
+      "AI",
+      "All Namespaces",
+      "Apply",
+      "\ud83e\udde0 Brain"
+    ],
+    "button_titles": [
+      "Open Brain Panel"
+    ],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/HelmReleaseDeleteModal.tsx": {
+    "button_text": [
+      "Cancel",
+      "Uninstalling..."
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/HelmReleaseErrorModal.tsx": {
+    "button_text": [
+      "OK"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/LogsModal.tsx": {
+    "button_text": [
+      "Download"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/NotificationCenter.tsx": {
+    "button_text": [
+      "Clear all",
+      "Mark all read"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/RealtimeEventsPanel.tsx": {
+    "button_text": [
+      "Clear"
+    ],
+    "button_titles": [
+      "Clear events"
+    ],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/SecurityRecommendations.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Learn more \u2192"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/components/ServicePortForwardModal.tsx": {
+    "button_text": [
+      "Cancel",
+      "Start"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/ShellModal.tsx": {
+    "button_text": [
+      "Send"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/UIDemo.tsx": {
+    "button_text": [
+      "Another Tooltip",
+      "Connect Cluster",
+      "Focus Visible",
+      "Hover for Tooltip",
+      "Primary Button",
+      "Secondary Button",
+      "View Details"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/UpdateApplyButton.tsx": {
+    "button_text": [
+      "Apply Update",
+      "Update Failed - Try Again"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/UpdateModal.tsx": {
+    "button_text": [
+      "Copy",
+      "Remind Me Later",
+      "View on GitHub"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/YAMLEditor.tsx": {
+    "button_text": [
+      "Cancel",
+      "Saving..."
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/components/YAMLViewer.tsx": {
+    "button_text": [
+      "Copied!",
+      "Download"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/feast/FeastInstallWizard.tsx": {
+    "button_text": [
+      "Cancel"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/gpu/GPUInstallWizard.tsx": {
+    "button_text": [
+      "Cancel"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/inference/InferenceServiceForm.tsx": {
+    "button_text": [
+      "+ Add",
+      "Cancel"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/kiali/KialiInstallModal.tsx": {
+    "button_text": [
+      "Cancel"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/kiali/KialiPanel.tsx": {
+    "button_text": [
+      "Open Kiali Dashboard",
+      "Refresh"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/mlJobs/TrainingJobDetails.tsx": {
+    "button_text": [
+      "Refresh Logs",
+      "Start Streaming",
+      "Stop Streaming"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/mlJobs/TrainingJobForm.tsx": {
+    "button_text": [
+      "+ Add",
+      "Cancel"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/mlflow/MLflowInstallWizard.tsx": {
+    "button_text": [
+      "Cancel"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/features/mlflow/MLflowPanel.tsx": {
+    "button_text": [
+      "Open Tracking UI",
+      "Restart Pods"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Go to Marketplace",
+      "\u2192 MLflow API (Experiments)",
+      "\u2192 MLflow Tracking UI"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Apps.tsx": {
+    "button_text": [
+      "Add App"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/ClusterManager.tsx": {
+    "button_text": [
+      "Connect cluster"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Documentation"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/ClusterOverview.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "View Deployments",
+      "View Nodes",
+      "View Pods",
+      "View Services"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Connectors.tsx": {
+    "button_text": [
+      "Connector"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Deployments.tsx": {
+    "button_text": [
+      "Scale"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Documentation.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Documentation Full documentation",
+      "GitHub Source code & issues",
+      "Visit Documentation",
+      "Website kubegraf.io"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/LandingPage.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Demo",
+      "Discord",
+      "Documentation",
+      "Features",
+      "GitHub",
+      "View on GitHub"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Logs.tsx": {
+    "button_text": [
+      "Download"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/MonitoredEvents.tsx": {
+    "button_text": [
+      "Clear",
+      "Clear all",
+      "Select All"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Plugins.tsx": {
+    "button_text": [],
+    "button_titles": [
+      "Apply changes from Git repository",
+      "Fetch latest state from cluster"
+    ],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Pods.tsx": {
+    "button_text": [
+      "Delete Pod",
+      "Download",
+      "Start"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Open"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Privacy.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "GitHub",
+      "GitHub repository",
+      "source code",
+      "website"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/SREAgent.tsx": {
+    "button_text": [
+      "Edit Configuration",
+      "Refresh",
+      "Save"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Security.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Reference"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Services.tsx": {
+    "button_text": [],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Open"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Settings.tsx": {
+    "button_text": [
+      "Reset to Defaults"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [
+      "Documentation",
+      "GitHub",
+      "Report Issue"
+    ],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/StatefulSets.tsx": {
+    "button_text": [
+      "Scale"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/Topology.tsx": {
+    "button_text": [],
+    "button_titles": [
+      "Refresh Topology"
+    ],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  },
+  "ui/solid/src/routes/UserManagement.tsx": {
+    "button_text": [
+      "Logout"
+    ],
+    "button_titles": [],
+    "aria_labels": [],
+    "link_text": [],
+    "link_titles": []
+  }
+}
