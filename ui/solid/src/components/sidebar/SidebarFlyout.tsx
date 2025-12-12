@@ -96,34 +96,41 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
           ref={flyoutRef}
           tabindex="-1"
           class="
-            bg-bg-panel
-            border-r border-border-subtle
-            shadow-elevated
-            w-64
-            h-full
+            fixed left-14 top-14
+            w-56
+            max-h-[calc(100vh-4rem-2rem)]
+            rounded-xl
+            border border-border-subtle/50
+            bg-bg-panel/95
+            backdrop-blur-xl
+            shadow-2xl
             flex flex-col
             animate-slideIn
+            overflow-hidden
           "
+          style={{
+            'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+          }}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
           {/* Header */}
-          <div class="px-4 py-3 border-b border-border-subtle flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-text-primary">
+          <div class="px-3 py-2.5 border-b border-border-subtle/50 flex items-center justify-between bg-bg-sidebar/50">
+            <h2 class="text-xs font-semibold text-text-primary uppercase tracking-wider">
               {section().title}
             </h2>
             <Show when={isSectionPinned(section().title)}>
               <button
                 onClick={() => unpinSection()}
                 class="
-                  p-1 rounded hover:bg-bg-hover
+                  p-1 rounded-md hover:bg-bg-hover
                   text-text-muted hover:text-text-primary
                   transition-colors
                   focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
                 "
                 title="Unpin section"
               >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -131,7 +138,7 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
           </div>
 
           {/* Navigation Items */}
-          <nav class="flex-1 overflow-y-auto py-2 px-2">
+          <nav class="overflow-y-auto py-1.5 px-1.5">
             <For each={section().items}>
               {(item, index) => {
                 const isActive = () => currentView() === item.id;
@@ -144,18 +151,18 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
                     }}
                     onClick={() => handleItemClick(item.id)}
                     class={`
-                      w-full flex items-center gap-3 px-3 py-2 rounded-md
-                      transition-colors duration-150
+                      w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg
+                      transition-all duration-150
                       focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
                       ${
                         isActive()
-                          ? 'bg-bg-panelAlt text-brand-cyan shadow-glowCyan'
-                          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                          ? 'bg-gradient-to-r from-brand-cyan/20 to-brand-purple/10 text-brand-cyan border border-brand-cyan/30'
+                          : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
                       }
                     `}
                   >
                     <svg
-                      class="w-4 h-4 flex-shrink-0"
+                      class={`w-4 h-4 flex-shrink-0 ${isActive() ? 'text-brand-cyan' : ''}`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -163,29 +170,22 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
                     >
                       <path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
                     </svg>
-                    <span class="text-sm flex-1 text-left">{item.label}</span>
-                    
+                    <span class="text-sm flex-1 text-left truncate">{item.label}</span>
+
                     {/* Pulse indicator */}
                     <Show when={showPulse()}>
                       <span class="w-2 h-2 rounded-full bg-status-danger animate-pulseSoft" />
                     </Show>
-                    
+
                     {/* Active indicator */}
                     <Show when={isActive()}>
-                      <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan" />
+                      <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan shadow-glowCyan" />
                     </Show>
                   </button>
                 );
               }}
             </For>
           </nav>
-
-          {/* Footer with section info */}
-          <div class="px-4 py-2 border-t border-border-subtle">
-            <p class="text-xs text-text-muted">
-              {section().items.length} {section().items.length === 1 ? 'item' : 'items'}
-            </p>
-          </div>
         </div>
       )}
     </Show>

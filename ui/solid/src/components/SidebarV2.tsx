@@ -177,7 +177,7 @@ const SidebarV2: Component = () => {
   return (
     <>
       <aside
-        class="sidebar-v2-container fixed left-0 top-0 h-full z-40 flex flex-col"
+        class="sidebar-v2-container fixed left-0 top-0 h-full z-[110] flex flex-col"
         onMouseEnter={() => {
           if (sidebarAutoHide()) {
             setSidebarCollapsed(false);
@@ -194,13 +194,13 @@ const SidebarV2: Component = () => {
           {/* Left Rail */}
           <div class="flex flex-col">
             {/* Logo/Header */}
-            <div class="h-14 flex items-center justify-center border-b border-border-subtle bg-bg-sidebar">
+            <div class="h-14 flex flex-col items-center justify-center border-b border-border-subtle bg-bg-sidebar">
               <button
                 onClick={() => setCurrentView('dashboard')}
-                class="flex items-center justify-center hover:opacity-80 transition-opacity"
+                class="flex flex-col items-center justify-center hover:opacity-80 transition-opacity"
                 title="Go to Dashboard"
               >
-                <svg class="floating-logo" viewBox="0 0 100 100" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+                <svg class="floating-logo" viewBox="0 0 100 100" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
                   <defs>
                     <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                       <stop offset="0%" stop-color="#22d3ee"/>
@@ -242,6 +242,7 @@ const SidebarV2: Component = () => {
                     <path d="M42 46 L22 34 L22 54 L42 66 Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
                   </g>
                 </svg>
+                <span class="text-[10px] font-bold text-text-primary tracking-tight mt-0.5">KubeGraf</span>
               </button>
             </div>
 
@@ -270,32 +271,100 @@ const SidebarV2: Component = () => {
 
             {/* Bottom Controls */}
             <div class="border-t border-border-subtle bg-bg-sidebar">
-              {/* Settings button */}
+              {/* Expand/Collapse Toggle */}
               <button
-                onClick={() => setCurrentView('settings')}
-                class={`
-                  w-full flex flex-col items-center justify-center gap-1 py-2.5 px-2
-                  transition-all duration-150
-                  focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
-                  ${
-                    currentView() === 'settings'
-                      ? 'text-brand-cyan shadow-glowCyan'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
-                  }
-                `}
-                title="Settings"
+                onClick={() => setBottomSectionCollapsed(!bottomSectionCollapsed())}
+                class="w-full flex items-center justify-center gap-1 py-1.5 px-2 transition-all duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+                title={bottomSectionCollapsed() ? 'Expand options' : 'Collapse options'}
               >
-                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <svg
+                  class={`w-3 h-3 flex-shrink-0 transition-transform duration-200 ${bottomSectionCollapsed() ? '' : 'rotate-180'}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
                 </svg>
-                <span class="text-[10px] font-medium">ST</span>
+                <span class="text-[9px] text-text-muted">{bottomSectionCollapsed() ? 'More' : 'Less'}</span>
               </button>
 
-              {/* Version */}
-              <div class="px-2 py-1.5 border-t border-border-subtle">
-                <div class="flex flex-col items-center gap-1 text-xs text-text-muted">
-                  <span class="text-[10px] truncate w-full text-center">{version() ? `v${version()}` : '...'}</span>
+              {/* Collapsible Section */}
+              <Show when={!bottomSectionCollapsed()}>
+                <div class="border-t border-border-subtle/50">
+                  {/* Docs button */}
+                  <button
+                    onClick={() => setCurrentView('documentation')}
+                    class={`w-full flex flex-col items-center justify-center gap-0.5 py-2 px-2 transition-all duration-150 ${currentView() === 'documentation' ? 'text-brand-cyan shadow-glowCyan' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}`}
+                    title="Documentation"
+                  >
+                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Docs</span>
+                  </button>
+
+                  {/* Privacy button */}
+                  <button
+                    onClick={() => setCurrentView('privacy')}
+                    class={`w-full flex flex-col items-center justify-center gap-0.5 py-2 px-2 transition-all duration-150 ${currentView() === 'privacy' ? 'text-brand-cyan shadow-glowCyan' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}`}
+                    title="Privacy Policy"
+                  >
+                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Privacy</span>
+                  </button>
+
+                  {/* Check Updates button */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        const info = await api.checkUpdate();
+                        setUpdateInfo(info);
+                        if (info.updateAvailable) {
+                          addNotification(`Update available: v${info.latestVersion}`, 'info');
+                        } else {
+                          addNotification("You're on the latest version", 'success');
+                        }
+                      } catch (err) {
+                        addNotification('Failed to check for updates', 'error');
+                      }
+                    }}
+                    class="w-full flex flex-col items-center justify-center gap-0.5 py-2 px-2 transition-all duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+                    title="Check for Updates"
+                  >
+                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Update</span>
+                  </button>
+
+                  {/* Settings button */}
+                  <button
+                    onClick={() => setCurrentView('settings')}
+                    class={`
+                      w-full flex flex-col items-center justify-center gap-0.5 py-2 px-2
+                      transition-all duration-150
+                      focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
+                      ${
+                        currentView() === 'settings'
+                          ? 'text-brand-cyan shadow-glowCyan'
+                          : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+                      }
+                    `}
+                    title="Settings"
+                  >
+                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Settings</span>
+                  </button>
                 </div>
+              </Show>
+
+              {/* Version - Always visible at bottom */}
+              <div class="border-t border-border-subtle py-2 px-2">
+                <span class="text-[11px] font-medium text-text-muted block text-center">{version() ? `v${version()}` : '...'}</span>
               </div>
             </div>
           </div>
