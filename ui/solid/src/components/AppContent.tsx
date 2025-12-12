@@ -26,6 +26,7 @@ import Secrets from '../routes/Secrets';
 import Certificates from '../routes/Certificates';
 import Nodes from '../routes/Nodes';
 import ResourceMap from '../routes/ResourceMap';
+import TrafficMapPage from '../routes/TrafficMapPage';
 import Security from '../routes/Security';
 import Plugins from '../routes/Plugins';
 import Cost from '../routes/Cost';
@@ -152,6 +153,7 @@ const views: Record<string, Component> = {
   nodes: Nodes,
   usermanagement: UserManagement,
   resourcemap: ResourceMap,
+  trafficmap: TrafficMapPage,
   connectors: Connectors,
   plugins: Plugins,
   terminal: Terminal,

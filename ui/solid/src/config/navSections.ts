@@ -237,6 +237,11 @@ export const navSections: NavSection[] = [
         icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z',
       },
       {
+        id: 'trafficmap',
+        label: 'Traffic Map',
+        icon: 'M13 10V3L4 14h7v7l9-11h-7z',
+      },
+      {
         id: 'connectors',
         label: 'Integrations',
         icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',

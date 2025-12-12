@@ -6,8 +6,6 @@ import {
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
-import TrafficMap from '../features/kiali/TrafficMap';
-import LiveTrafficMap from '../features/kiali/LiveTrafficMap';
 import * as d3 from 'd3';
 
 interface TopologyNode extends d3.SimulationNodeDatum {
@@ -25,7 +23,6 @@ interface TopologyLink extends d3.SimulationLinkDatum<TopologyNode> {
 }
 
 const ResourceMap: Component = () => {
-  const [activeTab, setActiveTab] = createSignal<'resource' | 'traffic' | 'live'>('resource');
   
   // Determine namespace parameter from global store (same pattern as Services/Ingresses)
   const getNamespaceParam = (): string | undefined => {
@@ -490,34 +487,7 @@ const ResourceMap: Component = () => {
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Resource Map</h1>
           <p style={{ color: 'var(--text-secondary)' }}>D3.js force-directed graph • Drag nodes • Scroll to zoom • Hover to highlight</p>
         </div>
-        
-        {/* Tabs */}
-        <div class="flex items-center gap-2 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-          <button
-            onClick={() => setActiveTab('resource')}
-            class={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab() === 'resource' ? 'bg-[var(--accent-primary)] text-black' : 'text-[var(--text-secondary)]'
-            }`}
-          >
-            Resource Map
-          </button>
-          <button
-            onClick={() => setActiveTab('traffic')}
-            class={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab() === 'traffic' ? 'bg-[var(--accent-primary)] text-black' : 'text-[var(--text-secondary)]'
-            }`}
-          >
-            Traffic Map
-          </button>
-          <button
-            onClick={() => setActiveTab('live')}
-            class={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab() === 'live' ? 'bg-[var(--accent-primary)] text-black' : 'text-[var(--text-secondary)]'
-            }`}
-          >
-            Live Traffic
-          </button>
-        </div>
+
         <div class="flex items-center gap-3">
           <button
             onClick={(e) => {
@@ -545,16 +515,7 @@ const ResourceMap: Component = () => {
         </div>
       </div>
 
-      {/* Content based on active tab */}
-      <Show when={activeTab() === 'traffic'}>
-        <TrafficMap />
-      </Show>
-      <Show when={activeTab() === 'live'}>
-        <LiveTrafficMap />
-      </Show>
-
-      <Show when={activeTab() === 'resource'}>
-        {/* Stats */}
+      {/* Stats */}
         <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
         <For each={Object.entries(getStats())}>
           {([type, count]) => (
@@ -739,7 +700,6 @@ const ResourceMap: Component = () => {
           </div>
         </Show>
       </Modal>
-      </Show>
     </div>
   );
 };
