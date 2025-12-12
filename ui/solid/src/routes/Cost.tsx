@@ -92,7 +92,7 @@ const Cost: Component = () => {
       const refresh = refreshTrigger();
       return { context: ctx, refresh };
     },
-    async () => api.getNamespaces()
+    async () => api.getNamespaceNames()
   );
 
   const formatCurrency = (value: number | undefined) => {

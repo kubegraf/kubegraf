@@ -54,12 +54,7 @@ const MonitoredEvents: Component = () => {
   // Fetch namespaces list
   const [namespacesData] = createResource(async () => {
     try {
-      const data = await api.getNamespaces();
-      // Handle both array of strings and array of objects with name property
-      if (data && data.length > 0) {
-        return data.map((ns: any) => typeof ns === 'string' ? ns : ns.name || ns);
-      }
-      return [];
+      return await api.getNamespaceNames();
     } catch (err) {
       console.error('[MonitoredEvents] Failed to fetch namespaces:', err);
       return [];

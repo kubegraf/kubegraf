@@ -1,4 +1,5 @@
 import { createSignal, createEffect } from 'solid-js';
+import { extractNamespaceNames } from '../utils/namespaceResponse';
 
 // Multi-namespace selection store with persistence
 const STORAGE_KEY = 'kubegraf_selected_namespaces';
@@ -70,10 +71,11 @@ export const isNamespaceSelected = (namespace: string): boolean => {
 
 export const fetchAndUpdateNamespaces = async () => {
   try {
-    const response = await fetch('http://localhost:3001/api/namespaces');
+    const response = await fetch('/api/namespaces');
     if (response.ok) {
       const data = await response.json();
-      const namespaces = data.namespaces || [];
+      // Backend returns an array of objects; normalize to string names
+      const namespaces = extractNamespaceNames(data);
       setAllNamespaces(namespaces);
 
       // If selected namespaces don't exist anymore, reset to default

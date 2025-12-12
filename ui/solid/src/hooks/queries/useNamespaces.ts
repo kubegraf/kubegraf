@@ -5,8 +5,8 @@ export function useNamespaces() {
   return createQuery(() => ({
     queryKey: ['namespaces'],
     queryFn: async () => {
-      const namespaces = await api.getNamespaces();
-      return namespaces;
+      // For most UI dropdowns we only need namespace names
+      return await api.getNamespaceNames();
     },
     staleTime: 10_000, // 10 seconds
     refetchOnWindowFocus: false,

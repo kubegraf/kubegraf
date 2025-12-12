@@ -50,7 +50,7 @@ const DockedTerminal: Component<DockedTerminalProps> = (props) => {
     } else if (cmd.startsWith('kubectl')) {
       // Send to backend API
       try {
-        const response = await fetch('http://localhost:3001/api/exec', {
+        const response = await fetch('/api/exec', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ command: cmd }),

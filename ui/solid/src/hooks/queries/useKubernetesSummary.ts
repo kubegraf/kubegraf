@@ -7,7 +7,7 @@ export function useKubernetesSummary() {
     queryFn: async () => {
       // Assuming there's a summary endpoint, otherwise combine multiple calls
       const [namespaces, pods, nodes] = await Promise.all([
-        api.getNamespaces(),
+        api.getNamespaceNames(),
         api.getPods(),
         api.getNodes(),
       ]);

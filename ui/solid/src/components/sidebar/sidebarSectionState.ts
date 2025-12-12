@@ -85,5 +85,3 @@ export function setSidebarSectionOpen(title: string, open: boolean) {
 }
 
 export { openSections };
-
-z
