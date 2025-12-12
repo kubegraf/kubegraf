@@ -5,7 +5,45 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Neutral dark theme as per project rules
+        // Base surfaces (Sidebar v2 theme)
+        bg: {
+          app: '#0b0f14',
+          panel: '#0f1520',
+          panelAlt: '#131b2b',
+          sidebar: '#0a0f1a',
+          hover: '#111827',
+        },
+        // Borders & dividers
+        border: {
+          subtle: '#1f2937',
+          strong: '#334155',
+        },
+        // Text
+        text: {
+          primary: '#e5e7eb',
+          secondary: '#9ca3af',
+          muted: '#6b7280',
+        },
+        // Brand / intelligence
+        brand: {
+          cyan: '#22d3ee',
+          violet: '#8b5cf6',
+          blue: '#38bdf8',
+        },
+        // Status
+        status: {
+          success: '#22c55e',
+          warning: '#f59e0b',
+          danger: '#ef4444',
+          info: '#3b82f6',
+        },
+        // Glow overlays
+        glow: {
+          cyan: 'rgba(34,211,238,0.35)',
+          violet: 'rgba(139,92,246,0.35)',
+          danger: 'rgba(239,68,68,0.35)',
+        },
+        // Neutral dark theme as per project rules (keep for backward compatibility)
         neutral: {
           dark: '#0f172a',
           darker: '#020617',
@@ -43,16 +81,6 @@ export default {
           800: '#075985',
           900: '#0c4a6e',
         },
-        // Status colors
-        status: {
-          success: '#10b981',
-          warning: '#f59e0b',
-          error: '#ef4444',
-          info: '#3b82f6',
-          running: '#10b981',
-          pending: '#f59e0b',
-          failed: '#ef4444',
-        },
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -67,6 +95,10 @@ export default {
         'slide-in': 'slide-in 0.3s ease-out',
         'slide-up': 'slide-up 0.3s ease-out',
         'fade-in': 'fade-in 0.2s ease-out',
+        // Sidebar v2 animations
+        slideIn: 'slideIn 160ms cubic-bezier(0.4,0,0.2,1)',
+        fadeIn: 'fadeIn 120ms ease-out',
+        pulseSoft: 'pulseSoft 2s ease-in-out infinite',
       },
       keyframes: {
         float: {
@@ -109,6 +141,22 @@ export default {
           'from': { opacity: '0' },
           'to': { opacity: '1' },
         },
+        // Sidebar v2 keyframes
+        slideIn: {
+          '0%': { opacity: '0', transform: 'translateX(-8px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        pulseSoft: {
+          '0%, 100%': { opacity: '0.4' },
+          '50%': { opacity: '0.8' },
+        },
+      },
+      transitionTimingFunction: {
+        smooth: 'cubic-bezier(0.4, 0, 0.2, 1)',
       },
       backdropBlur: {
         xs: '2px',
@@ -118,6 +166,12 @@ export default {
         'glow': '0 0 20px rgba(59, 130, 246, 0.3)',
         'inner-glow': 'inset 0 0 20px rgba(59, 130, 246, 0.1)',
         'card-hover': '0 20px 40px -15px rgba(59, 130, 246, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.3)',
+        // Sidebar v2 shadows
+        panel: '0 0 0 1px rgba(255,255,255,0.03)',
+        elevated: '0 10px 30px rgba(0,0,0,0.45)',
+        glowCyan: '0 0 12px rgba(34,211,238,0.35)',
+        glowViolet: '0 0 14px rgba(139,92,246,0.35)',
+        glowDanger: '0 0 14px rgba(239,68,68,0.35)',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',

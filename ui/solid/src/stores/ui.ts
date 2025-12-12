@@ -66,6 +66,7 @@ const getInitialView = (): View => {
       return stored as View;
     }
   }
+
   return 'clustermanager';
 };
 

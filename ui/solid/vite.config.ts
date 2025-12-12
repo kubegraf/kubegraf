@@ -19,6 +19,12 @@ export default defineConfig({
   build: {
     target: 'esnext',
     outDir: 'dist',
-    minify: 'esbuild',
+    minify: false, // Temporarily disable to debug
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      },
+    },
   },
 });
