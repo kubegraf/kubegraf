@@ -18,6 +18,7 @@ export type View =
   | 'certificates'
   | 'nodes'
   | 'resourcemap'
+  | 'trafficmap'
   | 'security'
   | 'anomalies'
   | 'incidents'
@@ -58,7 +59,7 @@ export type View =
   | 'mlworkflows';
 
 // Initialize currentView - check sessionStorage, default to 'clustermanager'
-const [currentViewBase, setCurrentViewBase] = createSignal<View>(() => {
+const getInitialView = (): View => {
   if (typeof sessionStorage !== 'undefined') {
     const stored = sessionStorage.getItem('kubegraf-current-view');
     if (stored) {
@@ -66,7 +67,9 @@ const [currentViewBase, setCurrentViewBase] = createSignal<View>(() => {
     }
   }
   return 'clustermanager';
-});
+};
+
+const [currentViewBase, setCurrentViewBase] = createSignal<View>(getInitialView());
 
 // Export wrapper that also saves to sessionStorage
 const currentView = currentViewBase;
