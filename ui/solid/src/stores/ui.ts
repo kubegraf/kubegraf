@@ -79,7 +79,19 @@ const setCurrentView = (view: View) => {
     sessionStorage.setItem('kubegraf-current-view', view);
   }
 };
+// Sidebar behavior
+// - sidebarCollapsed: compact (icons-only) mode
+// - sidebarAutoHide: auto-hide behavior (collapse when not hovered)
+const getInitialSidebarAutoHide = (): boolean => {
+  try {
+    return localStorage.getItem('kubegraf-sidebar-autohide') === 'true';
+  } catch {
+    return false;
+  }
+};
+
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+const [sidebarAutoHide, setSidebarAutoHide] = createSignal(getInitialSidebarAutoHide());
 const [aiPanelOpen, setAIPanelOpen] = createSignal(false);
 const [selectedResource, setSelectedResource] = createSignal<any>(null);
 const [detailPanelOpen, setDetailPanelOpen] = createSignal(false);
@@ -156,6 +168,16 @@ function toggleSidebar() {
   setSidebarCollapsed(!sidebarCollapsed());
 }
 
+function toggleSidebarAutoHide() {
+  const next = !sidebarAutoHide();
+  setSidebarAutoHide(next);
+  try {
+    localStorage.setItem('kubegraf-sidebar-autohide', String(next));
+  } catch {
+    // ignore
+  }
+}
+
 function toggleAIPanel() {
   setAIPanelOpen(!aiPanelOpen());
 }
@@ -183,6 +205,9 @@ export {
   sidebarCollapsed,
   setSidebarCollapsed,
   toggleSidebar,
+  sidebarAutoHide,
+  setSidebarAutoHide,
+  toggleSidebarAutoHide,
   aiPanelOpen,
   setAIPanelOpen,
   toggleAIPanel,

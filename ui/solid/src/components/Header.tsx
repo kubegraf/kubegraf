@@ -25,6 +25,7 @@ import LocalTerminalModal from './LocalTerminalModal';
 import { favorites, toggleFavorite, isFavorite } from '../stores/favorites';
 import { navSections } from '../config/navSections';
 import { CloudProviderLogo } from './cloud-logos';
+import { useWorkerFilter } from '../hooks/useWorkerFilter';
 
 const Header: Component = () => {
   const [searchFocused, setSearchFocused] = createSignal(false);
@@ -70,16 +71,18 @@ const Header: Component = () => {
   };
 
   // Filtered namespaces based on search
-  const filteredNamespaces = createMemo(() => {
-    const search = nsSearch().toLowerCase();
-    if (!search) return namespaces();
-    return namespaces().filter(ns => ns.toLowerCase().includes(search));
-  });
+  const filteredNamespaces = useWorkerFilter(namespaces, nsSearch, { threshold: 2000 });
 
+  // Filtered contexts based on search (worker filters names, we map back to objects)
+  const filteredContextNames = useWorkerFilter(
+    () => contexts().map((c) => c.name),
+    ctxSearch,
+    { threshold: 2000 }
+  );
   const filteredContexts = createMemo(() => {
-    const search = ctxSearch().toLowerCase();
-    if (!search) return contexts();
-    return contexts().filter(ctx => ctx.name.toLowerCase().includes(search));
+    const names = new Set(filteredContextNames());
+    if (!ctxSearch().trim()) return contexts();
+    return contexts().filter((c) => names.has(c.name));
   });
 
   createEffect(() => {

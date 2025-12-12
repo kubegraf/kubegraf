@@ -1,0 +1,311 @@
+# View: `settings`
+
+- **Route file**: `ui/solid/src/routes/Settings.tsx`
+- **Component closure**: 6 files (TS/TSX). Controls extracted from 1 TSX files.
+
+## Headings & copy
+
+- `Application Version & Updates`
+- `Automatic Backups`
+- `Automatically backup your database at regular intervals`
+- `Configure KubeGraf to match your workflow and preferences`
+- `Documentation & Links`
+- `KubeGraf stores all data locally on your device in a SQLite database. The backup includes:`
+- `Reset All Settings`
+- `Reset all settings to their default values. This will clear all customizations and preferences.`
+- `Restore Database from Backup`
+- `Settings`
+- `Storage location: Backups are stored in ~/.kubegraf/backups/ on your local device. All data remains on your machine - nothing is sent to external servers.`
+- `WARNING: This will overwrite your current database with the selected backup. This action cannot be undone.`
+- `What gets backed up? KubeGraf stores all data locally on your device in a SQLite database. The backup includes:`
+
+## Buttons
+
+- `Advanced Settings & Information`
+- `Cancel`
+- `Check for Updates`
+- `Checking...`
+- `Confirm Restore`
+- `Create Backup Now`
+- `Creating...`
+- `Reset to Defaults`
+- `Restore`
+- `Restore from Backup`
+- `Restoring...`
+
+## Links
+
+- `AI`
+- `AI & ML Features`
+- `AI Agents`
+- `AI Chat Assistant`
+- `Advanced`
+- `All Namespaces`
+- `All settings have been reset to defaults`
+- `Analyze and track cluster costs across cloud providers`
+- `Anomaly Detection`
+- `Appearance`
+- `Are you sure you want to reset all settings to defaults? This action cannot be undone.`
+- `Auto Refresh`
+- `Automatically refresh resource data at regular intervals`
+- `Beta`
+- `Brain`
+- `CVE Vulnerability Scanning`
+- `Choose your preferred color scheme`
+- `Cluster Diagnostics`
+- `Collapsed Sidebar by Default`
+- `Color Theme`
+- `Compact Mode`
+- `Configuration Drift Detection`
+- `Configure automatic database backups and manage backup settings`
+- `Configure basic application behavior`
+- `Configure monitoring, cost analysis, and drift detection`
+- `Configure notification and alert preferences`
+- `Configure visualization and topology features`
+- `Control AI-powered features and machine learning capabilities`
+- `Control which sections and menu items appear in the sidebar`
+- `Core`
+- `Cost Analysis`
+- `Customize the look and feel of KubeGraf`
+- `Database Backup`
+- `Default Namespace`
+- `Desktop Notifications`
+- `Detect anomalies in cluster behavior using machine learning`
+- `Detect configuration drift in deployments and resources`
+- `Developer Tools`
+- `Display AI Agents in Integrations section`
+- `Display AI Insights in Insights section`
+- `Display AI Insights, Cost Analysis, Security, Drift Detection`
+- `Display CPU, memory, and other resource metrics`
+- `Display ConfigMaps, Secrets, Certificates, Storage`
+- `Display Connectors and AI Agents menu items`
+- `Display Connectors in Integrations section`
+- `Display Cost Analysis in Insights section`
+- `Display Dashboard in sidebar`
+- `Display Deploy and Rollouts`
+- `Display Drift Detection in Insights section`
+- `Display Nodes, RBAC, Events, Resource Map`
+- `Display Plugins and Terminal`
+- `Display Plugins in Extensions section`
+- `Display Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs`
+- `Display Security in Insights section`
+- `Display Services, Ingresses, Network Policies`
+- `Display Terminal in Extensions section`
+- `Documentation`
+- `Enable AI-powered chat assistant for cluster management`
+- `Enable Model Context Protocol server for AI agent integration (Claude, Cursor, etc.)`
+- `Enable advanced log viewing and streaming`
+- `Enable built-in web terminal for kubectl commands`
+- `Enable integrations with external services (GitHub, Slack, PagerDuty, Webhooks)`
+- `Enable interactive topology visualization`
+- `Enable or disable external integrations and connectors`
+- `Enable or disable security scanning and diagnostic features`
+- `Enable resource relationship mapping`
+- `Event Monitoring`
+- `External Connectors`
+- `Failed to get backup status:`
+- `Failed to get version:`
+- `Fine-grained control over specific sidebar menu items`
+- `General Settings`
+- `Get AI/ML-powered optimization recommendations`
+- `GitHub`
+- `Important`
+- `Individual Menu Items`
+- `Integration`
+- `Integrations`
+- `Items Per Page`
+- `Log Viewer`
+- `M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1`
+- `M4 6h16M4 10h16M4 14h16M4 18h16`
+- `M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4`
+- `M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z`
+- `M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4`
+- `ML`
+- `ML Recommendations`
+- `ML Timeline in Brain Panel`
+- `Monitor and track Kubernetes events in real-time`
+- `Monitoring & Analysis`
+- `NIST NVD`
+- `New`
+- `Notifications & Alerts`
+- `Number of items to display per page in resource lists`
+- `Perform security-related diagnostic checks`
+- `Play sound effects for notifications and alerts`
+- `Reduce spacing and padding for a more compact view`
+- `Refresh Interval (seconds)`
+- `Report Issue`
+- `Resource Map`
+- `Resource Metrics`
+- `Run automatic cluster health checks and diagnostics`
+- `Scan for known CVE vulnerabilities using NIST NVD database`
+- `Security`
+- `Security & Diagnostics`
+- `Security Checks`
+- `Set the default namespace to load on startup`
+- `Show AI Agents Menu`
+- `Show AI Insights`
+- `Show Cluster Section`
+- `Show Config & Storage Section`
+- `Show Connectors Menu`
+- `Show Cost Analysis`
+- `Show Deployments Section`
+- `Show Drift Detection`
+- `Show Extensions Section`
+- `Show Insights Section`
+- `Show Integrations Section`
+- `Show ML timeline events in the Brain Panel`
+- `Show Networking Section`
+- `Show Overview Section`
+- `Show Plugins`
+- `Show Security Insights`
+- `Show Terminal`
+- `Show Workloads Section`
+- `Show toast notifications for important events and actions`
+- `Sidebar Visibility`
+- `Sound Effects`
+- `Start with sidebar in collapsed state`
+- `Time between automatic refreshes`
+- `Tools for developers and advanced users`
+- `Topology View`
+- `Visualization`
+- `Web Terminal`
+- `Website`
+- `_all`
+- `blue`
+- `compactMode`
+- `cyan`
+- `dark`
+- `defaultNamespace`
+- `enableAIChat`
+- `enableAnomalyDetection`
+- `enableAutoRefresh`
+- `enableCVEVulnerabilities`
+- `enableConnectors`
+- `enableCostAnalysis`
+- `enableDiagnostics`
+- `enableDriftDetection`
+- `enableEventMonitoring`
+- `enableLogs`
+- `enableMCP`
+- `enableMLRecommendations`
+- `enableMetrics`
+- `enableNotifications`
+- `enableResourceMap`
+- `enableSecurityChecks`
+- `enableSoundEffects`
+- `enableTopology`
+- `enableWebTerminal`
+- `flex items-center gap-2 mb-1`
+- `flex items-start justify-between gap-4`
+- `flex-1`
+- `green`
+- `itemsPerPage`
+- `mb-8`
+- `number`
+- `orange`
+- `purple`
+- `red`
+- `refreshInterval`
+- `select`
+- `showAIAgentsMenu`
+- `showAIInsights`
+- `showClusterSection`
+- `showConfigStorageSection`
+- `showConnectorsMenu`
+- `showCostAnalysisMenu`
+- `showDeploymentsSection`
+- `showDriftDetectionMenu`
+- `showExtensionsSection`
+- `showInsightsSection`
+- `showIntegrationsSection`
+- `showMLTimelineInBrain`
+- `showNetworkingSection`
+- `showOverviewSection`
+- `showPlugins`
+- `showSecurityInsights`
+- `showTerminalMenu`
+- `showWorkloadsSection`
+- `sidebarCollapsed`
+- `theme`
+- `toggle`
+- `yellow`
+
+## Component prop text (cards/widgets)
+
+### `title=`
+- `Cancel`
+- `Edit interval`
+- `Save`
+
+## Configured labels (menus / quick access / lists)
+
+- `AI Agents`
+- `AI Chat Assistant`
+- `All Namespaces`
+- `Anomaly Detection`
+- `Auto Refresh`
+- `CVE Vulnerability Scanning`
+- `Cluster Diagnostics`
+- `Collapsed Sidebar by Default`
+- `Color Theme`
+- `Compact Mode`
+- `Configuration Drift Detection`
+- `Cost Analysis`
+- `Default Namespace`
+- `Desktop Notifications`
+- `Event Monitoring`
+- `External Connectors`
+- `Items Per Page`
+- `Log Viewer`
+- `ML Recommendations`
+- `ML Timeline in Brain Panel`
+- `Refresh Interval (seconds)`
+- `Resource Map`
+- `Resource Metrics`
+- `Security Checks`
+- `Show AI Agents Menu`
+- `Show AI Insights`
+- `Show Cluster Section`
+- `Show Config & Storage Section`
+- `Show Connectors Menu`
+- `Show Cost Analysis`
+- `Show Deployments Section`
+- `Show Drift Detection`
+- `Show Extensions Section`
+- `Show Insights Section`
+- `Show Integrations Section`
+- `Show Networking Section`
+- `Show Overview Section`
+- `Show Plugins`
+- `Show Security Insights`
+- `Show Terminal`
+- `Show Workloads Section`
+- `Sound Effects`
+- `Topology View`
+- `Web Terminal`
+
+## Configured titles
+
+- `AI & ML Features`
+- `Appearance`
+- `Database Backup`
+- `Developer Tools`
+- `General Settings`
+- `Individual Menu Items`
+- `Integrations`
+- `Monitoring & Analysis`
+- `Notifications & Alerts`
+- `Security & Diagnostics`
+- `Sidebar Visibility`
+- `Visualization`
+
+## Controls by file
+
+### `routes/Settings.tsx`
+- **headings/copy**: `Application Version & Updates`, `Automatic Backups`, `Automatically backup your database at regular intervals`, `Configure KubeGraf to match your workflow and preferences`, `Documentation & Links`, `KubeGraf stores all data locally on your device in a SQLite database. The backup includes:`, `Reset All Settings`, `Reset all settings to their default values. This will clear all customizations and preferences.`, `Restore Database from Backup`, `Settings`, `Storage location: Backups are stored in ~/.kubegraf/backups/ on your local device. All data remains on your machine - nothing is sent to external servers.`, `WARNING: This will overwrite your current database with the selected backup. This action cannot be undone.`, `What gets backed up? KubeGraf stores all data locally on your device in a SQLite database. The backup includes:`
+- **buttons**: `Advanced Settings & Information`, `Cancel`, `Check for Updates`, `Checking...`, `Confirm Restore`, `Create Backup Now`, `Creating...`, `Reset to Defaults`, `Restore`, `Restore from Backup`, `Restoring...`
+- **links**: `AI`, `AI & ML Features`, `AI Agents`, `AI Chat Assistant`, `Advanced`, `All Namespaces`, `All settings have been reset to defaults`, `Analyze and track cluster costs across cloud providers`, `Anomaly Detection`, `Appearance`, `Are you sure you want to reset all settings to defaults? This action cannot be undone.`, `Auto Refresh`, `Automatically refresh resource data at regular intervals`, `Beta`, `Brain`, `CVE Vulnerability Scanning`, `Choose your preferred color scheme`, `Cluster Diagnostics`, `Collapsed Sidebar by Default`, `Color Theme`, `Compact Mode`, `Configuration Drift Detection`, `Configure automatic database backups and manage backup settings`, `Configure basic application behavior`, `Configure monitoring, cost analysis, and drift detection`, `Configure notification and alert preferences`, `Configure visualization and topology features`, `Control AI-powered features and machine learning capabilities`, `Control which sections and menu items appear in the sidebar`, `Core`, `Cost Analysis`, `Customize the look and feel of KubeGraf`, `Database Backup`, `Default Namespace`, `Desktop Notifications`, `Detect anomalies in cluster behavior using machine learning`, `Detect configuration drift in deployments and resources`, `Developer Tools`, `Display AI Agents in Integrations section`, `Display AI Insights in Insights section`, `Display AI Insights, Cost Analysis, Security, Drift Detection`, `Display CPU, memory, and other resource metrics`, `Display ConfigMaps, Secrets, Certificates, Storage`, `Display Connectors and AI Agents menu items`, `Display Connectors in Integrations section`, `Display Cost Analysis in Insights section`, `Display Dashboard in sidebar`, `Display Deploy and Rollouts`, `Display Drift Detection in Insights section`, `Display Nodes, RBAC, Events, Resource Map`, `Display Plugins and Terminal`, `Display Plugins in Extensions section`, `Display Pods, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs`, `Display Security in Insights section`, `Display Services, Ingresses, Network Policies`, `Display Terminal in Extensions section`, `Documentation`, `Enable AI-powered chat assistant for cluster management`, `Enable Model Context Protocol server for AI agent integration (Claude, Cursor, etc.)`, `Enable advanced log viewing and streaming`, `Enable built-in web terminal for kubectl commands`, `Enable integrations with external services (GitHub, Slack, PagerDuty, Webhooks)`, `Enable interactive topology visualization`, `Enable or disable external integrations and connectors`, `Enable or disable security scanning and diagnostic features`, `Enable resource relationship mapping`, `Event Monitoring`, `External Connectors`, `Failed to get backup status:`, `Failed to get version:`, `Fine-grained control over specific sidebar menu items`, `General Settings`, `Get AI/ML-powered optimization recommendations`, `GitHub`, `Important`, `Individual Menu Items`, `Integration`, `Integrations`, `Items Per Page`, `Log Viewer`, `M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1`, `M4 6h16M4 10h16M4 14h16M4 18h16`, `M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4`, `M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z`, `M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4`, `ML`, `ML Recommendations`, `ML Timeline in Brain Panel`, `Monitor and track Kubernetes events in real-time`, `Monitoring & Analysis`, `NIST NVD`, `New`, `Notifications & Alerts`, `Number of items to display per page in resource lists`, `Perform security-related diagnostic checks`, `Play sound effects for notifications and alerts`, `Reduce spacing and padding for a more compact view`, `Refresh Interval (seconds)`, `Report Issue`, `Resource Map`, `Resource Metrics`, `Run automatic cluster health checks and diagnostics`, `Scan for known CVE vulnerabilities using NIST NVD database`, `Security`, `Security & Diagnostics`, `Security Checks`, `Set the default namespace to load on startup`, `Show AI Agents Menu`, `Show AI Insights`, `Show Cluster Section`, `Show Config & Storage Section`, `Show Connectors Menu`, `Show Cost Analysis`, `Show Deployments Section`, `Show Drift Detection`, `Show Extensions Section`, `Show Insights Section`, `Show Integrations Section`, `Show ML timeline events in the Brain Panel`, `Show Networking Section`, `Show Overview Section`, `Show Plugins`, `Show Security Insights`, `Show Terminal`, `Show Workloads Section`, `Show toast notifications for important events and actions`, `Sidebar Visibility`, `Sound Effects`, `Start with sidebar in collapsed state`, `Time between automatic refreshes`, `Tools for developers and advanced users`, `Topology View`, `Visualization`, `Web Terminal`, `Website`, `_all`, `blue`, `compactMode`, `cyan`, `dark`, `defaultNamespace`, `enableAIChat`, `enableAnomalyDetection`, `enableAutoRefresh`, `enableCVEVulnerabilities`, `enableConnectors`, `enableCostAnalysis`, `enableDiagnostics`, `enableDriftDetection`, `enableEventMonitoring`, `enableLogs`, `enableMCP`, `enableMLRecommendations`, `enableMetrics`, `enableNotifications`, `enableResourceMap`, `enableSecurityChecks`, `enableSoundEffects`, `enableTopology`, `enableWebTerminal`, `flex items-center gap-2 mb-1`, `flex items-start justify-between gap-4`, `flex-1`, `green`, `itemsPerPage`, `mb-8`, `number`, `orange`, `purple`, `red`, `refreshInterval`, `select`, `showAIAgentsMenu`, `showAIInsights`, `showClusterSection`, `showConfigStorageSection`, `showConnectorsMenu`, `showCostAnalysisMenu`, `showDeploymentsSection`, `showDriftDetectionMenu`, `showExtensionsSection`, `showInsightsSection`, `showIntegrationsSection`, `showMLTimelineInBrain`, `showNetworkingSection`, `showOverviewSection`, `showPlugins`, `showSecurityInsights`, `showTerminalMenu`, `showWorkloadsSection`, `sidebarCollapsed`, `theme`, `toggle`, `yellow`
+- **configured labels**: `AI Agents`, `AI Chat Assistant`, `All Namespaces`, `Anomaly Detection`, `Auto Refresh`, `CVE Vulnerability Scanning`, `Cluster Diagnostics`, `Collapsed Sidebar by Default`, `Color Theme`, `Compact Mode`, `Configuration Drift Detection`, `Cost Analysis`, `Default Namespace`, `Desktop Notifications`, `Event Monitoring`, `External Connectors`, `Items Per Page`, `Log Viewer`, `ML Recommendations`, `ML Timeline in Brain Panel`, `Refresh Interval (seconds)`, `Resource Map`, `Resource Metrics`, `Security Checks`, `Show AI Agents Menu`, `Show AI Insights`, `Show Cluster Section`, `Show Config & Storage Section`, `Show Connectors Menu`, `Show Cost Analysis`, `Show Deployments Section`, `Show Drift Detection`, `Show Extensions Section`, `Show Insights Section`, `Show Integrations Section`, `Show Networking Section`, `Show Overview Section`, `Show Plugins`, `Show Security Insights`, `Show Terminal`, `Show Workloads Section`, `Sound Effects`, `Topology View`, `Web Terminal`
+- **configured titles**: `AI & ML Features`, `Appearance`, `Database Backup`, `Developer Tools`, `General Settings`, `Individual Menu Items`, `Integrations`, `Monitoring & Analysis`, `Notifications & Alerts`, `Security & Diagnostics`, `Sidebar Visibility`, `Visualization`
+- **jsx props**:
+  - `title=`: `Cancel`, `Edit interval`, `Save`

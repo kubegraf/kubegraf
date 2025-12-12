@@ -1,30 +1,39 @@
-import { Component, For, Show, createSignal, createMemo, onMount } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, createEffect, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { currentView, setCurrentView, sidebarCollapsed, toggleSidebar, toggleTerminal, addNotification } from '../stores/ui';
+import { currentView, setCurrentView, sidebarCollapsed, setSidebarCollapsed, toggleSidebar, sidebarAutoHide, toggleSidebarAutoHide, addNotification } from '../stores/ui';
 import { setUpdateInfo } from '../stores/globalStore';
 import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
 import { navSections, type NavSection } from '../config/navSections';
 import { shouldShowMLSection } from '../utils/mlDetection';
 import { prefetchView } from '../utils/sidebarPrefetch';
+import { clusterStatus, currentContext } from '../stores/cluster';
+import { unreadInsightsEvents, clearInsightsUnread } from '../stores/insightsPulse';
 
 // Collapsible Section Component
-const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean; onTerminalClick?: () => void }> = (props) => {
+const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boolean; showPulse?: boolean }> = (props) => {
   const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? true);
 
   // Check if any item in this section is currently active
   const hasActiveItem = () => props.section.items.some(item => currentView() === item.id);
 
   return (
-    <div class="mb-1">
+    <div class="mb-2">
       <Show when={!sidebarCollapsed()}>
         <button
           onClick={() => setExpanded(!expanded())}
-          class="w-full flex items-center justify-between px-2.5 py-2 rounded-md hover:bg-white/5 transition-colors group"
+          class={`w-full flex items-center justify-between px-2.5 py-2 rounded-md hover:bg-white/5 transition-colors group sidebar-section-header ${
+            hasActiveItem() ? 'bg-white/5' : ''
+          }`}
         >
-          <span class="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--text-primary)' }}>
-            {props.section.title}
-          </span>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>
+              {props.section.title}
+            </span>
+            <Show when={props.showPulse}>
+              <span class="sidebar-pulse-dot" style={{ background: 'var(--accent-primary)' }} />
+            </Show>
+          </div>
           <svg
             class={`w-3.5 h-3.5 transition-transform duration-200 ${expanded() ? '' : '-rotate-90'}`}
             style={{ color: 'var(--text-muted)' }}
@@ -70,7 +79,13 @@ const CollapsibleSection: Component<{ section: NavSection; defaultExpanded?: boo
                     color: currentView() === item.id ? 'var(--text-primary)' : 'var(--text-secondary)',
                   }}
                 >
-                  <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    class="w-4 h-4 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    style={{ color: currentView() === item.id ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                  >
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={item.icon} />
                   </svg>
                   <Show when={!sidebarCollapsed()}>
@@ -171,6 +186,33 @@ const Sidebar: Component = () => {
   const [version, setVersion] = createSignal<string>('');
   const [bottomSectionCollapsed, setBottomSectionCollapsed] = createSignal(true);
 
+  // Auto-hide behavior: collapse when not hovered
+  createEffect(() => {
+    if (sidebarAutoHide()) {
+      // Default to compact when auto-hide is enabled
+      setSidebarCollapsed(true);
+    }
+  });
+
+  // Clear Insights pulse when visiting any Insights-related view
+  createEffect(() => {
+    const view = currentView();
+    const insightsViews = new Set([
+      'incidents',
+      'timeline',
+      'anomalies',
+      'security',
+      'cost',
+      'drift',
+      'continuity',
+      'monitoredevents',
+      'events',
+    ]);
+    if (insightsViews.has(view)) {
+      clearInsightsUnread();
+    }
+  });
+
   // Fetch version function
   const fetchVersion = async () => {
     try {
@@ -235,13 +277,6 @@ const Sidebar: Component = () => {
     };
   });
 
-  // Handle terminal view - toggle docked terminal at bottom
-  const handleTerminalClick = () => {
-    console.log('[Sidebar] Terminal icon clicked - calling toggleTerminal()');
-    toggleTerminal();
-    console.log('[Sidebar] toggleTerminal() called');
-  };
-
   // Filter sections based on search query and ML detection
   const filteredSections = createMemo(() => {
     const query = searchQuery().toLowerCase().trim();
@@ -271,7 +306,19 @@ const Sidebar: Component = () => {
   });
 
   return (
-    <aside class={`fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40 ${sidebarCollapsed() ? 'w-16' : 'w-52'}`}>
+    <aside
+      class={`fixed left-0 top-0 h-full sidebar-glass transition-all duration-300 z-40 ${sidebarCollapsed() ? 'w-16' : 'w-52'}`}
+      onMouseEnter={() => {
+        if (sidebarAutoHide()) {
+          setSidebarCollapsed(false);
+        }
+      }}
+      onMouseLeave={() => {
+        if (sidebarAutoHide()) {
+          setSidebarCollapsed(true);
+        }
+      }}
+    >
       {/* Logo */}
       <div class="h-14 flex items-center justify-between px-3 border-b" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
         <button onClick={() => setCurrentView('dashboard')} class="flex items-center gap-2.5 hover:opacity-80 transition-opacity" title="Go to Dashboard">
@@ -335,6 +382,27 @@ const Sidebar: Component = () => {
         </button>
       </div>
 
+      {/* Active cluster badge */}
+      <div class="px-3 py-2 border-b" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
+        <div class="flex items-center gap-2">
+          <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <Show when={!sidebarCollapsed()} fallback={
+            <span class="text-xs" style={{ color: 'var(--text-muted)' }} title={currentContext() || 'No cluster selected'}>
+              {clusterStatus().connected ? 'Connected' : 'Disconnected'}
+            </span>
+          }>
+            <div class="min-w-0">
+              <div class="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                {currentContext() || 'Select cluster'}
+              </div>
+              <div class="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                {clusterStatus().connected ? 'Connected' : 'Disconnected'}
+              </div>
+            </div>
+          </Show>
+        </div>
+      </div>
+
       {/* Search */}
       <Show when={!sidebarCollapsed()}>
         <div class="px-2.5 py-2 border-b" style={{ 'border-color': 'rgba(255,255,255,0.08)' }}>
@@ -375,12 +443,18 @@ const Sidebar: Component = () => {
           {(section, index) => {
             // Default expanded for first 3 sections (Overview, Insights, Workloads)
             const defaultExpanded = index() < 3;
+            const showInsightsPulse = section.title === 'Insights' && unreadInsightsEvents() > 0;
             return (
-              <CollapsibleSection
-                section={section}
-                defaultExpanded={defaultExpanded}
-                onTerminalClick={handleTerminalClick}
-              />
+              <>
+                <Show when={index() !== 0}>
+                  <div class="mx-2 my-2 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
+                </Show>
+                <CollapsibleSection
+                  section={section}
+                  defaultExpanded={defaultExpanded}
+                  showPulse={showInsightsPulse}
+                />
+              </>
             );
           }}
         </For>
@@ -464,13 +538,31 @@ const Sidebar: Component = () => {
             </button>
             {/* Check for Updates button */}
             <SidebarUpdateButton />
+
+            {/* Auto-hide toggle */}
+            <button
+              onClick={() => toggleSidebarAutoHide()}
+              class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-white/5"
+              style={{ color: 'var(--text-secondary)' }}
+              title="Auto-hide sidebar"
+            >
+              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <Show when={!sidebarCollapsed()}>
+                <span class="text-sm flex-1 min-w-0 truncate">Auto-hide</span>
+                <span class={`text-xs px-2 py-0.5 rounded-full ${sidebarAutoHide() ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-white/60'}`}>
+                  {sidebarAutoHide() ? 'On' : 'Off'}
+                </span>
+              </Show>
+            </button>
           </div>
         </Show>
 
         {/* Version - Always visible at bottom */}
         <div class="px-2.5 py-1.5 border-t" style={{ 'border-color': 'rgba(255,255,255,0.05)' }}>
           <div class="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-            <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+            <span class={`w-1.5 h-1.5 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
             <span class="truncate">{version() ? `v${version()}` : 'Loading...'}</span>
           </div>
         </div>

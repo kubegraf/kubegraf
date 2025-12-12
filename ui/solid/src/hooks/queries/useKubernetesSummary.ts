@@ -22,3 +22,4 @@ export function useKubernetesSummary() {
     refetchOnWindowFocus: false,
   }));
 }
+

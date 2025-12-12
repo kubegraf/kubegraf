@@ -118,3 +118,4 @@ const podsQuery = usePods();
 - ✅ Backend rebuilt with embedded frontend
 - ✅ Server running on http://localhost:3000
 - ✅ Latest index.html being served
+

@@ -86,3 +86,4 @@ const AppUninstallModal: Component<AppUninstallModalProps> = (props) => {
 export default AppUninstallModal;
 
 
+

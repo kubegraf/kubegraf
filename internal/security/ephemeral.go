@@ -61,3 +61,4 @@ func (em *EphemeralMode) Cleanup() error {
 
 	return nil
 }
+

@@ -1,0 +1,1187 @@
+{
+  "nav_sections": [
+    {
+      "title": "Overview",
+      "items": [
+        {
+          "id": "dashboard",
+          "label": "Dashboard"
+        },
+        {
+          "id": "topology",
+          "label": "Cluster Overview"
+        },
+        {
+          "id": "monitoredevents",
+          "label": "Live Events Stream"
+        }
+      ]
+    },
+    {
+      "title": "Insights",
+      "items": [
+        {
+          "id": "incidents",
+          "label": "Incidents"
+        },
+        {
+          "id": "timeline",
+          "label": "Timeline Replay"
+        },
+        {
+          "id": "anomalies",
+          "label": "Anomalies"
+        },
+        {
+          "id": "security",
+          "label": "Security Insights"
+        },
+        {
+          "id": "cost",
+          "label": "Cost Insights"
+        },
+        {
+          "id": "drift",
+          "label": "Drift Detection"
+        },
+        {
+          "id": "continuity",
+          "label": "Continuity"
+        }
+      ]
+    },
+    {
+      "title": "CD",
+      "items": [
+        {
+          "id": "deployapp",
+          "label": "Deploy"
+        },
+        {
+          "id": "rollouts",
+          "label": "Rollouts"
+        }
+      ]
+    },
+    {
+      "title": "Workloads",
+      "items": [
+        {
+          "id": "pods",
+          "label": "Pods"
+        },
+        {
+          "id": "deployments",
+          "label": "Deployments"
+        },
+        {
+          "id": "statefulsets",
+          "label": "StatefulSets"
+        },
+        {
+          "id": "daemonsets",
+          "label": "DaemonSets"
+        },
+        {
+          "id": "jobs",
+          "label": "Jobs"
+        },
+        {
+          "id": "cronjobs",
+          "label": "CronJobs"
+        },
+        {
+          "id": "pdb",
+          "label": "PDB"
+        },
+        {
+          "id": "hpa",
+          "label": "HPA"
+        }
+      ]
+    },
+    {
+      "title": "Networking",
+      "items": [
+        {
+          "id": "services",
+          "label": "Services"
+        },
+        {
+          "id": "ingresses",
+          "label": "Ingress"
+        },
+        {
+          "id": "networkpolicies",
+          "label": "Network Policies"
+        }
+      ]
+    },
+    {
+      "title": "Config & Storage",
+      "items": [
+        {
+          "id": "configmaps",
+          "label": "ConfigMaps"
+        },
+        {
+          "id": "secrets",
+          "label": "Secrets"
+        },
+        {
+          "id": "certificates",
+          "label": "Certificates"
+        },
+        {
+          "id": "storage",
+          "label": "PVs / PVCs"
+        }
+      ]
+    },
+    {
+      "title": "Access Control",
+      "items": [
+        {
+          "id": "serviceaccounts",
+          "label": "Service Accounts"
+        },
+        {
+          "id": "rbac",
+          "label": "RBAC"
+        }
+      ]
+    },
+    {
+      "title": "Custom Resources",
+      "items": [
+        {
+          "id": "customresources",
+          "label": "CRDs & Instances"
+        }
+      ]
+    },
+    {
+      "title": "Platform",
+      "items": [
+        {
+          "id": "namespaces",
+          "label": "Namespaces"
+        },
+        {
+          "id": "nodes",
+          "label": "Nodes"
+        },
+        {
+          "id": "usermanagement",
+          "label": "Users"
+        },
+        {
+          "id": "resourcemap",
+          "label": "Resource Map"
+        },
+        {
+          "id": "trafficmap",
+          "label": "Traffic Map"
+        },
+        {
+          "id": "connectors",
+          "label": "Integrations"
+        },
+        {
+          "id": "plugins",
+          "label": "Plugins"
+        },
+        {
+          "id": "terminal",
+          "label": "Terminal"
+        }
+      ]
+    },
+    {
+      "title": "Intelligence",
+      "items": [
+        {
+          "id": "ai",
+          "label": "AI Assistant"
+        },
+        {
+          "id": "autofix",
+          "label": "AutoFix Engine"
+        },
+        {
+          "id": "sreagent",
+          "label": "SRE Agent"
+        },
+        {
+          "id": "aiagents",
+          "label": "AI Agents"
+        }
+      ]
+    },
+    {
+      "title": "ML",
+      "items": [
+        {
+          "id": "trainingjobs",
+          "label": "Training Jobs"
+        },
+        {
+          "id": "inferenceservices",
+          "label": "Inference Services"
+        },
+        {
+          "id": "mlflow",
+          "label": "MLflow"
+        },
+        {
+          "id": "feast",
+          "label": "Feast"
+        },
+        {
+          "id": "gpudashboard",
+          "label": "GPU Dashboard"
+        }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "view": "dashboard",
+      "component": "Dashboard",
+      "file": "ui/solid/src/routes/Dashboard.tsx"
+    },
+    {
+      "view": "topology",
+      "component": "ClusterOverview",
+      "file": "ui/solid/src/routes/ClusterOverview.tsx"
+    },
+    {
+      "view": "monitoredevents",
+      "component": "MonitoredEvents",
+      "file": "ui/solid/src/routes/MonitoredEvents.tsx"
+    },
+    {
+      "view": "incidents",
+      "component": "Incidents",
+      "file": "ui/solid/src/routes/Incidents.tsx"
+    },
+    {
+      "view": "timeline",
+      "component": "Timeline",
+      "file": "ui/solid/src/routes/Timeline.tsx"
+    },
+    {
+      "view": "anomalies",
+      "component": "Anomalies",
+      "file": "ui/solid/src/routes/Anomalies.tsx"
+    },
+    {
+      "view": "security",
+      "component": "Security",
+      "file": "ui/solid/src/routes/Security.tsx"
+    },
+    {
+      "view": "cost",
+      "component": "Cost",
+      "file": "ui/solid/src/routes/Cost.tsx"
+    },
+    {
+      "view": "drift",
+      "component": "Drift",
+      "file": "ui/solid/src/routes/Drift.tsx"
+    },
+    {
+      "view": "continuity",
+      "component": "Continuity",
+      "file": "ui/solid/src/routes/Continuity.tsx"
+    },
+    {
+      "view": "pods",
+      "component": "Pods",
+      "file": "ui/solid/src/routes/Pods.tsx"
+    },
+    {
+      "view": "deployments",
+      "component": "Deployments",
+      "file": "ui/solid/src/routes/Deployments.tsx"
+    },
+    {
+      "view": "statefulsets",
+      "component": "StatefulSets",
+      "file": "ui/solid/src/routes/StatefulSets.tsx"
+    },
+    {
+      "view": "daemonsets",
+      "component": "DaemonSets",
+      "file": "ui/solid/src/routes/DaemonSets.tsx"
+    },
+    {
+      "view": "jobs",
+      "component": "Jobs",
+      "file": "ui/solid/src/routes/Jobs.tsx"
+    },
+    {
+      "view": "cronjobs",
+      "component": "CronJobs",
+      "file": "ui/solid/src/routes/CronJobs.tsx"
+    },
+    {
+      "view": "pdb",
+      "component": "PDB",
+      "file": "ui/solid/src/routes/PDB.tsx"
+    },
+    {
+      "view": "hpa",
+      "component": "HPA",
+      "file": "ui/solid/src/routes/HPA.tsx"
+    },
+    {
+      "view": "services",
+      "component": "Services",
+      "file": "ui/solid/src/routes/Services.tsx"
+    },
+    {
+      "view": "ingresses",
+      "component": "Ingresses",
+      "file": "ui/solid/src/routes/Ingresses.tsx"
+    },
+    {
+      "view": "networkpolicies",
+      "component": "NetworkPolicies",
+      "file": "ui/solid/src/routes/NetworkPolicies.tsx"
+    },
+    {
+      "view": "namespaces",
+      "component": "Namespaces",
+      "file": "ui/solid/src/routes/Namespaces.tsx"
+    },
+    {
+      "view": "configmaps",
+      "component": "ConfigMaps",
+      "file": "ui/solid/src/routes/ConfigMaps.tsx"
+    },
+    {
+      "view": "secrets",
+      "component": "Secrets",
+      "file": "ui/solid/src/routes/Secrets.tsx"
+    },
+    {
+      "view": "certificates",
+      "component": "Certificates",
+      "file": "ui/solid/src/routes/Certificates.tsx"
+    },
+    {
+      "view": "storage",
+      "component": "Storage",
+      "file": "ui/solid/src/routes/Storage.tsx"
+    },
+    {
+      "view": "serviceaccounts",
+      "component": "ServiceAccounts",
+      "file": "ui/solid/src/routes/ServiceAccounts.tsx"
+    },
+    {
+      "view": "rbac",
+      "component": "RBAC",
+      "file": "ui/solid/src/routes/RBAC.tsx"
+    },
+    {
+      "view": "customresources",
+      "component": "CustomResources",
+      "file": "ui/solid/src/routes/CustomResources.tsx"
+    },
+    {
+      "view": "nodes",
+      "component": "Nodes",
+      "file": "ui/solid/src/routes/Nodes.tsx"
+    },
+    {
+      "view": "usermanagement",
+      "component": "UserManagement",
+      "file": "ui/solid/src/routes/UserManagement.tsx"
+    },
+    {
+      "view": "resourcemap",
+      "component": "ResourceMap",
+      "file": "ui/solid/src/routes/ResourceMap.tsx"
+    },
+    {
+      "view": "trafficmap",
+      "component": "TrafficMapPage",
+      "file": "ui/solid/src/routes/TrafficMapPage.tsx"
+    },
+    {
+      "view": "connectors",
+      "component": "Connectors",
+      "file": "ui/solid/src/routes/Connectors.tsx"
+    },
+    {
+      "view": "plugins",
+      "component": "Plugins",
+      "file": "ui/solid/src/routes/Plugins.tsx"
+    },
+    {
+      "view": "terminal",
+      "component": "Terminal",
+      "file": "ui/solid/src/routes/Terminal.tsx"
+    },
+    {
+      "view": "settings",
+      "component": "Settings",
+      "file": "ui/solid/src/routes/Settings.tsx"
+    },
+    {
+      "view": "privacy",
+      "component": "Privacy",
+      "file": "ui/solid/src/routes/Privacy.tsx"
+    },
+    {
+      "view": "documentation",
+      "component": "Documentation",
+      "file": "ui/solid/src/routes/Documentation.tsx"
+    },
+    {
+      "view": "ai",
+      "component": "AIAssistant",
+      "file": "ui/solid/src/routes/AIAssistant.tsx"
+    },
+    {
+      "view": "autofix",
+      "component": "AutoFix",
+      "file": "ui/solid/src/routes/AutoFix.tsx"
+    },
+    {
+      "view": "sreagent",
+      "component": "SREAgent",
+      "file": "ui/solid/src/routes/SREAgent.tsx"
+    },
+    {
+      "view": "aiagents",
+      "component": "AIAgents",
+      "file": "ui/solid/src/routes/AIAgents.tsx"
+    },
+    {
+      "view": "trainingjobs",
+      "component": "TrainingJobs",
+      "file": "ui/solid/src/routes/TrainingJobs.tsx"
+    },
+    {
+      "view": "inferenceservices",
+      "component": "InferenceServices",
+      "file": "ui/solid/src/routes/InferenceServices.tsx"
+    },
+    {
+      "view": "mlworkflows",
+      "component": "MLWorkflows",
+      "file": "ui/solid/src/routes/MLWorkflows.tsx"
+    },
+    {
+      "view": "mlflow",
+      "component": "MLflow",
+      "file": "ui/solid/src/routes/MLflow.tsx"
+    },
+    {
+      "view": "feast",
+      "component": "Feast",
+      "file": "ui/solid/src/routes/Feast.tsx"
+    },
+    {
+      "view": "gpudashboard",
+      "component": "GPUDashboard",
+      "file": "ui/solid/src/routes/GPUDashboard.tsx"
+    },
+    {
+      "view": "events",
+      "component": "Events",
+      "file": "ui/solid/src/routes/Events.tsx"
+    },
+    {
+      "view": "logs",
+      "component": "Logs",
+      "file": "ui/solid/src/routes/Logs.tsx"
+    },
+    {
+      "view": "apps",
+      "component": "Marketplace",
+      "file": null
+    },
+    {
+      "view": "customapps",
+      "component": "CustomApps",
+      "file": null
+    },
+    {
+      "view": "clustermanager",
+      "component": "ClusterManager",
+      "file": "ui/solid/src/routes/ClusterManager.tsx"
+    },
+    {
+      "view": "kiali",
+      "component": "Kiali",
+      "file": "ui/solid/src/routes/Kiali.tsx"
+    },
+    {
+      "view": "deployapp",
+      "component": "DeployApp",
+      "file": null
+    },
+    {
+      "view": "releases",
+      "component": "Releases",
+      "file": null
+    },
+    {
+      "view": "rollouts",
+      "component": "Rollouts",
+      "file": null
+    },
+    {
+      "view": "uidemo",
+      "component": "UIDemo",
+      "file": null
+    }
+  ],
+  "ui_actions_by_view": {
+    "dashboard": {
+      "component": "Dashboard",
+      "file": "ui/solid/src/routes/Dashboard.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "topology": {
+      "component": "ClusterOverview",
+      "file": "ui/solid/src/routes/ClusterOverview.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "View Deployments",
+          "View Nodes",
+          "View Pods",
+          "View Services"
+        ],
+        "link_titles": []
+      }
+    },
+    "monitoredevents": {
+      "component": "MonitoredEvents",
+      "file": "ui/solid/src/routes/MonitoredEvents.tsx",
+      "actions": {
+        "button_text": [
+          "Clear",
+          "Clear all",
+          "Select All"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "incidents": {
+      "component": "Incidents",
+      "file": "ui/solid/src/routes/Incidents.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "timeline": {
+      "component": "Timeline",
+      "file": "ui/solid/src/routes/Timeline.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "anomalies": {
+      "component": "Anomalies",
+      "file": "ui/solid/src/routes/Anomalies.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "security": {
+      "component": "Security",
+      "file": "ui/solid/src/routes/Security.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "Reference"
+        ],
+        "link_titles": []
+      }
+    },
+    "cost": {
+      "component": "Cost",
+      "file": "ui/solid/src/routes/Cost.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "drift": {
+      "component": "Drift",
+      "file": "ui/solid/src/routes/Drift.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "continuity": {
+      "component": "Continuity",
+      "file": "ui/solid/src/routes/Continuity.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "pods": {
+      "component": "Pods",
+      "file": "ui/solid/src/routes/Pods.tsx",
+      "actions": {
+        "button_text": [
+          "Delete Pod",
+          "Download",
+          "Start"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "Open"
+        ],
+        "link_titles": []
+      }
+    },
+    "deployments": {
+      "component": "Deployments",
+      "file": "ui/solid/src/routes/Deployments.tsx",
+      "actions": {
+        "button_text": [
+          "Scale"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "statefulsets": {
+      "component": "StatefulSets",
+      "file": "ui/solid/src/routes/StatefulSets.tsx",
+      "actions": {
+        "button_text": [
+          "Scale"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "daemonsets": {
+      "component": "DaemonSets",
+      "file": "ui/solid/src/routes/DaemonSets.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "jobs": {
+      "component": "Jobs",
+      "file": "ui/solid/src/routes/Jobs.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "cronjobs": {
+      "component": "CronJobs",
+      "file": "ui/solid/src/routes/CronJobs.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "pdb": {
+      "component": "PDB",
+      "file": "ui/solid/src/routes/PDB.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "hpa": {
+      "component": "HPA",
+      "file": "ui/solid/src/routes/HPA.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "services": {
+      "component": "Services",
+      "file": "ui/solid/src/routes/Services.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "Open"
+        ],
+        "link_titles": []
+      }
+    },
+    "ingresses": {
+      "component": "Ingresses",
+      "file": "ui/solid/src/routes/Ingresses.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "networkpolicies": {
+      "component": "NetworkPolicies",
+      "file": "ui/solid/src/routes/NetworkPolicies.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "namespaces": {
+      "component": "Namespaces",
+      "file": "ui/solid/src/routes/Namespaces.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "configmaps": {
+      "component": "ConfigMaps",
+      "file": "ui/solid/src/routes/ConfigMaps.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "secrets": {
+      "component": "Secrets",
+      "file": "ui/solid/src/routes/Secrets.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "certificates": {
+      "component": "Certificates",
+      "file": "ui/solid/src/routes/Certificates.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "storage": {
+      "component": "Storage",
+      "file": "ui/solid/src/routes/Storage.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "serviceaccounts": {
+      "component": "ServiceAccounts",
+      "file": "ui/solid/src/routes/ServiceAccounts.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "rbac": {
+      "component": "RBAC",
+      "file": "ui/solid/src/routes/RBAC.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "customresources": {
+      "component": "CustomResources",
+      "file": "ui/solid/src/routes/CustomResources.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "nodes": {
+      "component": "Nodes",
+      "file": "ui/solid/src/routes/Nodes.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "usermanagement": {
+      "component": "UserManagement",
+      "file": "ui/solid/src/routes/UserManagement.tsx",
+      "actions": {
+        "button_text": [
+          "Logout"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "resourcemap": {
+      "component": "ResourceMap",
+      "file": "ui/solid/src/routes/ResourceMap.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "trafficmap": {
+      "component": "TrafficMapPage",
+      "file": "ui/solid/src/routes/TrafficMapPage.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "connectors": {
+      "component": "Connectors",
+      "file": "ui/solid/src/routes/Connectors.tsx",
+      "actions": {
+        "button_text": [
+          "Connector"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "plugins": {
+      "component": "Plugins",
+      "file": "ui/solid/src/routes/Plugins.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [
+          "Apply changes from Git repository",
+          "Fetch latest state from cluster"
+        ],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "terminal": {
+      "component": "Terminal",
+      "file": "ui/solid/src/routes/Terminal.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "settings": {
+      "component": "Settings",
+      "file": "ui/solid/src/routes/Settings.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "Documentation",
+          "GitHub",
+          "Report Issue"
+        ],
+        "link_titles": []
+      }
+    },
+    "privacy": {
+      "component": "Privacy",
+      "file": "ui/solid/src/routes/Privacy.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "GitHub",
+          "GitHub repository",
+          "source code",
+          "website"
+        ],
+        "link_titles": []
+      }
+    },
+    "documentation": {
+      "component": "Documentation",
+      "file": "ui/solid/src/routes/Documentation.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "Documentation Full documentation",
+          "GitHub Source code & issues",
+          "Visit Documentation",
+          "Website kubegraf.io"
+        ],
+        "link_titles": []
+      }
+    },
+    "ai": {
+      "component": "AIAssistant",
+      "file": "ui/solid/src/routes/AIAssistant.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "autofix": {
+      "component": "AutoFix",
+      "file": "ui/solid/src/routes/AutoFix.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "sreagent": {
+      "component": "SREAgent",
+      "file": "ui/solid/src/routes/SREAgent.tsx",
+      "actions": {
+        "button_text": [
+          "Edit Configuration",
+          "Refresh",
+          "Save"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "aiagents": {
+      "component": "AIAgents",
+      "file": "ui/solid/src/routes/AIAgents.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "trainingjobs": {
+      "component": "TrainingJobs",
+      "file": "ui/solid/src/routes/TrainingJobs.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "inferenceservices": {
+      "component": "InferenceServices",
+      "file": "ui/solid/src/routes/InferenceServices.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "mlworkflows": {
+      "component": "MLWorkflows",
+      "file": "ui/solid/src/routes/MLWorkflows.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "mlflow": {
+      "component": "MLflow",
+      "file": "ui/solid/src/routes/MLflow.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "feast": {
+      "component": "Feast",
+      "file": "ui/solid/src/routes/Feast.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "gpudashboard": {
+      "component": "GPUDashboard",
+      "file": "ui/solid/src/routes/GPUDashboard.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "events": {
+      "component": "Events",
+      "file": "ui/solid/src/routes/Events.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "logs": {
+      "component": "Logs",
+      "file": "ui/solid/src/routes/Logs.tsx",
+      "actions": {
+        "button_text": [
+          "Download"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    },
+    "clustermanager": {
+      "component": "ClusterManager",
+      "file": "ui/solid/src/routes/ClusterManager.tsx",
+      "actions": {
+        "button_text": [
+          "Connect cluster"
+        ],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [
+          "Documentation"
+        ],
+        "link_titles": []
+      }
+    },
+    "kiali": {
+      "component": "Kiali",
+      "file": "ui/solid/src/routes/Kiali.tsx",
+      "actions": {
+        "button_text": [],
+        "button_titles": [],
+        "aria_labels": [],
+        "link_text": [],
+        "link_titles": []
+      }
+    }
+  },
+  "notes": [
+    "Actions are extracted heuristically from route components only (buttons/links + title/aria-label).",
+    "Some actions live in shared components/modals and are not listed here."
+  ]
+}

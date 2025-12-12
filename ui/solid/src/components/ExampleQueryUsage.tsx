@@ -114,3 +114,4 @@ export const ExampleQueryUsage: Component = () => {
     </div>
   );
 };
+

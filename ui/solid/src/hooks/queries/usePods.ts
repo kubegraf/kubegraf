@@ -13,3 +13,4 @@ export function usePods(namespace?: string) {
     enabled: true, // Always enabled, namespace can be empty for all namespaces
   }));
 }
+

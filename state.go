@@ -141,3 +141,4 @@ func (sm *StateManager) GetLastSeenAtTime() (time.Time, error) {
 	return time.Parse(time.RFC3339, state.LastSeenAt)
 }
 
+

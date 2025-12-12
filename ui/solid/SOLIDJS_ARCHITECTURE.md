@@ -249,3 +249,4 @@ To migrate existing components:
 3. **Use virtualized tables** for lists with 100+ items
 4. **Leverage cache** - TanStack Query automatically caches, so switching views is instant
 5. **Background refresh** - Data refreshes in background, user sees cached data immediately
+

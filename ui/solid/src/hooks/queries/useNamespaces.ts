@@ -12,3 +12,4 @@ export function useNamespaces() {
     refetchOnWindowFocus: false,
   }));
 }
+

@@ -157,3 +157,4 @@ For issues:
 - Review console for errors
 - See `docs/PERFORMANCE_OPTIMIZATION.md` for details
 
+

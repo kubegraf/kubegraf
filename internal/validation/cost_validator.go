@@ -162,3 +162,4 @@ func (cv *CostValidator) ValidateNamespaceCost(namespaceCost map[string]float64,
 	return result
 }
 
+

@@ -178,3 +178,4 @@ const DiagnosticsControls: Component<DiagnosticsControlsProps> = (props) => {
 };
 
 export default DiagnosticsControls;
+

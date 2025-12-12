@@ -1070,6 +1070,39 @@ export const api = {
     return data.incidents || [];
   },
 
+  getIncidentCount: async (namespace?: string, type?: string, severity?: string) => {
+    const params = new URLSearchParams();
+    if (namespace) params.append('namespace', namespace);
+    if (type) params.append('type', type);
+    if (severity) params.append('severity', severity);
+    const query = params.toString();
+    const endpoint = query ? `/incidents?${query}` : '/incidents';
+    const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
+    return data.total || 0;
+  },
+
+  getIncidentsSummary: async () => {
+    const data = await fetchAPI<{ incidents: Incident[]; total: number }>('/incidents');
+    const incidents = data.incidents || [];
+    const bySeverity = incidents.reduce((acc: Record<string, number>, inc: any) => {
+      const sev = String(inc?.severity || 'unknown');
+      acc[sev] = (acc[sev] || 0) + 1;
+      return acc;
+    }, {});
+
+    const byKind = incidents.reduce((acc: Record<string, number>, inc: any) => {
+      const kind = String(inc?.resourceKind || 'unknown');
+      acc[kind] = (acc[kind] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      total: data.total || incidents.length,
+      bySeverity,
+      byKind,
+    };
+  },
+
   // ============ History/Timeline ============
   getHistoryEvents: async (incidentId?: string, since?: string, until?: string) => {
     const params = new URLSearchParams();

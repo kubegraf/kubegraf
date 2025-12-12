@@ -41,3 +41,4 @@ export function isAllNamespacesSelected(): boolean {
   const selected = selectedNamespaces();
   return selected.length === 0;
 }
+

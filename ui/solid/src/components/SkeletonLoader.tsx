@@ -113,3 +113,4 @@ export const CardSkeleton: Component = () => {
     </div>
   );
 };
+
