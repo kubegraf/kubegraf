@@ -44,6 +44,8 @@ const Anomalies = lazy(() => import('./Anomalies'));
 const Incidents = lazy(() => import('./Incidents'));
 const Continuity = lazy(() => import('./Continuity'));
 const Timeline = lazy(() => import('./Timeline'));
+const TimeHelix = lazy(() => import('./TimeHelix'));
+const ResourceWaterfall = lazy(() => import('./ResourceWaterfall'));
 const Apps = lazy(() => import('./Apps'));
 const ClusterManager = lazy(() => import('./ClusterManager'));
 const Storage = lazy(() => import('./Storage'));
@@ -109,6 +111,8 @@ export const views: Record<string, Component> = {
   monitoredevents: MonitoredEvents,
   incidents: Incidents,
   timeline: Timeline,
+  timehelix: TimeHelix,
+  resourcewaterfall: ResourceWaterfall,
   anomalies: Anomalies,
   security: Security,
   cost: Cost,
@@ -173,4 +177,6 @@ export const noConnectionViews: ReadonlySet<View> = new Set<View>([
   'logs',
   'privacy',
   'documentation',
+  'apps',
+  'plugins',
 ]);

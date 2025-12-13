@@ -23,6 +23,8 @@ export type View =
   | 'anomalies'
   | 'incidents'
   | 'timeline'
+  | 'timehelix'
+  | 'resourcewaterfall'
   | 'plugins'
   | 'cost'
   | 'drift'

@@ -364,7 +364,7 @@ const SidebarV2: Component = () => {
 
               {/* Version - Always visible at bottom */}
               <div class="border-t border-border-subtle py-2 px-2">
-                <span class="text-[11px] font-medium text-text-muted block text-center">{version() ? `v${version()}` : '...'}</span>
+                <span class="text-[11px] font-semibold text-text-primary block text-center" style={{ color: 'var(--text-primary)' }}>{version() ? `v${version()}` : '...'}</span>
               </div>
             </div>
           </div>

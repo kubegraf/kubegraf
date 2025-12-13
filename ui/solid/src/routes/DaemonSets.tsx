@@ -9,6 +9,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface DaemonSet {
   name: string;
@@ -35,6 +38,10 @@ const DaemonSets: Component = () => {
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('daemonsets-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('daemonsets-font-family') || 'Monaco');
+
+  // Bulk selection
+  const bulk = useBulkSelection<DaemonSet>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -198,6 +205,15 @@ const DaemonSets: Component = () => {
 
   return (
     <div class="space-y-4">
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="DaemonSets"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -374,6 +390,24 @@ const DaemonSets: Component = () => {
             >
               <thead>
                 <tr>
+                  <th style={{
+                    padding: '0 8px',
+                    'text-align': 'center',
+                    width: '40px',
+                    border: 'none'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSorted());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')}>
                     <div class="flex items-center gap-1">Name <SortIcon field="name" /></div>
                   </th>
@@ -394,12 +428,23 @@ const DaemonSets: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedDaemonSets()} fallback={
-                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No DaemonSets found</td></tr>
+                  <tr><td colspan="9" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No DaemonSets found</td></tr>
                 }>
                   {(ds: DaemonSet) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'center',
+                        width: '40px',
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(ds)}
+                          onChange={() => bulk.toggleSelection(ds)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -588,6 +633,43 @@ const DaemonSets: Component = () => {
 
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="daemonset" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="DaemonSets"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedDaemonSets = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each daemonset
+          for (const ds of selectedDaemonSets) {
+            try {
+              await api.deleteDaemonSet(ds.name, ds.namespace);
+            } catch (error) {
+              console.error(`Failed to delete daemonset ${ds.namespace}/${ds.name}:`, error);
+              addNotification(
+                `Failed to delete daemonset ${ds.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedDaemonSets.length} daemonset${selectedDaemonSets.length !== 1 ? 's' : ''}`,
+            'success'
+          );
+
+          // Close modal
+          setShowBulkDeleteModal(false);
+        }}
+      />
     </div>
   );
 };

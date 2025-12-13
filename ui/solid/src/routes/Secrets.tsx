@@ -12,6 +12,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface Secret {
   name: string;
@@ -35,6 +38,10 @@ const Secrets: Component = () => {
   const [currentPage, setCurrentPage] = createSignal(1);
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Secret | null>(null);
+
+  // Bulk selection
+  const bulk = useBulkSelection<Secret>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   // Modal states
   const [showYaml, setShowYaml] = createSignal(false);
@@ -257,6 +264,16 @@ const Secrets: Component = () => {
 
   return (
     <div class="space-y-4" style={{ background: 'var(--bg-primary)', minHeight: '100%' }}>
+      {/* Bulk Actions */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="secrets"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Secrets</h1>
@@ -319,6 +336,24 @@ const Secrets: Component = () => {
                     'font-size': `${fontSize()}px`,
                     'line-height': `${Math.max(24, fontSize() * 1.7)}px`
                   }}>
+                    <th style={{
+                      padding: '0 8px',
+                      'text-align': 'center',
+                      width: '40px',
+                      border: 'none'
+                    }}>
+                      <SelectAllCheckbox
+                        checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                        indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                        onChange={(checked) => {
+                          if (checked) {
+                            bulk.selectAll(filteredAndSorted());
+                          } else {
+                            bulk.deselectAll();
+                          }
+                        }}
+                      />
+                    </th>
                     <th onClick={() => handleSort('name')} class="cursor-pointer select-none whitespace-nowrap" style={{
                       padding: '0 8px',
                       'text-align': 'left',
@@ -393,12 +428,23 @@ const Secrets: Component = () => {
                 </thead>
                 <tbody>
                   <For each={paginated()} fallback={
-                    <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No secrets found</td></tr>
+                    <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No secrets found</td></tr>
                   }>
                     {(secret: Secret) => {
                       const textColor = '#0ea5e9';
                       return (
                         <tr>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'center',
+                            width: '40px',
+                            border: 'none'
+                          }}>
+                            <SelectionCheckbox
+                              checked={bulk.isSelected(secret)}
+                              onChange={() => bulk.toggleSelection(secret)}
+                            />
+                          </td>
                           <td style={{
                             padding: '0 8px',
                             'text-align': 'left',
@@ -699,6 +745,40 @@ const Secrets: Component = () => {
           })()}
         </Show>
       </Modal>
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="Secrets"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedSecrets = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each secret
+          for (const secret of selectedSecrets) {
+            try {
+              await api.deleteSecret(secret.name, secret.namespace);
+            } catch (error) {
+              console.error(`Failed to delete secret ${secret.namespace}/${secret.name}:`, error);
+              addNotification(
+                `Failed to delete secret ${secret.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedSecrets.length} secret${selectedSecrets.length !== 1 ? 's' : ''}`,
+            'success'
+          );
+        }}
+      />
     </div>
   );
 };

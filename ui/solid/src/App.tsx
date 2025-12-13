@@ -38,8 +38,8 @@ const App: Component = () => {
         return;
       }
 
-      // Views that don't require connection
-      const noConnectionViews = ['clustermanager', 'settings', 'logs', 'privacy', 'documentation'];
+      // Views that don't require cluster connection (work offline)
+      const noConnectionViews = ['clustermanager', 'settings', 'logs', 'privacy', 'documentation', 'apps', 'plugins'];
 
       // If not connected and viewing a view that requires connection, redirect to Cluster Manager
       if (!noConnectionViews.includes(view)) {

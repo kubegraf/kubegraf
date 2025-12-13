@@ -16,6 +16,9 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
+import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
+import { BulkDeleteModal } from '../components/BulkDeleteModal';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 interface Deployment {
   name: string;
@@ -43,6 +46,10 @@ const Deployments: Component = () => {
   const [showScale, setShowScale] = createSignal(false);
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
   const [restarting, setRestarting] = createSignal<string | null>(null); // Track which deployment is restarting
+
+  // Bulk selection
+  const bulk = useBulkSelection<Deployment>();
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
   // Font size selector with localStorage persistence
   const getInitialFontSize = (): number => {
@@ -294,6 +301,16 @@ const Deployments: Component = () => {
 
   return (
     <div class="space-y-4">
+      {/* Bulk Actions */}
+      <BulkActions
+        selectedCount={bulk.selectedCount()}
+        totalCount={filteredAndSorted().length}
+        onSelectAll={() => bulk.selectAll(filteredAndSorted())}
+        onDeselectAll={() => bulk.deselectAll()}
+        onDelete={() => setShowBulkDeleteModal(true)}
+        resourceType="deployments"
+      />
+
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -466,6 +483,24 @@ const Deployments: Component = () => {
                   'font-size': `${fontSize()}px`,
                   'line-height': `${Math.max(24, fontSize() * 1.7)}px`
                 }}>
+                  <th class="whitespace-nowrap" style={{
+                    padding: '0 8px',
+                    'text-align': 'center',
+                    width: '40px',
+                    border: 'none'
+                  }}>
+                    <SelectAllCheckbox
+                      checked={bulk.selectedCount() === filteredAndSorted().length && filteredAndSorted().length > 0}
+                      indeterminate={bulk.selectedCount() > 0 && bulk.selectedCount() < filteredAndSorted().length}
+                      onChange={(checked) => {
+                        if (checked) {
+                          bulk.selectAll(filteredAndSorted());
+                        } else {
+                          bulk.deselectAll();
+                        }
+                      }}
+                    />
+                  </th>
                   <th class="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('name')} style={{
                     padding: '0 8px',
                     'text-align': 'left',
@@ -534,12 +569,23 @@ const Deployments: Component = () => {
               </thead>
               <tbody>
                 <For each={paginatedDeployments()} fallback={
-                  <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No deployments found</td></tr>
+                  <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No deployments found</td></tr>
                 }>
                   {(dep: Deployment) => {
                     const textColor = '#0ea5e9';
                     return (
                     <tr>
+                      <td style={{
+                        padding: '0 8px',
+                        'text-align': 'center',
+                        width: '40px',
+                        border: 'none'
+                      }}>
+                        <SelectionCheckbox
+                          checked={bulk.isSelected(dep)}
+                          onChange={() => bulk.toggleSelection(dep)}
+                        />
+                      </td>
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'left',
@@ -748,6 +794,40 @@ const Deployments: Component = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Bulk Delete Modal */}
+      <BulkDeleteModal
+        isOpen={showBulkDeleteModal()}
+        onClose={() => setShowBulkDeleteModal(false)}
+        resourceType="Deployments"
+        selectedItems={bulk.getSelectedItems(filteredAndSorted())}
+        onConfirm={async () => {
+          const selectedDeployments = bulk.getSelectedItems(filteredAndSorted());
+
+          // Delete each deployment
+          for (const dep of selectedDeployments) {
+            try {
+              await api.deleteDeployment(dep.name, dep.namespace);
+            } catch (error) {
+              console.error(`Failed to delete deployment ${dep.namespace}/${dep.name}:`, error);
+              addNotification(
+                `Failed to delete deployment ${dep.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'error'
+              );
+            }
+          }
+
+          // Clear selection and refetch
+          bulk.deselectAll();
+          deploymentsCache.refetch();
+
+          // Show success notification
+          addNotification(
+            `Successfully deleted ${selectedDeployments.length} deployment${selectedDeployments.length !== 1 ? 's' : ''}`,
+            'success'
+          );
+        }}
+      />
     </div>
   );
 };
