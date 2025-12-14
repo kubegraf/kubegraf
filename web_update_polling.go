@@ -21,19 +21,21 @@ import (
 	"github.com/kubegraf/kubegraf/internal/update"
 )
 
-// startUpdatePolling starts a background goroutine that checks for updates every 4 hours
+// startUpdatePolling starts a background goroutine that checks for updates every 15 minutes
+// This ensures long-running apps (like kubegraf web --port 3003) detect new releases quickly
 func (ws *WebServer) startUpdatePolling() {
 	// Initial check after 1 minute (to not slow down startup)
 	time.Sleep(1 * time.Minute)
 
-	// Then check every 4 hours
-	ticker := time.NewTicker(4 * time.Hour)
-	defer ticker.Stop()
-
 	// Do initial check
 	ws.checkForUpdatesBackground()
 
-	// Continue checking every 4 hours
+	// Check every 15 minutes to match frontend cache expiration
+	// This ensures long-running apps detect new releases within 15 minutes
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
+	// Continue checking every 15 minutes
 	for {
 		select {
 		case <-ticker.C:
@@ -52,7 +54,7 @@ func (ws *WebServer) checkForUpdatesBackground() {
 	_, err := update.CheckGitHubLatestRelease(currentVersion)
 	if err != nil {
 		// Log error but don't fail - we'll use cached result if available
-		log.Printf("Background update check failed: %v (will retry in 4 hours)", err)
+		log.Printf("Background update check failed: %v (will retry in 15 minutes)", err)
 		return
 	}
 
