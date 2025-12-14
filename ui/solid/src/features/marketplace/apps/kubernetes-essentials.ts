@@ -14,6 +14,7 @@ export const kubernetesEssentialsApps: MarketplaceApp[] = [
     chartName: 'ingress-nginx',
     tags: ['ingress', 'networking', 'load-balancer'],
     maintainer: 'Kubernetes',
+    sourceCitation: 'Helm Chart: https://kubernetes.github.io/ingress-nginx | Official: https://kubernetes.github.io/ingress-nginx',
     clusterSupport: {
       single: true,
       multi: true,
@@ -31,6 +32,7 @@ export const kubernetesEssentialsApps: MarketplaceApp[] = [
     chartName: 'argo-cd',
     tags: ['gitops', 'cicd', 'deployment'],
     maintainer: 'Argo Project',
+    sourceCitation: 'Helm Chart: https://argoproj.github.io/argo-helm | Official: https://argo-cd.readthedocs.io',
     clusterSupport: {
       single: true,
       multi: true,
@@ -48,6 +50,7 @@ export const kubernetesEssentialsApps: MarketplaceApp[] = [
     chartName: 'flux2',
     tags: ['gitops', 'cicd'],
     maintainer: 'Flux Project',
+    sourceCitation: 'Helm Chart: https://fluxcd-community.github.io/helm-charts | Official: https://fluxcd.io',
     clusterSupport: {
       single: true,
       multi: true,

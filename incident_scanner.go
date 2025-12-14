@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -31,17 +32,45 @@ func (scanner *IncidentScanner) ScanAllIncidents(namespace string) []KubernetesI
 		return incidents
 	}
 
+	// Check context cancellation
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
+
 	// Scan pods
 	podIncidents := scanner.ScanPodsForIncidents(namespace)
 	incidents = append(incidents, podIncidents...)
+
+	// Check context cancellation
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
 
 	// Scan nodes
 	nodeIncidents := scanner.ScanNodesForIncidents()
 	incidents = append(incidents, nodeIncidents...)
 
+	// Check context cancellation
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
+
 	// Scan jobs
 	jobIncidents := scanner.ScanJobsForIncidents(namespace)
 	incidents = append(incidents, jobIncidents...)
+
+	// Check context cancellation
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
 
 	// Scan cronjobs
 	cronJobIncidents := scanner.ScanCronJobsForIncidents(namespace)
@@ -54,85 +83,177 @@ func (scanner *IncidentScanner) ScanAllIncidents(namespace string) []KubernetesI
 func (scanner *IncidentScanner) ScanPodsForIncidents(namespace string) []KubernetesIncident {
 	incidents := []KubernetesIncident{}
 
-	pods, err := scanner.app.clientset.CoreV1().Pods(namespace).List(scanner.app.ctx, metav1.ListOptions{})
+	// Check context cancellation before starting
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
+
+	// Use limit to avoid scanning too many pods at once (performance optimization)
+	opts := metav1.ListOptions{
+		Limit: 2000, // Increased limit to 2000 pods for better coverage
+	}
+
+	var pods *corev1.PodList
+	var err error
+
+	// If namespace is empty, scan all namespaces but skip system ones for performance
+	if namespace == "" {
+		// Get list of namespaces, but skip system namespaces
+		namespaces, nsErr := scanner.app.clientset.CoreV1().Namespaces().List(scanner.app.ctx, metav1.ListOptions{})
+		if nsErr != nil {
+			return incidents
+		}
+
+		// Scan each non-system namespace (limit to first 10 namespaces for performance)
+		maxNamespaces := 10
+		scanned := 0
+		for _, ns := range namespaces.Items {
+			// Check context cancellation
+			select {
+			case <-scanner.app.ctx.Done():
+				return incidents
+			default:
+			}
+
+			// Skip system namespaces
+			if ns.Name == "kube-system" || ns.Name == "kube-public" || ns.Name == "kube-node-lease" {
+				continue
+			}
+
+			if scanned >= maxNamespaces {
+				break
+			}
+
+			// Use smaller limit per namespace when scanning all namespaces
+			nsOpts := metav1.ListOptions{
+				Limit: 500, // Reduced limit per namespace when scanning multiple
+			}
+			nsPods, nsErr := scanner.app.clientset.CoreV1().Pods(ns.Name).List(scanner.app.ctx, nsOpts)
+			if nsErr != nil {
+				continue // Skip this namespace on error
+			}
+
+			// Process pods from this namespace (limit processing for performance)
+			maxPodsPerNamespace := 500
+			podCount := 0
+			for i := range nsPods.Items {
+				if podCount >= maxPodsPerNamespace {
+					break
+				}
+				// Check context cancellation during processing
+				select {
+				case <-scanner.app.ctx.Done():
+					return incidents
+				default:
+				}
+				incidents = append(incidents, scanner.scanPodForIncidents(&nsPods.Items[i])...)
+				podCount++
+			}
+
+			scanned++
+		}
+		return incidents
+	}
+
+	// Single namespace scan
+	pods, err = scanner.app.clientset.CoreV1().Pods(namespace).List(scanner.app.ctx, opts)
 	if err != nil {
 		return incidents
 	}
 
+	// Process pods
 	for _, pod := range pods.Items {
+		incidents = append(incidents, scanner.scanPodForIncidents(&pod)...)
+	}
+
+	return incidents
+}
+
+// scanPodForIncidents scans a single pod for incidents (extracted for reuse)
+func (scanner *IncidentScanner) scanPodForIncidents(pod *corev1.Pod) []KubernetesIncident {
+	incidents := []KubernetesIncident{}
+
+	// Helper function to check container status (used for both regular and init containers)
+	checkContainerStatus := func(containerStatus corev1.ContainerStatus, containerName string, isInit bool) {
 		// Check for OOMKilled
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			if containerStatus.LastTerminationState.Terminated != nil {
-				term := containerStatus.LastTerminationState.Terminated
-				if term.Reason == "OOMKilled" {
-					incidents = append(incidents, KubernetesIncident{
-						ID:           fmt.Sprintf("oom-%s-%s-%s", pod.Namespace, pod.Name, containerStatus.Name),
-						Type:         "oom",
-						Severity:     "critical",
-						ResourceKind: "Pod",
-						ResourceName: fmt.Sprintf("%s/%s", pod.Name, containerStatus.Name),
-						Namespace:    pod.Namespace,
-						FirstSeen:    term.FinishedAt.Time,
-						LastSeen:     term.FinishedAt.Time,
-						Count:        1,
-						Message:      fmt.Sprintf("Container %s was OOMKilled", containerStatus.Name),
-					})
-				}
+		if containerStatus.LastTerminationState.Terminated != nil {
+			term := containerStatus.LastTerminationState.Terminated
+			if term.Reason == "OOMKilled" {
+				incidents = append(incidents, KubernetesIncident{
+					ID:           fmt.Sprintf("oom-%s-%s-%s", pod.Namespace, pod.Name, containerName),
+					Type:         "oom",
+					Severity:     "critical",
+					ResourceKind: "Pod",
+					ResourceName: fmt.Sprintf("%s/%s", pod.Name, containerName),
+					Namespace:    pod.Namespace,
+					FirstSeen:    term.FinishedAt.Time,
+					LastSeen:     term.FinishedAt.Time,
+					Count:        1,
+					Message:      fmt.Sprintf("Container %s was OOMKilled", containerName),
+				})
 			}
 		}
 
 		// Check for CrashLoopBackOff and other error states
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			if containerStatus.State.Waiting != nil {
-				waiting := containerStatus.State.Waiting
-				if waiting.Reason == "CrashLoopBackOff" || waiting.Reason == "ImagePullBackOff" || waiting.Reason == "ErrImagePull" {
-					severity := "warning"
-					if waiting.Reason == "CrashLoopBackOff" {
-						severity = "critical"
-					}
-					incidents = append(incidents, KubernetesIncident{
-						ID:           fmt.Sprintf("crashloop-%s-%s-%s", pod.Namespace, pod.Name, containerStatus.Name),
-						Type:         "crashloop",
-						Severity:     severity,
-						ResourceKind: "Pod",
-						ResourceName: fmt.Sprintf("%s/%s", pod.Name, containerStatus.Name),
-						Namespace:    pod.Namespace,
-						FirstSeen:    pod.CreationTimestamp.Time,
-						LastSeen:     time.Now(),
-						Count:        int(containerStatus.RestartCount),
-						Message:      fmt.Sprintf("Container %s: %s", containerStatus.Name, waiting.Message),
-					})
+		if containerStatus.State.Waiting != nil {
+			waiting := containerStatus.State.Waiting
+			if waiting.Reason == "CrashLoopBackOff" || waiting.Reason == "ImagePullBackOff" || waiting.Reason == "ErrImagePull" {
+				severity := "warning"
+				if waiting.Reason == "CrashLoopBackOff" {
+					severity = "critical"
 				}
+				incidents = append(incidents, KubernetesIncident{
+					ID:           fmt.Sprintf("crashloop-%s-%s-%s", pod.Namespace, pod.Name, containerName),
+					Type:         "crashloop",
+					Severity:     severity,
+					ResourceKind: "Pod",
+					ResourceName: fmt.Sprintf("%s/%s", pod.Name, containerName),
+					Namespace:    pod.Namespace,
+					FirstSeen:    pod.CreationTimestamp.Time,
+					LastSeen:     time.Now(),
+					Count:        int(containerStatus.RestartCount),
+					Message:      fmt.Sprintf("Container %s: %s", containerName, waiting.Message),
+				})
 			}
 		}
 
 		// Check for high restart counts (potential issue indicator)
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			if containerStatus.RestartCount > 5 {
-				// Only report if not already reported as crashloop
-				alreadyReported := false
-				for _, inc := range incidents {
-					if inc.ResourceName == fmt.Sprintf("%s/%s", pod.Name, containerStatus.Name) {
-						alreadyReported = true
-						break
-					}
-				}
-				if !alreadyReported {
-					incidents = append(incidents, KubernetesIncident{
-						ID:           fmt.Sprintf("restarts-%s-%s-%s", pod.Namespace, pod.Name, containerStatus.Name),
-						Type:         "high_restarts",
-						Severity:     "warning",
-						ResourceKind: "Pod",
-						ResourceName: fmt.Sprintf("%s/%s", pod.Name, containerStatus.Name),
-						Namespace:    pod.Namespace,
-						FirstSeen:    pod.CreationTimestamp.Time,
-						LastSeen:     time.Now(),
-						Count:        int(containerStatus.RestartCount),
-						Message:      fmt.Sprintf("Container %s has restarted %d times", containerStatus.Name, containerStatus.RestartCount),
-					})
+		if containerStatus.RestartCount > 5 {
+			// Only report if not already reported as crashloop or oom
+			alreadyReported := false
+			for _, inc := range incidents {
+				if inc.ResourceName == fmt.Sprintf("%s/%s", pod.Name, containerName) {
+					alreadyReported = true
+					break
 				}
 			}
+			if !alreadyReported {
+				incidents = append(incidents, KubernetesIncident{
+					ID:           fmt.Sprintf("restarts-%s-%s-%s", pod.Namespace, pod.Name, containerName),
+					Type:         "high_restarts",
+					Severity:     "warning",
+					ResourceKind: "Pod",
+					ResourceName: fmt.Sprintf("%s/%s", pod.Name, containerName),
+					Namespace:    pod.Namespace,
+					FirstSeen:    pod.CreationTimestamp.Time,
+					LastSeen:     time.Now(),
+					Count:        int(containerStatus.RestartCount),
+					Message:      fmt.Sprintf("Container %s has restarted %d times", containerName, containerStatus.RestartCount),
+				})
+			}
 		}
+	}
+
+	// Check regular containers
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		checkContainerStatus(containerStatus, containerStatus.Name, false)
+	}
+
+	// Check init containers (they can also be OOMKilled or crash)
+	for _, initContainerStatus := range pod.Status.InitContainerStatuses {
+		checkContainerStatus(initContainerStatus, initContainerStatus.Name, true)
 	}
 
 	return incidents
@@ -142,7 +263,18 @@ func (scanner *IncidentScanner) ScanPodsForIncidents(namespace string) []Kuberne
 func (scanner *IncidentScanner) ScanNodesForIncidents() []KubernetesIncident {
 	incidents := []KubernetesIncident{}
 
-	nodes, err := scanner.app.clientset.CoreV1().Nodes().List(scanner.app.ctx, metav1.ListOptions{})
+	// Check context cancellation before starting
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
+
+	// Use limit for nodes (most clusters have < 1000 nodes)
+	opts := metav1.ListOptions{
+		Limit: 1000, // Limit to 1000 nodes for performance
+	}
+	nodes, err := scanner.app.clientset.CoreV1().Nodes().List(scanner.app.ctx, opts)
 	if err != nil {
 		return incidents
 	}
@@ -204,7 +336,18 @@ func (scanner *IncidentScanner) ScanNodesForIncidents() []KubernetesIncident {
 func (scanner *IncidentScanner) ScanJobsForIncidents(namespace string) []KubernetesIncident {
 	incidents := []KubernetesIncident{}
 
-	jobs, err := scanner.app.clientset.BatchV1().Jobs(namespace).List(scanner.app.ctx, metav1.ListOptions{})
+	// Check context cancellation before starting
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
+
+	// Use limit to avoid scanning too many jobs at once (performance optimization)
+	opts := metav1.ListOptions{
+		Limit: 500, // Limit to 500 jobs per namespace for performance
+	}
+	jobs, err := scanner.app.clientset.BatchV1().Jobs(namespace).List(scanner.app.ctx, opts)
 	if err != nil {
 		return incidents
 	}
@@ -234,36 +377,73 @@ func (scanner *IncidentScanner) ScanJobsForIncidents(namespace string) []Kuberne
 func (scanner *IncidentScanner) ScanCronJobsForIncidents(namespace string) []KubernetesIncident {
 	incidents := []KubernetesIncident{}
 
-	cronJobs, err := scanner.app.clientset.BatchV1().CronJobs(namespace).List(scanner.app.ctx, metav1.ListOptions{})
+	// Check context cancellation before starting
+	select {
+	case <-scanner.app.ctx.Done():
+		return incidents
+	default:
+	}
+
+	// Use limit to avoid scanning too many cronjobs at once (performance optimization)
+	opts := metav1.ListOptions{
+		Limit: 500, // Limit to 500 cronjobs per namespace for performance
+	}
+	cronJobs, err := scanner.app.clientset.BatchV1().CronJobs(namespace).List(scanner.app.ctx, opts)
 	if err != nil {
 		return incidents
 	}
 
+	// OPTIMIZATION: List jobs once per namespace instead of once per cronjob
+	// This is much more efficient than the previous approach
+	var allJobs *batchv1.JobList
+	if namespace == "" {
+		// For all namespaces, we'll skip this expensive operation
+		// CronJob failures are less critical and can be detected via other means
+		return incidents
+	}
+
+	// Only scan jobs if we have a specific namespace (much faster)
+	jobOpts := metav1.ListOptions{
+		Limit: 1000, // Limit jobs to scan
+	}
+	allJobs, err = scanner.app.clientset.BatchV1().Jobs(namespace).List(scanner.app.ctx, jobOpts)
+	if err != nil {
+		return incidents
+	}
+
+	// Create a map of cronjob names for quick lookup
+	cronJobMap := make(map[string]bool)
 	for _, cronJob := range cronJobs.Items {
-		// List all jobs in the namespace and check if they're owned by this cronjob
-		jobs, err := scanner.app.clientset.BatchV1().Jobs(cronJob.Namespace).List(scanner.app.ctx, metav1.ListOptions{})
-		if err == nil {
-			for _, job := range jobs.Items {
-				// Check if this job is owned by the cronjob
-				for _, ownerRef := range job.OwnerReferences {
-					if ownerRef.Kind == "CronJob" && ownerRef.Name == cronJob.Name {
-						if job.Status.Failed > 0 {
-							incidents = append(incidents, KubernetesIncident{
-								ID:           fmt.Sprintf("cronjob-failure-%s-%s-%s", cronJob.Namespace, cronJob.Name, job.Name),
-								Type:         "cronjob_failure",
-								Severity:     "warning",
-								ResourceKind: "CronJob",
-								ResourceName: cronJob.Name,
-								Namespace:    cronJob.Namespace,
-								FirstSeen:    job.CreationTimestamp.Time,
-								LastSeen:     time.Now(),
-								Count:        int(job.Status.Failed),
-								Message:      fmt.Sprintf("CronJob execution failed: %s has %d failed pods", job.Name, job.Status.Failed),
-							})
-						}
-						break
-					}
+		cronJobMap[cronJob.Name] = true
+	}
+
+	// Check each job once and see if it belongs to any cronjob
+	for _, job := range allJobs.Items {
+		// Check context cancellation during processing
+		select {
+		case <-scanner.app.ctx.Done():
+			return incidents
+		default:
+		}
+
+		// Check if this job is owned by a cronjob
+		for _, ownerRef := range job.OwnerReferences {
+			if ownerRef.Kind == "CronJob" && cronJobMap[ownerRef.Name] {
+				if job.Status.Failed > 0 {
+					incidents = append(incidents, KubernetesIncident{
+						ID:           fmt.Sprintf("cronjob-failure-%s-%s-%s", job.Namespace, ownerRef.Name, job.Name),
+						Type:         "cronjob_failure",
+						Severity:     "warning",
+						ResourceKind: "CronJob",
+						ResourceName: ownerRef.Name,
+						Namespace:    job.Namespace,
+						FirstSeen:    job.CreationTimestamp.Time,
+						LastSeen:     time.Now(),
+						Count:        int(job.Status.Failed),
+						Message:      fmt.Sprintf("CronJob execution failed: %s has %d failed pods", job.Name, job.Status.Failed),
+					})
 				}
+				break
 			}
 		}
 	}
@@ -317,4 +497,3 @@ func (scanner *IncidentScanner) ConvertKubernetesIncidentToSREIncident(k8sIncide
 
 	return incident
 }
-

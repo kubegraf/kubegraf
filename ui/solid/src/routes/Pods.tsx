@@ -1398,7 +1398,7 @@ const Pods: Component = () => {
                             { label: 'View YAML', icon: 'yaml', onClick: () => openModal(pod, 'yaml') },
                             { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPod(pod); setShowEdit(true); } },
                             { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
-                            { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger' },
+                            { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger', divider: true },
                           ]}
                           onOpenChange={setActionMenuOpen}
                         />
@@ -1917,6 +1917,20 @@ const Pods: Component = () => {
             }}
           </Show>
         </div>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selectedPod()?.name}`} size="xl">
+        <Show when={!yamlContent.loading} fallback={<div class="flex items-center justify-center p-8">Loading...</div>}>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selectedPod()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
+        </Show>
       </Modal>
 
       {/* Bulk Delete Modal */}

@@ -14,6 +14,7 @@ export const observabilityApps: MarketplaceApp[] = [
     chartName: 'prometheus',
     tags: ['metrics', 'monitoring', 'alerting'],
     maintainer: 'Prometheus Community',
+    sourceCitation: 'Helm Chart: https://prometheus-community.github.io/helm-charts | Official: https://prometheus.io',
     clusterSupport: {
       single: true,
       multi: true,
@@ -31,6 +32,7 @@ export const observabilityApps: MarketplaceApp[] = [
     chartName: 'grafana',
     tags: ['dashboards', 'visualization', 'metrics'],
     maintainer: 'Grafana Labs',
+    sourceCitation: 'Helm Chart: https://grafana.github.io/helm-charts | Official: https://grafana.com',
     clusterSupport: {
       single: true,
       multi: true,
@@ -48,6 +50,7 @@ export const observabilityApps: MarketplaceApp[] = [
     chartName: 'loki-stack',
     tags: ['logs', 'aggregation', 'storage'],
     maintainer: 'Grafana Labs',
+    sourceCitation: 'Helm Chart: https://grafana.github.io/helm-charts | Official: https://grafana.com/docs/loki',
     clusterSupport: {
       single: true,
       multi: true,
@@ -65,6 +68,7 @@ export const observabilityApps: MarketplaceApp[] = [
     chartName: 'tempo',
     tags: ['tracing', 'distributed-tracing', 'opentelemetry'],
     maintainer: 'Grafana Labs',
+    sourceCitation: 'Helm Chart: https://grafana.github.io/helm-charts | Official: https://grafana.com/docs/tempo',
     clusterSupport: {
       single: true,
       multi: true,
@@ -82,6 +86,7 @@ export const observabilityApps: MarketplaceApp[] = [
     chartName: 'kube-prometheus-stack',
     tags: ['full-stack', 'prometheus', 'grafana', 'alertmanager'],
     maintainer: 'Prometheus Community',
+    sourceCitation: 'Helm Chart: https://prometheus-community.github.io/helm-charts | GitHub: https://github.com/prometheus-community/kube-prometheus-stack',
     clusterSupport: {
       single: true,
       multi: true,

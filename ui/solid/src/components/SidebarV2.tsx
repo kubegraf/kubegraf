@@ -72,6 +72,9 @@ const SidebarV2: Component = () => {
   const [version, setVersion] = createSignal<string>('');
   const [bottomSectionCollapsed, setBottomSectionCollapsed] = createSignal(true);
   const [quickSwitcherOpen, setQuickSwitcherOpen] = createSignal(false);
+  const [updateInfo, setUpdateInfoState] = createSignal<any>(null);
+  const [updateModalOpen, setUpdateModalOpen] = createSignal(false);
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
 
   // Auto-hide behavior: collapse when not hovered
   createEffect(() => {
@@ -113,20 +116,51 @@ const SidebarV2: Component = () => {
     }
   };
 
+  // Check for updates function
+  const checkForUpdates = async (showNotification = false) => {
+    try {
+      const info = await api.autoCheckUpdate();
+      setUpdateInfoState(info);
+      setUpdateInfo(info);
+      
+      if (info.updateAvailable) {
+        // Check if we should show daily reminder
+        const lastReminderKey = 'kubegraf-update-reminder-date';
+        const lastReminder = localStorage.getItem(lastReminderKey);
+        const today = new Date().toDateString();
+        
+        if (lastReminder !== today) {
+          // Show reminder notification once per day
+          if (showNotification) {
+            addNotification(`🆕 New version v${info.latestVersion} available! Click Update button to install.`, 'info');
+          }
+          localStorage.setItem(lastReminderKey, today);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check for updates:', err);
+    }
+  };
+
   // Fetch version on mount and periodically refresh
   onMount(() => {
     fetchVersion();
-    const interval = setInterval(fetchVersion, 10000);
+    checkForUpdates(true); // Check on mount and show notification if available
+    
+    const versionInterval = setInterval(fetchVersion, 10000);
+    const updateInterval = setInterval(() => checkForUpdates(false), 3600000); // Check every hour
     
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         setTimeout(fetchVersion, 1000);
+        setTimeout(() => checkForUpdates(true), 2000); // Check for updates when page becomes visible
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
     const handleFocus = () => {
       setTimeout(fetchVersion, 500);
+      setTimeout(() => checkForUpdates(true), 1000); // Check for updates on focus
     };
     window.addEventListener('focus', handleFocus);
 
@@ -140,7 +174,8 @@ const SidebarV2: Component = () => {
     document.addEventListener('keydown', handleGlobalKeyDown);
     
     return () => {
-      clearInterval(interval);
+      clearInterval(versionInterval);
+      clearInterval(updateInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('keydown', handleGlobalKeyDown);
@@ -218,15 +253,37 @@ const SidebarV2: Component = () => {
                     transition: 'filter 0.3s ease',
                   }}
                 />
-                <span class="text-[10px] font-bold text-text-primary tracking-tight mt-0.5">KubeGraf</span>
+                <span 
+                  class="text-[10px] font-bold tracking-tight mt-0.5"
+                  style={{ 
+                    color: 'var(--text-primary)',
+                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                  }}
+                >
+                  KubeGraf
+                </span>
               </button>
             </div>
 
             {/* Cluster Status */}
             <div class="px-2 py-2 border-b border-border-subtle bg-bg-sidebar">
               <div class="flex flex-col items-center gap-1">
-                <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-status-success' : 'bg-status-danger'}`} />
-                <span class="text-[10px] text-text-muted text-center truncate w-full" title={currentContext() || 'No cluster selected'}>
+                <span 
+                  class="w-2 h-2 rounded-full"
+                  style={{
+                    background: clusterStatus().connected 
+                      ? 'var(--success-color, #10b981)' 
+                      : 'var(--error-color, #ef4444)'
+                  }}
+                />
+                <span 
+                  class="text-[10px] text-center truncate w-full font-semibold"
+                  style={{ 
+                    color: 'var(--text-primary)',
+                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                  }}
+                  title={currentContext() || 'No cluster selected'}
+                >
                   {clusterStatus().connected ? 'ON' : 'OFF'}
                 </span>
               </div>
@@ -338,9 +395,90 @@ const SidebarV2: Component = () => {
                 </div>
               </Show>
 
-              {/* Version - Always visible at bottom */}
+              {/* Version and Update Button - Always visible at bottom */}
               <div class="border-t border-border-subtle py-2 px-2">
-                <span class="text-[11px] font-semibold text-text-primary block text-center" style={{ color: 'var(--text-primary)' }}>{version() ? `v${version()}` : '...'}</span>
+                <div class="flex flex-col items-center gap-1.5">
+                  <div class="flex items-center gap-1.5 w-full justify-center">
+                    <span class={`w-1.5 h-1.5 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    <span 
+                      class="text-[11px] font-semibold" 
+                      style={{ 
+                        color: 'rgba(128, 128, 128, 0.9)',
+                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {version() ? `v${version()}` : '...'}
+                    </span>
+                  </div>
+                  
+                  {/* Update Button - Shows when update is available */}
+                  <Show when={updateInfo()?.updateAvailable}>
+                    <button
+                      onClick={async () => {
+                        setCheckingUpdate(true);
+                        try {
+                          const info = await api.checkUpdate();
+                          setUpdateInfoState(info);
+                          setUpdateInfo(info);
+                          if (info.updateAvailable) {
+                            setUpdateModalOpen(true);
+                          }
+                        } catch (err) {
+                          addNotification('Failed to check for updates', 'error');
+                          console.error('Update check failed:', err);
+                        } finally {
+                          setCheckingUpdate(false);
+                        }
+                      }}
+                      disabled={checkingUpdate()}
+                      class="w-full flex items-center justify-center gap-1.5 px-2 py-1 rounded-md transition-all duration-200 text-[10px] font-medium"
+                      style={{
+                        background: updateInfo()?.updateAvailable 
+                          ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                          : 'var(--bg-secondary)',
+                        color: updateInfo()?.updateAvailable ? '#ffffff' : 'var(--text-secondary)',
+                        border: updateInfo()?.updateAvailable ? '1px solid #f59e0b' : '1px solid var(--border-color)',
+                        boxShadow: updateInfo()?.updateAvailable 
+                          ? '0 2px 8px rgba(245, 158, 11, 0.4), 0 0 12px rgba(245, 158, 11, 0.2)' 
+                          : 'none',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (updateInfo()?.updateAvailable) {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, #d97706 0%, #b45309 100%)';
+                          e.currentTarget.style.transform = 'scale(1.02)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (updateInfo()?.updateAvailable) {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }
+                      }}
+                      title={`Update available: v${updateInfo()?.latestVersion || ''}`}
+                    >
+                      <Show when={!checkingUpdate()} fallback={
+                        <svg class="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      }>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </Show>
+                      <span>Update</span>
+                    </button>
+                    <div 
+                      class="text-[9px] text-center px-1"
+                      style={{ 
+                        color: 'var(--text-muted)',
+                        lineHeight: '1.2'
+                      }}
+                    >
+                      New version available, please click here to update
+                    </div>
+                  </Show>
+                </div>
               </div>
             </div>
           </div>
@@ -362,6 +500,14 @@ const SidebarV2: Component = () => {
         onClose={() => setQuickSwitcherOpen(false)}
       />
 
+      {/* Update Modal */}
+      <Show when={updateModalOpen() && updateInfo()}>
+        <UpdateModal
+          isOpen={updateModalOpen()}
+          onClose={() => setUpdateModalOpen(false)}
+          updateInfo={updateInfo()!}
+        />
+      </Show>
     </>
   );
 };

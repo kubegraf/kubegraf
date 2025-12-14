@@ -43,50 +43,73 @@ const RBAC: Component = () => {
   const [selectedCRB, setSelectedCRB] = createSignal<any>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+
+  // Font size selector with localStorage persistence
+  const getInitialFontSize = (): number => {
+    const saved = localStorage.getItem('rbac-font-size');
+    return saved ? parseInt(saved) : 14;
+  };
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('rbac-font-size', size.toString());
+  };
+
+  // Font family selector with localStorage persistence
+  const getInitialFontFamily = (): string => {
+    const saved = localStorage.getItem('rbac-font-family');
+    return saved || 'Monaco';
+  };
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    localStorage.setItem('rbac-font-family', family);
+  };
+
+  // Map font family option to actual font-family CSS value
+  const getFontFamilyCSS = (): string => {
+    const family = fontFamily();
+    switch (family) {
+      case 'Monospace': return '"Courier New", Monaco, monospace';
+      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
+      case 'Consolas': return 'Consolas, "Courier New", monospace';
+      case 'Courier': return 'Courier, "Courier New", monospace';
+      default: return '"Courier New", Monaco, monospace';
+    }
+  };
   
   // Use createResource for automatic YAML loading like Deployments
   const [yamlContent] = createResource(
-    () => {
-      if (!(showYaml() || showEdit())) return null;
-      const tab = activeTab();
-      const resource = tab === 'roles' ? selectedRole() :
-                      tab === 'rolebindings' ? selectedRB() :
-                      tab === 'clusterroles' ? selectedCR() :
-                      selectedCRB();
-      if (!resource) return null;
-      
-      const type = tab === 'roles' ? 'role' :
-                   tab === 'rolebindings' ? 'rolebinding' :
-                   tab === 'clusterroles' ? 'clusterrole' :
-                   'clusterrolebinding';
-      
-      // For cluster-scoped resources, namespace is undefined
-      // Include it in the key to ensure proper reactivity
-      return {
-        type,
-        name: resource.name,
-        namespace: resource.namespace || undefined
-      };
-    },
-    async (params) => {
-      if (!params) return '';
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [type, name, ns] = key.split('|');
+      if (!type || !name) return '';
       try {
         let url = '';
-        if (params.type === 'role') {
-          url = `/api/rbac/role/yaml?name=${encodeURIComponent(params.name)}&namespace=${encodeURIComponent(params.namespace || '')}`;
-        } else if (params.type === 'rolebinding') {
-          url = `/api/rbac/rolebinding/yaml?name=${encodeURIComponent(params.name)}&namespace=${encodeURIComponent(params.namespace || '')}`;
-        } else if (params.type === 'clusterrole') {
-          url = `/api/rbac/clusterrole/yaml?name=${encodeURIComponent(params.name)}`;
-        } else if (params.type === 'clusterrolebinding') {
-          url = `/api/rbac/clusterrolebinding/yaml?name=${encodeURIComponent(params.name)}`;
+        if (type === 'role') {
+          url = `/api/rbac/role/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(ns || '')}`;
+        } else if (type === 'rolebinding') {
+          url = `/api/rbac/rolebinding/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(ns || '')}`;
+        } else if (type === 'clusterrole') {
+          url = `/api/rbac/clusterrole/yaml?name=${encodeURIComponent(name)}`;
+        } else if (type === 'clusterrolebinding') {
+          url = `/api/rbac/clusterrolebinding/yaml?name=${encodeURIComponent(name)}`;
         }
         
         const response = await fetch(url);
-        if (!response.ok) throw new Error('Failed to fetch YAML');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Failed to fetch YAML' }));
+          throw new Error(errorData.error || 'Failed to fetch YAML');
+        }
         const data = await response.json();
         return data.yaml || '';
       } catch (err: any) {
+        console.error('Failed to fetch RBAC YAML:', err);
         addNotification(`Failed to load YAML: ${err.message}`, 'error');
         return '';
       }
@@ -245,8 +268,45 @@ const RBAC: Component = () => {
   };
 
   return (
-    <div class="space-y-6 p-6" style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
+    <div class="space-y-4">
       {/* Header */}
+      <div class="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>RBAC</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>Manage Roles, RoleBindings, ClusterRoles, and ClusterRoleBindings</p>
+        </div>
+        <div class="flex items-center gap-3">
+          {/* Font Size Selector */}
+          <select
+            value={fontSize()}
+            onChange={(e) => handleFontSizeChange(parseInt(e.currentTarget.value))}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Size"
+          >
+            <option value="12">12px</option>
+            <option value="14">14px</option>
+            <option value="16">16px</option>
+            <option value="18">18px</option>
+            <option value="20">20px</option>
+          </select>
+
+          {/* Font Family Selector */}
+          <select
+            value={fontFamily()}
+            onChange={(e) => handleFontFamilyChange(e.currentTarget.value)}
+            class="px-3 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            title="Font Family"
+          >
+            <option value="Monospace">Monospace</option>
+            <option value="System-ui">System-ui</option>
+            <option value="Monaco">Monaco</option>
+            <option value="Consolas">Consolas</option>
+            <option value="Courier">Courier</option>
+          </select>
+        </div>
+      </div>
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>RBAC</h1>
@@ -308,7 +368,7 @@ const RBAC: Component = () => {
 
       {/* Content */}
       <Show when={activeTab() === 'roles'}>
-        <div class="card overflow-hidden">
+        <div>
           <Show when={roles.loading}>
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -321,46 +381,156 @@ const RBAC: Component = () => {
             </div>
           </Show>
           <Show when={!roles.loading && roles() && roles().length > 0}>
-            <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead style={{ background: 'var(--bg-secondary)' }}>
-                  <tr>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Namespace</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Rules</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={roles()}>
-                    {(role: any) => (
-                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{role.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{role.namespace || 'default'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{role.rules || 0}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{role.age || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm">
-                          <ActionMenu
-                            actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRole(role); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRole(role); setShowEdit(true); } },
-                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('role', role.name, role.namespace), variant: 'danger', divider: true },
-                            ]}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
+            <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
+              <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+                <table
+                  class="w-full"
+                  style={{
+                    width: '100%',
+                    'table-layout': 'auto',
+                    'font-family': getFontFamilyCSS(),
+                    background: 'var(--bg-primary)',
+                    'border-collapse': 'collapse',
+                    margin: '0',
+                    padding: '0'
+                  }}
+                >
+                  <thead>
+                    <tr style={{
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'font-family': getFontFamilyCSS(),
+                      'font-weight': '900',
+                      color: '#0ea5e9',
+                      'font-size': `${fontSize()}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                    }}>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Name</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Namespace</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Rules</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Age</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={roles()} fallback={
+                      <tr><td colspan="5" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No roles found</td></tr>
+                    }>
+                      {(role: any) => {
+                        const textColor = '#0ea5e9';
+                        return (
+                        <tr>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{role.name}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{role.namespace || 'default'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{role.rules || 0}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{role.age || 'N/A'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>
+                            <ActionMenu
+                              actions={[
+                                { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                                  setSelectedRole(role);
+                                  setYamlKey(`role|${role.name}|${role.namespace || ''}`);
+                                  setShowYaml(true);
+                                } },
+                                { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                                  setSelectedRole(role);
+                                  setYamlKey(`role|${role.name}|${role.namespace || ''}`);
+                                  setShowEdit(true);
+                                } },
+                                { label: 'Delete', icon: 'delete', onClick: () => handleDelete('role', role.name, role.namespace), variant: 'danger', divider: true },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                        );
+                      }}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </Show>
         </div>
       </Show>
 
       <Show when={activeTab() === 'rolebindings'}>
-        <div class="card overflow-hidden">
+        <div>
           <Show when={roleBindings.loading}>
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -373,48 +543,174 @@ const RBAC: Component = () => {
             </div>
           </Show>
           <Show when={!roleBindings.loading && roleBindings() && roleBindings().length > 0}>
-            <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead style={{ background: 'var(--bg-secondary)' }}>
-                  <tr>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Namespace</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Role Ref</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Subjects</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={roleBindings()}>
-                    {(rb: any) => (
-                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{rb.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.namespace || 'default'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.roleRef || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.subjects || 0}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{rb.age || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm">
-                          <ActionMenu
-                            actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedRB(rb); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedRB(rb); setShowEdit(true); } },
-                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('rb', rb.name, rb.namespace), variant: 'danger', divider: true },
-                            ]}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
+            <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
+              <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+                <table
+                  class="w-full"
+                  style={{
+                    width: '100%',
+                    'table-layout': 'auto',
+                    'font-family': getFontFamilyCSS(),
+                    background: 'var(--bg-primary)',
+                    'border-collapse': 'collapse',
+                    margin: '0',
+                    padding: '0'
+                  }}
+                >
+                  <thead>
+                    <tr style={{
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'font-family': getFontFamilyCSS(),
+                      'font-weight': '900',
+                      color: '#0ea5e9',
+                      'font-size': `${fontSize()}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                    }}>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Name</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Namespace</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Role Ref</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Subjects</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Age</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={roleBindings()} fallback={
+                      <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No role bindings found</td></tr>
+                    }>
+                      {(rb: any) => {
+                        const textColor = '#0ea5e9';
+                        return (
+                        <tr>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{rb.name}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{rb.namespace || 'default'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{rb.roleRef || 'N/A'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{rb.subjects || 0}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{rb.age || 'N/A'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>
+                            <ActionMenu
+                              actions={[
+                                { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                                  setSelectedRB(rb);
+                                  setYamlKey(`rolebinding|${rb.name}|${rb.namespace || ''}`);
+                                  setShowYaml(true);
+                                } },
+                                { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                                  setSelectedRB(rb);
+                                  setYamlKey(`rolebinding|${rb.name}|${rb.namespace || ''}`);
+                                  setShowEdit(true);
+                                } },
+                                { label: 'Delete', icon: 'delete', onClick: () => handleDelete('rb', rb.name, rb.namespace), variant: 'danger', divider: true },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                        );
+                      }}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </Show>
         </div>
       </Show>
 
       <Show when={activeTab() === 'clusterroles'}>
-        <div class="card overflow-hidden">
+        <div>
           <Show when={clusterRoles.loading}>
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -427,44 +723,138 @@ const RBAC: Component = () => {
             </div>
           </Show>
           <Show when={!clusterRoles.loading && clusterRoles() && clusterRoles().length > 0}>
-            <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead style={{ background: 'var(--bg-secondary)' }}>
-                  <tr>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Rules</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={clusterRoles()}>
-                    {(cr: any) => (
-                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{cr.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{cr.rules || 0}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{cr.age || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm">
-                          <ActionMenu
-                            actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCR(cr); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCR(cr); setShowEdit(true); } },
-                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('cr', cr.name), variant: 'danger', divider: true },
-                            ]}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
+            <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
+              <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+                <table
+                  class="w-full"
+                  style={{
+                    width: '100%',
+                    'table-layout': 'auto',
+                    'font-family': getFontFamilyCSS(),
+                    background: 'var(--bg-primary)',
+                    'border-collapse': 'collapse',
+                    margin: '0',
+                    padding: '0'
+                  }}
+                >
+                  <thead>
+                    <tr style={{
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'font-family': getFontFamilyCSS(),
+                      'font-weight': '900',
+                      color: '#0ea5e9',
+                      'font-size': `${fontSize()}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                    }}>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Name</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Rules</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Age</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={clusterRoles()} fallback={
+                      <tr><td colspan="4" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No cluster roles found</td></tr>
+                    }>
+                      {(cr: any) => {
+                        const textColor = '#0ea5e9';
+                        return (
+                        <tr>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{cr.name}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{cr.rules || 0}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{cr.age || 'N/A'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>
+                            <ActionMenu
+                              actions={[
+                                { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                                  setSelectedCR(cr);
+                                  setYamlKey(`clusterrole|${cr.name}|`);
+                                  setShowYaml(true);
+                                } },
+                                { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                                  setSelectedCR(cr);
+                                  setYamlKey(`clusterrole|${cr.name}|`);
+                                  setShowEdit(true);
+                                } },
+                                { label: 'Delete', icon: 'delete', onClick: () => handleDelete('cr', cr.name), variant: 'danger', divider: true },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                        );
+                      }}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </Show>
         </div>
       </Show>
 
       <Show when={activeTab() === 'clusterrolebindings'}>
-        <div class="card overflow-hidden">
+        <div>
           <Show when={clusterRoleBindings.loading}>
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -477,69 +867,224 @@ const RBAC: Component = () => {
             </div>
           </Show>
           <Show when={!clusterRoleBindings.loading && clusterRoleBindings() && clusterRoleBindings().length > 0}>
-            <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead style={{ background: 'var(--bg-secondary)' }}>
-                  <tr>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Name</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Role Ref</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Subjects</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Age</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={clusterRoleBindings()}>
-                    {(crb: any) => (
-                      <tr class="border-t" style={{ 'border-color': 'var(--border-color)' }}>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>{crb.name}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{crb.roleRef || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{crb.subjects || 0}</td>
-                        <td class="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{crb.age || 'N/A'}</td>
-                        <td class="px-4 py-3 text-sm">
-                          <ActionMenu
-                            actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedCRB(crb); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedCRB(crb); setShowEdit(true); } },
-                              { label: 'Delete', icon: 'delete', onClick: () => handleDelete('crb', crb.name), variant: 'danger', divider: true },
-                            ]}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
+            <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
+              <div class="w-full overflow-x-auto" style={{ margin: '0', padding: '0' }}>
+                <table
+                  class="w-full"
+                  style={{
+                    width: '100%',
+                    'table-layout': 'auto',
+                    'font-family': getFontFamilyCSS(),
+                    background: 'var(--bg-primary)',
+                    'border-collapse': 'collapse',
+                    margin: '0',
+                    padding: '0'
+                  }}
+                >
+                  <thead>
+                    <tr style={{
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'font-family': getFontFamilyCSS(),
+                      'font-weight': '900',
+                      color: '#0ea5e9',
+                      'font-size': `${fontSize()}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+                    }}>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Name</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Role Ref</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Subjects</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Age</th>
+                      <th class="whitespace-nowrap" style={{
+                        padding: '0 8px',
+                        'text-align': 'left',
+                        'font-weight': '900',
+                        color: '#0ea5e9',
+                        'font-size': `${fontSize()}px`,
+                        border: 'none'
+                      }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={clusterRoleBindings()} fallback={
+                      <tr><td colspan="5" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No cluster role bindings found</td></tr>
+                    }>
+                      {(crb: any) => {
+                        const textColor = '#0ea5e9';
+                        return (
+                        <tr>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{crb.name}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{crb.roleRef || 'N/A'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{crb.subjects || 0}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            color: textColor,
+                            'font-weight': '900',
+                            'font-size': `${fontSize()}px`,
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>{crb.age || 'N/A'}</td>
+                          <td style={{
+                            padding: '0 8px',
+                            'text-align': 'left',
+                            height: `${Math.max(24, fontSize() * 1.7)}px`,
+                            'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                            border: 'none'
+                          }}>
+                            <ActionMenu
+                              actions={[
+                                { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                                  setSelectedCRB(crb);
+                                  setYamlKey(`clusterrolebinding|${crb.name}|`);
+                                  setShowYaml(true);
+                                } },
+                                { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                                  setSelectedCRB(crb);
+                                  setYamlKey(`clusterrolebinding|${crb.name}|`);
+                                  setShowEdit(true);
+                                } },
+                                { label: 'Delete', icon: 'delete', onClick: () => handleDelete('crb', crb.name), variant: 'danger', divider: true },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                        );
+                      }}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </Show>
         </div>
       </Show>
 
       {/* YAML Viewer Modal */}
-        <Modal
+      <Modal
         isOpen={showYaml()}
         size="xl"
-          title={`View YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
-          onClose={() => { setShowYaml(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
+        title={`YAML: ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name || ''}`}
+        onClose={() => { 
+          setShowYaml(false); 
+          setSelectedRole(null); 
+          setSelectedRB(null); 
+          setSelectedCR(null); 
+          setSelectedCRB(null);
+          setYamlKey(null);
+        }}
+      >
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
         >
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
-          <YAMLViewer yaml={yamlContent() || ''} title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} />
-          </Show>
-        </Modal>
+          <YAMLViewer 
+            yaml={yamlContent() || ''} 
+            title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} 
+          />
+        </Show>
+      </Modal>
 
       {/* YAML Editor Modal */}
-        <Modal
+      <Modal
         isOpen={showEdit()}
         size="xl"
-          title={`Edit YAML - ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name}`}
-          onClose={() => { setShowEdit(false); setSelectedRole(null); setSelectedRB(null); setSelectedCR(null); setSelectedCRB(null); }}
-        >
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
-          <div style={{ height: '70vh' }}>
-            <YAMLEditor yaml={yamlContent() || ''} title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />
+        title={`Edit YAML: ${activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name || ''}`}
+        onClose={() => { 
+          setShowEdit(false); 
+          setSelectedRole(null); 
+          setSelectedRB(null); 
+          setSelectedCR(null); 
+          setSelectedCRB(null);
+          setYamlKey(null);
+        }}
+      >
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
             </div>
-          </Show>
-        </Modal>
+          }
+        >
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor 
+              yaml={yamlContent() || ''} 
+              title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} 
+              onSave={handleSaveYAML} 
+              onCancel={() => {
+                setShowEdit(false);
+                setSelectedRole(null);
+                setSelectedRB(null);
+                setSelectedCR(null);
+                setSelectedCRB(null);
+                setYamlKey(null);
+              }} 
+            />
+          </div>
+        </Show>
+      </Modal>
     </div>
   );
 };

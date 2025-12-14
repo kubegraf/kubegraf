@@ -22,6 +22,10 @@ export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Prom
     defaultTimeout = 60000; // 60 seconds for anomaly detection
   } else if (endpoint.includes('/topology') || endpoint.includes('/traffic/metrics')) {
     defaultTimeout = 60000; // 60 seconds for topology and traffic metrics
+  } else if (endpoint.includes('/brain/')) {
+    defaultTimeout = 60000; // 60 seconds for brain endpoints (they scan cluster data)
+  } else if (endpoint.includes('/incidents')) {
+    defaultTimeout = 120000; // 120 seconds (2 minutes) for incidents (they scan cluster data)
   }
   const timeout = (options as any)?.timeout || defaultTimeout;
   const controller = new AbortController();
@@ -531,6 +535,11 @@ export const api = {
   },
   getNetworkPolicyYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/networkpolicy/yaml?name=${name}&namespace=${namespace}`),
+  updateNetworkPolicy: (name: string, namespace: string, yaml: string) =>
+    fetchAPI<{ success: boolean }>(`/networkpolicy/update?name=${name}&namespace=${namespace}`, {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    }),
   getNetworkPolicyDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/networkpolicy/describe?name=${name}&namespace=${namespace}`),
   getNetworkPolicyDetails: (name: string, namespace: string) =>
@@ -549,6 +558,18 @@ export const api = {
   },
   getConfigMapYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/configmap/yaml?name=${name}&namespace=${namespace}`),
+  updateConfigMap: async (name: string, namespace: string, yaml: string) => {
+    const response = await fetch(`/api/configmap/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.error || errorData.message || `API error: ${response.statusText}`);
+    }
+    return response.json();
+  },
   getConfigMapDescribe: (name: string, namespace: string) =>
     fetchAPI<{ describe: string }>(`/configmap/describe?name=${name}&namespace=${namespace}`),
   deleteConfigMap: (name: string, namespace: string) =>

@@ -460,10 +460,42 @@ const ClusterManager: Component = () => {
                           {ctx.connected ? 'Reachable' : 'Unavailable'}
                         </div>
                         <button
-                          class="px-3 py-1.5 text-sm rounded-md"
-                          style={{ border: '1px solid var(--border-color)', background: ctx.current ? 'var(--bg-secondary)' : 'var(--bg-card)' }}
+                          class="px-4 py-2 text-sm rounded-md font-semibold transition-all"
+                          style={{ 
+                            border: ctx.current ? '1px solid var(--border-color)' : '2px solid var(--accent-primary)', 
+                            background: ctx.current 
+                              ? 'var(--bg-secondary)' 
+                              : 'var(--accent-primary)',
+                            color: ctx.current 
+                              ? 'var(--text-secondary)' 
+                              : '#000000',
+                            opacity: ctx.current || clusterLoading() ? 0.6 : 1,
+                            cursor: ctx.current || clusterLoading() ? 'not-allowed' : 'pointer',
+                            'box-shadow': ctx.current 
+                              ? 'none' 
+                              : '0 2px 4px rgba(6, 182, 212, 0.2)',
+                            'font-weight': '600'
+                          }}
                           disabled={ctx.current || clusterLoading()}
                           onClick={() => handleSwitchContext(ctx.name)}
+                          onMouseEnter={(e) => {
+                            if (!ctx.current && !clusterLoading()) {
+                              e.currentTarget.style.background = 'var(--accent-primary)';
+                              e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                              e.currentTarget.style.opacity = '0.9';
+                              e.currentTarget.style.boxShadow = '0 4px 8px rgba(6, 182, 212, 0.3)';
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!ctx.current && !clusterLoading()) {
+                              e.currentTarget.style.background = 'var(--accent-primary)';
+                              e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.boxShadow = '0 2px 4px rgba(6, 182, 212, 0.2)';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                            }
+                          }}
                         >
                           Switch
                         </button>

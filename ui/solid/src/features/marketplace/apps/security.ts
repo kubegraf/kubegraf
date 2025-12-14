@@ -14,6 +14,7 @@ export const securityApps: MarketplaceApp[] = [
     chartName: 'cert-manager',
     tags: ['tls', 'certificates', 'ssl'],
     maintainer: 'Jetstack',
+    sourceCitation: 'Helm Chart: https://charts.jetstack.io | Official: https://cert-manager.io',
     clusterSupport: {
       single: true,
       multi: true,
@@ -31,6 +32,7 @@ export const securityApps: MarketplaceApp[] = [
     chartName: 'vault',
     tags: ['secrets', 'encryption', 'security'],
     maintainer: 'HashiCorp',
+    sourceCitation: 'Helm Chart: https://helm.releases.hashicorp.com | Official: https://www.vaultproject.io',
     clusterSupport: {
       single: true,
       multi: true,

@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, onMount, onCleanup, createSignal, createEffect } from 'solid-js';
 import type { NavSection } from '../../config/navSections';
-import { currentView, setCurrentView } from '../../stores/ui';
+import { currentView, setCurrentView, setTerminalOpen } from '../../stores/ui';
 import { getVisibleSection, closeWithDelay, isSectionPinned, unpinSection, activeSection } from '../../stores/sidebarState';
 import { unreadInsightsEvents } from '../../stores/insightsPulse';
 
@@ -92,6 +92,14 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
   });
 
   const handleItemClick = (itemId: string) => {
+    // Special handling for terminal - open docked terminal instead of navigating
+    if (itemId === 'terminal') {
+      const { setTerminalOpen } = require('../../stores/ui');
+      setTerminalOpen(true);
+      props.onItemClick?.(itemId);
+      return;
+    }
+    
     setCurrentView(itemId as any);
     props.onItemClick?.(itemId);
     // Scroll to top of content area (not window top, but main content)

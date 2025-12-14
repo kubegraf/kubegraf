@@ -34,6 +34,7 @@ const StatefulSets: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [showScale, setShowScale] = createSignal(false);
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
   const [restarting, setRestarting] = createSignal<string | null>(null); // Track which statefulset is restarting
@@ -87,11 +88,19 @@ const StatefulSets: Component = () => {
 
   const [statefulsets, { refetch }] = createResource(namespace, api.getStatefulSets);
   const [yamlContent] = createResource(
-    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
-    async (params) => {
-      if (!params) return '';
-      const data = await api.getStatefulSetYAML(params.name, params.ns);
-      return data.yaml || '';
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [name, ns] = key.split('|');
+      if (!name || !ns) return '';
+      try {
+        const data = await api.getStatefulSetYAML(name, ns);
+        return data.yaml || '';
+      } catch (error) {
+        console.error('Failed to fetch statefulset YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
+      }
     }
   );
 
@@ -638,8 +647,16 @@ const StatefulSets: Component = () => {
                               onClick: () => restart(sts),
                               loading: restarting() === `${sts.namespace}/${sts.name}`
                             },
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(sts); setShowYaml(true); } },
-                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(sts); setShowEdit(true); } },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                              setSelected(sts);
+                              setYamlKey(`${sts.name}|${sts.namespace}`);
+                              setShowYaml(true);
+                            } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                              setSelected(sts);
+                              setYamlKey(`${sts.name}|${sts.namespace}`);
+                              setShowEdit(true);
+                            } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteStatefulSet(sts), variant: 'danger', divider: true },
                           ]}
                         />
@@ -712,21 +729,37 @@ const StatefulSets: Component = () => {
       </div>
 
       {/* YAML Modal */}
-      <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
         </Show>
       </Modal>
 
       {/* Edit YAML Modal */}
-      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+      <Modal isOpen={showEdit()} onClose={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }} title={`Edit YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <div style={{ height: '70vh' }}>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
-              onCancel={() => setShowEdit(false)}
+              onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>
         </Show>

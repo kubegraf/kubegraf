@@ -41,24 +41,85 @@ export async function fetchBrainDataInParallel(): Promise<BrainData> {
   const hours = 72;
   const showML = settings().showMLTimelineInBrain;
 
-  // Fetch all data in parallel
-  const [
-    timelineEvents,
-    oomMetrics,
-    summary,
-    ...mlData
-  ] = await Promise.all([
-    // Core Brain data (always fetch)
-    api.getBrainTimeline(hours),
-    api.getBrainOOMInsights(),
-    api.getBrainSummary(),
-    // ML data (only if enabled)
-    ...(showML ? [
-      brainMLService.getTimeline(hours),
-      brainMLService.getPredictions(),
-      brainMLService.getSummary(24),
-    ] : []),
+  // Default fallback values
+  const defaultTimeline: TimelineEvent[] = [];
+  const defaultOOM: OOMMetrics = { incidents24h: 0, crashLoops24h: 0, topProblematic: [] };
+  const defaultSummary: BrainSummary = {
+    last24hSummary: 'Cluster is healthy with no incidents detected in the last 24 hours.',
+    topRiskAreas: ['No significant risk areas identified'],
+    recommendedActions: ['Continue monitoring cluster health and resource usage'],
+    generatedAt: new Date().toISOString(),
+  };
+
+  // Fetch all data in parallel with individual error handling
+  // This ensures one failure doesn't break the entire panel
+  let timelineEvents: TimelineEvent[] = defaultTimeline;
+  let oomMetrics: OOMMetrics = defaultOOM;
+  let summary: BrainSummary = defaultSummary;
+
+  // Fetch all data in parallel with Promise.allSettled to ensure we always get results
+  // This way, even if one API fails, we still get data from the others
+  const [timelineResult, oomResult, summaryResult] = await Promise.allSettled([
+    api.getBrainTimeline(hours).catch(err => {
+      console.warn('Brain timeline fetch failed:', err);
+      return defaultTimeline;
+    }),
+    api.getBrainOOMInsights().catch(err => {
+      console.warn('Brain OOM insights fetch failed:', err);
+      return defaultOOM;
+    }),
+    api.getBrainSummary().catch(err => {
+      console.warn('Brain summary fetch failed:', err);
+      return defaultSummary;
+    }),
   ]);
+
+  // Process timeline result
+  if (timelineResult.status === 'fulfilled') {
+    const result = timelineResult.value;
+    if (Array.isArray(result)) {
+      timelineEvents = result;
+    } else {
+      console.warn('Brain timeline returned invalid data, using default');
+      timelineEvents = defaultTimeline;
+    }
+  } else {
+    console.warn('Brain timeline promise rejected:', timelineResult.reason);
+    timelineEvents = defaultTimeline;
+  }
+
+  // Process OOM insights result
+  if (oomResult.status === 'fulfilled') {
+    const result = oomResult.value;
+    if (result && typeof result.incidents24h === 'number') {
+      oomMetrics = result;
+    } else {
+      console.warn('Brain OOM insights returned invalid data, using default');
+      oomMetrics = defaultOOM;
+    }
+  } else {
+    console.warn('Brain OOM insights promise rejected:', oomResult.reason);
+    oomMetrics = defaultOOM;
+  }
+
+  // Process summary result
+  if (summaryResult.status === 'fulfilled') {
+    const result = summaryResult.value;
+    if (result && result.last24hSummary) {
+      summary = result;
+    } else {
+      console.warn('Brain summary returned invalid data, using default');
+      summary = defaultSummary;
+    }
+  } else {
+    console.warn('Brain summary promise rejected:', summaryResult.reason);
+    summary = {
+      last24hSummary: 'Unable to fetch summary from server. Please check your cluster connection and try again.',
+      topRiskAreas: ['Cluster connection may be unavailable'],
+      recommendedActions: ['Verify cluster connection and refresh the panel'],
+      generatedAt: new Date().toISOString(),
+    };
+  }
 
   const result: BrainData = {
     timelineEvents,
@@ -66,11 +127,27 @@ export async function fetchBrainDataInParallel(): Promise<BrainData> {
     summary,
   };
 
-  // Add ML data if enabled
-  if (showML && mlData.length === 3) {
-    result.mlTimeline = mlData[0] as any;
-    result.mlPredictions = mlData[1] as any;
-    result.mlSummary = mlData[2] as any;
+  // Add ML data if enabled (with error handling)
+  if (showML) {
+    try {
+      const [mlTimeline, mlPredictions, mlSummary] = await Promise.allSettled([
+        brainMLService.getTimeline(hours),
+        brainMLService.getPredictions(),
+        brainMLService.getSummary(24),
+      ]);
+
+      if (mlTimeline.status === 'fulfilled') {
+        result.mlTimeline = mlTimeline.value as any;
+      }
+      if (mlPredictions.status === 'fulfilled') {
+        result.mlPredictions = mlPredictions.value as any;
+      }
+      if (mlSummary.status === 'fulfilled') {
+        result.mlSummary = mlSummary.value as any;
+      }
+    } catch (err) {
+      console.warn('ML data fetch failed:', err);
+    }
   }
 
   return result;

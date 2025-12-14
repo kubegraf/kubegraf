@@ -457,6 +457,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/networkpolicies", ws.handleNetworkPolicies)
 	http.HandleFunc("/api/networkpolicy/details", ws.handleNetworkPolicyDetails)
 	http.HandleFunc("/api/networkpolicy/yaml", ws.handleNetworkPolicyYAML)
+	http.HandleFunc("/api/networkpolicy/update", ws.handleNetworkPolicyUpdate)
 	http.HandleFunc("/api/networkpolicy/describe", ws.handleNetworkPolicyDescribe)
 	http.HandleFunc("/api/networkpolicy/delete", ws.handleNetworkPolicyDelete)
 	http.HandleFunc("/api/configmap/details", ws.handleConfigMapDetails)
@@ -3701,9 +3702,14 @@ func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 
 // handleDeploymentYAML returns the YAML representation of a deployment
 func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "deployment name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "deployment name required",
+		})
 		return
 	}
 
@@ -3714,7 +3720,10 @@ func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request
 
 	deployment, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3723,7 +3732,10 @@ func (ws *WebServer) handleDeploymentYAML(w http.ResponseWriter, r *http.Request
 
 	yamlData, err := toKubectlYAML(deployment, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3780,9 +3792,14 @@ func (ws *WebServer) handleDeploymentDescribe(w http.ResponseWriter, r *http.Req
 
 // handleServiceYAML returns the YAML representation of a service
 func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "service name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "service name required",
+		})
 		return
 	}
 
@@ -3793,7 +3810,10 @@ func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
 
 	service, err := ws.app.clientset.CoreV1().Services(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3802,7 +3822,10 @@ func (ws *WebServer) handleServiceYAML(w http.ResponseWriter, r *http.Request) {
 
 	yamlData, err := toKubectlYAML(service, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3859,9 +3882,14 @@ func (ws *WebServer) handleServiceDescribe(w http.ResponseWriter, r *http.Reques
 
 // handleIngressYAML returns the YAML representation of an ingress
 func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "ingress name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ingress name required",
+		})
 		return
 	}
 
@@ -3872,7 +3900,10 @@ func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
 
 	ingress, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3881,7 +3912,10 @@ func (ws *WebServer) handleIngressYAML(w http.ResponseWriter, r *http.Request) {
 
 	yamlData, err := toKubectlYAML(ingress, schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3938,9 +3972,14 @@ func (ws *WebServer) handleIngressDescribe(w http.ResponseWriter, r *http.Reques
 
 // handleNetworkPolicyYAML returns the YAML representation of a network policy
 func (ws *WebServer) handleNetworkPolicyYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "network policy name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "network policy name required",
+		})
 		return
 	}
 
@@ -3951,7 +3990,10 @@ func (ws *WebServer) handleNetworkPolicyYAML(w http.ResponseWriter, r *http.Requ
 
 	np, err := ws.app.clientset.NetworkingV1().NetworkPolicies(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -3960,7 +4002,10 @@ func (ws *WebServer) handleNetworkPolicyYAML(w http.ResponseWriter, r *http.Requ
 
 	yamlData, err := toKubectlYAML(np, schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "NetworkPolicy"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -4000,6 +4045,18 @@ func (ws *WebServer) handleNetworkPolicyDescribe(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"describe": describe,
+	})
+}
+
+// handleNetworkPolicyUpdate updates a network policy from YAML
+func (ws *WebServer) handleNetworkPolicyUpdate(w http.ResponseWriter, r *http.Request) {
+	ws.handleResourceUpdate(w, r, "networkpolicy", func(yamlData []byte, namespace string) error {
+		var np networkingv1.NetworkPolicy
+		if err := yaml.Unmarshal(yamlData, &np); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		_, err := ws.app.clientset.NetworkingV1().NetworkPolicies(namespace).Update(ws.app.ctx, &np, metav1.UpdateOptions{})
+		return err
 	})
 }
 
@@ -4174,9 +4231,14 @@ func (ws *WebServer) handleNetworkPolicyDetails(w http.ResponseWriter, r *http.R
 
 // handleConfigMapYAML returns the YAML representation of a configmap
 func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "configmap name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "configmap name required",
+		})
 		return
 	}
 	namespace := r.URL.Query().Get("namespace")
@@ -4186,7 +4248,10 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 
 	configMap, err := ws.app.clientset.CoreV1().ConfigMaps(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -4195,7 +4260,10 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 
 	yamlData, err := toKubectlYAML(configMap, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -4207,9 +4275,14 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 
 // handleSecretYAML returns the YAML representation of a secret
 func (ws *WebServer) handleSecretYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "secret name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "secret name required",
+		})
 		return
 	}
 	namespace := r.URL.Query().Get("namespace")
@@ -4219,7 +4292,10 @@ func (ws *WebServer) handleSecretYAML(w http.ResponseWriter, r *http.Request) {
 
 	secret, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -4228,7 +4304,10 @@ func (ws *WebServer) handleSecretYAML(w http.ResponseWriter, r *http.Request) {
 
 	yamlData, err := toKubectlYAML(secret, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -4777,9 +4856,14 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 
 // handleStatefulSetYAML returns the YAML representation of a statefulset
 func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "statefulset name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "statefulset name required",
+		})
 		return
 	}
 
@@ -4790,7 +4874,10 @@ func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Reques
 
 	statefulSet, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -4799,7 +4886,10 @@ func (ws *WebServer) handleStatefulSetYAML(w http.ResponseWriter, r *http.Reques
 
 	yamlData, err := toKubectlYAML(statefulSet, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -5102,9 +5192,14 @@ func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Reque
 
 // handleDaemonSetYAML returns the YAML representation of a daemonset
 func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "daemonset name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "daemonset name required",
+		})
 		return
 	}
 
@@ -5115,7 +5210,10 @@ func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request)
 
 	daemonSet, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -5124,7 +5222,10 @@ func (ws *WebServer) handleDaemonSetYAML(w http.ResponseWriter, r *http.Request)
 
 	yamlData, err := toKubectlYAML(daemonSet, schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -5335,9 +5436,14 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 
 // handleCronJobYAML returns the YAML representation of a cronjob
 func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "cronjob name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "cronjob name required",
+		})
 		return
 	}
 
@@ -5348,7 +5454,10 @@ func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
 
 	cronJob, err := ws.app.clientset.BatchV1().CronJobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -5357,7 +5466,10 @@ func (ws *WebServer) handleCronJobYAML(w http.ResponseWriter, r *http.Request) {
 
 	yamlData, err := toKubectlYAML(cronJob, schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "CronJob"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -5514,9 +5626,14 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 
 // handleJobYAML returns the YAML representation of a job
 func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "job name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "job name required",
+		})
 		return
 	}
 
@@ -5527,7 +5644,10 @@ func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
 
 	job, err := ws.app.clientset.BatchV1().Jobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -5536,7 +5656,10 @@ func (ws *WebServer) handleJobYAML(w http.ResponseWriter, r *http.Request) {
 
 	yamlData, err := toKubectlYAML(job, schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 

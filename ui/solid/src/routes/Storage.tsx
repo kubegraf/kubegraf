@@ -50,8 +50,7 @@ const Storage: Component = () => {
   const [selectedSC, setSelectedSC] = createSignal<any>(null);
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
-  const [yamlContent, setYamlContent] = createSignal('');
-  const [yamlLoading, setYamlLoading] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
 
   // Bulk selection for PVCs
   const bulkPVC = useBulkSelection<PersistentVolumeClaim>();
@@ -138,28 +137,32 @@ const Storage: Component = () => {
     }
   });
 
-  // YAML handlers
-  const loadYAML = async (type: 'pv' | 'pvc' | 'sc', name: string, ns?: string) => {
-    setYamlLoading(true);
-    try {
-      let yaml = '';
-      if (type === 'pv') {
-        const data = await api.getPVYAML(name);
-        yaml = data.yaml || '';
-      } else if (type === 'pvc') {
-        const data = await api.getPVCYAML(name, ns || 'default');
-        yaml = data.yaml || '';
-      } else if (type === 'sc') {
-        const data = await api.getStorageClassYAML(name);
-        yaml = data.yaml || '';
+  // YAML resource
+  const [yamlContent] = createResource(
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [type, name, ns] = key.split('|');
+      if (!type || !name) return '';
+      try {
+        if (type === 'pv') {
+          const data = await api.getPVYAML(name);
+          return data.yaml || '';
+        } else if (type === 'pvc') {
+          const data = await api.getPVCYAML(name, ns || 'default');
+          return data.yaml || '';
+        } else if (type === 'sc') {
+          const data = await api.getStorageClassYAML(name);
+          return data.yaml || '';
+        }
+        return '';
+      } catch (error) {
+        console.error('Failed to fetch storage YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
       }
-      setYamlContent(yaml);
-    } catch (err) {
-      addNotification(`Failed to load YAML: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
-    } finally {
-      setYamlLoading(false);
     }
-  };
+  );
 
   const handleSaveYAML = async (yaml: string) => {
     try {
@@ -437,8 +440,8 @@ const Storage: Component = () => {
                         }}>
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedPV(pv); loadYAML('pv', pv.name); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPV(pv); loadYAML('pv', pv.name); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedPV(pv); setYamlKey(`pv|${pv.name}|`); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPV(pv); setYamlKey(`pv|${pv.name}|`); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('pv', pv.name), variant: 'danger', divider: true },
                             ]}
                           />
@@ -616,8 +619,8 @@ const Storage: Component = () => {
                         }}>
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedPVC(pvc); loadYAML('pvc', pvc.name, pvc.namespace); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPVC(pvc); loadYAML('pvc', pvc.name, pvc.namespace); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedPVC(pvc); setYamlKey(`pvc|${pvc.name}|${pvc.namespace}`); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPVC(pvc); setYamlKey(`pvc|${pvc.name}|${pvc.namespace}`); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('pvc', pvc.name, pvc.namespace), variant: 'danger', divider: true },
                             ]}
                           />
@@ -743,8 +746,8 @@ const Storage: Component = () => {
                         }}>
                           <ActionMenu
                             actions={[
-                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedSC(sc); loadYAML('sc', sc.name); setShowYaml(true); } },
-                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedSC(sc); loadYAML('sc', sc.name); setShowEdit(true); } },
+                              { label: 'View YAML', icon: 'yaml', onClick: () => { setSelectedSC(sc); setYamlKey(`sc|${sc.name}|`); setShowYaml(true); } },
+                              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedSC(sc); setYamlKey(`sc|${sc.name}|`); setShowEdit(true); } },
                               { label: 'Delete', icon: 'delete', onClick: () => handleDelete('sc', sc.name), variant: 'danger', divider: true },
                             ]}
                           />
@@ -761,36 +764,51 @@ const Storage: Component = () => {
       </Show>
 
       {/* YAML Viewer Modal */}
-      <Show when={showYaml()}>
-        <Modal
-          size="large"
-          title={`View YAML - ${activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name}`}
-          onClose={() => { setShowYaml(false); setSelectedPV(null); setSelectedPVC(null); setSelectedSC(null); }}
-        >
-          <Show when={yamlLoading()} fallback={<YAMLViewer content={yamlContent()} />}>
+      <Modal
+        isOpen={showYaml()}
+        size="large"
+        title={`View YAML - ${activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name || ''}`}
+        onClose={() => { setShowYaml(false); setSelectedPV(null); setSelectedPVC(null); setSelectedSC(null); setYamlKey(null); }}
+      >
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
               <span style={{ color: 'var(--text-muted)' }}>Loading YAML...</span>
             </div>
-          </Show>
-        </Modal>
-      </Show>
+          }
+        >
+          <YAMLViewer yaml={yamlContent() || ''} title={activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name} />
+        </Show>
+      </Modal>
 
       {/* YAML Editor Modal */}
-      <Show when={showEdit()}>
-        <Modal
-          size="large"
-          title={`Edit YAML - ${activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name}`}
-          onClose={() => { setShowEdit(false); setSelectedPV(null); setSelectedPVC(null); setSelectedSC(null); }}
-        >
-          <Show when={yamlLoading()} fallback={<YAMLEditor content={yamlContent()} onSave={handleSaveYAML} onCancel={() => setShowEdit(false)} />}>
+      <Modal
+        isOpen={showEdit()}
+        size="large"
+        title={`Edit YAML - ${activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name || ''}`}
+        onClose={() => { setShowEdit(false); setSelectedPV(null); setSelectedPVC(null); setSelectedSC(null); setYamlKey(null); }}
+      >
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
               <span style={{ color: 'var(--text-muted)' }}>Loading YAML...</span>
             </div>
-          </Show>
-        </Modal>
-      </Show>
+          }
+        >
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => { setShowEdit(false); setSelectedPV(null); setSelectedPVC(null); setSelectedSC(null); setYamlKey(null); }}
+            />
+          </div>
+        </Show>
+      </Modal>
 
       {/* Bulk Actions Bar for PVCs */}
       <Show when={activeTab() === 'pvcs'}>

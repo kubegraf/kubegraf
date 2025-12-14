@@ -14,6 +14,7 @@ export const serviceMeshApps: MarketplaceApp[] = [
     chartName: 'istiod',
     tags: ['service-mesh', 'networking', 'security'],
     maintainer: 'Istio',
+    sourceCitation: 'Helm Chart: https://istio-release.storage.googleapis.com/charts | Official: https://istio.io',
     clusterSupport: {
       single: true,
       multi: true,
@@ -32,6 +33,7 @@ export const serviceMeshApps: MarketplaceApp[] = [
     tags: ['observability', 'istio', 'service-mesh', 'topology'],
     maintainer: 'Kiali',
     documentation: 'https://kiali.io/docs/',
+    sourceCitation: 'Helm Chart: https://kiali.org/helm-charts | Official: https://kiali.io',
     clusterSupport: {
       single: true,
       multi: true,
@@ -49,6 +51,7 @@ export const serviceMeshApps: MarketplaceApp[] = [
     chartName: 'cilium',
     tags: ['cni', 'ebpf', 'networking', 'security'],
     maintainer: 'Cilium',
+    sourceCitation: 'Helm Chart: https://helm.cilium.io/ | Official: https://cilium.io',
     clusterSupport: {
       single: true,
       multi: true,

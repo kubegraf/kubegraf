@@ -9,6 +9,7 @@ import { createCachedResource } from '../utils/resourceCache';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
+import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
@@ -36,7 +37,9 @@ const NetworkPolicies: Component = () => {
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<NetworkPolicy | null>(null);
   const [showYaml, setShowYaml] = createSignal(false);
+  const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('networkpolicies-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('networkpolicies-font-family') || 'Monaco');
 
@@ -104,13 +107,43 @@ const NetworkPolicies: Component = () => {
   });
 
   const [yamlContent] = createResource(
-    () => showYaml() && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
-    async (params) => {
-      if (!params) return '';
-      const data = await api.getNetworkPolicyYAML(params.name, params.ns);
-      return data.yaml || '';
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [name, ns] = key.split('|');
+      if (!name || !ns) return '';
+      try {
+        const data = await api.getNetworkPolicyYAML(name, ns);
+        return data.yaml || '';
+      } catch (error) {
+        console.error('Failed to fetch network policy YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
+      }
     }
   );
+
+  const handleEdit = async (np: NetworkPolicy) => {
+    setSelected(np);
+    setYamlKey(`${np.name}|${np.namespace}`);
+    setShowEdit(true);
+  };
+
+  const handleSaveYAML = async (yaml: string) => {
+    const np = selected();
+    if (!np) return;
+    try {
+      await api.updateNetworkPolicy(np.name, np.namespace, yaml);
+      addNotification(`✅ NetworkPolicy ${np.name} updated successfully`, 'success');
+      setShowEdit(false);
+      setTimeout(() => policiesCache.refetch(), 500);
+      setTimeout(() => policiesCache.refetch(), 2000);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      addNotification(`❌ Failed to update NetworkPolicy: ${errorMsg}`, 'error');
+      throw error; // Re-throw so YAMLEditor can handle it
+    }
+  };
 
   const parseAge = (age: string | undefined): number => {
     if (!age) return 0;
@@ -453,7 +486,12 @@ const NetworkPolicies: Component = () => {
                       >
                         <ActionMenu
                           actions={[
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(np); setShowYaml(true); } },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                              setSelected(np);
+                              setYamlKey(`${np.name}|${np.namespace}`);
+                              setShowYaml(true);
+                            } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => handleEdit(np) },
                             { label: 'Describe', icon: 'info', onClick: () => { setSelected(np); setShowDescribe(true); } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteNetworkPolicy(np), variant: 'danger', divider: true },
                           ]}
@@ -516,9 +554,39 @@ const NetworkPolicies: Component = () => {
       </div>
 
       {/* YAML Modal */}
-      <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="flex items-center justify-center p-8">Loading...</div>}>
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* Edit YAML Modal */}
+      <Modal isOpen={showEdit()} onClose={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }} title={`Edit YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
+            />
+          </div>
         </Show>
       </Modal>
 

@@ -48,6 +48,7 @@ const Secrets: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('secrets-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('secrets-font-family') || 'Monaco');
 
@@ -141,11 +142,19 @@ const Secrets: Component = () => {
     }
   });
   const [yamlContent] = createResource(
-    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
-    async (params) => {
-      if (!params) return '';
-      const data = await api.getSecretYAML(params.name, params.ns);
-      return data.yaml || '';
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [name, ns] = key.split('|');
+      if (!name || !ns) return '';
+      try {
+        const data = await api.getSecretYAML(name, ns);
+        return data.yaml || '';
+      } catch (error) {
+        console.error('Failed to fetch secret YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
+      }
     }
   );
 
@@ -517,8 +526,16 @@ const Secrets: Component = () => {
                             <ActionMenu
                               actions={[
                                 { label: 'View Data', icon: 'describe', onClick: () => { setSelected(secret); setShowDetails(true); } },
-                                { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(secret); setShowYaml(true); } },
-                                { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(secret); setShowEdit(true); } },
+                                { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                                  setSelected(secret);
+                                  setYamlKey(`${secret.name}|${secret.namespace}`);
+                                  setShowYaml(true);
+                                } },
+                                { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                                  setSelected(secret);
+                                  setYamlKey(`${secret.name}|${secret.namespace}`);
+                                  setShowEdit(true);
+                                } },
                                 { label: 'Describe', icon: 'describe', onClick: () => { setSelected(secret); setShowDescribe(true); } },
                                 { label: 'Delete', icon: 'delete', onClick: () => deleteSecret(secret), variant: 'danger', divider: true },
                               ]}
@@ -593,21 +610,37 @@ const Secrets: Component = () => {
 
 
       {/* YAML Modal */}
-      <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
         </Show>
       </Modal>
 
       {/* Edit YAML Modal */}
-      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+      <Modal isOpen={showEdit()} onClose={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }} title={`Edit YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <div style={{ height: '70vh' }}>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
-              onCancel={() => setShowEdit(false)}
+              onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>
         </Show>

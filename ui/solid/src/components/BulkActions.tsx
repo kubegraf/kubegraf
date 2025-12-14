@@ -71,7 +71,7 @@ export const SelectionCheckbox: Component<{
 }> = (props) => {
   return (
     <div
-      class="flex items-center justify-center cursor-pointer"
+      class="flex items-center justify-center cursor-pointer w-full h-full"
       onClick={(e) => {
         e.stopPropagation();
         if (!props.disabled) {
@@ -80,12 +80,16 @@ export const SelectionCheckbox: Component<{
       }}
     >
       <div
-        class={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+        class={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${
           props.checked ? 'scale-110' : 'scale-100'
         }`}
         style={{
-          'border-color': props.checked ? '#06b6d4' : 'rgba(255, 255, 255, 0.2)',
-          background: props.checked ? 'linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%)' : 'transparent',
+          'border-color': props.checked 
+            ? '#06b6d4' 
+            : 'var(--border-color, rgba(128, 128, 128, 0.5))',
+          background: props.checked 
+            ? 'linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%)' 
+            : 'var(--bg-tertiary, rgba(128, 128, 128, 0.15))',
           opacity: props.disabled ? 0.5 : 1,
         }}
       >
@@ -107,7 +111,7 @@ export const SelectAllCheckbox: Component<{
 }> = (props) => {
   return (
     <div
-      class="flex items-center justify-center cursor-pointer"
+      class="flex items-center justify-center cursor-pointer w-full h-full"
       onClick={(e) => {
         e.stopPropagation();
         props.onChange(!props.checked);
@@ -115,12 +119,14 @@ export const SelectAllCheckbox: Component<{
       title={props.checked ? 'Deselect all' : 'Select all'}
     >
       <div
-        class="w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
+        class="w-5 h-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0"
         style={{
-          'border-color': props.checked || props.indeterminate ? '#06b6d4' : 'rgba(255, 255, 255, 0.2)',
+          'border-color': props.checked || props.indeterminate 
+            ? '#06b6d4' 
+            : 'var(--border-color, rgba(128, 128, 128, 0.5))',
           background: props.checked || props.indeterminate
             ? 'linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%)'
-            : 'transparent',
+            : 'var(--bg-tertiary, rgba(128, 128, 128, 0.15))',
         }}
       >
         <Show when={props.checked}>

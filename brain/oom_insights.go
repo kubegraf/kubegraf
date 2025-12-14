@@ -42,10 +42,10 @@ func (g *OOMInsightsGenerator) Generate(ctx context.Context) (*OOMMetrics, error
 	// Get incidents from scanner
 	incidents := g.incidentScanner.ScanAllIncidents("")
 
-	// Filter incidents from last 24h
+	// Filter incidents from last 24h (check both FirstSeen and LastSeen)
 	var recentIncidents []KubernetesIncident
 	for _, inc := range incidents {
-		if inc.FirstSeen.After(cutoffTime) {
+		if inc.FirstSeen.After(cutoffTime) || inc.LastSeen.After(cutoffTime) {
 			recentIncidents = append(recentIncidents, inc)
 		}
 	}
@@ -85,7 +85,10 @@ func (g *OOMInsightsGenerator) Generate(ctx context.Context) (*OOMMetrics, error
 	}
 
 	// Also check pods directly for restarts (only if clientset is available)
-	pods, err := g.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	// Use limit to avoid scanning too many pods (performance optimization)
+	pods, err := g.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		Limit: 2000, // Limit to 2000 pods for performance
+	})
 	if err == nil {
 		for _, pod := range pods.Items {
 			for _, containerStatus := range pod.Status.ContainerStatuses {

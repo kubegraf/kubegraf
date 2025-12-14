@@ -1,5 +1,6 @@
 import { Component, Show, createSignal, onMount, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
+import LocalTerminal from './LocalTerminal';
 
 interface DockedTerminalProps {
   isOpen: boolean;
@@ -8,105 +9,16 @@ interface DockedTerminalProps {
 
 const DockedTerminal: Component<DockedTerminalProps> = (props) => {
   const [isMaximized, setIsMaximized] = createSignal(false);
-  const [command, setCommand] = createSignal('');
-  const [output, setOutput] = createSignal<string[]>([
-    'KubeGraf Terminal v1.3.0',
-    'Type "help" for available commands',
-    ''
-  ]);
-  const [history, setHistory] = createSignal<string[]>([]);
-  const [historyIndex, setHistoryIndex] = createSignal(-1);
 
-  let inputRef: HTMLInputElement | undefined;
-  let outputRef: HTMLDivElement | undefined;
-
-  onMount(() => {
-    if (props.isOpen && inputRef) {
-      inputRef.focus();
-    }
-  });
-
-  const executeCommand = async (cmd: string) => {
-    if (!cmd.trim()) return;
-
-    // Add to history
-    setHistory(prev => [...prev, cmd]);
-    setHistoryIndex(-1);
-
-    // Add command to output
-    setOutput(prev => [...prev, `$ ${cmd}`, '']);
-
-    // Simple command handling (expand this with real kubectl commands)
-    if (cmd === 'help') {
-      setOutput(prev => [...prev,
-        'Available commands:',
-        '  kubectl <args>  - Execute kubectl commands',
-        '  clear          - Clear terminal',
-        '  help           - Show this help',
-        ''
-      ]);
-    } else if (cmd === 'clear') {
-      setOutput(['KubeGraf Terminal v1.3.0', 'Type "help" for available commands', '']);
-    } else if (cmd.startsWith('kubectl')) {
-      // Send to backend API
-      try {
-        const response = await fetch('/api/exec', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: cmd }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setOutput(prev => [...prev, data.output || 'Command executed', '']);
-        } else {
-          setOutput(prev => [...prev, 'Error: Failed to execute command', '']);
-        }
-      } catch (error) {
-        setOutput(prev => [...prev, `Error: ${error instanceof Error ? error.message : 'Unknown error'}`, '']);
-      }
-    } else {
-      setOutput(prev => [...prev, `Command not found: ${cmd}`, 'Type "help" for available commands', '']);
-    }
-
-    // Scroll to bottom
-    setTimeout(() => {
-      if (outputRef) {
-        outputRef.scrollTop = outputRef.scrollHeight;
-      }
-    }, 0);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      executeCommand(command());
-      setCommand('');
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const hist = history();
-      if (hist.length > 0) {
-        const newIndex = historyIndex() === -1 ? hist.length - 1 : Math.max(0, historyIndex() - 1);
-        setHistoryIndex(newIndex);
-        setCommand(hist[newIndex]);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const hist = history();
-      if (historyIndex() !== -1) {
-        const newIndex = historyIndex() + 1;
-        if (newIndex >= hist.length) {
-          setHistoryIndex(-1);
-          setCommand('');
-        } else {
-          setHistoryIndex(newIndex);
-          setCommand(hist[newIndex]);
-        }
-      }
+  const handleOpenInNewWindow = () => {
+    // Open terminal in a new window using current URL with hash
+    const currentUrl = window.location.origin + window.location.pathname;
+    const terminalUrl = `${currentUrl}#terminal`;
+    const newWindow = window.open(terminalUrl, '_blank', 'width=1200,height=800,menubar=no,toolbar=no,location=no,status=no');
+    if (newWindow) {
+      newWindow.focus();
     }
   };
-
-  console.log('[DockedTerminal] Render called - isOpen:', props.isOpen);
 
   const height = isMaximized() ? 'calc(100vh - 60px)' : '400px';
 
@@ -155,21 +67,56 @@ const DockedTerminal: Component<DockedTerminalProps> = (props) => {
           </div>
 
           <div class="flex items-center gap-2">
+            {/* Open in New Window */}
+            <button
+              onClick={handleOpenInNewWindow}
+              class="p-1.5 rounded transition-colors"
+              style={{
+                color: 'var(--text-secondary)',
+                background: 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-tertiary)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+              title="Open in New Window"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </button>
+
             {/* Maximize/Restore */}
             <button
               onClick={() => setIsMaximized(!isMaximized())}
-              class="p-1.5 rounded hover:bg-gray-700 transition-colors"
+              class="p-1.5 rounded transition-colors"
+              style={{
+                color: 'var(--text-secondary)',
+                background: 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-tertiary)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
               title={isMaximized() ? 'Restore' : 'Maximize'}
             >
               <Show
                 when={isMaximized()}
                 fallback={
-                  <svg class="w-4 h-4" style={{ color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                   </svg>
                 }
               >
-                <svg class="w-4 h-4" style={{ color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
                 </svg>
               </Show>
@@ -178,62 +125,36 @@ const DockedTerminal: Component<DockedTerminalProps> = (props) => {
             {/* Close */}
             <button
               onClick={props.onClose}
-              class="p-1.5 rounded hover:bg-gray-700 transition-colors"
+              class="p-1.5 rounded transition-colors"
+              style={{
+                color: 'var(--text-secondary)',
+                background: 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-tertiary)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
               title="Close"
             >
-              <svg class="w-4 h-4" style={{ color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
         </div>
 
-        {/* Terminal Output */}
+        {/* Terminal Content - Use LocalTerminal component */}
         <div
-          ref={outputRef}
-          class="overflow-y-auto p-4 font-mono text-sm"
           style={{
-            height: 'calc(100% - 100px)',
-            background: '#0d1117',
-            color: '#c9d1d9',
+            height: 'calc(100% - 50px)',
+            overflow: 'hidden',
           }}
         >
-          {output().map((line, index) => (
-            <div
-              key={index}
-              style={{
-                color: line.startsWith('$') ? '#58a6ff' : line.startsWith('Error') ? '#f85149' : '#c9d1d9',
-                'margin-bottom': '4px',
-              }}
-            >
-              {line}
-            </div>
-          ))}
-        </div>
-
-        {/* Input */}
-        <div
-          class="flex items-center gap-2 px-4 py-3"
-          style={{
-            background: '#161b22',
-            'border-top': '1px solid var(--border-color)',
-          }}
-        >
-          <span class="text-sm font-mono" style={{ color: '#58a6ff' }}>$</span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={command()}
-            onInput={(e) => setCommand(e.currentTarget.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a command (e.g., kubectl get pods)"
-            class="flex-1 bg-transparent font-mono text-sm outline-none"
-            style={{
-              color: '#c9d1d9',
-              border: 'none',
-            }}
-            autocomplete="off"
-          />
+          <LocalTerminal />
         </div>
       </div>
     </Portal>

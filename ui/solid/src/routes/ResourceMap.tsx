@@ -436,11 +436,32 @@ const ResourceMap: Component = () => {
     return connected;
   };
 
-  // Setup when topology changes
+  // Track if setup is in progress to prevent multiple refreshes
+  let isSetupInProgress = false;
+  let lastTopologyData: string | null = null;
+
+  // Setup when topology changes (with guard to prevent multiple refreshes)
   createEffect(on(() => [topology(), svgRef], () => {
-    if (svgRef && topology()) {
+    if (svgRef && topology() && !isSetupInProgress) {
+      // Check if data actually changed
+      const currentData = JSON.stringify(topology());
+      if (currentData === lastTopologyData) {
+        console.log('[ResourceMap] Topology data unchanged, skipping setup');
+        return;
+      }
+      
       console.log('[ResourceMap] Topology data changed, setting up visualization');
-      setupVisualization();
+      lastTopologyData = currentData;
+      isSetupInProgress = true;
+      
+      // Use requestAnimationFrame to batch the setup
+      requestAnimationFrame(() => {
+        setupVisualization();
+        // Allow setup again after a short delay
+        setTimeout(() => {
+          isSetupInProgress = false;
+        }, 1000);
+      });
     }
   }));
 
