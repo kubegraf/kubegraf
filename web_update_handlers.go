@@ -101,7 +101,7 @@ func (ws *WebServer) handleAutoCheckUpdates(w http.ResponseWriter, r *http.Reque
 	}
 
 	// If cache is stale or missing, check GitHub (but don't block)
-	// This ensures users get notified of new releases within 1 hour
+	// This ensures users get notified of new releases within 15 minutes
 	info, err := update.CheckGitHubLatestRelease(currentVersion)
 	if err != nil {
 		// Return cached result even if stale, or return current version info
