@@ -176,7 +176,9 @@ const Sidebar: Component = () => {
     
     // Refresh version every 10 seconds (more frequent to catch updates)
     const versionInterval = setInterval(fetchVersion, 10000);
-    const updateInterval = setInterval(() => checkForUpdates(false), 3600000); // Check every hour
+    // Check for updates every 15 minutes to match backend cache expiration
+    // This ensures long-running apps detect new releases quickly
+    const updateInterval = setInterval(() => checkForUpdates(false), 15 * 60 * 1000); // Check every 15 minutes
     
     // Also refresh when page becomes visible (after app restart)
     const handleVisibilityChange = () => {
