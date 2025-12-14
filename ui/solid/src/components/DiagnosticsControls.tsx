@@ -10,7 +10,8 @@ interface DiagnosticsControlsProps {
 const DiagnosticsControls: Component<DiagnosticsControlsProps> = (props) => {
   const getStoredFrequency = (): number => {
     const stored = localStorage.getItem('diagnostics-frequency-minutes');
-    return stored ? parseInt(stored, 10) : 30; // Default 30 minutes
+    // Default to once per day (1440 minutes)
+    return stored ? parseInt(stored, 10) : 1440;
   };
 
   const [frequency, setFrequency] = createSignal<number>(getStoredFrequency());
@@ -119,6 +120,7 @@ const DiagnosticsControls: Component<DiagnosticsControlsProps> = (props) => {
           disabled={props.isRunning}
         >
           <option value="0">Manual only</option>
+          <option value="1440" selected={frequency() === 1440}>Once per day</option>
           <option value="5">5 minutes</option>
           <option value="15">15 minutes</option>
           <option value="30">30 minutes</option>
@@ -171,6 +173,19 @@ const DiagnosticsControls: Component<DiagnosticsControlsProps> = (props) => {
           color: 'var(--text-muted)'
         }}>
           Diagnostics set to manual mode. Click "Run Diagnostics Now" to scan.
+        </div>
+      </Show>
+      
+      {/* Schedule Info Message */}
+      <Show when={frequency() > 0}>
+        <div class="text-xs px-3 py-1.5 rounded" style={{ 
+          background: 'rgba(6, 182, 212, 0.1)', 
+          color: 'var(--accent-primary)',
+          border: '1px solid rgba(6, 182, 212, 0.3)'
+        }}>
+          {frequency() === 1440 
+            ? 'Automatic scan runs once per day. You can also run manually anytime to get the latest results.'
+            : `Automatic scan runs every ${frequency() < 60 ? `${frequency()} minutes` : `${Math.floor(frequency() / 60)} hour${Math.floor(frequency() / 60) > 1 ? 's' : ''}`}. You can also run manually anytime.`}
         </div>
       </Show>
     </div>

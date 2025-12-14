@@ -75,8 +75,18 @@ const ResourceWaterfall: Component = () => {
       return;
     }
 
-    const width = canvas.width;
-    const height = canvas.height;
+    // Get display dimensions (accounting for device pixel ratio)
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    
+    // Don't draw if canvas has no dimensions
+    if (width <= 0 || height <= 0) {
+      console.log('[drawWaterfall] Canvas has invalid dimensions:', width, 'x', height);
+      return;
+    }
+    
     const history = metricsHistory();
 
     console.log('[drawWaterfall] Canvas:', width, 'x', height, 'History length:', history.length);
@@ -271,26 +281,35 @@ const ResourceWaterfall: Component = () => {
     animationFrameId = requestAnimationFrame(animate);
   };
 
+  // Initialize canvas when ref is available
+  createEffect(() => {
+    if (canvasRef) {
+      const rect = canvasRef.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        console.log('[createEffect] Canvas ref available, initializing:', rect);
+        // Use device pixel ratio for crisp rendering
+        const dpr = window.devicePixelRatio || 1;
+        const displayWidth = rect.width;
+        const displayHeight = rect.height;
+        canvasRef.width = displayWidth * dpr;
+        canvasRef.height = displayHeight * dpr;
+        const ctx = canvasRef.getContext('2d');
+        if (ctx) {
+          ctx.scale(dpr, dpr);
+        }
+        console.log('[createEffect] Canvas dimensions set:', canvasRef.width, 'x', canvasRef.height, 'display:', displayWidth, 'x', displayHeight);
+        // Start animation if not already running
+        if (!animationFrameId) {
+          animate();
+        }
+      }
+    }
+  });
+
   onMount(() => {
     console.log('[onMount] Starting initialization');
     fetchMetrics();
     intervalId = setInterval(fetchMetrics, 1000);
-
-    // Wait for next tick to ensure canvas is in DOM
-    setTimeout(() => {
-      console.log('[onMount] Canvas ref:', canvasRef);
-      if (canvasRef) {
-        const rect = canvasRef.getBoundingClientRect();
-        console.log('[onMount] Canvas rect:', rect);
-        canvasRef.width = rect.width;
-        canvasRef.height = rect.height;
-        console.log('[onMount] Canvas dimensions set:', canvasRef.width, 'x', canvasRef.height);
-        console.log('[onMount] Starting animation');
-        animate();
-      } else {
-        console.error('[onMount] Canvas ref is null!');
-      }
-    }, 0);
   });
 
   onCleanup(() => {
@@ -306,13 +325,40 @@ const ResourceWaterfall: Component = () => {
     const handleResize = () => {
       if (canvasRef) {
         const rect = canvasRef.getBoundingClientRect();
-        canvasRef.width = rect.width;
-        canvasRef.height = rect.height;
+        // Only resize if we have valid dimensions
+        if (rect.width > 0 && rect.height > 0) {
+          const dpr = window.devicePixelRatio || 1;
+          const displayWidth = rect.width;
+          const displayHeight = rect.height;
+          canvasRef.width = displayWidth * dpr;
+          canvasRef.height = displayHeight * dpr;
+          const ctx = canvasRef.getContext('2d');
+          if (ctx) {
+            ctx.scale(dpr, dpr);
+          }
+          // Redraw after resize
+          drawWaterfall();
+        }
       }
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  });
+
+  // Redraw when metrics history changes
+  createEffect(() => {
+    const history = metricsHistory();
+    if (history.length > 0 && canvasRef) {
+      // Check if canvas has valid dimensions before drawing
+      const rect = canvasRef.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        // Small delay to ensure canvas is ready
+        setTimeout(() => {
+          drawWaterfall();
+        }, 50);
+      }
+    }
   });
 
   const currentMetrics = () => {

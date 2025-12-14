@@ -1,7 +1,7 @@
-import { Component, For, Show, createMemo, onMount, onCleanup } from 'solid-js';
+import { Component, For, Show, createMemo, onMount, onCleanup, createSignal, createEffect } from 'solid-js';
 import type { NavSection } from '../../config/navSections';
 import { currentView, setCurrentView } from '../../stores/ui';
-import { getVisibleSection, closeWithDelay, isSectionPinned, unpinSection } from '../../stores/sidebarState';
+import { getVisibleSection, closeWithDelay, isSectionPinned, unpinSection, activeSection } from '../../stores/sidebarState';
 import { unreadInsightsEvents } from '../../stores/insightsPulse';
 
 interface SidebarFlyoutProps {
@@ -17,6 +17,28 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
     const sectionTitle = getVisibleSection();
     if (!sectionTitle) return null;
     return props.sections.find((s) => s.title === sectionTitle);
+  });
+
+  // Position state - track where to show the flyout
+  const [position, setPosition] = createSignal({ top: 56, left: 56 });
+
+  // Update position based on active section
+  createEffect(() => {
+    const sectionTitle = getVisibleSection();
+    if (sectionTitle) {
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
+        // Find the section button in the sidebar rail
+        const railButton = document.querySelector(`[data-section-rail="${sectionTitle}"]`);
+        if (railButton) {
+          const rect = railButton.getBoundingClientRect();
+          setPosition({
+            top: Math.max(56, rect.top), // Minimum top position
+            left: rect.right + 8, // 8px gap from sidebar
+          });
+        }
+      });
+    }
   });
 
   // Keyboard navigation
@@ -72,6 +94,13 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
   const handleItemClick = (itemId: string) => {
     setCurrentView(itemId as any);
     props.onItemClick?.(itemId);
+    // Scroll to top of content area (not window top, but main content)
+    setTimeout(() => {
+      const mainContent = document.querySelector('main');
+      if (mainContent) {
+        mainContent.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 100);
     // Don't close on click - let user navigate
   };
 
@@ -96,9 +125,9 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
           ref={flyoutRef}
           tabindex="-1"
           class="
-            fixed left-14 top-14
+            fixed
             w-56
-            max-h-[calc(100vh-4rem-2rem)]
+            max-h-[calc(100vh-2rem)]
             rounded-xl
             border border-border-subtle/50
             bg-bg-panel/95
@@ -107,8 +136,11 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
             flex flex-col
             animate-slideIn
             overflow-hidden
+            z-[200]
           "
           style={{
+            top: `${position().top}px`,
+            left: `${position().left}px`,
             'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
           }}
           onMouseEnter={handleMouseEnter}

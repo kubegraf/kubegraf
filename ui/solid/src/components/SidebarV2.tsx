@@ -11,6 +11,7 @@ import SidebarRail from './sidebar/SidebarRail';
 import SidebarFlyout from './sidebar/SidebarFlyout';
 import QuickSwitcher from './sidebar/QuickSwitcher';
 import { setActive, closeWithDelay } from '../stores/sidebarState';
+import { currentTheme } from '../stores/theme';
 
 // Update button component for sidebar
 const SidebarUpdateButton: Component = () => {
@@ -197,51 +198,26 @@ const SidebarV2: Component = () => {
             <div class="h-14 flex flex-col items-center justify-center border-b border-border-subtle bg-bg-sidebar">
               <button
                 onClick={() => setCurrentView('dashboard')}
-                class="flex flex-col items-center justify-center hover:opacity-80 transition-opacity"
+                class="flex flex-col items-center justify-center hover:opacity-80 transition-opacity rounded-lg p-1.5 mb-1"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                }}
                 title="Go to Dashboard"
               >
-                <svg class="floating-logo" viewBox="0 0 100 100" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
-                  <defs>
-                    <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stop-color="#22d3ee"/>
-                      <stop offset="50%" stop-color="#3b82f6"/>
-                      <stop offset="100%" stop-color="#d946ef"/>
-                    </linearGradient>
-                    <filter id="glow">
-                      <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
-                      <feMerge>
-                        <feMergeNode in="coloredBlur"/>
-                        <feMergeNode in="SourceGraphic"/>
-                      </feMerge>
-                    </filter>
-                  </defs>
-                  <g filter="url(#glow)">
-                    <line x1="80" y1="30" x2="60" y2="12" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="60" y1="12" x2="35" y2="12" stroke="#06b6d4" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="35" y1="12" x2="12" y2="30" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="12" y1="30" x2="12" y2="70" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="12" y1="70" x2="35" y2="88" stroke="#6366f1" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="35" y1="88" x2="60" y2="88" stroke="#8b5cf6" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="60" y1="88" x2="80" y2="70" stroke="#a855f7" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="80" y1="70" x2="80" y2="50" stroke="#c026d3" stroke-width="3.5" stroke-linecap="round"/>
-                    <line x1="80" y1="50" x2="55" y2="50" stroke="#d946ef" stroke-width="3.5" stroke-linecap="round"/>
-                  </g>
-                  <circle cx="80" cy="30" r="5" fill="#22d3ee"/>
-                  <circle cx="60" cy="12" r="5" fill="#06b6d4"/>
-                  <circle cx="35" cy="12" r="5" fill="#3b82f6"/>
-                  <circle cx="12" cy="30" r="5" fill="#3b82f6"/>
-                  <circle cx="12" cy="70" r="5" fill="#6366f1"/>
-                  <circle cx="35" cy="88" r="5" fill="#8b5cf6"/>
-                  <circle cx="60" cy="88" r="5" fill="#a855f7"/>
-                  <circle cx="80" cy="70" r="5" fill="#c026d3"/>
-                  <circle cx="80" cy="50" r="5" fill="#d946ef"/>
-                  <circle cx="55" cy="50" r="5" fill="#d946ef"/>
-                  <g filter="url(#glow)">
-                    <path d="M42 22 L62 34 L42 46 L22 34 Z" fill="#22d3ee" stroke="#fff" stroke-width="1.5"/>
-                    <path d="M42 46 L62 34 L62 54 L42 66 Z" fill="#8b5cf6" stroke="#fff" stroke-width="1.5"/>
-                    <path d="M42 46 L22 34 L22 54 L42 66 Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
-                  </g>
-                </svg>
+                <img 
+                  src="/logo.png" 
+                  alt="KubeGraf Logo" 
+                  class="w-7 h-7 object-contain"
+                  style={{ 
+                    'max-width': '28px', 
+                    'max-height': '28px',
+                    filter: currentTheme() === 'light' 
+                      ? 'brightness(0.85) contrast(1.1)' 
+                      : 'brightness(1.1) contrast(1.05) drop-shadow(0 0 8px rgba(6, 182, 212, 0.3))',
+                    transition: 'filter 0.3s ease',
+                  }}
+                />
                 <span class="text-[10px] font-bold text-text-primary tracking-tight mt-0.5">KubeGraf</span>
               </button>
             </div>
