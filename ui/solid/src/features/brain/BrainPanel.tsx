@@ -14,7 +14,7 @@ import { BrainData } from '../../services/brainService';
 const BrainPanel: Component = () => {
   // Make theme reactive
   const theme = createMemo(() => getTheme());
-  // Fetch all Brain data in parallel using a single resource
+  // Fetch all Brain data in parallel using a single resource with timeout
   const [brainData] = createResource<BrainData>(
     () => brainPanelOpen(),
     async () => {
@@ -31,8 +31,36 @@ const BrainPanel: Component = () => {
           },
         };
       }
-      // Fetch all data in parallel for faster loading
-      return await fetchBrainDataInParallel();
+      // Fetch all data in parallel with timeout (90 seconds max to match backend timeout)
+      try {
+        const timeoutPromise = new Promise<BrainData>((_, reject) => {
+          setTimeout(() => reject(new Error('Brain data fetch timeout')), 90000);
+        });
+        return await Promise.race([
+          fetchBrainDataInParallel(),
+          timeoutPromise
+        ]);
+      } catch (error) {
+        console.error('Brain data fetch error:', error);
+        // Even on error, try to fetch with individual fallbacks
+        // This ensures we always show something useful
+        try {
+          return await fetchBrainDataInParallel();
+        } catch (fallbackError) {
+          console.error('Brain data fallback fetch also failed:', fallbackError);
+          // Return structure with helpful message
+          return {
+            timelineEvents: [],
+            oomMetrics: { incidents24h: 0, crashLoops24h: 0, topProblematic: [] },
+            summary: {
+              last24hSummary: 'Unable to load brain insights. The cluster may be unavailable or the request timed out. Please check your cluster connection and try again.',
+              topRiskAreas: ['Cluster connection may be unavailable', 'Request may have timed out'],
+              recommendedActions: ['Verify cluster connection', 'Check if cluster is accessible', 'Try refreshing the panel'],
+              generatedAt: new Date().toISOString(),
+            },
+          };
+        }
+      }
     }
   );
 
@@ -86,6 +114,24 @@ const BrainPanel: Component = () => {
               </div>
             </div>
             <div class="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  // Force refresh by mutating the resource
+                  brainData.refetch();
+                }}
+                class="p-2 rounded-lg transition-colors"
+                title="Refresh Brain insights"
+                style={{ 
+                  color: 'var(--text-muted)',
+                  background: 'transparent'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
               <button
                 onClick={toggleBrainPanelPin}
                 class="p-2 rounded-lg transition-colors"

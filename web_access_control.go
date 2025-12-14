@@ -125,8 +125,13 @@ func (ws *WebServer) handleServiceAccountDetails(w http.ResponseWriter, r *http.
 
 // handleServiceAccountYAML returns YAML of a ServiceAccount
 func (ws *WebServer) handleServiceAccountYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
 		return
 	}
 
@@ -134,18 +139,27 @@ func (ws *WebServer) handleServiceAccountYAML(w http.ResponseWriter, r *http.Req
 	namespace := r.URL.Query().Get("namespace")
 
 	if name == "" || namespace == "" {
-		http.Error(w, "name and namespace required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace required",
+		})
 		return
 	}
 
 	if ws.app.clientset == nil {
-		http.Error(w, "Not connected to cluster", http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
 		return
 	}
 
 	sa, err := ws.app.clientset.CoreV1().ServiceAccounts(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -157,12 +171,17 @@ func (ws *WebServer) handleServiceAccountYAML(w http.ResponseWriter, r *http.Req
 	sa.ManagedFields = nil
 	yamlData, err := toKubectlYAML(sa, gvk)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 // handleServiceAccountUpdate updates a ServiceAccount from YAML
@@ -237,7 +256,7 @@ func (ws *WebServer) handleServiceAccountDelete(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
-// Note: RBAC handlers (Roles, ClusterRoles, RoleBindings, ClusterRoleBindings) 
+// Note: RBAC handlers (Roles, ClusterRoles, RoleBindings, ClusterRoleBindings)
 // already exist in ai_handlers.go and are registered there
 
 // RegisterAccessControlHandlers registers access control API handlers
@@ -253,4 +272,3 @@ func (ws *WebServer) RegisterAccessControlHandlers() {
 	// are already registered in ai_handlers.go via existing endpoints:
 	// /api/rbac/role, /api/rbac/clusterrole, /api/rbac/rolebinding, /api/rbac/clusterrolebinding
 }
-

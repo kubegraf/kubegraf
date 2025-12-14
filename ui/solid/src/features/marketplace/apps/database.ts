@@ -14,6 +14,7 @@ export const databaseApps: MarketplaceApp[] = [
     chartName: 'postgresql',
     tags: ['database', 'sql', 'rdbms', 'postgres'],
     maintainer: 'Bitnami',
+    sourceCitation: 'Helm Chart: https://charts.bitnami.com/bitnami | PostgreSQL: https://www.postgresql.org',
     clusterSupport: {
       single: true,
       multi: true,
@@ -31,6 +32,7 @@ export const databaseApps: MarketplaceApp[] = [
     chartName: 'mysql',
     tags: ['database', 'sql', 'rdbms', 'mysql'],
     maintainer: 'Bitnami',
+    sourceCitation: 'Helm Chart: https://charts.bitnami.com/bitnami | MySQL: https://www.mysql.com',
     clusterSupport: {
       single: true,
       multi: true,
@@ -48,6 +50,7 @@ export const databaseApps: MarketplaceApp[] = [
     chartName: 'memcached',
     tags: ['cache', 'memory', 'key-value', 'memcached'],
     maintainer: 'Bitnami',
+    sourceCitation: 'Helm Chart: https://charts.bitnami.com/bitnami | Memcached: https://memcached.org',
     clusterSupport: {
       single: true,
       multi: true,

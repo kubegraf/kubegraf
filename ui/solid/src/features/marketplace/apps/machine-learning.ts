@@ -15,6 +15,7 @@ export const machineLearningApps: MarketplaceApp[] = [
     tags: ['mlops', 'experiment-tracking', 'model-registry'],
     maintainer: 'MLflow',
     documentation: 'https://mlflow.org/docs/latest/index.html',
+    sourceCitation: 'Helm Chart: https://community-charts.github.io/helm-charts | Official: https://mlflow.org',
     clusterSupport: {
       single: true,
       multi: true,
@@ -33,6 +34,7 @@ export const machineLearningApps: MarketplaceApp[] = [
     tags: ['feature-store', 'ml', 'data'],
     maintainer: 'Feast',
     documentation: 'https://docs.feast.dev/',
+    sourceCitation: 'Helm Chart: https://feast-charts.storage.googleapis.com | Official: https://feast.dev',
     clusterSupport: {
       single: true,
       multi: true,
@@ -51,6 +53,7 @@ export const machineLearningApps: MarketplaceApp[] = [
     tags: ['model-serving', 'inference', 'serverless'],
     maintainer: 'KServe',
     documentation: 'https://kserve.github.io/website/',
+    sourceCitation: 'Helm Chart: https://kserve.github.io/kserve | Official: https://kserve.github.io/website',
     clusterSupport: {
       single: true,
       multi: true,
@@ -69,6 +72,7 @@ export const machineLearningApps: MarketplaceApp[] = [
     tags: ['model-serving', 'mlops', 'deployment'],
     maintainer: 'BentoML',
     documentation: 'https://docs.bentoml.com/',
+    sourceCitation: 'Helm Chart: https://bentoml.github.io/helm-charts | Official: https://www.bentoml.com',
     clusterSupport: {
       single: true,
       multi: true,

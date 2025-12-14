@@ -34,6 +34,7 @@ const Namespaces: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('namespaces-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('namespaces-font-family') || 'Monaco');
 
@@ -101,11 +102,17 @@ const Namespaces: Component = () => {
   });
 
   const [yamlContent] = createResource(
-    () => (showYaml() || showEdit()) && selected() ? { name: selected()!.name } : null,
-    async (params) => {
-      if (!params) return '';
-      const data = await api.getNamespaceYAML(params.name);
-      return data.yaml || '';
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      try {
+        const data = await api.getNamespaceYAML(key);
+        return data.yaml || '';
+      } catch (error) {
+        console.error('Failed to fetch namespace YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
+      }
     }
   );
 
@@ -466,8 +473,16 @@ const Namespaces: Component = () => {
                       }}>
                         <ActionMenu
                           actions={[
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { setSelected(ns); setShowYaml(true); } },
-                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelected(ns); setShowEdit(true); } },
+                            { label: 'View YAML', icon: 'yaml', onClick: () => { 
+                              setSelected(ns);
+                              setYamlKey(ns.name);
+                              setShowYaml(true);
+                            } },
+                            { label: 'Edit YAML', icon: 'edit', onClick: () => { 
+                              setSelected(ns);
+                              setYamlKey(ns.name);
+                              setShowEdit(true);
+                            } },
                             { label: 'Delete', icon: 'delete', onClick: () => deleteNamespace(ns), variant: 'danger', divider: true },
                           ]}
                         />
@@ -540,21 +555,37 @@ const Namespaces: Component = () => {
       </div>
 
       {/* YAML Modal */}
-      <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
         </Show>
       </Modal>
 
       {/* Edit YAML Modal */}
-      <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selected()?.name}`} size="xl">
-        <Show when={!yamlContent.loading} fallback={<div class="spinner mx-auto" />}>
+      <Modal isOpen={showEdit()} onClose={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }} title={`Edit YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
           <div style={{ height: '70vh' }}>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
-              onCancel={() => setShowEdit(false)}
+              onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>
         </Show>

@@ -15,6 +15,7 @@ export interface MarketplaceApp {
   maintainer?: string;
   documentation?: string;
   clusterSupport?: ClusterSupport;
+  sourceCitation?: string; // Source/reference for the app installation
 }
 
 export interface InstalledInstance {

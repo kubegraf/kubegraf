@@ -121,6 +121,8 @@ const DiagnosticsControls: Component<DiagnosticsControlsProps> = (props) => {
         >
           <option value="0">Manual only</option>
           <option value="1440" selected={frequency() === 1440}>Once per day</option>
+          <option value="360">6 hours</option>
+          <option value="720">12 hours</option>
           <option value="5">5 minutes</option>
           <option value="15">15 minutes</option>
           <option value="30">30 minutes</option>
@@ -185,6 +187,10 @@ const DiagnosticsControls: Component<DiagnosticsControlsProps> = (props) => {
         }}>
           {frequency() === 1440 
             ? 'Automatic scan runs once per day. You can also run manually anytime to get the latest results.'
+            : frequency() === 360
+            ? 'Automatic scan runs every 6 hours. You can also run manually anytime to get the latest results.'
+            : frequency() === 720
+            ? 'Automatic scan runs every 12 hours. You can also run manually anytime to get the latest results.'
             : `Automatic scan runs every ${frequency() < 60 ? `${frequency()} minutes` : `${Math.floor(frequency() / 60)} hour${Math.floor(frequency() / 60) > 1 ? 's' : ''}`}. You can also run manually anytime.`}
         </div>
       </Show>

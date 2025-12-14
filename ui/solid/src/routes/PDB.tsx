@@ -41,6 +41,7 @@ const PDB: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
 
   const getInitialFontSize = (): number => {
     const saved = localStorage.getItem('pdb-font-size');
@@ -60,6 +61,23 @@ const PDB: Component = () => {
       return await api.getPDBs(ns);
     },
     { ttl: 5000 }
+  );
+
+  const [yamlContent] = createResource(
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [name, ns] = key.split('|');
+      if (!name || !ns) return '';
+      try {
+        const data = await api.getPDBYAML(name, ns);
+        return data.yaml || '';
+      } catch (error) {
+        console.error('Failed to fetch PDB YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
+      }
+    }
   );
 
   const filteredPDBs = createMemo(() => {
@@ -112,11 +130,13 @@ const PDB: Component = () => {
 
   const handleViewYAML = async (pdb: PDB) => {
     setSelected(pdb);
+    setYamlKey(`${pdb.name}|${pdb.namespace}`);
     setShowYaml(true);
   };
 
   const handleEdit = async (pdb: PDB) => {
     setSelected(pdb);
+    setYamlKey(`${pdb.name}|${pdb.namespace}`);
     setShowEdit(true);
   };
 
@@ -266,41 +286,96 @@ const PDB: Component = () => {
         }
       >
         <div class="w-full overflow-x-auto rounded border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
-          <table class="w-full" style={{ 'border-collapse': 'collapse', 'font-size': `${fontSize()}px` }}>
+          <table class="w-full" style={{
+            width: '100%',
+            'table-layout': 'auto',
+            background: 'var(--bg-primary)',
+            'border-collapse': 'collapse',
+            margin: '0',
+            padding: '0'
+          }}>
             <thead>
-              <tr style={{ background: 'var(--bg-secondary)', 'border-bottom': '1px solid var(--border-color)' }}>
+              <tr style={{
+                height: `${Math.max(24, fontSize() * 1.7)}px`,
+                'font-weight': '900',
+                color: '#0ea5e9',
+                'font-size': `${fontSize()}px`,
+                'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+              }}>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('name')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Name {sortField() === 'name' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('namespace')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Namespace {sortField() === 'namespace' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('allowedDisruptions')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Allowed Disruptions {sortField() === 'allowedDisruptions' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Current / Desired
                 </th>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('age')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Age {sortField() === 'age' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Actions
                 </th>
               </tr>
@@ -316,40 +391,83 @@ const PDB: Component = () => {
                   </tr>
                 }
               >
-                {(pdb) => (
-                  <tr
-                    style={{
-                      'border-bottom': '1px solid var(--border-color)',
-                      background: 'var(--bg-card)'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--bg-secondary)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'var(--bg-card)';
-                    }}
-                  >
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>{pdb.name}</td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>{pdb.namespace}</td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>
+                {(pdb) => {
+                  const textColor = '#0ea5e9';
+                  return (
+                  <tr>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{pdb.name}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{pdb.namespace}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       {pdb.allowedDisruptions}
                     </td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       {pdb.currentHealthy} / {pdb.desiredHealthy}
                     </td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{pdb.age}</td>
-                    <td class="px-3 py-2">
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{pdb.age}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       <ActionMenu
                         actions={[
                           { label: 'View YAML', icon: 'yaml', onClick: () => handleViewYAML(pdb) },
-                          { label: 'Edit', icon: 'edit', onClick: () => handleEdit(pdb) },
+                          { label: 'Edit YAML', icon: 'edit', onClick: () => handleEdit(pdb) },
                           { label: 'Describe', icon: 'describe', onClick: () => handleDescribe(pdb) },
-                          { label: 'Delete', icon: 'delete', onClick: () => handleDelete(pdb) },
+                          { label: 'Delete', icon: 'delete', onClick: () => handleDelete(pdb), variant: 'danger', divider: true },
                         ]}
                       />
                     </td>
                   </tr>
-                )}
+                  );
+                }}
               </For>
             </tbody>
           </table>
@@ -393,31 +511,41 @@ const PDB: Component = () => {
       </Show>
 
       {/* YAML Viewer Modal */}
-      <Show when={showYaml() && selected()}>
-        <Modal
-          title={`PDB: ${selected()!.name}`}
-          onClose={() => setShowYaml(false)}
-          size="large"
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
         >
-          <YAMLViewer yaml={''} resourceName={selected()!.name} resourceNamespace={selected()!.namespace} getYAML={api.getPDBYAML} />
-        </Modal>
-      </Show>
+          <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
 
       {/* YAML Editor Modal */}
-      <Show when={showEdit() && selected()}>
-        <Modal
-          title={`Edit PDB: ${selected()!.name}`}
-          onClose={() => setShowEdit(false)}
-          size="large"
+      <Modal isOpen={showEdit()} onClose={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }} title={`Edit YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
         >
-          <YAMLEditor
-            resourceName={selected()!.name}
-            resourceNamespace={selected()!.namespace}
-            getYAML={api.getPDBYAML}
-            onSave={handleSaveYAML}
-          />
-        </Modal>
-      </Show>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
+            />
+          </div>
+        </Show>
+      </Modal>
 
       {/* Describe Modal */}
       <Show when={showDescribe() && selected()}>

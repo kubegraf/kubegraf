@@ -799,6 +799,32 @@ const Apps: Component<AppsProps> = (props) => {
                       {app.description}
                     </p>
 
+                    {/* Source Citation */}
+                    <Show when={app.sourceCitation}>
+                      <div class="mt-2 text-xs px-2 py-1.5 rounded" style={{ 
+                        background: 'rgba(6, 182, 212, 0.1)', 
+                        color: 'var(--accent-primary)',
+                        border: '1px solid rgba(6, 182, 212, 0.2)'
+                      }}>
+                        <div class="font-semibold mb-1">📚 Source Citation:</div>
+                        <div class="leading-relaxed">{app.sourceCitation}</div>
+                        <Show when={app.chartRepo && app.chartRepo !== 'local-cluster'}>
+                          <div class="mt-1 pt-1 border-t" style={{ borderColor: 'rgba(6, 182, 212, 0.2)' }}>
+                            <span class="opacity-75">Helm Repository: </span>
+                            <a 
+                              href={app.chartRepo} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              class="underline hover:opacity-80"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {app.chartRepo}
+                            </a>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+
                     <div class="mt-4 flex items-center justify-between">
                       <span class="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
                         {app.chartName}
@@ -943,6 +969,30 @@ const Apps: Component<AppsProps> = (props) => {
                         <div>
                           <div class="font-medium" style={{ color: 'var(--text-primary)' }}>{app.displayName}</div>
                           <div class="text-xs" style={{ color: 'var(--text-muted)' }}>{app.description}</div>
+                          <Show when={app.sourceCitation}>
+                            <div class="text-xs mt-1 px-1.5 py-1 rounded" style={{ 
+                              background: 'rgba(6, 182, 212, 0.1)', 
+                              color: 'var(--accent-primary)',
+                              border: '1px solid rgba(6, 182, 212, 0.2)'
+                            }}>
+                              <div class="font-semibold mb-0.5">📚 Source:</div>
+                              <div class="leading-relaxed">{app.sourceCitation}</div>
+                              <Show when={app.chartRepo && app.chartRepo !== 'local-cluster'}>
+                                <div class="mt-0.5 pt-0.5 border-t text-[10px]" style={{ borderColor: 'rgba(6, 182, 212, 0.2)' }}>
+                                  <span class="opacity-75">Repo: </span>
+                                  <a 
+                                    href={app.chartRepo} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    class="underline hover:opacity-80"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {app.chartRepo}
+                                  </a>
+                                </div>
+                              </Show>
+                            </div>
+                          </Show>
                         </div>
                       </div>
                     </td>

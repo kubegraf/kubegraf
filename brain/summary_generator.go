@@ -34,10 +34,10 @@ func (g *SummaryGenerator) Generate(ctx context.Context) (*BrainSummary, error) 
 	// Get incidents from scanner (works even without clientset)
 	incidents := g.incidentScanner.ScanAllIncidents("")
 
-	// Filter incidents from last 24h
+	// Filter incidents from last 24h (check both FirstSeen and LastSeen)
 	var recentIncidents []KubernetesIncident
 	for _, inc := range incidents {
-		if inc.FirstSeen.After(cutoffTime) {
+		if inc.FirstSeen.After(cutoffTime) || inc.LastSeen.After(cutoffTime) {
 			recentIncidents = append(recentIncidents, inc)
 		}
 	}
@@ -74,7 +74,10 @@ func (g *SummaryGenerator) Generate(ctx context.Context) (*BrainSummary, error) 
 	failedPods := 0
 
 	if err := ValidateClientset(g.clientset); err == nil {
-		pods, err := g.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+		// Use limit to avoid scanning too many pods (performance optimization)
+		pods, err := g.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+			Limit: 2000, // Limit to 2000 pods for performance
+		})
 		if err == nil {
 			totalPods = len(pods.Items)
 			for _, pod := range pods.Items {
@@ -91,28 +94,50 @@ func (g *SummaryGenerator) Generate(ctx context.Context) (*BrainSummary, error) 
 	}
 
 	// Generate summary text
-	summary := fmt.Sprintf("In the last 24 hours, %d incidents were detected. ", len(recentIncidents))
-	if criticalCount > 0 {
-		summary += fmt.Sprintf("%d critical and ", criticalCount)
-	}
-	summary += fmt.Sprintf("%d warning-level issues. ", warningCount)
-
-	if oomCount > 0 {
-		summary += fmt.Sprintf("%d OOMKilled events occurred. ", oomCount)
-	}
-	if crashLoopCount > 0 {
-		summary += fmt.Sprintf("%d CrashLoopBackOff incidents detected. ", crashLoopCount)
-	}
-	if highRestartCount > 0 {
-		summary += fmt.Sprintf("%d high restart incidents. ", highRestartCount)
-	}
-
-	// Cluster health summary
-	if totalPods > 0 {
-		summary += fmt.Sprintf("Cluster status: %d total pods (%d running, %d pending, %d failed).",
-			totalPods, runningPods, pendingPods, failedPods)
+	var summary string
+	if len(recentIncidents) == 0 && totalPods == 0 {
+		summary = "Cluster connection unavailable. Unable to generate insights."
+	} else if len(recentIncidents) == 0 {
+		// No incidents - show healthy status
+		summary = "Cluster is healthy with no incidents detected in the last 24 hours. "
+		if totalPods > 0 {
+			summary += fmt.Sprintf("Cluster status: %d total pods (%d running", totalPods, runningPods)
+			if pendingPods > 0 {
+				summary += fmt.Sprintf(", %d pending", pendingPods)
+			}
+			if failedPods > 0 {
+				summary += fmt.Sprintf(", %d failed", failedPods)
+			}
+			summary += ")."
+		}
 	} else {
-		summary += "Cluster connection unavailable for pod metrics."
+		summary = fmt.Sprintf("In the last 24 hours, %d incidents were detected. ", len(recentIncidents))
+		if criticalCount > 0 {
+			summary += fmt.Sprintf("%d critical and ", criticalCount)
+		}
+		summary += fmt.Sprintf("%d warning-level issues. ", warningCount)
+
+		if oomCount > 0 {
+			summary += fmt.Sprintf("%d OOMKilled events occurred. ", oomCount)
+		}
+		if crashLoopCount > 0 {
+			summary += fmt.Sprintf("%d CrashLoopBackOff incidents detected. ", crashLoopCount)
+		}
+		if highRestartCount > 0 {
+			summary += fmt.Sprintf("%d high restart incidents. ", highRestartCount)
+		}
+
+		// Cluster health summary
+		if totalPods > 0 {
+			summary += fmt.Sprintf("Cluster status: %d total pods (%d running", totalPods, runningPods)
+			if pendingPods > 0 {
+				summary += fmt.Sprintf(", %d pending", pendingPods)
+			}
+			if failedPods > 0 {
+				summary += fmt.Sprintf(", %d failed", failedPods)
+			}
+			summary += ")."
+		}
 	}
 
 	// Top risk areas

@@ -59,14 +59,14 @@ func (ws *WebServer) handlePDBs(w http.ResponseWriter, r *http.Request) {
 			}
 
 			pdbList = append(pdbList, map[string]interface{}{
-				"name":              pdb.Name,
-				"namespace":         pdb.Namespace,
-				"minAvailable":      minAvailable,
-				"maxUnavailable":    maxUnavailable,
+				"name":               pdb.Name,
+				"namespace":          pdb.Namespace,
+				"minAvailable":       minAvailable,
+				"maxUnavailable":     maxUnavailable,
 				"allowedDisruptions": allowedDisruptions,
-				"currentHealthy":    pdb.Status.CurrentHealthy,
-				"desiredHealthy":    pdb.Status.DesiredHealthy,
-				"age":               formatAge(time.Since(pdb.CreationTimestamp.Time)),
+				"currentHealthy":     pdb.Status.CurrentHealthy,
+				"desiredHealthy":     pdb.Status.DesiredHealthy,
+				"age":                formatAge(time.Since(pdb.CreationTimestamp.Time)),
 			})
 		}
 		json.NewEncoder(w).Encode(pdbList)
@@ -90,14 +90,14 @@ func (ws *WebServer) handlePDBs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pdbList = append(pdbList, map[string]interface{}{
-			"name":              pdb.Name,
-			"namespace":         pdb.Namespace,
-			"minAvailable":      minAvailable,
-			"maxUnavailable":    maxUnavailable,
+			"name":               pdb.Name,
+			"namespace":          pdb.Namespace,
+			"minAvailable":       minAvailable,
+			"maxUnavailable":     maxUnavailable,
 			"allowedDisruptions": allowedDisruptions,
-			"currentHealthy":    pdb.Status.CurrentHealthy,
-			"desiredHealthy":    pdb.Status.DesiredHealthy,
-			"age":               formatAge(time.Since(pdb.CreationTimestamp.Time)),
+			"currentHealthy":     pdb.Status.CurrentHealthy,
+			"desiredHealthy":     pdb.Status.DesiredHealthy,
+			"age":                formatAge(time.Since(pdb.CreationTimestamp.Time)),
 		})
 	}
 
@@ -182,13 +182,13 @@ func (ws *WebServer) handleHPAs(w http.ResponseWriter, r *http.Request) {
 
 		hpaData := map[string]interface{}{
 			"name":            hpa.Name,
-			"namespace":      hpa.Namespace,
-			"targetRef":      targetRef,
-			"minReplicas":    minReplicas,
-			"maxReplicas":    maxReplicas,
+			"namespace":       hpa.Namespace,
+			"targetRef":       targetRef,
+			"minReplicas":     minReplicas,
+			"maxReplicas":     maxReplicas,
 			"currentReplicas": hpa.Status.CurrentReplicas,
 			"desiredReplicas": hpa.Status.DesiredReplicas,
-			"age":            formatAge(time.Since(hpa.CreationTimestamp.Time)),
+			"age":             formatAge(time.Since(hpa.CreationTimestamp.Time)),
 		}
 
 		if cpuUtilization != nil {
@@ -206,11 +206,16 @@ func (ws *WebServer) handleHPAs(w http.ResponseWriter, r *http.Request) {
 
 // handlePDBYAML returns PDB YAML
 func (ws *WebServer) handlePDBYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	namespace := r.URL.Query().Get("namespace")
 
 	if name == "" || namespace == "" {
-		http.Error(w, "name and namespace are required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
 		return
 	}
 
@@ -219,13 +224,19 @@ func (ws *WebServer) handlePDBYAML(w http.ResponseWriter, r *http.Request) {
 		// Try v1beta1
 		pdbV1Beta1, errV1Beta1 := ws.app.clientset.PolicyV1beta1().PodDisruptionBudgets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 		if errV1Beta1 != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
 			return
 		}
 		pdbV1Beta1.ManagedFields = nil
 		yamlData, err := toKubectlYAML(pdbV1Beta1, schema.GroupVersionKind{Group: "policy", Version: "v1beta1", Kind: "PodDisruptionBudget"})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -238,7 +249,10 @@ func (ws *WebServer) handlePDBYAML(w http.ResponseWriter, r *http.Request) {
 	pdb.ManagedFields = nil
 	yamlData, err := toKubectlYAML(pdb, schema.GroupVersionKind{Group: "policy", Version: "v1", Kind: "PodDisruptionBudget"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -249,11 +263,16 @@ func (ws *WebServer) handlePDBYAML(w http.ResponseWriter, r *http.Request) {
 
 // handleHPAYAML returns HPA YAML
 func (ws *WebServer) handleHPAYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	namespace := r.URL.Query().Get("namespace")
 
 	if name == "" || namespace == "" {
-		http.Error(w, "name and namespace are required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
 		return
 	}
 
@@ -262,13 +281,19 @@ func (ws *WebServer) handleHPAYAML(w http.ResponseWriter, r *http.Request) {
 		// Try v1
 		hpaV1, errV1 := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 		if errV1 != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
 			return
 		}
 		hpaV1.ManagedFields = nil
 		yamlData, err := toKubectlYAML(hpaV1, schema.GroupVersionKind{Group: "autoscaling", Version: "v1", Kind: "HorizontalPodAutoscaler"})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -281,7 +306,10 @@ func (ws *WebServer) handleHPAYAML(w http.ResponseWriter, r *http.Request) {
 	hpa.ManagedFields = nil
 	yamlData, err := toKubectlYAML(hpa, schema.GroupVersionKind{Group: "autoscaling", Version: "v2", Kind: "HorizontalPodAutoscaler"})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -439,5 +467,3 @@ func (ws *WebServer) handleHPADelete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
-
-

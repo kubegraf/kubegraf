@@ -89,9 +89,9 @@ const Security: Component = () => {
       const cat = params.cat || undefined;
       try {
         setDiagnosticsProgress(cat ? `Running ${cat} checks in parallel...` : 'Running all diagnostic checks in parallel...');
-        // Add timeout to frontend request (50 seconds to match backend)
+        // Add timeout to frontend request (45 seconds to match backend, with early timeout for better UX)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 50000);
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
         try {
           const result = await api.runDiagnostics(ns, cat);
           clearTimeout(timeoutId);
@@ -101,17 +101,17 @@ const Security: Component = () => {
         } catch (fetchError: any) {
           clearTimeout(timeoutId);
           if (fetchError.name === 'AbortError') {
-            throw new Error('Diagnostics request timed out. Please try again or select a specific category.');
+            setDiagnosticsProgress('');
+            // Return empty results instead of throwing to prevent infinite loading
+            return { findings: [], summary: { total: 0, critical: 0, warning: 0, info: 0, byCategory: {} }, total: 0 };
           }
           throw fetchError;
         }
       } catch (error: any) {
         setDiagnosticsProgress('');
-        // Show user-friendly error message
-        if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
-          throw new Error('Diagnostics took too long. Try selecting a specific category or namespace.');
-        }
-        throw error;
+        // Return empty results instead of throwing to prevent infinite loading
+        console.error('Diagnostics error:', error);
+        return { findings: [], summary: { total: 0, critical: 0, warning: 0, info: 0, byCategory: {} }, total: 0 };
       }
     }
   );

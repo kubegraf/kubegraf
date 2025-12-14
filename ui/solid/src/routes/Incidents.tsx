@@ -22,7 +22,17 @@ const Incidents: Component = () => {
       severity: severityFilter() || undefined,
     }),
     async (params) => {
-      return await api.getIncidents(params.namespace, params.type, params.severity);
+      try {
+        const data = await api.getIncidents(params.namespace, params.type, params.severity);
+        return data || [];
+      } catch (error) {
+        console.error('Error fetching incidents:', error);
+        addNotification({
+          type: 'error',
+          message: `Failed to load incidents: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+        return []; // Return empty array on error
+      }
     }
   );
 
@@ -115,11 +125,32 @@ const Incidents: Component = () => {
 
       {/* Incidents Table */}
       <Show
-        when={!incidents.loading}
+        when={!incidents.loading && !incidents.error}
         fallback={
           <div class="p-8 text-center">
-            <div class="spinner mx-auto mb-2" />
-            <span style={{ color: 'var(--text-muted)' }}>Loading incidents...</span>
+            {incidents.loading ? (
+              <>
+                <div class="spinner mx-auto mb-2" />
+                <span style={{ color: 'var(--text-muted)' }}>Loading incidents...</span>
+              </>
+            ) : (
+              <div>
+                <div class="text-red-500 mb-2">Error loading incidents</div>
+                <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  {incidents.error?.message || 'Unknown error occurred'}
+                </div>
+                <button
+                  onClick={() => refetch()}
+                  class="mt-4 px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{ 
+                    background: 'var(--accent-primary)', 
+                    color: '#000' 
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
           </div>
         }
       >

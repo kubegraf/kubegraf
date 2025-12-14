@@ -1363,27 +1363,40 @@ func (ws *WebServer) handleClusterRoleBindings(w http.ResponseWriter, r *http.Re
 // Storage YAML/Update/Delete handlers
 
 func (ws *WebServer) handlePVYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "PV name is required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PV name is required",
+		})
 		return
 	}
 
 	pv, err := ws.app.clientset.CoreV1().PersistentVolumes().Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get PV: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
 	pv.ManagedFields = nil
 	yamlData, err := toKubectlYAML(pv, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "PersistentVolume"})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 func (ws *WebServer) handlePVUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1443,28 +1456,41 @@ func (ws *WebServer) handlePVDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ws *WebServer) handlePVCYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	namespace := r.URL.Query().Get("namespace")
 	if name == "" || namespace == "" {
-		http.Error(w, "PVC name and namespace are required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PVC name and namespace are required",
+		})
 		return
 	}
 
 	pvc, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get PVC: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
 	pvc.ManagedFields = nil
 	yamlData, err := toKubectlYAML(pvc, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 func (ws *WebServer) handlePVCUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1608,28 +1634,41 @@ func (ws *WebServer) handleStorageClassDelete(w http.ResponseWriter, r *http.Req
 // RBAC YAML/Update/Delete handlers
 
 func (ws *WebServer) handleRoleYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	namespace := r.URL.Query().Get("namespace")
 	if name == "" || namespace == "" {
-		http.Error(w, "Role name and namespace are required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Role name and namespace are required",
+		})
 		return
 	}
 
 	role, err := ws.app.clientset.RbacV1().Roles(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get Role: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
 	role.ManagedFields = nil
 	yamlData, err := toKubectlYAML(role, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 func (ws *WebServer) handleRoleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1691,28 +1730,41 @@ func (ws *WebServer) handleRoleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ws *WebServer) handleRoleBindingYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	namespace := r.URL.Query().Get("namespace")
 	if name == "" || namespace == "" {
-		http.Error(w, "RoleBinding name and namespace are required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "RoleBinding name and namespace are required",
+		})
 		return
 	}
 
 	rb, err := ws.app.clientset.RbacV1().RoleBindings(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get RoleBinding: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
 	rb.ManagedFields = nil
 	yamlData, err := toKubectlYAML(rb, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 func (ws *WebServer) handleRoleBindingUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1774,27 +1826,40 @@ func (ws *WebServer) handleRoleBindingDelete(w http.ResponseWriter, r *http.Requ
 }
 
 func (ws *WebServer) handleClusterRoleYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "ClusterRole name is required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ClusterRole name is required",
+		})
 		return
 	}
 
 	cr, err := ws.app.clientset.RbacV1().ClusterRoles().Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get ClusterRole: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
 	cr.ManagedFields = nil
 	yamlData, err := toKubectlYAML(cr, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole"})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 func (ws *WebServer) handleClusterRoleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1854,27 +1919,40 @@ func (ws *WebServer) handleClusterRoleDelete(w http.ResponseWriter, r *http.Requ
 }
 
 func (ws *WebServer) handleClusterRoleBindingYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		http.Error(w, "ClusterRoleBinding name is required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "ClusterRoleBinding name is required",
+		})
 		return
 	}
 
 	crb, err := ws.app.clientset.RbacV1().ClusterRoleBindings().Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get ClusterRoleBinding: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
 	crb.ManagedFields = nil
 	yamlData, err := toKubectlYAML(crb, schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRoleBinding"})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to marshal YAML: %v", err), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"yaml": string(yamlData)})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(yamlData),
+	})
 }
 
 func (ws *WebServer) handleClusterRoleBindingUpdate(w http.ResponseWriter, r *http.Request) {

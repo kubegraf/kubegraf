@@ -43,6 +43,7 @@ const HPA: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [yamlKey, setYamlKey] = createSignal<string | null>(null);
 
   const getInitialFontSize = (): number => {
     const saved = localStorage.getItem('hpa-font-size');
@@ -62,6 +63,23 @@ const HPA: Component = () => {
       return await api.getHPAs(ns);
     },
     { ttl: 5000 }
+  );
+
+  const [yamlContent] = createResource(
+    () => yamlKey(),
+    async (key) => {
+      if (!key) return '';
+      const [name, ns] = key.split('|');
+      if (!name || !ns) return '';
+      try {
+        const data = await api.getHPAYAML(name, ns);
+        return data.yaml || '';
+      } catch (error) {
+        console.error('Failed to fetch HPA YAML:', error);
+        addNotification(`Failed to load YAML: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        return '';
+      }
+    }
   );
 
   const filteredHPAs = createMemo(() => {
@@ -115,11 +133,13 @@ const HPA: Component = () => {
 
   const handleViewYAML = async (hpa: HPA) => {
     setSelected(hpa);
+    setYamlKey(`${hpa.name}|${hpa.namespace}`);
     setShowYaml(true);
   };
 
   const handleEdit = async (hpa: HPA) => {
     setSelected(hpa);
+    setYamlKey(`${hpa.name}|${hpa.namespace}`);
     setShowEdit(true);
   };
 
@@ -269,43 +289,112 @@ const HPA: Component = () => {
         }
       >
         <div class="w-full overflow-x-auto rounded border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
-          <table class="w-full" style={{ 'border-collapse': 'collapse', 'font-size': `${fontSize()}px` }}>
+          <table class="w-full" style={{
+            width: '100%',
+            'table-layout': 'auto',
+            background: 'var(--bg-primary)',
+            'border-collapse': 'collapse',
+            margin: '0',
+            padding: '0'
+          }}>
             <thead>
-              <tr style={{ background: 'var(--bg-secondary)', 'border-bottom': '1px solid var(--border-color)' }}>
+              <tr style={{
+                height: `${Math.max(24, fontSize() * 1.7)}px`,
+                'font-weight': '900',
+                color: '#0ea5e9',
+                'font-size': `${fontSize()}px`,
+                'line-height': `${Math.max(24, fontSize() * 1.7)}px`
+              }}>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('name')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Name {sortField() === 'name' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('namespace')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Namespace {sortField() === 'namespace' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Target
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Replicas
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Min / Max
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Metrics
                 </th>
                 <th
-                  class="cursor-pointer px-3 py-2 text-left"
+                  class="cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort('age')}
-                  style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}
+                  style={{
+                    padding: '0 8px',
+                    'text-align': 'left',
+                    'font-weight': '900',
+                    color: '#0ea5e9',
+                    'font-size': `${fontSize()}px`,
+                    border: 'none'
+                  }}
                 >
                   Age {sortField() === 'age' && (sortDirection() === 'asc' ? '↑' : '↓')}
                 </th>
-                <th class="px-3 py-2 text-left" style={{ color: 'var(--accent-primary)', 'font-weight': '900' }}>
+                <th class="whitespace-nowrap" style={{
+                  padding: '0 8px',
+                  'text-align': 'left',
+                  'font-weight': '900',
+                  color: '#0ea5e9',
+                  'font-size': `${fontSize()}px`,
+                  border: 'none'
+                }}>
                   Actions
                 </th>
               </tr>
@@ -321,47 +410,108 @@ const HPA: Component = () => {
                   </tr>
                 }
               >
-                {(hpa) => (
-                  <tr
-                    style={{
-                      'border-bottom': '1px solid var(--border-color)',
-                      background: 'var(--bg-card)'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--bg-secondary)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'var(--bg-card)';
-                    }}
-                  >
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>{hpa.name}</td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>{hpa.namespace}</td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>{hpa.targetRef}</td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>
+                {(hpa) => {
+                  const textColor = '#0ea5e9';
+                  return (
+                  <tr>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{hpa.name}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{hpa.namespace}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{hpa.targetRef}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       {hpa.currentReplicas} / {hpa.desiredReplicas}
                     </td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-primary)' }}>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       {hpa.minReplicas} / {hpa.maxReplicas}
                     </td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       {hpa.cpuUtilization !== undefined && `CPU: ${hpa.cpuUtilization}%`}
                       {hpa.cpuUtilization !== undefined && hpa.memoryUtilization !== undefined && ', '}
                       {hpa.memoryUtilization !== undefined && `Mem: ${hpa.memoryUtilization}%`}
                       {!hpa.cpuUtilization && !hpa.memoryUtilization && '-'}
                     </td>
-                    <td class="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{hpa.age}</td>
-                    <td class="px-3 py-2">
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      color: textColor,
+                      'font-weight': '900',
+                      'font-size': `${fontSize()}px`,
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>{hpa.age}</td>
+                    <td style={{
+                      padding: '0 8px',
+                      'text-align': 'left',
+                      height: `${Math.max(24, fontSize() * 1.7)}px`,
+                      'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
+                      border: 'none'
+                    }}>
                       <ActionMenu
                         actions={[
                           { label: 'View YAML', icon: 'yaml', onClick: () => handleViewYAML(hpa) },
-                          { label: 'Edit', icon: 'edit', onClick: () => handleEdit(hpa) },
+                          { label: 'Edit YAML', icon: 'edit', onClick: () => handleEdit(hpa) },
                           { label: 'Describe', icon: 'describe', onClick: () => handleDescribe(hpa) },
-                          { label: 'Delete', icon: 'delete', onClick: () => handleDelete(hpa) },
+                          { label: 'Delete', icon: 'delete', onClick: () => handleDelete(hpa), variant: 'danger', divider: true },
                         ]}
                       />
                     </td>
                   </tr>
-                )}
+                  );
+                }}
               </For>
             </tbody>
           </table>
@@ -405,31 +555,56 @@ const HPA: Component = () => {
       </Show>
 
       {/* YAML Viewer Modal */}
-      <Show when={showYaml() && selected()}>
-        <Modal
-          title={`HPA: ${selected()!.name}`}
-          onClose={() => setShowYaml(false)}
-          size="large"
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
         >
-          <YAMLViewer yaml={''} resourceName={selected()!.name} resourceNamespace={selected()!.namespace} getYAML={api.getHPAYAML} />
-        </Modal>
-      </Show>
+          <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
+
+      {/* YAML Viewer Modal */}
+      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
+        >
+          <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+        </Show>
+      </Modal>
 
       {/* YAML Editor Modal */}
-      <Show when={showEdit() && selected()}>
-        <Modal
-          title={`Edit HPA: ${selected()!.name}`}
-          onClose={() => setShowEdit(false)}
-          size="large"
+      <Modal isOpen={showEdit()} onClose={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }} title={`Edit YAML: ${selected()?.name || ''}`} size="xl">
+        <Show 
+          when={!yamlContent.loading && yamlContent()} 
+          fallback={
+            <div class="flex items-center justify-center p-8">
+              <div class="spinner mx-auto" />
+              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+            </div>
+          }
         >
-          <YAMLEditor
-            resourceName={selected()!.name}
-            resourceNamespace={selected()!.namespace}
-            getYAML={api.getHPAYAML}
-            onSave={handleSaveYAML}
-          />
-        </Modal>
-      </Show>
+          <div style={{ height: '70vh' }}>
+            <YAMLEditor
+              yaml={yamlContent() || ''}
+              title={selected()?.name}
+              onSave={handleSaveYAML}
+              onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
+            />
+          </div>
+        </Show>
+      </Modal>
 
       {/* Describe Modal */}
       <Show when={showDescribe() && selected()}>

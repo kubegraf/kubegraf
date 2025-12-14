@@ -14,6 +14,7 @@ export const localClusterApps: MarketplaceApp[] = [
     chartName: 'k3d',
     tags: ['local', 'development', 'docker', 'k3s'],
     maintainer: 'Rancher',
+    sourceCitation: 'k3d Official Documentation - https://k3d.io',
     clusterSupport: {
       single: true,
       multi: false,
@@ -31,6 +32,7 @@ export const localClusterApps: MarketplaceApp[] = [
     chartName: 'kind',
     tags: ['local', 'development', 'docker', 'ci-cd'],
     maintainer: 'Kubernetes SIGs',
+    sourceCitation: 'kind Official Documentation - https://kind.sigs.k8s.io',
     clusterSupport: {
       single: true,
       multi: false,
@@ -48,6 +50,7 @@ export const localClusterApps: MarketplaceApp[] = [
     chartName: 'minikube',
     tags: ['local', 'development', 'vm', 'single-node'],
     maintainer: 'Kubernetes',
+    sourceCitation: 'Minikube Official Documentation - https://minikube.sigs.k8s.io',
     clusterSupport: {
       single: true,
       multi: false,
