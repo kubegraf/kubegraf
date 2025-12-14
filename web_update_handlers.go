@@ -81,15 +81,18 @@ func (ws *WebServer) handleAutoCheckUpdates(w http.ResponseWriter, r *http.Reque
 	}
 
 	currentVersion := GetVersion()
-	
-	// Try to get cached result first (fast path)
+
+	// Check if cached result is still valid (reduced to 1 hour for faster updates)
 	cached := update.CacheLatestRelease()
-	if cached != nil && update.GetCacheAge() < 4*time.Hour {
+	if cached != nil && update.GetCacheAge() < 1*time.Hour {
+		// If cache shows an update is available, always return it
+		// If cache shows no update, but cache is less than 1 hour old, return it
 		json.NewEncoder(w).Encode(cached)
 		return
 	}
 
 	// If cache is stale or missing, check GitHub (but don't block)
+	// This ensures users get notified of new releases within 1 hour
 	info, err := update.CheckGitHubLatestRelease(currentVersion)
 	if err != nil {
 		// Return cached result even if stale, or return current version info
@@ -109,4 +112,3 @@ func (ws *WebServer) handleAutoCheckUpdates(w http.ResponseWriter, r *http.Reque
 
 	json.NewEncoder(w).Encode(info)
 }
-
