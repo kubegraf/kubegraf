@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kubegraf/kubegraf/internal/update"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -88,6 +89,7 @@ func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Reque
 }
 
 // handleCheckUpdates checks for available updates
+// This is the manual check endpoint - it should always fetch fresh data
 func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -96,17 +98,42 @@ func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	updateInfo, err := CheckForUpdates()
+	// Clear cache to force fresh check for manual updates
+	update.ClearCache()
+
+	currentVersion := GetVersion()
+	info, err := update.CheckGitHubLatestRelease(currentVersion)
 	if err != nil {
+		// Check if it's a rate limit error
+		if err.Error() == "GitHub API rate limit exceeded (HTTP 429)" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"currentVersion":  currentVersion,
+				"latestVersion":   currentVersion,
+				"updateAvailable": false,
+				"error":           "GitHub API rate limit exceeded. Please try again later.",
+			})
+			return
+		}
+
+		// Return cached result if available (shouldn't happen after ClearCache, but just in case)
+		cached := update.CacheLatestRelease()
+		if cached != nil {
+			json.NewEncoder(w).Encode(cached)
+			return
+		}
+
+		// Return error response
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"currentVersion":  GetVersion(),
+			"currentVersion":  currentVersion,
+			"latestVersion":   currentVersion,
 			"updateAvailable": false,
 			"error":           err.Error(),
 		})
 		return
 	}
 
-	json.NewEncoder(w).Encode(updateInfo)
+	json.NewEncoder(w).Encode(info)
 }
 
 // handleInstallUpdate downloads and installs the latest version

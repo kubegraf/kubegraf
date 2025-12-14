@@ -231,4 +231,12 @@ func GetCacheAge() time.Duration {
 	return time.Since(lastChecked)
 }
 
+// ClearCache clears the cached update info to force a fresh check
+func ClearCache() {
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	cachedInfo = nil
+	lastChecked = time.Time{}
+}
+
 
