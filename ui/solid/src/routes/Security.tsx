@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 import { settings } from '../stores/settings';
 import { LoadingSpinner } from '../components/Loading';
+import DiagnosticsControls from '../components/DiagnosticsControls';
 
 interface Finding {
   rule: string;
@@ -43,6 +44,7 @@ const Security: Component = () => {
   const [diagnosticsPage, setDiagnosticsPage] = createSignal<number>(1);
   const [vulnPage, setVulnPage] = createSignal<number>(1);
   const [diagnosticsProgress, setDiagnosticsProgress] = createSignal<string>('');
+  const [lastDiagnosticsRun, setLastDiagnosticsRun] = createSignal<Date | null>(null);
   const itemsPerPage = 10;
 
   // Listen for filter changes from Dashboard
@@ -94,6 +96,7 @@ const Security: Component = () => {
           const result = await api.runDiagnostics(ns, cat);
           clearTimeout(timeoutId);
           setDiagnosticsProgress('');
+          setLastDiagnosticsRun(new Date());
           return result;
         } catch (fetchError: any) {
           clearTimeout(timeoutId);
@@ -286,7 +289,7 @@ const Security: Component = () => {
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Security & Diagnostics</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Cluster health checks, security posture, vulnerability scanning, and best practices analysis</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => {
               const data = diagnostics();
@@ -314,16 +317,17 @@ const Security: Component = () => {
             </svg>
             Export Report
           </button>
-          <button
-            onClick={() => refetch()}
-            class="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
-            style={{ background: 'var(--accent-primary)', color: 'white' }}
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Run Diagnostics
-          </button>
+          <DiagnosticsControls
+            onRun={() => {
+              refetch().then(() => {
+                setLastDiagnosticsRun(new Date());
+              }).catch(err => {
+                console.error('Diagnostics run failed:', err);
+              });
+            }}
+            isRunning={diagnostics.loading}
+            lastRunTime={lastDiagnosticsRun()}
+          />
         </div>
       </div>
 

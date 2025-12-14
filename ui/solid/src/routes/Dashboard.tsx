@@ -390,6 +390,7 @@ const Dashboard: Component = () => {
   const [memoryHistory, setMemoryHistory] = createSignal<number[]>([]);
 
   // Refresh all resources when cluster changes
+  // Use storageOptions to prevent showing loading state on background refreshes
   const [metrics, { refetch: refetchMetrics }] = createResource(
     () => {
       const ctx = currentContext();
@@ -536,9 +537,13 @@ const Dashboard: Component = () => {
       refetchCost();
     }
 
-    // Auto-refresh metrics every 5 seconds for live graphs
+    // Auto-refresh metrics every 5 seconds for live graphs (silent background refresh)
     const refreshInterval = setInterval(() => {
-      refetchMetrics();
+      // Silently refetch without showing loading state
+      refetchMetrics().catch(err => {
+        console.error('Background metrics refresh failed:', err);
+        // Don't show error to user for background refreshes
+      });
     }, 5000);
 
     // Cleanup on unmount
@@ -944,7 +949,7 @@ const Dashboard: Component = () => {
               {/* CPU Gauge */}
               <div class="flex flex-col items-center">
               <Show
-                when={!metrics.loading && !metrics.error && metrics()?.cpu != null}
+                when={metrics()?.cpu != null}
                 fallback={
                   <div class="flex flex-col items-center justify-center h-64">
                     <div class="spinner mb-3" style={{ width: '32px', height: '32px' }} />
@@ -982,7 +987,7 @@ const Dashboard: Component = () => {
             {/* Memory Gauge */}
             <div class="flex flex-col items-center">
               <Show
-                when={!metrics.loading && !metrics.error && metrics()?.memory != null}
+                when={metrics()?.memory != null}
                 fallback={
                   <div class="flex flex-col items-center justify-center h-64">
                     <div class="spinner mb-3" style={{ width: '32px', height: '32px' }} />

@@ -80,6 +80,7 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                 }}
               >
                 <button
+                  data-section-rail={section.title}
                   onClick={() => {
                     if (pinned()) {
                       pinSection(null);

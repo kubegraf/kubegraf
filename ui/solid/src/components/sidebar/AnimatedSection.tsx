@@ -63,6 +63,7 @@ export const AnimatedSection: Component<{
             {(item) => {
               const [hovered, setHovered] = createSignal(false);
               const [pos, setPos] = createSignal({ top: 0, left: 0 });
+              const [hoverTimeout, setHoverTimeout] = createSignal<number | null>(null);
               const active = () => currentView() === item.id;
 
               return (
@@ -71,16 +72,37 @@ export const AnimatedSection: Component<{
                     e.preventDefault();
                     e.stopPropagation();
                     setCurrentView(item.id);
+                    // Scroll to top of content area (not window top, but main content)
+                    setTimeout(() => {
+                      const mainContent = document.querySelector('main');
+                      if (mainContent) {
+                        mainContent.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }, 100);
                   }}
                   onMouseEnter={(e) => {
                     if (sidebarCollapsed()) {
                       const rect = e.currentTarget.getBoundingClientRect();
                       setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
+                      // Clear any existing timeout
+                      if (hoverTimeout() !== null) {
+                        clearTimeout(hoverTimeout()!);
+                      }
                       setHovered(true);
                     }
                     prefetchView(item.id);
                   }}
-                  onMouseLeave={() => setHovered(false)}
+                  onMouseLeave={() => {
+                    // Add delay before hiding to allow moving to submenu
+                    if (sidebarCollapsed()) {
+                      const timeout = window.setTimeout(() => {
+                        setHovered(false);
+                      }, 200); // 200ms delay
+                      setHoverTimeout(timeout);
+                    } else {
+                      setHovered(false);
+                    }
+                  }}
                   class={
                     `w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm ` +
                     `transition-all transform ` +
@@ -101,7 +123,13 @@ export const AnimatedSection: Component<{
                   <Show when={sidebarCollapsed() && hovered()}>
                     <Portal>
                       <div
-                        class="fixed px-2 py-1 rounded text-xs font-medium whitespace-nowrap z-[9999]"
+                        class="fixed px-2 py-1 rounded text-xs font-medium whitespace-nowrap z-[9999] pointer-events-none"
+                        onMouseEnter={() => {
+                          // Keep visible when hovering over tooltip
+                          if (hoverTimeout() !== null) {
+                            clearTimeout(hoverTimeout()!);
+                          }
+                        }}
                         style={{
                           top: `${pos().top}px`,
                           left: `${pos().left}px`,
