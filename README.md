@@ -107,6 +107,19 @@ Or in one command:
 brew install kubegraf/tap/kubegraf
 ```
 
+**Troubleshooting:** If you get permission errors like `/usr/local/share/man/man8` is not writable:
+
+```bash
+# Fix permissions
+sudo chown -R $(whoami) /usr/local/share/man/man8
+chmod u+w /usr/local/share/man/man8
+
+# Then try installing again
+brew install kubegraf/tap/kubegraf
+```
+
+**Alternative:** If Homebrew continues to have issues, use the direct download method below.
+
 After installation, start the web UI:
 ```bash
 kubegraf --web
