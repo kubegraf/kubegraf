@@ -45,7 +45,7 @@ var (
 	cachedInfo     *UpdateInfo
 	cacheMu        sync.RWMutex
 	lastChecked    time.Time
-	cacheDuration  = 4 * time.Hour
+	cacheDuration  = 4 * time.Hour // Cache duration for when update is available
 	checkInProgress bool
 	checkMu        sync.Mutex
 )
@@ -54,10 +54,20 @@ var (
 func CheckGitHubLatestRelease(currentVersion string) (*UpdateInfo, error) {
 	// Check cache first
 	cacheMu.RLock()
-	if cachedInfo != nil && time.Since(lastChecked) < cacheDuration {
-		info := *cachedInfo
-		cacheMu.RUnlock()
-		return &info, nil
+	if cachedInfo != nil {
+		// If cache shows update is available, use it if less than cacheDuration old
+		if cachedInfo.UpdateAvailable && time.Since(lastChecked) < cacheDuration {
+			info := *cachedInfo
+			cacheMu.RUnlock()
+			return &info, nil
+		}
+		// If cache shows no update, only use it if less than 15 minutes old
+		// This ensures we detect new releases quickly
+		if !cachedInfo.UpdateAvailable && time.Since(lastChecked) < 15*time.Minute {
+			info := *cachedInfo
+			cacheMu.RUnlock()
+			return &info, nil
+		}
 	}
 	cacheMu.RUnlock()
 
