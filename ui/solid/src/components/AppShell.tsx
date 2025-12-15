@@ -14,7 +14,7 @@ const AppShell: Component<AppShellProps> = (props) => {
 
   return (
     <div class="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
-      {/* Update Banner */}
+      {/* Update Banner - fixed position overlay */}
       <UpdateBanner />
 
       <div class="flex flex-1 overflow-hidden">

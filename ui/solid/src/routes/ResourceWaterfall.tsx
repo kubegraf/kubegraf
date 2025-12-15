@@ -441,18 +441,16 @@ const ResourceWaterfall: Component = () => {
           />
         </div>
 
-        {/* Info */}
-        <div class="card p-4">
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <strong>How to read:</strong>
-            <ul class="mt-2 space-y-1 list-disc list-inside">
-              <li><span style={{ color: '#06b6d4' }}>Front ridge (cyan)</span> = CPU usage over time</li>
-              <li><span style={{ color: '#8b5cf6' }}>Back ridge (purple)</span> = Memory usage over time</li>
-              <li>Peaks show resource spikes - higher peaks = more usage</li>
-              <li>Time flows from right (past) to left (present)</li>
-              <li>White dots on peaks indicate the most recent measurements</li>
-              <li>Perfect for trend analysis and burst pattern recognition</li>
-            </ul>
+        {/* Info - Compact */}
+        <div class="card p-3">
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            <strong class="text-sm">Legend:</strong>
+            <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              <span><span style={{ color: '#06b6d4' }}>●</span> CPU (front/cyan)</span>
+              <span><span style={{ color: '#8b5cf6' }}>●</span> Memory (back/purple)</span>
+              <span>⚪ Latest data point</span>
+              <span>← Time flows left</span>
+            </div>
           </div>
         </div>
       </Show>
