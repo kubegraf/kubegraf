@@ -231,6 +231,27 @@ const SidebarV2: Component = () => {
         <div class="flex flex-1 overflow-hidden">
           {/* Left Rail */}
           <div class="flex flex-col w-16 flex-shrink-0">
+            {/* Logo Header */}
+            <div class="w-16 border-b border-border-subtle flex-shrink-0 flex flex-col items-center justify-center py-2">
+              <img
+                src="/logo.png"
+                alt="KubeGraf"
+                class="w-11 h-11 object-contain mb-1"
+                style={{ filter: 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.3))' }}
+              />
+              <span
+                class="font-bold tracking-tight leading-none text-[8px]"
+                style={{
+                  color: 'var(--text-primary)',
+                  textShadow: '0 0 10px rgba(6, 182, 212, 0.2)',
+                  WebkitFontSmoothing: 'antialiased',
+                  MozOsxFontSmoothing: 'grayscale'
+                }}
+              >
+                KUBEGRAF
+              </span>
+            </div>
+
             {/* Navigation Rail */}
             <div class="flex-1 overflow-y-auto w-16">
               <SidebarRail
