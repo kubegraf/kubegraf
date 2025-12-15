@@ -1,11 +1,14 @@
-import { Component, Show, For } from 'solid-js';
+import { Component, Show, For, createSignal } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
-import { currentView, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen } from '../stores/ui';
+import { currentView, sidebarCollapsed, notifications, terminalOpen, setTerminalOpen, addNotification, setCurrentView } from '../stores/ui';
+import { setUpdateInfo } from '../stores/globalStore';
 import { clusterSwitching, clusterSwitchMessage } from '../stores/cluster';
 import DeploymentProgress from './DeploymentProgress';
 import DockedTerminal from './DockedTerminal';
 import NotificationCenter from './NotificationCenter';
 import { ConnectionOverlay } from './ConnectionOverlay';
+import { api } from '../services/api';
+import UpdateModal from './UpdateModal';
 
 import { noConnectionViews, views } from '../routes/viewRegistry';
 
@@ -16,6 +19,29 @@ interface AppContentProps {
 }
 
 export const AppContent: Component<AppContentProps> = (props) => {
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
+  const [updateModalOpen, setUpdateModalOpen] = createSignal(false);
+  const [updateInfoState, setUpdateInfoState] = createSignal<any>(null);
+
+  const handleFooterUpdateCheck = async () => {
+    setCheckingUpdate(true);
+    try {
+      const info = await api.checkUpdate();
+      if (info.updateAvailable) {
+        setUpdateInfo(info);
+        setUpdateInfoState(info);
+        setUpdateModalOpen(true);
+      } else {
+        addNotification("You're on the latest version 🎉", 'success');
+      }
+    } catch (err) {
+      addNotification('Failed to check for updates', 'error');
+      console.error('Footer update check failed:', err);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
   return (
     <>
       {/* Connection status banner */}
@@ -94,20 +120,56 @@ export const AppContent: Component<AppContentProps> = (props) => {
       >
         <div class="flex items-center gap-4">
           <NotificationCenter />
+          <button
+            onClick={handleFooterUpdateCheck}
+            disabled={checkingUpdate()}
+            class="p-1.5 rounded hover:bg-bg-hover transition-colors"
+            title="Check for updates"
+            style={{
+              color: 'var(--text-primary)',
+              opacity: checkingUpdate() ? 0.7 : 1,
+              border: '1px solid var(--border-color)',
+            }}
+          >
+            <Show when={!checkingUpdate()} fallback={
+              <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            }>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </Show>
+          </button>
           <span class="flex items-center gap-1">
             <span class={`w-2 h-2 rounded-full ${props.connectionStatus()?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
             {props.connectionStatus()?.connected ? 'Connected' : 'Disconnected'}
           </span>
-          <a
-            href="https://github.com/kubegraf/kubegraf"
-            target="_blank"
+          <button
             class="hover:underline"
             style={{ color: 'var(--accent-primary)' }}
+            onClick={() => setCurrentView('documentation')}
           >
-            GitHub
-          </a>
+            Docs
+          </button>
+          <button
+            class="hover:underline"
+            style={{ color: 'var(--accent-primary)' }}
+            onClick={() => setCurrentView('privacy')}
+          >
+            Privacy
+          </button>
         </div>
       </footer>
+
+      {/* Update modal from footer check */}
+      <Show when={updateModalOpen() && updateInfoState()}>
+        <UpdateModal
+          isOpen={updateModalOpen()}
+          onClose={() => setUpdateModalOpen(false)}
+          updateInfo={updateInfoState()!}
+        />
+      </Show>
 
       {/* Notifications */}
       <div class="fixed bottom-24 right-6 z-50 flex flex-col-reverse gap-3 max-w-sm">
