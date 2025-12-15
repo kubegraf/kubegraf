@@ -135,8 +135,13 @@ const ClusterManager: Component = () => {
               Marketplace
             </button>
             <button
-              class="px-3 py-1.5 rounded-md text-sm"
-              style={{ border: '1px solid var(--border-color)' }}
+              class="px-3 py-1.5 rounded-md text-sm transition-colors"
+              style={{ 
+                border: '1px solid var(--border-color)', 
+                background: 'var(--bg-tertiary)', 
+                color: 'var(--text-primary)', 
+                boxShadow: '0 1px 2px rgba(0,0,0,0.08)' 
+              }}
               disabled={clusterLoading()}
               onClick={() => refreshClusterData()}
             >
@@ -426,8 +431,13 @@ const ClusterManager: Component = () => {
                 <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Direct view of every context available in your local kubeconfig.</p>
               </div>
               <button
-                class="px-3 py-1 text-xs rounded-md"
-                style={{ border: '1px solid var(--border-color)' }}
+                class="px-3 py-1 text-xs rounded-md transition-colors"
+                style={{ 
+                  border: '1px solid var(--border-color)', 
+                  background: 'var(--bg-tertiary)', 
+                  color: 'var(--text-primary)', 
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)' 
+                }}
                 onClick={() => refreshClusterData()}
                 disabled={clusterLoading()}
               >

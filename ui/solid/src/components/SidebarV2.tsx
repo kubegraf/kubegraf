@@ -246,13 +246,14 @@ const SidebarV2: Component = () => {
 
             {/* Bottom Controls - Compact - Matches sidebar width (w-16) */}
             <div 
-              class="border-t border-border-subtle bg-bg-sidebar flex-shrink-0"
+              class="border-t border-border-subtle flex-shrink-0"
               style={{
                 width: '64px',
                 minWidth: '64px',
                 maxWidth: '64px',
                 boxSizing: 'border-box',
-                overflow: 'visible'
+                overflow: 'visible',
+                background: 'var(--bg-surface)'
               }}
             >
               {/* Expand/Collapse Toggle */}
@@ -281,7 +282,9 @@ const SidebarV2: Component = () => {
                     whiteSpace: 'nowrap',
                     display: 'block',
                     transform: 'scale(0.75)',
-                    transformOrigin: 'center'
+                    transformOrigin: 'center',
+                    color: 'var(--text-secondary)',
+                    textShadow: 'none'
                   }}
                 >
                   {bottomSectionCollapsed() ? 'More' : 'Less'}
@@ -443,7 +446,7 @@ const SidebarV2: Component = () => {
                       class="font-semibold truncate" 
                       style={{ 
                         color: 'var(--text-primary)',
-                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.12)',
+                        textShadow: 'none',
                         fontWeight: '600',
                         fontSize: '6px',
                         lineHeight: '1.1',
