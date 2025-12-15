@@ -30,6 +30,7 @@ type UpdateInfo struct {
 	UpdateAvailable bool   `json:"updateAvailable"`
 	ReleaseNotes    string `json:"releaseNotes"`
 	HTMLURL         string `json:"htmlUrl"`
+	DownloadURL     string `json:"downloadUrl"`
 }
 
 // GitHubRelease represents a GitHub release response
@@ -39,6 +40,11 @@ type GitHubRelease struct {
 	Body     string `json:"body"`
 	HTMLURL  string `json:"html_url"`
 	PublishedAt string `json:"published_at"`
+	Assets   []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+		Size               int64  `json:"size"`
+	} `json:"assets"`
 }
 
 var (
@@ -183,6 +189,11 @@ func CheckGitHubLatestRelease(currentVersion string) (*UpdateInfo, error) {
 		HTMLURL:         release.HTMLURL,
 	}
 
+	// Find the appropriate download URL for the current OS and architecture
+	if updateAvailable && len(release.Assets) > 0 {
+		info.DownloadURL = findMatchingAsset(release.Assets, latestVersion)
+	}
+
 	// Update cache
 	cacheMu.Lock()
 	cachedInfo = info
@@ -247,6 +258,49 @@ func ClearCache() {
 	defer cacheMu.Unlock()
 	cachedInfo = nil
 	lastChecked = time.Time{}
+}
+
+// findMatchingAsset finds the download URL for the current OS and architecture
+func findMatchingAsset(assets []struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Size               int64  `json:"size"`
+}, version string) string {
+	// Try to find a reasonable binary or archive
+	// The update handler in updates.go will extract the correct binary for the platform
+	for _, asset := range assets {
+		assetName := strings.ToLower(asset.Name)
+
+		// Skip checksums and non-binary files
+		if strings.Contains(assetName, "checksum") || strings.Contains(assetName, ".txt") {
+			continue
+		}
+
+		// Return the first binary or archive file
+		// Prioritize .tar.gz for cross-platform compatibility
+		if strings.Contains(assetName, ".tar.gz") {
+			return asset.BrowserDownloadURL
+		}
+	}
+
+	// If no .tar.gz, try .zip
+	for _, asset := range assets {
+		assetName := strings.ToLower(asset.Name)
+		if strings.Contains(assetName, ".zip") {
+			return asset.BrowserDownloadURL
+		}
+	}
+
+	// If no archives, return the first binary-looking file
+	for _, asset := range assets {
+		assetName := strings.ToLower(asset.Name)
+		if strings.Contains(assetName, "kubegraf") && !strings.Contains(assetName, "checksum") {
+			return asset.BrowserDownloadURL
+		}
+	}
+
+	// If no match found, return empty string
+	return ""
 }
 
 

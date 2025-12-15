@@ -257,7 +257,7 @@ const Documentation: Component = () => {
   };
 
   return (
-    <div class="max-w-6xl mx-auto p-6">
+    <div class="max-w-6xl mx-auto p-6" style={{ color: 'var(--text-primary)' }}>
       {/* Header */}
       <div class="mb-8">
         <h1 class="text-4xl font-bold mb-4 gradient-text">
@@ -269,7 +269,7 @@ const Documentation: Component = () => {
       </div>
 
       {/* External Documentation Link */}
-      <div class="card p-6 mb-8" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+      <div class="card p-6 mb-8" style={{ background: 'var(--bg-surface)', border: '1px solid var(--accent-primary)' }}>
         <div class="flex items-start gap-4">
           <svg class="w-6 h-6 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: '#3b82f6' }}>
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -301,7 +301,7 @@ const Documentation: Component = () => {
       <div class="space-y-4">
         <For each={sections}>
           {(section) => (
-            <div class="card p-6">
+            <div class="card p-6" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
               <button
                 onClick={() => toggleSection(section.id)}
                 class="w-full flex items-center gap-4 text-left"
@@ -356,7 +356,7 @@ const Documentation: Component = () => {
       </div>
 
       {/* Quick Links */}
-      <div class="mt-8 card p-6">
+      <div class="mt-8 card p-6" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
         <h2 class="text-xl font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
           Quick Links
         </h2>
