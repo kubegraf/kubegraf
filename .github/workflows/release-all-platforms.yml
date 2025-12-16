@@ -306,9 +306,21 @@ jobs:
           repository: kubegraf/scoop-bucket  # Your Scoop bucket repo
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
 
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"  # Remove 'v' prefix
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
       - name: Update manifest
         run: |
-          VERSION="${{ needs.build-binaries.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
 
           # Download and calculate hash
           curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-windows-amd64.zip > kubegraf.zip
@@ -337,5 +349,9 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add bucket/kubegraf.json
-          git commit -m "Update kubegraf to ${VERSION}"
-          git push
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update kubegraf to ${VERSION}"
+            git push
+          fi
