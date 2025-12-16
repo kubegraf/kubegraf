@@ -235,7 +235,10 @@ const Header: Component = () => {
 
   return (
     <>
-    <header class="h-16 header-glass flex items-center justify-between px-6 relative" style={{ 'z-index': 100 }}>
+    <header
+      class="h-16 header-glass flex items-center justify-between px-6 relative"
+      style={{ 'z-index': 100, 'margin-left': '0.75rem' }}
+    >
       {/* Left side - Namespace selector & Search */}
       <div class="flex items-center gap-4">
         {/* Namespace selector with search */}
