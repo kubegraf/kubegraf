@@ -1,0 +1,307 @@
+name: Build and Release All Platforms
+
+# This workflow should be in the MAIN kubegraf repository (not kubegraf.io)
+# It builds binaries for all platforms and creates installers
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+  release:
+    types: [published]
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.0.0)'
+        required: true
+
+jobs:
+  # Build binaries for all platforms
+  build-binaries:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+
+          # macOS builds
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+
+          # Windows builds
+          - os: windows
+            arch: amd64
+            runner: ubuntu-latest  # Can cross-compile Windows from Linux
+            goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'  # Update to your Go version
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          OUTPUT_NAME="kubegraf"
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            OUTPUT_NAME="kubegraf.exe"
+          fi
+
+          echo "Building ${OUTPUT_NAME} for ${{ matrix.os }}-${{ matrix.arch }}"
+
+          go build \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o ${OUTPUT_NAME} \
+            ./cmd/kubegraf  # Update to your main package path
+
+          # Verify binary was created
+          ls -lh ${OUTPUT_NAME}
+
+      - name: Create archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            ARCHIVE="kubegraf-${{ matrix.os }}-${{ matrix.arch }}.zip"
+            zip ${ARCHIVE} kubegraf.exe
+          else
+            ARCHIVE="kubegraf-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+            tar czf ${ARCHIVE} kubegraf
+          fi
+
+          echo "Created: ${ARCHIVE}"
+          ls -lh ${ARCHIVE}
+
+          # Calculate checksums
+          if [ "${{ matrix.goos }}" = "darwin" ]; then
+            shasum -a 256 ${ARCHIVE} > ${ARCHIVE}.sha256
+          else
+            sha256sum ${ARCHIVE} > ${ARCHIVE}.sha256
+          fi
+
+          echo "archive=${ARCHIVE}" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubegraf-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            kubegraf-${{ matrix.os }}-${{ matrix.arch }}.*
+          retention-days: 7
+
+  # Build Windows installer
+  build-windows-installer:
+    name: Build Windows Installer
+    needs: build-binaries
+    runs-on: windows-latest
+    steps:
+      - name: Checkout kubegraf.io repository
+        uses: actions/checkout@v4
+        with:
+          repository: kubegraf/kubegraf.io  # Update to your repo
+          path: kubegraf.io
+
+      - name: Download Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: kubegraf-windows-amd64
+          path: ./
+
+      - name: Extract binary
+        run: |
+          Expand-Archive kubegraf-windows-amd64.zip -DestinationPath .
+          Move-Item kubegraf.exe kubegraf.io/installer/windows/
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Update version in installer script
+        run: |
+          $version = "${{ needs.build-binaries.outputs.version }}"
+          $content = Get-Content kubegraf.io/installer/windows/kubegraf-setup.iss -Raw
+          $content = $content -replace '#define AppVersion ".*"', "#define AppVersion `"${version}`""
+          Set-Content kubegraf.io/installer/windows/kubegraf-setup.iss -Value $content
+
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" kubegraf.io/installer/windows/kubegraf-setup.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubegraf-windows-installer
+          path: kubegraf.io/dist/windows/kubegraf-*-setup.exe
+
+  # Create GitHub release with all artifacts
+  create-release:
+    name: Create GitHub Release
+    needs: [build-binaries, build-windows-installer]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display structure
+        run: ls -R artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/**/*.exe
+            artifacts/**/*.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Update Homebrew formula (for macOS)
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: [build-binaries, create-release]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: kubegraf/homebrew-tap  # Your Homebrew tap repo
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        run: |
+          VERSION="${{ needs.build-binaries.outputs.version }}"
+
+          # Download checksums
+          curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-amd64.tar.gz.sha256 > darwin-amd64.sha256
+          curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-arm64.tar.gz.sha256 > darwin-arm64.sha256
+
+          AMD64_SHA=$(cat darwin-amd64.sha256 | cut -d ' ' -f1)
+          ARM64_SHA=$(cat darwin-arm64.sha256 | cut -d ' ' -f1)
+
+          # Update formula file
+          cat > Formula/kubegraf.rb <<EOF
+          class Kubegraf < Formula
+            desc "Intelligent Kubernetes Control Center"
+            homepage "https://kubegraf.io"
+            version "${VERSION}"
+
+            if Hardware::CPU.intel?
+              url "https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-amd64.tar.gz"
+              sha256 "${AMD64_SHA}"
+            else
+              url "https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-arm64.tar.gz"
+              sha256 "${ARM64_SHA}"
+            end
+
+            def install
+              bin.install "kubegraf"
+            end
+
+            test do
+              system "#{bin}/kubegraf", "--version"
+            end
+          end
+          EOF
+
+          # Commit and push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Formula/kubegraf.rb
+          git commit -m "Update kubegraf to ${VERSION}"
+          git push
+
+  # Update Scoop manifest (for Windows)
+  update-scoop:
+    name: Update Scoop Manifest
+    needs: [build-binaries, create-release]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    steps:
+      - name: Checkout scoop-bucket
+        uses: actions/checkout@v4
+        with:
+          repository: kubegraf/scoop-bucket  # Your Scoop bucket repo
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+
+      - name: Update manifest
+        run: |
+          VERSION="${{ needs.build-binaries.outputs.version }}"
+
+          # Download and calculate hash
+          curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-windows-amd64.zip > kubegraf.zip
+          HASH=$(sha256sum kubegraf.zip | cut -d ' ' -f1)
+
+          # Update manifest
+          cat > bucket/kubegraf.json <<EOF
+          {
+            "version": "${VERSION}",
+            "description": "Intelligent Kubernetes Control Center",
+            "homepage": "https://kubegraf.io",
+            "license": "Apache-2.0",
+            "url": "https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-windows-amd64.zip",
+            "hash": "${HASH}",
+            "bin": "kubegraf.exe",
+            "checkver": {
+              "github": "https://github.com/kubegraf/kubegraf"
+            },
+            "autoupdate": {
+              "url": "https://github.com/kubegraf/kubegraf/releases/download/v\$version/kubegraf-windows-amd64.zip"
+            }
+          }
+          EOF
+
+          # Commit and push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add bucket/kubegraf.json
+          git commit -m "Update kubegraf to ${VERSION}"
+          git push
