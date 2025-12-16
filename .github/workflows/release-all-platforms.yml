@@ -142,11 +142,8 @@ jobs:
     needs: build-binaries
     runs-on: windows-latest
     steps:
-      - name: Checkout kubegraf.io repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: kubegraf/kubegraf.io  # Update to your repo
-          path: kubegraf.io
 
       - name: Download Windows binary
         uses: actions/download-artifact@v4
@@ -157,7 +154,7 @@ jobs:
       - name: Extract binary
         run: |
           Expand-Archive kubegraf-windows-amd64.zip -DestinationPath .
-          Move-Item kubegraf.exe kubegraf.io/installer/windows/
+          Move-Item kubegraf.exe installer/windows/
 
       - name: Install Inno Setup
         run: choco install innosetup -y
@@ -165,19 +162,19 @@ jobs:
       - name: Update version in installer script
         run: |
           $version = "${{ needs.build-binaries.outputs.version }}"
-          $content = Get-Content kubegraf.io/installer/windows/kubegraf-setup.iss -Raw
+          $content = Get-Content installer/windows/kubegraf-setup.iss -Raw
           $content = $content -replace '#define AppVersion ".*"', "#define AppVersion `"${version}`""
-          Set-Content kubegraf.io/installer/windows/kubegraf-setup.iss -Value $content
+          Set-Content installer/windows/kubegraf-setup.iss -Value $content
 
       - name: Build installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" kubegraf.io/installer/windows/kubegraf-setup.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/windows/kubegraf-setup.iss
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: kubegraf-windows-installer
-          path: kubegraf.io/dist/windows/kubegraf-*-setup.exe
+          path: dist/windows/kubegraf-*-setup.exe
 
   # Create GitHub release with all artifacts
   create-release:
