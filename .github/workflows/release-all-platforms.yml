@@ -76,6 +76,11 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
+      - name: Prepare web/dist directory
+        run: |
+          mkdir -p web/dist
+          echo "Web UI placeholder" > web/dist/index.html
+
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
