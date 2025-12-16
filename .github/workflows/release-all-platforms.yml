@@ -15,6 +15,10 @@ on:
         description: 'Version to build (e.g., 1.0.0)'
         required: true
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   # Build binaries for all platforms
   build-binaries:
