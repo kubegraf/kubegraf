@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KubeGraf Logo Comparison</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0e1a;
+            color: #e5e7eb;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 40px;
+            background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-bottom: 50px;
+        }
+
+        .logo-card {
+            background: #1a1f2e;
+            border: 1px solid #2d3548;
+            border-radius: 12px;
+            padding: 30px;
+            transition: all 0.3s ease;
+        }
+
+        .logo-card:hover {
+            border-color: #06b6d4;
+            box-shadow: 0 8px 32px rgba(6, 182, 212, 0.2);
+            transform: translateY(-4px);
+        }
+
+        .logo-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #06b6d4;
+            text-align: center;
+        }
+
+        .logo-display {
+            background: #0f1419;
+            border-radius: 8px;
+            padding: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            margin-bottom: 20px;
+        }
+
+        .logo-display img {
+            max-width: 100%;
+            height: auto;
+            max-height: 150px;
+            object-fit: contain;
+        }
+
+        .sidebar-preview {
+            background: #1a1f2e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .sidebar-title {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .sidebar-mock {
+            width: 56px;
+            background: #0f1419;
+            border-radius: 6px;
+            padding: 12px 8px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-mock img {
+            width: 32px;
+            height: 32px;
+            object-fit: contain;
+        }
+
+        .sidebar-mock .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            margin-top: 4px;
+        }
+
+        .comparison-section {
+            margin-top: 50px;
+            padding: 30px;
+            background: #1a1f2e;
+            border-radius: 12px;
+            border: 1px solid #2d3548;
+        }
+
+        .comparison-title {
+            font-size: 24px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .side-by-side {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .side-by-side .sidebar-mock {
+            margin: 0;
+        }
+
+        .logo-label {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+
+        .btn {
+            padding: 8px 20px;
+            border-radius: 6px;
+            border: none;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4);
+        }
+
+        .btn-secondary {
+            background: #2d3548;
+            color: #e5e7eb;
+        }
+
+        .btn-secondary:hover {
+            background: #3d4558;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>KubeGraf Logo Comparison</h1>
+
+        <div class="logo-grid">
+            <!-- Current Logo -->
+            <div class="logo-card">
+                <div class="logo-name">Current Logo</div>
+                <div class="logo-display">
+                    <img src="/logo.png" alt="Current Logo">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo.png" alt="Current Logo">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" onclick="useLogo('/logo.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Navy Background Logo -->
+            <div class="logo-card">
+                <div class="logo-name">Navy Background Logo</div>
+                <div class="logo-display">
+                    <img src="/logo-navy.png" alt="Navy Background Logo">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-navy.png" alt="Navy Background Logo">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-navy.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- New Logo -->
+            <div class="logo-card">
+                <div class="logo-name">New Logo</div>
+                <div class="logo-display">
+                    <img src="/logo-new.png" alt="New Logo">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-new.png" alt="New Logo">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-new.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Logo V1 -->
+            <div class="logo-card">
+                <div class="logo-name">Logo V1</div>
+                <div class="logo-display">
+                    <img src="/logo-v1.png" alt="Logo V1">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v1.png" alt="Logo V1">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-v1.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Logo V2 -->
+            <div class="logo-card">
+                <div class="logo-name">Logo V2</div>
+                <div class="logo-display">
+                    <img src="/logo-v2.png" alt="Logo V2">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v2.png" alt="Logo V2">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-v2.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Logo V3 -->
+            <div class="logo-card">
+                <div class="logo-name">Logo V3</div>
+                <div class="logo-display">
+                    <img src="/logo-v3.png" alt="Logo V3">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v3.png" alt="Logo V3">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-v3.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Logo V4 -->
+            <div class="logo-card">
+                <div class="logo-name">Logo V4</div>
+                <div class="logo-display">
+                    <img src="/logo-v4.png" alt="Logo V4">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v4.png" alt="Logo V4">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-v4.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Logo V5 -->
+            <div class="logo-card">
+                <div class="logo-name">Logo V5</div>
+                <div class="logo-display">
+                    <img src="/logo-v5.png" alt="Logo V5">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v5.png" alt="Logo V5">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-v5.png')">Use This</button>
+                </div>
+            </div>
+
+            <!-- Logo V6 -->
+            <div class="logo-card">
+                <div class="logo-name">Logo V6</div>
+                <div class="logo-display">
+                    <img src="/logo-v6.png" alt="Logo V6">
+                </div>
+                <div class="sidebar-preview">
+                    <div class="sidebar-title">Sidebar Preview</div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v6.png" alt="Logo V6">
+                        <div class="status-dot"></div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="useLogo('/logo-v6.png')">Use This</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="comparison-section">
+            <div class="comparison-title">Side-by-Side Comparison</div>
+            <div class="side-by-side">
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo.png" alt="Current">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">Current</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-navy.png" alt="Navy">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">Navy Background</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-new.png" alt="New">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">New</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v1.png" alt="V1">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">V1</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v2.png" alt="V2">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">V2</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v3.png" alt="V3">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">V3</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v4.png" alt="V4">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">V4</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v5.png" alt="V5">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">V5</div>
+                </div>
+
+                <div>
+                    <div class="sidebar-mock">
+                        <img src="/logo-v6.png" alt="V6">
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="logo-label">V6</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function useLogo(logoPath) {
+            alert(`Selected: ${logoPath}\n\nTo apply this logo:\n1. Update SidebarV2.tsx to use src="${logoPath}"\n2. Rebuild the app\n3. Restart the server`);
+            console.log('Selected logo:', logoPath);
+        }
+    </script>
+</body>
+</html>
