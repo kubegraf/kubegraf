@@ -232,24 +232,13 @@ const SidebarV2: Component = () => {
           {/* Left Rail */}
           <div class="flex flex-col w-16 flex-shrink-0">
             {/* Logo Header */}
-            <div class="w-16 border-b border-border-subtle flex-shrink-0 flex flex-col items-center justify-center py-2">
+            <div class="w-16 border-b border-border-subtle flex-shrink-0 flex items-center justify-center py-3">
               <img
-                src="/logo.png"
+                src={currentTheme().name === 'light' ? '/assets/logos/logo-dark.png' : '/assets/logos/logo-light.png'}
                 alt="KubeGraf"
-                class="w-11 h-11 object-contain mb-1"
+                class="w-14 h-auto object-contain"
                 style={{ filter: 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.3))' }}
               />
-              <span
-                class="font-bold tracking-tight leading-none text-[8px]"
-                style={{
-                  color: 'var(--text-primary)',
-                  textShadow: '0 0 10px rgba(6, 182, 212, 0.2)',
-                  WebkitFontSmoothing: 'antialiased',
-                  MozOsxFontSmoothing: 'grayscale'
-                }}
-              >
-                KUBEGRAF
-              </span>
             </div>
 
             {/* Navigation Rail */}
