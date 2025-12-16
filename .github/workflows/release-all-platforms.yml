@@ -222,12 +222,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Update Homebrew formula (for macOS)
-  # Disabled until homebrew-tap repo is set up
   update-homebrew:
     name: Update Homebrew Formula
     needs: [build-binaries, create-release]
     runs-on: ubuntu-latest
-    if: false  # Disabled - enable when homebrew-tap repo exists
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - name: Checkout homebrew-tap
         uses: actions/checkout@v4
@@ -279,12 +278,11 @@ jobs:
           git push
 
   # Update Scoop manifest (for Windows)
-  # Disabled until scoop-bucket repo is set up
   update-scoop:
     name: Update Scoop Manifest
     needs: [build-binaries, create-release]
     runs-on: ubuntu-latest
-    if: false  # Disabled - enable when scoop-bucket repo exists
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - name: Checkout scoop-bucket
         uses: actions/checkout@v4
