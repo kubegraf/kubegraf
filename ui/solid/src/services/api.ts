@@ -663,7 +663,18 @@ export const api = {
     }),
   stopPortForward: (id: string) =>
     fetchAPI<any>(`/portforward/stop?id=${id}`, { method: 'POST' }),
-  listPortForwards: () => fetchAPI<any[]>('/portforward/list'),
+  // Backend returns { success: boolean, sessions: PortForwardSession[] }
+  // but some older callers expect a plain array, so normalize here.
+  listPortForwards: async () => {
+    const data = await fetchAPI<any>('/portforward/list');
+    if (Array.isArray(data)) {
+      return data;
+    }
+    if (data && Array.isArray(data.sessions)) {
+      return data.sessions;
+    }
+    return [];
+  },
 
   // ============ AI ============
   getAIStatus: () => fetchAPI<{ available: boolean; provider: string }>('/ai/status'),
