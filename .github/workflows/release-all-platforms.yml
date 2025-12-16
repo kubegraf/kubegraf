@@ -159,12 +159,24 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y
 
+      - name: Get version
+        id: version
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          }
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "Version: $version"
+
       - name: Update version in installer script
         run: |
-          $version = "${{ needs.build-binaries.outputs.version }}"
+          $version = "${{ steps.version.outputs.version }}"
           $content = Get-Content installer/windows/kubegraf-setup.iss -Raw
-          $content = $content -replace '#define AppVersion ".*"', "#define AppVersion `"${version}`""
+          $content = $content -replace '#define AppVersion ".*"', "#define AppVersion `"$version`""
           Set-Content installer/windows/kubegraf-setup.iss -Value $content
+          echo "Updated version to: $version"
 
       - name: Build installer
         run: |
