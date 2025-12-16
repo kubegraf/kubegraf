@@ -12,7 +12,7 @@ import SidebarFlyout from './sidebar/SidebarFlyout';
 import QuickSwitcher from './sidebar/QuickSwitcher';
 import { setActive, closeWithDelay } from '../stores/sidebarState';
 import { currentTheme } from '../stores/theme';
-import LogoIcon from './LogoIcon';
+import SidebarLogo from './SidebarLogo';
 
 // Update button component for sidebar
 const SidebarUpdateButton: Component = () => {
@@ -233,8 +233,8 @@ const SidebarV2: Component = () => {
           {/* Left Rail */}
           <div class="flex flex-col w-16 flex-shrink-0" style={{ overflow: 'visible' }}>
             {/* Logo Header */}
-            <div class="w-16 border-b border-border-subtle flex-shrink-0 flex items-center justify-center py-3">
-              <LogoIcon class="w-24 h-auto object-contain" style={{ 'max-width': 'none' }} />
+            <div class="w-16 border-b border-border-subtle flex-shrink-0 flex items-start justify-center py-0">
+              <SidebarLogo />
             </div>
 
             {/* Navigation Rail - overflow-visible to allow flyout to show */}
@@ -439,6 +439,7 @@ const SidebarV2: Component = () => {
               <div 
                 class="border-t border-border-subtle py-0.5 px-0.5"
                 style={{ width: '64px', maxWidth: '64px', boxSizing: 'border-box' }}
+                title={version() ? `KubeGraf v${version()}` : 'Version not available'}
               >
                 <div 
                   class="flex flex-col items-center gap-0.5"
