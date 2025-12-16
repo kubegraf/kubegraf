@@ -439,6 +439,7 @@ const SidebarV2: Component = () => {
               <div 
                 class="border-t border-border-subtle py-0.5 px-0.5"
                 style={{ width: '64px', maxWidth: '64px', boxSizing: 'border-box' }}
+                title={version() ? `KubeGraf v${version()}` : 'Version not available'}
               >
                 <div 
                   class="flex flex-col items-center gap-0.5"
