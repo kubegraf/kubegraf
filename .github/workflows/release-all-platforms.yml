@@ -69,6 +69,11 @@ jobs:
         with:
           go-version: '1.21'  # Update to your Go version
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Get version
         id: version
         run: |
@@ -80,10 +85,19 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
+      - name: Build Web UI
+        run: |
+          cd ui/solid
+          npm ci
+          npm run build
+          cd ../..
+
       - name: Prepare web/dist directory
         run: |
           mkdir -p web/dist
-          echo "Web UI placeholder" > web/dist/index.html
+          cp -r ui/solid/dist/* web/dist/
+          echo "Web UI files copied to web/dist"
+          ls -la web/dist/
 
       - name: Build binary
         env:
