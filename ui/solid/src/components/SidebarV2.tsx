@@ -12,6 +12,7 @@ import SidebarFlyout from './sidebar/SidebarFlyout';
 import QuickSwitcher from './sidebar/QuickSwitcher';
 import { setActive, closeWithDelay } from '../stores/sidebarState';
 import { currentTheme } from '../stores/theme';
+import LogoIcon from './LogoIcon';
 
 // Update button component for sidebar
 const SidebarUpdateButton: Component = () => {
@@ -233,12 +234,7 @@ const SidebarV2: Component = () => {
           <div class="flex flex-col w-16 flex-shrink-0" style={{ overflow: 'visible' }}>
             {/* Logo Header */}
             <div class="w-16 border-b border-border-subtle flex-shrink-0 flex items-center justify-center py-3">
-              <img
-                src={currentTheme().name === 'light' ? '/assets/logos/logo-dark.png' : '/assets/logos/logo-light.png'}
-                alt="KubeGraf"
-                class="w-14 h-auto object-contain"
-                style={{ filter: 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.3))' }}
-              />
+              <LogoIcon class="w-24 h-auto object-contain" style={{ 'max-width': 'none' }} />
             </div>
 
             {/* Navigation Rail - overflow-visible to allow flyout to show */}
