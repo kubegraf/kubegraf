@@ -94,7 +94,7 @@ jobs:
           go build \
             -ldflags="-s -w -X main.version=${VERSION}" \
             -o ${OUTPUT_NAME} \
-            ./cmd/kubegraf  # Update to your main package path
+            .
 
           # Verify binary was created
           ls -lh ${OUTPUT_NAME}
