@@ -1,4 +1,4 @@
-import { Component, Show, onMount, createSignal } from 'solid-js';
+import { Component, Show, onMount, createSignal, onCleanup } from 'solid-js';
 import AppShell from './components/AppShell';
 import { AppContent } from './components/AppContent';
 import { setUpdateInfo } from './stores/globalStore';
@@ -7,6 +7,8 @@ import { QueryClientProvider } from './providers/QueryClientProvider';
 import { WebSocketProvider } from './providers/WebSocketProvider';
 import AIChat from './components/AIChat';
 import BrainPanel from './features/brain/BrainPanel';
+import CommandPalette from './components/CommandPalette';
+import { isOpen as commandPaletteOpen, closeCommandPalette, openCommandPalette, buttonRef as commandPaletteButtonRef } from './stores/commandPalette';
 import { aiPanelOpen, sidebarCollapsed } from './stores/ui';
 import { refreshClusterStatus } from './stores/clusterManager';
 import { wsService } from './services/websocket';
@@ -19,6 +21,26 @@ const App: Component = () => {
   const [wsConnected, setWsConnected] = createSignal(false);
 
   onMount(() => {
+    // Global keyboard shortcut for command palette (Cmd+K / Ctrl+K)
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Check for Cmd+K (Mac) or Ctrl+K (Windows/Linux)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) {
+        // Don't trigger if user is typing in an input/textarea
+        const target = e.target as HTMLElement;
+        if (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+        e.preventDefault();
+        openCommandPalette();
+      }
+    };
+
+    document.addEventListener('keydown', handleGlobalKeyDown);
+
     // Initialize background pre-fetching in parallel (non-blocking)
     backgroundPrefetch.initialize();
 
@@ -93,6 +115,7 @@ const App: Component = () => {
     return () => {
       unsubscribe();
       wsService.disconnect();
+      document.removeEventListener('keydown', handleGlobalKeyDown);
     };
   });
 
@@ -116,6 +139,13 @@ const App: Component = () => {
 
         {/* Brain Panel */}
         <BrainPanel />
+
+        {/* Command Palette */}
+        <CommandPalette
+          isOpen={commandPaletteOpen()}
+          onClose={closeCommandPalette}
+          buttonRef={commandPaletteButtonRef()}
+        />
 
         {/* WebSocket Status Indicator */}
         <div class="fixed bottom-4 z-50" style={{ left: '80px' }}>

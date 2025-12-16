@@ -15,7 +15,8 @@ import {
   setSelectedNamespaces,
   workspaceContext,
 } from '../stores/cluster';
-import { toggleAIPanel, searchQuery, setSearchQuery, setCurrentView, addNotification, currentView } from '../stores/ui';
+import { toggleAIPanel, setCurrentView, addNotification, currentView } from '../stores/ui';
+import { openCommandPalette, setCommandPaletteButtonRef } from '../stores/commandPalette';
 import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
 import { setNamespaces } from '../stores/globalStore';
 import { toggleBrainPanel, brainPanelOpen } from '../stores/brain';
@@ -28,7 +29,6 @@ import { CloudProviderLogo } from './cloud-logos';
 import { useWorkerFilter } from '../hooks/useWorkerFilter';
 
 const Header: Component = () => {
-  const [searchFocused, setSearchFocused] = createSignal(false);
   const [nsDropdownOpen, setNsDropdownOpen] = createSignal(false);
   const [nsSearch, setNsSearch] = createSignal('');
   const [ctxDropdownOpen, setCtxDropdownOpen] = createSignal(false);
@@ -98,16 +98,8 @@ const Header: Component = () => {
     }
   });
 
-  // Keyboard shortcut for search
+  // Close dropdown when clicking outside
   if (typeof window !== 'undefined') {
-    document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        document.getElementById('global-search')?.focus();
-      }
-    });
-
-    // Close dropdown when clicking outside
     const handleClickOutside = (e: MouseEvent) => {
       if (nsDropdownOpen() && nsDropdownRef && !nsDropdownRef.contains(e.target as Node) &&
           nsButtonRef && !nsButtonRef.contains(e.target as Node)) {
@@ -395,33 +387,31 @@ const Header: Component = () => {
           </Show>
         </div>
 
-        {/* Global Search */}
-        <div class="relative">
-          <svg
-            class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-            style={{ color: 'var(--text-muted)' }}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        {/* Command Palette Button - navigate BETWEEN different views/pages */}
+        <button
+          ref={(el) => {
+            setCommandPaletteButtonRef(el);
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            openCommandPalette();
+          }}
+          class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
+          style={{
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+          }}
+          title="Navigate to different views/pages (⌘K)"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
-          <input
-            id="global-search"
-            type="text"
-            placeholder="Search resources..."
-            value={searchQuery()}
-            onInput={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-            class="w-72 rounded-lg pl-10 pr-16 py-1.5 text-sm"
-          />
-          <Show when={!searchFocused()}>
-            <kbd class="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
-              ⌘K
-            </kbd>
-          </Show>
-        </div>
+          <span class="hidden sm:inline">Navigate</span>
+          <kbd class="hidden sm:inline px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       {/* Right side - Cluster selector, Status and actions */}
