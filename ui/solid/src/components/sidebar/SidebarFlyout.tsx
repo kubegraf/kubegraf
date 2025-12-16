@@ -1,7 +1,7 @@
 import { Component, For, Show, createMemo, onMount, onCleanup, createSignal, createEffect } from 'solid-js';
 import type { NavSection } from '../../config/navSections';
 import { currentView, setCurrentView, setTerminalOpen } from '../../stores/ui';
-import { getVisibleSection, closeWithDelay, isSectionPinned, unpinSection, activeSection } from '../../stores/sidebarState';
+import { getVisibleSection, closeWithDelay, isSectionPinned, unpinSection, activeSection, setActive } from '../../stores/sidebarState';
 import { unreadInsightsEvents } from '../../stores/insightsPulse';
 
 interface SidebarFlyoutProps {
@@ -20,7 +20,11 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
   });
 
   // Position state - track where to show the flyout
-  const [position, setPosition] = createSignal({ top: 56, left: 56 });
+  const [position, setPosition] = createSignal({ 
+    top: 56, 
+    left: 56, 
+    height: 200
+  });
 
   // Update position based on active section
   createEffect(() => {
@@ -32,9 +36,17 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
         const railButton = document.querySelector(`[data-section-rail="${sectionTitle}"]`);
         if (railButton) {
           const rect = railButton.getBoundingClientRect();
+          // Find section to calculate height
+          const section = props.sections.find((s) => s.title === sectionTitle);
+          // Calculate approximate flyout height (will be updated when flyout renders)
+          const estimatedHeight = section 
+            ? Math.min(400, section.items.length * 40 + 60)
+            : 200;
+          const flyoutLeft = rect.right; // NO gap - flyout starts immediately after button to prevent mouseleave
           setPosition({
             top: Math.max(56, rect.top), // Minimum top position
-            left: rect.right + 8, // 8px gap from sidebar
+            left: flyoutLeft,
+            height: estimatedHeight,
           });
         }
       });
@@ -113,15 +125,18 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
   };
 
   const handleMouseEnter = () => {
-    // Keep flyout open when mouse is inside
-    if (visibleSection()) {
-      // Cancel any pending close
+    // CRITICAL: Keep flyout open when mouse enters - cancel any pending close
+    // This prevents the flyout from closing when moving from rail button to flyout
+    const section = visibleSection();
+    if (section) {
+      setActive(section); // This cancels any pending closeWithDelay from rail button's onMouseLeave
     }
   };
 
   const handleMouseLeave = () => {
     // Close with delay if not pinned
-    if (visibleSection() && !isSectionPinned(visibleSection()!.title)) {
+    const section = visibleSection();
+    if (section && !isSectionPinned(section)) {
       closeWithDelay(200);
     }
   };
@@ -129,31 +144,34 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
   return (
     <Show when={visibleSection()}>
       {(section) => (
-        <div
-          ref={flyoutRef}
-          tabindex="-1"
-          class="
-            fixed
-            w-56
-            max-h-[calc(100vh-2rem)]
-            rounded-xl
-            border border-border-subtle/50
-            bg-bg-panel/95
-            backdrop-blur-xl
-            shadow-2xl
-            flex flex-col
-            animate-slideIn
-            overflow-hidden
-            z-[200]
-          "
-          style={{
-            top: `${position().top}px`,
-            left: `${position().left}px`,
-            'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
-          }}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-        >
+        <>
+          {/* Bridge element no longer needed - extended wrapper in SidebarRail handles hover zone */}
+          <div
+            ref={flyoutRef}
+            data-flyout-menu
+            tabindex="-1"
+            class="
+              fixed
+              w-56
+              max-h-[calc(100vh-2rem)]
+              rounded-xl
+              border border-border-subtle/50
+              bg-bg-panel/95
+              backdrop-blur-xl
+              shadow-2xl
+              flex flex-col
+              animate-slideIn
+              overflow-hidden
+              z-[200]
+            "
+            style={{
+              top: `${position().top}px`,
+              left: `${position().left}px`,
+              'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+            }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          >
           {/* Header */}
           <div class="px-3 py-2.5 border-b border-border-subtle/50 flex items-center justify-between bg-bg-sidebar/50">
             <h2 class="text-xs font-semibold text-text-primary uppercase tracking-wider">
@@ -227,6 +245,7 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
             </For>
           </nav>
         </div>
+        </>
       )}
     </Show>
   );

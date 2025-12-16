@@ -123,7 +123,8 @@ const ClusterManager: Component = () => {
               class="px-3 py-1.5 rounded-md text-sm flex items-center gap-2"
               style={{ background: '#22c55e', color: '#000' }}
               onClick={() => {
-                sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
+                // Set filter and tab preference - use category ID for consistency
+                sessionStorage.setItem('kubegraf-auto-filter', 'local-cluster');
                 sessionStorage.setItem('kubegraf-default-tab', 'marketplace');
                 setCurrentView('apps');
               }}
@@ -265,8 +266,10 @@ const ClusterManager: Component = () => {
               {/* Option 2: Create local cluster */}
               <div class="card p-6 hover:border-cyan-500/50 transition-all cursor-pointer" style={{ border: '2px solid var(--border-color)' }}
                 onClick={() => {
+                  // Set filter and tab preference - use category ID for consistency
+                  sessionStorage.setItem('kubegraf-auto-filter', 'local-cluster');
+                  sessionStorage.setItem('kubegraf-default-tab', 'marketplace');
                   setCurrentView('apps');
-                  sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
                 }}
               >
                 <div class="flex items-center gap-3 mb-4">
@@ -299,7 +302,8 @@ const ClusterManager: Component = () => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    sessionStorage.setItem('kubegraf-auto-filter', 'Local Cluster');
+                    // Set filter and tab preference - use category ID for consistency
+                    sessionStorage.setItem('kubegraf-auto-filter', 'local-cluster');
                     sessionStorage.setItem('kubegraf-default-tab', 'marketplace');
                     setCurrentView('apps');
                   }}
