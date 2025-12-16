@@ -95,9 +95,16 @@ const Apps: Component<AppsProps> = (props) => {
   // Auto-filter to Local Cluster if coming from no-cluster overlay
   onMount(() => {
     const autoFilter = sessionStorage.getItem('kubegraf-auto-filter');
+    let shouldScrollToLocalCluster = false;
+    
     if (autoFilter) {
-      setSelectedCategory(autoFilter);
+      // Map legacy category names to new category IDs
+      const mappedCategory = mapLegacyCategoryToNew(autoFilter);
+      setSelectedCategory(mappedCategory);
       sessionStorage.removeItem('kubegraf-auto-filter');
+      
+      // Check if we should scroll to local cluster section
+      shouldScrollToLocalCluster = autoFilter === 'Local Cluster' || autoFilter === 'local-cluster' || mappedCategory === 'local-cluster';
     }
     
     // Set default tab if specified
@@ -108,9 +115,10 @@ const Apps: Component<AppsProps> = (props) => {
     }
     
     // Scroll to Local Cluster section after a brief delay
-    if (autoFilter === 'Local Cluster') {
+    if (shouldScrollToLocalCluster) {
       setTimeout(() => {
-        const localClusterSection = document.querySelector('[data-category="Local Cluster"]');
+        // data-category uses the category ID (e.g., 'local-cluster')
+        const localClusterSection = document.querySelector('[data-category="local-cluster"]');
         if (localClusterSection) {
           localClusterSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }

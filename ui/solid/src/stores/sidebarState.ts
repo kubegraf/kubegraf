@@ -59,12 +59,15 @@ export function unpinSection(): void {
 
 /**
  * Close flyout with delay (prevents jitter)
+ * Uses hover intent delay (200ms default) to prevent accidental closes
+ * Note: This is kept for backwards compatibility, but direct setActive(null) is preferred
  */
 export function closeWithDelay(delay: number = 200): void {
   if (hoverTimeout) {
     clearTimeout(hoverTimeout);
   }
   hoverTimeout = setTimeout(() => {
+    // Only close if not pinned
     if (!pinnedSection()) {
       setActiveSection(null);
     }

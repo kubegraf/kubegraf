@@ -228,9 +228,9 @@ const SidebarV2: Component = () => {
           }
         }}
       >
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-visible">
           {/* Left Rail */}
-          <div class="flex flex-col w-16 flex-shrink-0">
+          <div class="flex flex-col w-16 flex-shrink-0" style={{ overflow: 'visible' }}>
             {/* Logo Header */}
             <div class="w-16 border-b border-border-subtle flex-shrink-0 flex items-center justify-center py-3">
               <img
@@ -241,8 +241,8 @@ const SidebarV2: Component = () => {
               />
             </div>
 
-            {/* Navigation Rail */}
-            <div class="flex-1 overflow-y-auto w-16">
+            {/* Navigation Rail - overflow-visible to allow flyout to show */}
+            <div class="flex-1 overflow-visible w-16" style={{ overflow: 'visible' }}>
               <SidebarRail
                 sections={availableSections()}
                 onSectionClick={(section) => {
@@ -480,13 +480,7 @@ const SidebarV2: Component = () => {
             </div>
           </div>
 
-          {/* Right Flyout */}
-          <SidebarFlyout
-            sections={availableSections()}
-            onItemClick={(itemId) => {
-              // Item clicked, navigation handled by SidebarFlyout
-            }}
-          />
+          {/* Flyout is now rendered as child of each sidebar item in SidebarRail */}
         </div>
       </aside>
 

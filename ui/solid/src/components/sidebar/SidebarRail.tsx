@@ -1,7 +1,7 @@
 import { Component, For, Show, createMemo } from 'solid-js';
 import type { NavSection } from '../../config/navSections';
-import { currentView } from '../../stores/ui';
-import { setActive, pinSection, isSectionActive, isSectionPinned } from '../../stores/sidebarState';
+import { currentView, setCurrentView, setTerminalOpen } from '../../stores/ui';
+import { setActive, pinSection, isSectionActive, isSectionPinned, isSectionPinned as checkSectionPinned, unpinSection } from '../../stores/sidebarState';
 import { unreadInsightsEvents } from '../../stores/insightsPulse';
 
 interface SidebarRailProps {
@@ -59,9 +59,26 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
     return abbreviations[section.title] || section.title.substring(0, 2).toUpperCase();
   };
 
+  const handleItemClick = (itemId: string) => {
+    // Special handling for terminal - open docked terminal instead of navigating
+    if (itemId === 'terminal') {
+      setTerminalOpen(true);
+      return;
+    }
+    
+    setCurrentView(itemId as any);
+    // Scroll to top of content area
+    setTimeout(() => {
+      const mainContent = document.querySelector('main');
+      if (mainContent) {
+        mainContent.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 100);
+  };
+
   return (
-    <div class="w-16 flex flex-col">
-      <nav class="flex-1 py-2 space-y-1">
+    <div class="w-16 flex flex-col" style={{ overflow: 'visible' }}>
+      <nav class="flex-1 py-2 space-y-1" style={{ overflow: 'visible' }}>
         <For each={props.sections}>
           {(section) => {
             const active = () => isSectionActive(section.title);
@@ -69,12 +86,29 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
             const hasActive = () => hasActiveItem(section);
             const showInsightsPulse = () => section.title === 'Insights' && unreadInsightsEvents() > 0;
 
+            let wrapperRef: HTMLDivElement | undefined;
+
             return (
+              // ✅ ONE wrapper that contains BOTH the button AND the flyout submenu
               <div
+                ref={wrapperRef}
                 class="relative"
-                onMouseEnter={() => setActive(section.title)}
-                onMouseLeave={() => {
+                style={{ overflow: 'visible' }}
+                onMouseEnter={() => {
+                  // Cancel any pending close and activate section immediately on hover
+                  setActive(section.title);
+                }}
+                onMouseLeave={(e) => {
+                  // ✅ Only close if the mouse truly left this wrapper (not moving between children)
+                  const next = e.relatedTarget as Node | null;
+                  if (next && wrapperRef && wrapperRef.contains(next)) {
+                    // Mouse is moving to a child element, don't close
+                    return;
+                  }
+                  
+                  // Mouse truly left the wrapper - close immediately if not pinned
                   if (!pinned()) {
+                    // Clear hover state immediately (no delay needed since we checked relatedTarget)
                     setActive(null);
                   }
                 }}
@@ -124,6 +158,103 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                     <span class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-brand-cyan rounded-r" />
                   </Show>
                 </button>
+
+                {/* ✅ Flyout submenu - rendered as child of wrapper (NOT portaled) */}
+                <Show when={active()}>
+                  <div
+                    class="absolute left-full top-0 z-50"
+                    style={{ pointerEvents: 'auto' }}
+                  >
+                    <div
+                      class="
+                        w-56
+                        max-h-[calc(100vh-2rem)]
+                        rounded-xl
+                        border border-border-subtle/50
+                        bg-bg-panel/95
+                        backdrop-blur-xl
+                        shadow-2xl
+                        flex flex-col
+                        animate-slideIn
+                        overflow-hidden
+                        ml-0
+                      "
+                      style={{
+                        'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+                      }}
+                    >
+                      {/* Header */}
+                      <div class="px-3 py-2.5 border-b border-border-subtle/50 flex items-center justify-between bg-bg-sidebar/50">
+                        <h2 class="text-xs font-semibold text-text-primary uppercase tracking-wider">
+                          {section.title}
+                        </h2>
+                        <Show when={checkSectionPinned(section.title)}>
+                          <button
+                            onClick={() => unpinSection()}
+                            class="
+                              p-1 rounded-md hover:bg-bg-hover
+                              text-text-muted hover:text-text-primary
+                              transition-colors
+                              focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
+                            "
+                            title="Unpin section"
+                          >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </Show>
+                      </div>
+
+                      {/* Navigation Items */}
+                      <nav class="overflow-y-auto py-1.5 px-1.5">
+                        <For each={section.items}>
+                          {(item) => {
+                            const isActive = () => currentView() === item.id;
+                            const showPulse = () => section.title === 'Insights' && unreadInsightsEvents() > 0 && item.id === 'incidents';
+
+                            return (
+                              <button
+                                onClick={() => handleItemClick(item.id)}
+                                class={`
+                                  w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg
+                                  transition-all duration-150
+                                  focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
+                                  ${
+                                    isActive()
+                                      ? 'bg-gradient-to-r from-brand-cyan/20 to-brand-purple/10 text-brand-cyan border border-brand-cyan/30'
+                                      : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
+                                  }
+                                `}
+                              >
+                                <svg
+                                  class={`w-4 h-4 flex-shrink-0 ${isActive() ? 'text-brand-cyan' : ''}`}
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                  stroke-width="2"
+                                >
+                                  <path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
+                                </svg>
+                                <span class="text-sm flex-1 text-left truncate">{item.label}</span>
+
+                                {/* Pulse indicator */}
+                                <Show when={showPulse()}>
+                                  <span class="w-2 h-2 rounded-full bg-status-danger animate-pulseSoft" />
+                                </Show>
+
+                                {/* Active indicator */}
+                                <Show when={isActive()}>
+                                  <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan shadow-glowCyan" />
+                                </Show>
+                              </button>
+                            );
+                          }}
+                        </For>
+                      </nav>
+                    </div>
+                  </div>
+                </Show>
               </div>
             );
           }}
