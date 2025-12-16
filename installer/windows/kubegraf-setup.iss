@@ -39,7 +39,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "addtopath"; Description: "Add to PATH (required for command-line usage)"; GroupDescription: "System:"; Flags: checkedonce
+Name: "addtopath"; Description: "Add KubeGraf to PATH (required for 'kubegraf' command in terminal)"; GroupDescription: "System Configuration:"; Flags: checkedonce
 
 [Files]
 ; Main executable (you'll need to download this from GitHub releases)
@@ -122,6 +122,22 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
     if (CurStep = ssPostInstall) and WizardIsTaskSelected('addtopath') then
         EnvAddPath(ExpandConstant('{app}'));
+end;
+
+procedure DeinitializeSetup();
+var
+    ResultCode: Integer;
+begin
+    if WizardIsTaskSelected('addtopath') then
+    begin
+        MsgBox('KubeGraf has been added to your PATH.' + #13#10 + #13#10 +
+               'IMPORTANT: To use "kubegraf" command in terminal, please:' + #13#10 +
+               '1. Close any open Command Prompt or PowerShell windows' + #13#10 +
+               '2. Open a NEW terminal window' + #13#10 +
+               '3. Type: kubegraf web' + #13#10 + #13#10 +
+               'The PATH changes only apply to new terminal sessions.',
+               mbInformation, MB_OK);
+    end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
