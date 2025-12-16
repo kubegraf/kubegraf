@@ -234,9 +234,21 @@ jobs:
           repository: kubegraf/homebrew-tap  # Your Homebrew tap repo
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"  # Remove 'v' prefix
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
       - name: Update formula
         run: |
-          VERSION="${{ needs.build-binaries.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
 
           # Download checksums
           curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-amd64.tar.gz.sha256 > darwin-amd64.sha256
@@ -274,8 +286,12 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add Formula/kubegraf.rb
-          git commit -m "Update kubegraf to ${VERSION}"
-          git push
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update kubegraf to ${VERSION}"
+            git push
+          fi
 
   # Update Scoop manifest (for Windows)
   update-scoop:
