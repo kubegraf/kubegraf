@@ -98,6 +98,62 @@ const ServiceDetailsPanel: Component<ServiceDetailsPanelProps> = (props) => {
     return `${portNum}/${protocol}`;
   };
 
+  const getRemotePort = (port: any): number => {
+    if (typeof port.targetPort === 'number') {
+      return port.targetPort;
+    }
+    return port.port || port.portNumber || 0;
+  };
+
+  const isPortForwarded = (port: any): boolean => {
+    const remotePort = getRemotePort(port);
+    return portForwards().some((pf) =>
+      pf.name === props.serviceName &&
+      pf.namespace === props.serviceNamespace &&
+      pf.remotePort === remotePort
+    );
+  };
+
+  const getPortForward = (port: any) => {
+    const remotePort = getRemotePort(port);
+    return portForwards().find((pf) =>
+      pf.name === props.serviceName &&
+      pf.namespace === props.serviceNamespace &&
+      pf.remotePort === remotePort
+    );
+  };
+
+  const handlePortForwardClick = (port: any) => {
+    const svcPort: ServicePort = {
+      name: port.name || '',
+      port: port.port || port.portNumber,
+      targetPort: port.targetPort ?? (port.port || port.portNumber),
+      protocol: port.protocol || 'TCP',
+      nodePort: port.nodePort,
+    };
+    setSelectedPort(svcPort);
+    setShowPortForward(true);
+  };
+
+  const handleStopPortForward = async (port: any) => {
+    const pf = getPortForward(port);
+    if (!pf) return;
+
+    try {
+      await api.stopPortForward(pf.id);
+      addNotification('Port forward stopped', 'success');
+      const pfs = await api.listPortForwards();
+      setPortForwards(pfs || []);
+
+      if (props.onPortForwardChange) {
+        props.onPortForwardChange();
+      }
+    } catch (error) {
+      console.error('Failed to stop port forward:', error);
+      addNotification('Failed to stop port forward', 'error');
+    }
+  };
+
   const formatServiceDetails = (svc: ServiceDetails): string => {
     const lines = [
       `Name: ${svc.name}`,
@@ -355,18 +411,43 @@ const ServiceDetailsPanel: Component<ServiceDetailsPanelProps> = (props) => {
                             </h3>
                             <div class="space-y-3 font-mono text-sm" style={{ color: 'var(--text-primary)', 'line-height': '1.8' }}>
                               <For each={ports}>
-                                {(port: any) => (
-                                  <div class="space-y-1">
-                                    <div>
-                                      <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>Port:</span> 
-                                      <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>{formatPort(port)}</span>
+                                {(port: any) => {
+                                  const forwarded = isPortForwarded(port);
+                                  return (
+                                    <div class="flex items-center justify-between gap-3">
+                                      <div class="space-y-1">
+                                        <div>
+                                          <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>Port:</span> 
+                                          <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>{formatPort(port)}</span>
+                                        </div>
+                                        <div>
+                                          <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>TargetPort:</span> 
+                                          <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>{formatTargetPort(port)}</span>
+                                        </div>
+                                      </div>
+                                      <Show
+                                        when={forwarded}
+                                        fallback={
+                                          <button
+                                            onClick={() => handlePortForwardClick(port)}
+                                            class="px-3 py-1 rounded text-xs font-medium transition-colors hover:opacity-80"
+                                            style={{ background: 'var(--accent-primary)', color: 'white' }}
+                                          >
+                                            Port Forward
+                                          </button>
+                                        }
+                                      >
+                                        <button
+                                          onClick={() => handleStopPortForward(port)}
+                                          class="px-3 py-1 rounded text-xs font-medium transition-colors hover:opacity-80"
+                                          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                                        >
+                                          Stop/Remove
+                                        </button>
+                                      </Show>
                                     </div>
-                                    <div>
-                                      <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>TargetPort:</span> 
-                                      <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>{formatTargetPort(port)}</span>
-                                    </div>
-                                  </div>
-                                )}
+                                  );
+                                }}
                               </For>
                             </div>
                           </div>
