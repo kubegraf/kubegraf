@@ -703,21 +703,22 @@ const Header: Component = () => {
 
     {/* Quick Access Navigation Bar */}
     <div
-      class="h-12 flex items-center px-6 gap-2 border-b"
+      class="h-12 flex items-center px-6 gap-0 border-b"
       style={{
         background: 'var(--bg-secondary)',
         borderColor: 'var(--border-color)',
-        'z-index': 99
+        'z-index': 99,
+        'margin-left': '0.75rem'
       }}
     >
-      <span class="text-xs font-semibold mr-2" style={{ color: 'var(--text-muted)' }}>
+      <span class="text-xs font-semibold mr-1" style={{ color: 'var(--text-muted)' }}>
         QUICK ACCESS:
       </span>
       <For each={quickAccessItems()}>
         {(item) => (
           <button
             onClick={() => setCurrentView(item.view)}
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-[var(--bg-tertiary)]"
+            class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-[var(--bg-tertiary)]"
             style={{
               color: 'var(--text-primary)',
               background: 'transparent'
