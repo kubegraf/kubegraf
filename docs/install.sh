@@ -8,6 +8,7 @@ set -e
 REPO="kubegraf/kubegraf"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="kubegraf"
+TELEMETRY_ENDPOINT="https://api.kubegraf.io/telemetry"
 
 # Colors for output
 RED='\033[0;31m'
@@ -20,6 +21,19 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# Track download event (fire-and-forget, never fails the install)
+track_download() {
+    local os="$1"
+    local arch="$2"
+    local version="$3"
+    
+    # Fire-and-forget: send telemetry in background, ignore all errors
+    (curl -sSL --max-time 2 -X POST "$TELEMETRY_ENDPOINT" \
+        -H "Content-Type: application/json" \
+        -d "{\"event\":\"download\",\"os\":\"$os\",\"arch\":\"$arch\",\"version\":\"$version\"}" \
+        >/dev/null 2>&1 || true) &
+}
 
 # Detect OS
 detect_os() {
@@ -132,6 +146,9 @@ main() {
     info "Detected: ${OS}/${ARCH}"
     info "Version: ${VERSION}"
     echo ""
+
+    # Track download (fire-and-forget, never blocks)
+    track_download "$OS" "$ARCH" "$VERSION"
 
     install
     verify
