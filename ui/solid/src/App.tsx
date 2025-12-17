@@ -15,6 +15,7 @@ import { wsService } from './services/websocket';
 import { backgroundPrefetch } from './services/backgroundPrefetch';
 import { createResource } from 'solid-js';
 import { currentView, setCurrentView } from './stores/ui';
+import { autoReattachMostRecentRunning } from './stores/executionPanel';
 
 const App: Component = () => {
   const [connectionStatus, { refetch: refetchStatus }] = createResource(() => api.getStatus());
@@ -61,7 +62,16 @@ const App: Component = () => {
       }
 
       // Views that don't require cluster connection (work offline)
-      const noConnectionViews = ['clustermanager', 'settings', 'logs', 'privacy', 'documentation', 'apps', 'plugins'];
+      const noConnectionViews = [
+        'clustermanager',
+        'settings',
+        'logs',
+        'privacy',
+        'documentation',
+        'apps',
+        'plugins',
+        'uidemo', // allow UI demo (including ExecutionPanel) even when not connected
+      ];
 
       // If not connected and viewing a view that requires connection, redirect to Cluster Manager
       if (!noConnectionViews.includes(view)) {
@@ -78,6 +88,13 @@ const App: Component = () => {
       .catch((err) => {
         // Silently fail - don't show error to user on auto-check
         console.debug('Auto-update check failed:', err);
+      });
+
+    // Attempt to auto-reattach to any running execution so users don't lose
+    // visibility if they refresh while a long-running operation is in progress.
+    autoReattachMostRecentRunning()
+      .catch((err) => {
+        console.debug('[App] Failed to auto-reattach execution:', err);
       });
 
     // Check if user was away for > 24h and auto-redirect to Continuity page

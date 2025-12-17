@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect your first cluster - KubeGraf Documentation</title>
+  <meta name="description" content="Connect KubeGraf to your first Kubernetes cluster using your existing kubeconfig and contexts.">
+  <link rel="canonical" href="https://kubegraf.io/docs/getting-started/first-cluster.html" />
+
+  <meta property="og:title" content="Connect your first cluster - KubeGraf Documentation" />
+  <meta property="og:description" content="Use your existing kubeconfig to connect KubeGraf to a real cluster and see workloads, namespaces, and events." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://kubegraf.io/docs/getting-started/first-cluster.html" />
+  <meta property="og:site_name" content="KubeGraf" />
+  <meta property="og:image" content="https://kubegraf.io/opengraph.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@kubegraf" />
+  <meta name="twitter:title" content="Connect your first cluster - KubeGraf Documentation" />
+  <meta name="twitter:description" content="Use your existing kubeconfig to connect KubeGraf to a real cluster and see workloads, namespaces, and events." />
+  <meta name="twitter:image" content="https://kubegraf.io/opengraph.jpg" />
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #06b6d4;
+      --secondary: #4c1d95;
+      --accent: #8b5cf6;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --bg: #09090b;
+      --bg-secondary: #020617;
+      --bg-tertiary: #111827;
+      --border: rgba(148, 163, 184, 0.25);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Outfit', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+
+    .floating-orbs { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.12; animation: float 20s ease-in-out infinite; }
+    .orb-1 { width: 500px; height: 500px; background: var(--primary); top: -150px; right: -100px; }
+    .orb-2 { width: 350px; height: 350px; background: var(--secondary); bottom: 30%; left: 200px; animation-delay: -5s; }
+    .orb-3 { width: 400px; height: 400px; background: var(--accent); top: 60%; right: -100px; animation-delay: -10s; }
+    @keyframes float { 0%, 100% { transform: translate(0, 0) scale(1); } 25% { transform: translate(20px, -20px) scale(1.03); } 50% { transform: translate(-15px, 15px) scale(0.97); } 75% { transform: translate(15px, 20px) scale(1.01); } }
+
+    .docs-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 1.5rem; position: fixed; height: 100vh; overflow-y: auto; }
+    .sidebar-logo { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; margin-bottom: 2rem; }
+    .sidebar-logo-icon { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; }
+    .sidebar-section ul { list-style: none; }
+    .sidebar-section a { display: block; padding: 0.5rem 0.75rem; color: var(--text-muted); border-radius: 6px; font-size: 0.9rem; transition: all 0.2s; text-decoration: none; }
+    .sidebar-section a:hover { background: var(--bg-tertiary); color: var(--text); }
+    .sidebar-section a.active { background: rgba(50, 108, 229, 0.15); color: var(--primary); }
+
+    .docs-content { flex: 1; margin-left: 280px; padding: 3rem 3rem; max-width: 960px; position: relative; z-index: 1; }
+    .docs-content h1 { font-size: 2.2rem; font-weight: 600; margin-bottom: 0.75rem; font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: -0.03em; }
+    .docs-content h2 { font-size: 1.4rem; font-weight: 600; margin: 2rem 0 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); font-family: 'Space Grotesk', system-ui, sans-serif; }
+    .docs-content h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    .docs-content p { color: var(--text-muted); margin-bottom: 0.9rem; }
+    .docs-content ul { color: var(--text-muted); margin: 0.75rem 0 0.9rem 1.5rem; }
+    .docs-content li { margin-bottom: 0.4rem; }
+    .docs-content code { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; background: var(--bg-tertiary); padding: 0.15rem 0.35rem; border-radius: 4px; color: var(--accent); }
+    .docs-content pre { background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.75rem; padding: 1rem 1.25rem; overflow-x: auto; margin: 1rem 0 1.25rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .callout { border-radius: 0.75rem; border: 1px solid rgba(148, 163, 184, 0.35); padding: 0.9rem 1rem; background: rgba(15, 23, 42, 0.9); margin: 1.25rem 0; }
+    .callout strong { color: var(--text); }
+    @media (max-width: 900px) { .sidebar { display: none; } .docs-content { margin-left: 0; padding: 2rem 1.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="docs-layout">
+    <aside class="sidebar">
+      <a href="/" class="sidebar-logo">
+        <img src="/assets/logo/kubegraf_color_icon.png" alt="KubeGraf logo" class="sidebar-logo-icon">
+        KubeGraf
+      </a>
+
+      <div class="sidebar-section">
+        <h3>Introduction</h3>
+        <ul>
+          <li><a href="/docs/introduction/what-is-kubegraf.html">What is KubeGraf</a></li>
+          <li><a href="/docs/introduction/why-kubegraf.html">Why KubeGraf</a></li>
+          <li><a href="/docs/introduction/how-kubegraf-works.html">How KubeGraf works</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Getting Started</h3>
+        <ul>
+          <li><a href="/docs/installation.html">Installation</a></li>
+          <li><a href="/docs/getting-started/first-cluster.html" class="active">First cluster</a></li>
+          <li><a href="/docs/quickstart.html">Quick Start</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Workflows</h3>
+        <ul>
+          <li><a href="/docs/workflows/debug-crashloop.html">Debug CrashLoopBackOff</a></li>
+          <li><a href="/docs/resource-map.html">Capacity & topology</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Reference</h3>
+        <ul>
+          <li><a href="/docs/commands.html">CLI reference</a></li>
+          <li><a href="/docs/configuration.html">Config</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Resources</h3>
+        <ul>
+          <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+          <li><a href="https://github.com/kubegraf/kubegraf/releases">Releases</a></li>
+          <li><a href="https://github.com/kubegraf/kubegraf/issues">Report Issue</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <div class="floating-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <main class="docs-content">
+      <h1>Connect your first cluster</h1>
+
+      <h2>Why this matters</h2>
+      <p>
+        KubeGraf is only useful once it’s looking at a real cluster. The fastest way to build trust is to
+        connect it to a kubeconfig you already use every day and see familiar workloads show up.
+      </p>
+      <p>This guide walks you from “fresh install” to “I can see my cluster, pods, and events in KubeGraf” in a few minutes.</p>
+
+      <h2>Prerequisites</h2>
+      <ul>
+        <li>You can reach a Kubernetes cluster with <code>kubectl</code> from your machine.</li>
+        <li><code>kubectl config current-context</code> points to the cluster you want to use.</li>
+        <li>KubeGraf is installed:</li>
+      </ul>
+
+      <pre><code>curl -sSL https://kubegraf.io/install.sh | bash</code></pre>
+
+      <div class="callout">
+        <p><strong>Tip:</strong> Keep production and non‑production contexts clearly named (<code>prod-cluster</code>, <code>staging-cluster</code>, <code>kind-dev</code>)
+        so it’s obvious which cluster you’re connecting to in KubeGraf.</p>
+      </div>
+
+      <h2>Real example: connect <code>staging-cluster</code></h2>
+      <h3>1. Confirm context</h3>
+      <pre><code>kubectl config current-context</code></pre>
+      <pre><code>staging-cluster</code></pre>
+      <pre><code>kubectl get nodes</code></pre>
+      <pre><code>NAME                   STATUS   ROLES           AGE   VERSION
+ip-10-0-12-34         Ready    control-plane   30d   v1.30.3
+ip-10-0-56-78         Ready    &lt;none&gt;          30d   v1.30.3
+</code></pre>
+
+      <h3>2. Launch the Terminal UI</h3>
+      <pre><code>kubegraf</code></pre>
+      <p>KubeGraf will read <code>~/.kube/config</code>, use the current context (<code>staging-cluster</code>), and show a cluster summary.</p>
+
+      <h3>3. Verify the namespace you care about</h3>
+      <p>In the Terminal UI:</p>
+      <ul>
+        <li>Press <code>n</code> to change namespace.</li>
+        <li>Type <code>payments</code> (or another namespace that exists).</li>
+      </ul>
+      <p>You should now see pods, deployments, and services for that namespace.</p>
+
+      <h3>4. Launch the Web Dashboard (optional)</h3>
+      <pre><code>kubegraf --web</code></pre>
+      <p>Then open <a href="http://localhost:8080">http://localhost:8080</a> in your browser to see the same cluster in the web UI.</p>
+
+      <div class="callout">
+        <p><strong>Common mistakes:</strong> running <code>kubegraf</code> before verifying that <code>kubectl</code> can talk to the cluster, or forgetting that
+        <code>kubegraf</code> respects the current context (you might be looking at minikube instead of <code>prod-cluster</code>).</p>
+      </div>
+
+      <h2>Screenshot placeholder</h2>
+      <p><em>Replace this with a real capture of the Cluster Overview page after connecting <code>staging-cluster</code>.</em></p>
+      <pre><code>[ screenshot: overview card showing 1 cluster, 2 nodes, namespaces, and pods by status ]</code></pre>
+
+      <h2>Step‑by‑step flow</h2>
+      <h3>1. Verify kubeconfig</h3>
+      <pre><code>kubectl config get-contexts</code></pre>
+      <pre><code>kubectl config use-context staging-cluster</code></pre>
+
+      <h3>2. Sanity‑check connectivity</h3>
+      <pre><code>kubectl get ns</code></pre>
+      <p>If this fails, fix cluster access before involving KubeGraf.</p>
+
+      <h3>3. Start KubeGraf</h3>
+      <pre><code>kubegraf</code></pre>
+      <p>Use <code>c</code> to change context and <code>?</code> to see all keybindings.</p>
+
+      <h3>4. Explore workloads</h3>
+      <ul>
+        <li><code>n</code> – switch namespaces.</li>
+        <li><code>Tab</code> – switch between Pods / Deployments / Services / Events.</li>
+        <li><code>Enter</code> – open resource details.</li>
+        <li><code>l</code> – view logs for a pod.</li>
+        <li><code>e</code> – view events for a resource.</li>
+      </ul>
+
+      <h3>5. Save this as your “default” view</h3>
+      <p>Decide which context + namespace combination you’ll use most and ensure <code>kubectl config current-context</code> points there
+      before your next KubeGraf session.</p>
+
+      <div class="callout">
+        <p><strong>Pro tip:</strong> add a shell alias for your preferred cluster:</p>
+        <pre><code>alias kg-staging='kubectl config use-context staging-cluster &amp;&amp; kubegraf'</code></pre>
+        <p>Now <code>kg-staging</code> will switch context and launch KubeGraf in one go.</p>
+      </div>
+
+      <h2>Expected outcome</h2>
+      <p>By the end of this guide you should:</p>
+      <ul>
+        <li>Have KubeGraf successfully connected to at least one cluster via your existing kubeconfig.</li>
+        <li>Be able to see nodes, namespaces, and workloads for that cluster.</li>
+        <li>Know how to switch clusters and namespaces from within the UI instead of editing kubeconfig by hand.</li>
+      </ul>
+    </main>
+  </div>
+</body>
+</html>
+
+

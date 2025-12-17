@@ -7,6 +7,7 @@ import DeploymentProgress from './DeploymentProgress';
 import DockedTerminal from './DockedTerminal';
 import NotificationCenter from './NotificationCenter';
 import { ConnectionOverlay } from './ConnectionOverlay';
+import ExecutionPanel from './ExecutionPanel';
 import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
 
@@ -221,6 +222,9 @@ export const AppContent: Component<AppContentProps> = (props) => {
         isOpen={terminalOpen()}
         onClose={() => setTerminalOpen(false)}
       />
+
+      {/* Command Execution Panel */}
+      <ExecutionPanel />
     </>
   );
 };

@@ -1,6 +1,6 @@
 import { Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
@@ -11,6 +11,7 @@ import { getTableHeaderCellStyle, getTableHeaderRowStyle } from '../utils/tableC
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface PersistentVolume {
   name: string;
@@ -165,24 +166,80 @@ const Storage: Component = () => {
   );
 
   const handleSaveYAML = async (yaml: string) => {
-    try {
-      if (activeTab() === 'pvs' && selectedPV()) {
-        await api.updatePV(selectedPV().name, yaml);
-        addNotification(`✅ PersistentVolume ${selectedPV().name} updated successfully`, 'success');
-        refetchPVs();
-      } else if (activeTab() === 'pvcs' && selectedPVC()) {
-        await api.updatePVC(selectedPVC().name, selectedPVC().namespace || 'default', yaml);
-        addNotification(`✅ PersistentVolumeClaim ${selectedPVC().name} updated successfully`, 'success');
-        refetchPVCs();
-      } else if (activeTab() === 'storageclasses' && selectedSC()) {
-        await api.updateStorageClass(selectedSC().name, yaml);
-        addNotification(`✅ StorageClass ${selectedSC().name} updated successfully`, 'success');
-        refetchSC();
-      }
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    if (activeTab() === 'pvs' && selectedPV()) {
+      const pv = selectedPV()!;
+      startExecution({
+        label: `Apply PersistentVolume YAML: ${pv.name}`,
+        command: '__k8s-apply-yaml',
+        args: [],
+        mode: 'apply',
+        kubernetesEquivalent: true,
+        namespace: '', // PV is cluster-scoped
+        context: status.context,
+        userAction: 'storage-pv-apply-yaml',
+        dryRun: false,
+        allowClusterWide: true,
+        resource: 'pv',
+        action: 'update',
+        intent: 'apply-yaml',
+        yaml: trimmed,
+      });
       setShowEdit(false);
-    } catch (err) {
-      addNotification(`❌ Failed to update: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
-      throw err;
+      setTimeout(() => refetchPVs(), 1500);
+    } else if (activeTab() === 'pvcs' && selectedPVC()) {
+      const pvc = selectedPVC()!;
+      startExecution({
+        label: `Apply PVC YAML: ${pvc.name}`,
+        command: '__k8s-apply-yaml',
+        args: [],
+        mode: 'apply',
+        kubernetesEquivalent: true,
+        namespace: pvc.namespace || 'default',
+        context: status.context,
+        userAction: 'storage-pvc-apply-yaml',
+        dryRun: false,
+        allowClusterWide: false,
+        resource: 'pvc',
+        action: 'update',
+        intent: 'apply-yaml',
+        yaml: trimmed,
+      });
+      setShowEdit(false);
+      setTimeout(() => refetchPVCs(), 1500);
+    } else if (activeTab() === 'storageclasses' && selectedSC()) {
+      const sc = selectedSC()!;
+      startExecution({
+        label: `Apply StorageClass YAML: ${sc.name}`,
+        command: '__k8s-apply-yaml',
+        args: [],
+        mode: 'apply',
+        kubernetesEquivalent: true,
+        namespace: '',
+        context: status.context,
+        userAction: 'storage-sc-apply-yaml',
+        dryRun: false,
+        allowClusterWide: true,
+        resource: 'storageclasses',
+        action: 'update',
+        intent: 'apply-yaml',
+        yaml: trimmed,
+      });
+      setShowEdit(false);
+      setTimeout(() => refetchSC(), 1500);
     }
   };
 

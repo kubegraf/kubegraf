@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debug a CrashLoopBackOff - KubeGraf Documentation</title>
+  <meta name="description" content="Use KubeGraf to debug CrashLoopBackOff incidents with logs, events, and an incident timeline.">
+  <link rel="canonical" href="https://kubegraf.io/docs/workflows/debug-crashloop.html" />
+
+  <meta property="og:title" content="Debug a CrashLoopBackOff - KubeGraf Documentation" />
+  <meta property="og:description" content="Walk through a CrashLoopBackOff incident in a real Kubernetes cluster using KubeGraf." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://kubegraf.io/docs/workflows/debug-crashloop.html" />
+  <meta property="og:site_name" content="KubeGraf" />
+  <meta property="og:image" content="https://kubegraf.io/opengraph.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@kubegraf" />
+  <meta name="twitter:title" content="Debug a CrashLoopBackOff - KubeGraf Documentation" />
+  <meta name="twitter:description" content="Walk through a CrashLoopBackOff incident in a real Kubernetes cluster using KubeGraf." />
+  <meta name="twitter:image" content="https://kubegraf.io/opengraph.jpg" />
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #06b6d4;
+      --secondary: #4c1d95;
+      --accent: #8b5cf6;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --bg: #09090b;
+      --bg-secondary: #020617;
+      --bg-tertiary: #111827;
+      --border: rgba(148, 163, 184, 0.25);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Outfit', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+
+    .floating-orbs { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.12; animation: float 20s ease-in-out infinite; }
+    .orb-1 { width: 500px; height: 500px; background: var(--primary); top: -150px; right: -100px; }
+    .orb-2 { width: 350px; height: 350px; background: var(--secondary); bottom: 30%; left: 200px; animation-delay: -5s; }
+    .orb-3 { width: 400px; height: 400px; background: var(--accent); top: 60%; right: -100px; animation-delay: -10s; }
+    @keyframes float { 0%, 100% { transform: translate(0, 0) scale(1); } 25% { transform: translate(20px, -20px) scale(1.03); } 50% { transform: translate(-15px, 15px) scale(0.97); } 75% { transform: translate(15px, 20px) scale(1.01); } }
+
+    .docs-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 1.5rem; position: fixed; height: 100vh; overflow-y: auto; }
+    .sidebar-logo { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; margin-bottom: 2rem; }
+    .sidebar-logo-icon { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; }
+    .sidebar-section ul { list-style: none; }
+    .sidebar-section a { display: block; padding: 0.5rem 0.75rem; color: var(--text-muted); border-radius: 6px; font-size: 0.9rem; transition: all 0.2s; text-decoration: none; }
+    .sidebar-section a:hover { background: var(--bg-tertiary); color: var(--text); }
+    .sidebar-section a.active { background: rgba(50, 108, 229, 0.15); color: var(--primary); }
+
+    .docs-content { flex: 1; margin-left: 280px; padding: 3rem 3rem; max-width: 960px; position: relative; z-index: 1; }
+    .docs-content h1 { font-size: 2.2rem; font-weight: 600; margin-bottom: 0.75rem; font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: -0.03em; }
+    .docs-content h2 { font-size: 1.4rem; font-weight: 600; margin: 2rem 0 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); font-family: 'Space Grotesk', system-ui, sans-serif; }
+    .docs-content h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    .docs-content p { color: var(--text-muted); margin-bottom: 0.9rem; }
+    .docs-content ul { color: var(--text-muted); margin: 0.75rem 0 0.9rem 1.5rem; }
+    .docs-content li { margin-bottom: 0.4rem; }
+    .docs-content code { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; background: var(--bg-tertiary); padding: 0.15rem 0.35rem; border-radius: 4px; color: var(--accent); }
+    .docs-content pre { background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.75rem; padding: 1rem 1.25rem; overflow-x: auto; margin: 1rem 0 1.25rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .callout { border-radius: 0.75rem; border: 1px solid rgba(148, 163, 184, 0.35); padding: 0.9rem 1rem; background: rgba(15, 23, 42, 0.9); margin: 1.25rem 0; }
+    .callout strong { color: var(--text); }
+    @media (max-width: 900px) { .sidebar { display: none; } .docs-content { margin-left: 0; padding: 2rem 1.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="docs-layout">
+    <aside class="sidebar">
+      <a href="/" class="sidebar-logo">
+        <img src="/assets/logo/kubegraf_color_icon.png" alt="KubeGraf logo" class="sidebar-logo-icon">
+        KubeGraf
+      </a>
+
+      <div class="sidebar-section">
+        <h3>Introduction</h3>
+        <ul>
+          <li><a href="/docs/introduction/what-is-kubegraf.html">What is KubeGraf</a></li>
+          <li><a href="/docs/introduction/why-kubegraf.html">Why KubeGraf</a></li>
+          <li><a href="/docs/introduction/how-kubegraf-works.html">How KubeGraf works</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Getting Started</h3>
+        <ul>
+          <li><a href="/docs/installation.html">Installation</a></li>
+          <li><a href="/docs/getting-started/first-cluster.html">First cluster</a></li>
+          <li><a href="/docs/quickstart.html">Quick Start</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Workflows</h3>
+        <ul>
+          <li><a href="/docs/workflows/debug-crashloop.html" class="active">Debug CrashLoopBackOff</a></li>
+          <li><a href="/docs/resource-map.html">Capacity & topology</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Reference</h3>
+        <ul>
+          <li><a href="/docs/commands.html">CLI reference</a></li>
+          <li><a href="/docs/configuration.html">Config</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Resources</h3>
+        <ul>
+          <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+          <li><a href="https://github.com/kubegraf/kubegraf/releases">Releases</a></li>
+          <li><a href="https://github.com/kubegraf/kubegraf/issues">Report Issue</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <div class="floating-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <main class="docs-content">
+      <h1>Debug a CrashLoopBackOff</h1>
+
+      <h2>Why this matters</h2>
+      <p>
+        CrashLoopBackOff is one of the most common Kubernetes incidents.
+        What you really want is not “what does CrashLoopBackOff mean?” but “why is this pod crashing and what should I try next?”
+      </p>
+      <p>KubeGraf helps you go from a red pod to a plausible root cause and fix plan by combining logs, events, and an incident timeline.</p>
+
+      <h2>Scenario: payments API keeps crashing in <code>prod-cluster</code></h2>
+      <p>You’re on‑call. Alerts fire for <code>payments-api</code> in the <code>payments</code> namespace on <code>prod-cluster</code>.</p>
+
+      <pre><code>kubectl config use-context prod-cluster
+kubectl get pods -n payments</code></pre>
+
+      <pre><code>NAME                                   READY   STATUS             RESTARTS   AGE
+payments-api-66cbd9d4dc-7xg9n          0/1     CrashLoopBackOff   5          2m31s
+payments-api-66cbd9d4dc-87zc2          1/1     Running            0          5m12s
+redis-payments-0                       1/1     Running            0          10m
+</code></pre>
+
+      <p>You could start chasing logs manually, but KubeGraf gives you a guided path:</p>
+      <ul>
+        <li>See all CrashLooping workloads across the cluster.</li>
+        <li>Overlay deploys, config changes, and events on an incident timeline.</li>
+        <li>Use the Brain Panel to summarize likely causes and next steps.</li>
+      </ul>
+
+      <div class="callout">
+        <p><strong>Common mistakes:</strong> only looking at pod logs and ignoring recent events (probe failures, image pulls, config errors).</p>
+      </div>
+
+      <h2>Screenshot placeholder</h2>
+      <p><em>Replace this with a real capture of the Incident Timeline for a CrashLoopBackOff in the <code>payments</code> namespace.</em></p>
+      <pre><code>[ screenshot: incident timeline showing deployment rollout, failing readiness probe, and repeated restarts ]</code></pre>
+
+      <h2>Step‑by‑step flow</h2>
+      <h3>1. Confirm the problem with kubectl</h3>
+      <pre><code>kubectl get pods -n payments
+kubectl describe pod payments-api-66cbd9d4dc-7xg9n -n payments | sed -n '1,40p'</code></pre>
+      <p>Look for non‑zero exit codes and recent events like failing probes or permission errors.</p>
+
+      <h3>2. Open KubeGraf on the right cluster and namespace</h3>
+      <pre><code>kubegraf</code></pre>
+      <ul>
+        <li>Press <code>c</code> and select <code>prod-cluster</code> if needed.</li>
+        <li>Press <code>n</code> and select the <code>payments</code> namespace.</li>
+        <li>Switch to the Pods view and filter with <code>/payments-api</code>.</li>
+      </ul>
+
+      <div class="callout">
+        <p><strong>Tip:</strong> Use status filters (if available) to quickly highlight only unhealthy workloads (CrashLoopBackOff, Error, ImagePullBackOff).</p>
+      </div>
+
+      <h3>3. Inspect logs and events through KubeGraf</h3>
+      <ul>
+        <li>Press <code>l</code> to view logs for the crashing pod.</li>
+        <li>Open the Events panel to see recent events for the pod / deployment.</li>
+      </ul>
+
+      <pre><code>2025-03-22T12:01:03Z ERROR payments-api Failed to start HTTP server: DB_CONNECTION_STRING not set
+2025-03-22T12:01:03Z ERROR payments-api Exiting with code 1</code></pre>
+
+      <p>Now you know the pod is restarting due to a missing configuration value.</p>
+
+      <h3>4. Use the Incident Timeline and Brain Panel</h3>
+      <ul>
+        <li>Incident Timeline shows a new deployment of <code>payments-api</code>, a config map update, and failing probes.</li>
+        <li>Brain Panel summarizes: “<code>payments-api</code> started crashing after a new rollout. Logs show <code>DB_CONNECTION_STRING not set</code>. Check the associated config or secret.”</li>
+      </ul>
+
+      <h3>5. Fix the underlying issue</h3>
+      <ul>
+        <li>Roll back the deployment if needed:</li>
+      </ul>
+      <pre><code>kubectl rollout undo deployment/payments-api -n payments</code></pre>
+      <ul>
+        <li>Or update the missing or incorrect config:</li>
+      </ul>
+      <pre><code>kubectl edit configmap payments-api-config -n payments</code></pre>
+
+      <p>After applying a fix, watch the rollout and pod status:</p>
+      <pre><code>kubectl rollout status deployment/payments-api -n payments
+kubectl get pods -n payments</code></pre>
+
+      <p>Verify in KubeGraf that the pod is no longer CrashLooping and error counts on the Incident Timeline drop.</p>
+
+      <div class="callout">
+        <p><strong>Pro tip:</strong> integrate KubeGraf with Slack or your ticketing system so CrashLoopBackOff incidents include links back to the relevant timeline and logs.</p>
+      </div>
+
+      <h2>Expected outcome</h2>
+      <p>After following this workflow you should be able to:</p>
+      <ul>
+        <li>Take a CrashLoopBackOff from a red pod to a concrete, likely root cause.</li>
+        <li>Use KubeGraf’s logs, events, and Incident Timeline instead of guessing from raw <code>kubectl</code> output alone.</li>
+        <li>Apply and validate a fix confidently, knowing what changed and why.</li>
+      </ul>
+    </main>
+  </div>
+</body>
+</html>
+
+

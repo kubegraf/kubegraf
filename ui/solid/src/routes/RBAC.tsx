@@ -1,11 +1,12 @@
 import { Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import ActionMenu from '../components/ActionMenu';
+import { startExecution } from '../stores/executionPanel';
 
 interface Role {
   name: string;
@@ -221,50 +222,58 @@ const RBAC: Component = () => {
     
     if (!currentResource) return;
 
-    try {
-      let url = '';
-      const type = activeTab() === 'roles' ? 'role' :
-                   activeTab() === 'rolebindings' ? 'rolebinding' :
-                   activeTab() === 'clusterroles' ? 'clusterrole' :
-                   'clusterrolebinding';
-      
-      if (type === 'role') {
-        url = `/api/rbac/role/update?name=${encodeURIComponent(currentResource.name)}&namespace=${encodeURIComponent(currentResource.namespace || '')}`;
-      } else if (type === 'rolebinding') {
-        url = `/api/rbac/rolebinding/update?name=${encodeURIComponent(currentResource.name)}&namespace=${encodeURIComponent(currentResource.namespace || '')}`;
-      } else if (type === 'clusterrole') {
-        url = `/api/rbac/clusterrole/update?name=${encodeURIComponent(currentResource.name)}`;
-      } else if (type === 'clusterrolebinding') {
-        url = `/api/rbac/clusterrolebinding/update?name=${encodeURIComponent(currentResource.name)}`;
-      }
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/yaml' },
-        body: yaml,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Update failed' }));
-        throw new Error(errorData.error || 'Update failed');
-      }
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Update failed');
-      }
-
-      addNotification(`Successfully updated ${currentResource.name}`, 'success');
-      setShowEdit(false);
-      
-      // Refetch data
-      if (type === 'role') roles.refetch();
-      else if (type === 'rolebinding') roleBindings.refetch();
-      else if (type === 'clusterrole') clusterRoles.refetch();
-      else if (type === 'clusterrolebinding') clusterRoleBindings.refetch();
-    } catch (err: any) {
-      addNotification(`Failed to update: ${err.message}`, 'error');
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const type = activeTab() === 'roles' ? 'role' :
+                 activeTab() === 'rolebindings' ? 'rolebinding' :
+                 activeTab() === 'clusterroles' ? 'clusterrole' :
+                 'clusterrolebinding';
+
+    const isNamespaced = type === 'role' || type === 'rolebinding';
+    const ns = isNamespaced ? (currentResource.namespace || namespace()) : '';
+
+    const resource =
+      type === 'role' ? 'roles' :
+      type === 'rolebinding' ? 'rolebindings' :
+      type === 'clusterrole' ? 'clusterroles' :
+      'clusterrolebindings';
+
+    startExecution({
+      label: `Apply ${type} YAML: ${currentResource.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: ns || '',
+      context: status.context,
+      userAction: `rbac-${type}-apply-yaml`,
+      dryRun: false,
+      allowClusterWide: !isNamespaced,
+      resource,
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+
+    // Refetch data
+    if (type === 'role') roles.refetch();
+    else if (type === 'rolebinding') roleBindings.refetch();
+    else if (type === 'clusterrole') clusterRoles.refetch();
+    else if (type === 'clusterrolebinding') clusterRoleBindings.refetch();
   };
 
   return (

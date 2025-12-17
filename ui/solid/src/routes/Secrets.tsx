@@ -1,5 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount } from 'solid-js';
 import { api } from '../services/api';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import {
@@ -10,11 +11,13 @@ import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
+import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface Secret {
   name: string;
@@ -161,17 +164,47 @@ const Secrets: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const secret = selected();
     if (!secret) return;
-    try {
-      await api.updateSecret(secret.name, secret.namespace, yaml);
-      addNotification(`✅ Secret ${secret.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update secret: ${errorMsg}`, 'error');
-      throw error;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Run apply YAML via the streaming execution pipeline so output is visible
+    // in the ExecutionPanel. This uses the Kubernetes API on the backend (no kubectl).
+    startExecution({
+      label: `Apply Secret YAML: ${secret.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: secret.namespace,
+      context: status.context,
+      userAction: 'secrets-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'secrets',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    // Close the editor once the execution has been started; the ExecutionPanel
+    // now owns the UX for tracking success/failure.
+    setShowEdit(false);
+
+    // Trigger a background refetch after a short delay so the table reflects
+    // any changes from the apply.
+    setTimeout(() => refetch(), 1500);
   };
 
   // Parse age for sorting
@@ -636,6 +669,16 @@ const Secrets: Component = () => {
           }
         >
           <div style={{ height: '70vh' }}>
+            <Show when={selected()}>
+              {(sec) => (
+                <CommandPreview
+                  label="Equivalent kubectl command"
+                  defaultCollapsed={true}
+                  command={`kubectl apply -f - -n ${sec().namespace || 'default'}  # YAML from editor is sent via Kubernetes API`}
+                  description="This is an equivalent kubectl-style view of the Secret update. The actual change is applied via Kubernetes API. Secret data is redacted in server logs."
+                />
+              )}
+            </Show>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}

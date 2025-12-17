@@ -23,6 +23,7 @@ import { formatInstalledNamespaces, getInstalledInstancesForApp, getInstalledNam
 import NamespaceBadge from '../components/NamespaceBadge';
 import NamespaceBadges from '../components/NamespaceBadges';
 import { formatNamespacesForUninstall } from '../features/marketplace/uninstallFormatting';
+import CommandPreview from '../components/CommandPreview';
 
 // Use LegacyApp type from adapters for backward compatibility
 type App = LegacyApp;
@@ -226,6 +227,48 @@ const Apps: Component<AppsProps> = (props) => {
       installed: all.filter(a => a.installedInstances && a.installedInstances.length > 0).length,
       available: all.filter(a => !a.installedInstances || a.installedInstances.length === 0).length,
     };
+  });
+
+  const helmCommandPreview = createMemo(() => {
+    const app = selectedApp();
+    if (!app) return '';
+
+    const isLocalCluster = isLocalClusterApp(app.name);
+
+    if (isLocalCluster) {
+      const name = clusterName();
+      const lines = [
+        '# Local cluster installer (managed by KubeGraf)',
+        `# Provider: ${app.name}`,
+        name ? `# Cluster name: ${name}` : '',
+        '# KubeGraf will orchestrate Docker and local Kubernetes cluster creation for you.',
+        '# Exact commands may differ slightly from this preview.',
+      ].filter(Boolean);
+
+      return lines.join('\n');
+    }
+
+    const ns = installNamespace() || 'default';
+    const repoUrl = app.chartRepo || '<chart-repo-url>';
+    const chartName = app.chartName || '<chart-name>';
+    const version = app.version || '';
+    const releaseNameBase = (app.displayName || app.name || 'app')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-');
+    const releaseName = releaseNameBase || 'release-name';
+    const repoAlias = app.name || 'kubegraf-app';
+
+    const installLineBase = `helm install ${releaseName} ${repoAlias}/${chartName} --namespace ${ns} --create-namespace`;
+    const installLine = version ? `${installLineBase} --version ${version}` : installLineBase;
+
+    const lines = [
+      '# Equivalent Helm commands (approximate)',
+      `helm repo add ${repoAlias} ${repoUrl}`,
+      'helm repo update',
+      installLine,
+    ];
+
+    return lines.join('\n');
   });
 
   // Poll to check if a deploying app is now installed
@@ -1443,6 +1486,38 @@ const Apps: Component<AppsProps> = (props) => {
                 placeholder="default"
               />
             </div>
+          </Show>
+
+          <Show when={selectedApp()}>
+            {(app) => (
+              <CommandPreview
+                label={
+                  isLocalClusterApp(app().name)
+                    ? 'Local cluster installation steps (approximate)'
+                    : 'Equivalent Helm command'
+                }
+                defaultCollapsed={true}
+                command={helmCommandPreview()}
+                description={
+                  isLocalClusterApp(app().name)
+                    ? 'This outlines the high-level steps KubeGraf will perform to create a local Kubernetes cluster using Docker. Exact commands may differ slightly.'
+                    : 'This shows an approximate Helm command for this install. The actual installation runs through the KubeGraf backend with additional validation and tracking.'
+                }
+                badge={
+                  isLocalClusterApp(app().name)
+                    ? (
+                      <span>
+                        cluster: <span class="font-semibold">{clusterName()}</span>
+                      </span>
+                    )
+                    : (
+                      <span>
+                        ns: <span class="font-semibold">{installNamespace() || 'default'}</span>
+                      </span>
+                    )
+                }
+              />
+            )}
           </Show>
 
           <div class="flex justify-end gap-3 mt-6">

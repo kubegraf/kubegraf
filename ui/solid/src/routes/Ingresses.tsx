@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, createEffect, onMount } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import {
   selectedNamespaces,
@@ -16,6 +16,7 @@ import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface Ingress {
   name: string;
@@ -138,17 +139,40 @@ const Ingresses: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const ing = selected();
     if (!ing) return;
-    try {
-      await api.updateIngress(ing.name, ing.namespace, yaml);
-      addNotification(`✅ Ingress ${ing.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update ingress: ${errorMsg}`, 'error');
-      throw error;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Apply Ingress YAML: ${ing.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: ing.namespace,
+      context: status.context,
+      userAction: 'ingresses-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'ingress',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => refetch(), 1500);
   };
 
   // Parse age for sorting

@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, createEffect, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import {
   selectedCluster,
@@ -15,6 +15,7 @@ import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackgroun
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
+import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { LoadingSpinner } from '../components/Loading';
@@ -24,6 +25,7 @@ import ServiceDetailsPanel from '../components/ServiceDetailsPanel';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface Service {
   name: string;
@@ -187,17 +189,47 @@ const Services: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const svc = selected();
     if (!svc) return;
-    try {
-      await api.updateService(svc.name, svc.namespace, yaml);
-      addNotification(`✅ Service ${svc.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => servicesCache.refetch(), 500);
-      setTimeout(() => servicesCache.refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update service: ${errorMsg}`, 'error');
-      throw error;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Run apply YAML via the streaming execution pipeline so output is visible
+    // in the ExecutionPanel. This uses the Kubernetes API on the backend (no kubectl).
+    startExecution({
+      label: `Apply Service YAML: ${svc.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: svc.namespace,
+      context: status.context,
+      userAction: 'services-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'services',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    // Close the editor once the execution has been started; the ExecutionPanel
+    // now owns the UX for tracking success/failure.
+    setShowEdit(false);
+
+    // Trigger a background refetch after a short delay so the table reflects
+    // any changes from the apply.
+    setTimeout(() => servicesCache.refetch(), 1500);
   };
 
   // Parse age for sorting
@@ -837,6 +869,16 @@ const Services: Component = () => {
           }
         >
           <div style={{ height: '70vh' }}>
+            <Show when={selected()}>
+              {(svc) => (
+                <CommandPreview
+                  label="Equivalent kubectl command"
+                  defaultCollapsed={true}
+                  command={`kubectl apply -f - -n ${svc().namespace || 'default'}  # YAML from editor is sent via Kubernetes API`}
+                  description="This is an equivalent kubectl-style view of the Service update. The actual change is applied via Kubernetes API."
+                />
+              )}
+            </Show>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}
