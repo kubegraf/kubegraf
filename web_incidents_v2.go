@@ -389,19 +389,46 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		}
 		recommendations = []incidents.Recommendation{
 			{
+				ID:          "restart-pod",
+				Title:       "Restart Pod",
+				Explanation: "Delete the pod to trigger recreation by its controller and get a fresh start",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeRestart,
+					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Restart Pod",
+					Type:                 incidents.ActionTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
 				ID:          "check-logs",
 				Title:       "Check container logs",
 				Explanation: "Review the container logs to identify the root cause of restarts",
 				Risk:        incidents.RiskLow,
-				Priority:    1,
-				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace},
+				Priority:    2,
+				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace + " --previous"},
 			},
 			{
 				ID:          "increase-resources",
 				Title:       "Increase resource limits",
 				Explanation: "If the container is being OOM killed, increase memory limits",
 				Risk:        incidents.RiskMedium,
-				Priority:    2,
+				Priority:    3,
 			},
 		}
 
@@ -418,12 +445,54 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 			{
 				ID:          "increase-memory",
 				Title:       "Increase memory limit",
-				Explanation: "The container exceeded its memory limit. Consider increasing the limit.",
+				Explanation: "The container exceeded its memory limit. Consider increasing the limit by 50%.",
 				Risk:        incidents.RiskMedium,
 				Priority:    1,
 				ProposedFix: &incidents.ProposedFix{
-					Type:                 incidents.FixTypePatch,
+					Type:        incidents.FixTypePatch,
+					Description: "Increase container memory limit by 50%",
+					PreviewDiff: "--- current\n+++ proposed\n@@ resources.limits @@\n-  memory: 256Mi\n+  memory: 384Mi",
+					DryRunCmd:   fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"384Mi\"}]' --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"384Mi\"}]'", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Deployment",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Propose Memory Increase",
+					Type:                 incidents.ActionTypePreviewPatch,
 					Description:          "Increase container memory limit by 50%",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
+				ID:          "restart-pod",
+				Title:       "Restart Pod",
+				Explanation: "Restart the pod to get a fresh start with current limits",
+				Risk:        incidents.RiskLow,
+				Priority:    2,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeRestart,
+					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Restart Pod",
+					Type:                 incidents.ActionTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
 					Safe:                 true,
 					RequiresConfirmation: true,
 				},
@@ -433,7 +502,8 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 				Title:       "Analyze memory usage patterns",
 				Explanation: "Review memory metrics to understand usage patterns",
 				Risk:        incidents.RiskLow,
-				Priority:    2,
+				Priority:    3,
+				ManualSteps: []string{fmt.Sprintf("kubectl top pod %s -n %s", v1.ResourceName, v1.Namespace)},
 			},
 		}
 
@@ -448,30 +518,49 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		}
 		recommendations = []incidents.Recommendation{
 			{
+				ID:          "restart-pod",
+				Title:       "Restart Pod",
+				Explanation: "Delete and recreate pod - sometimes a fresh start can resolve transient issues",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeRestart,
+					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Restart Pod",
+					Type:                 incidents.ActionTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
 				ID:          "check-logs",
 				Title:       "Check container logs",
 				Explanation: "Review logs to identify why the container is crashing",
 				Risk:        incidents.RiskLow,
-				Priority:    1,
+				Priority:    2,
+				ManualSteps: []string{fmt.Sprintf("kubectl logs %s -n %s --previous", v1.ResourceName, v1.Namespace)},
 			},
 			{
 				ID:          "check-config",
 				Title:       "Verify ConfigMaps and Secrets",
 				Explanation: "Ensure all required configuration is present and valid",
 				Risk:        incidents.RiskLow,
-				Priority:    2,
-			},
-			{
-				ID:          "restart-pod",
-				Title:       "Delete and recreate pod",
-				Explanation: "Sometimes a fresh start can resolve transient issues",
-				Risk:        incidents.RiskMedium,
 				Priority:    3,
-				ProposedFix: &incidents.ProposedFix{
-					Type:                 incidents.FixTypeRestart,
-					Description:          "Delete the pod to trigger recreation",
-					Safe:                 true,
-					RequiresConfirmation: true,
+				ManualSteps: []string{
+					fmt.Sprintf("kubectl describe pod %s -n %s", v1.ResourceName, v1.Namespace),
+					fmt.Sprintf("kubectl get events -n %s --field-selector involvedObject.name=%s", v1.Namespace, v1.ResourceName),
 				},
 			},
 		}
@@ -487,11 +576,39 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		}
 		recommendations = []incidents.Recommendation{
 			{
+				ID:          "retry-job",
+				Title:       "Retry failed job",
+				Explanation: "Delete the failed job to allow it to be retried",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeDelete,
+					Description: fmt.Sprintf("Delete job %s to allow retry", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete job %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete job %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Job",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Retry Job",
+					Type:                 incidents.ActionTypeDeletePod,
+					Description:          "Delete the job to trigger a retry",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
 				ID:          "check-job-logs",
 				Title:       "Check job pod logs",
 				Explanation: "Review the logs from the failed job pods",
 				Risk:        incidents.RiskLow,
-				Priority:    1,
+				Priority:    2,
+				ManualSteps: []string{fmt.Sprintf("kubectl logs job/%s -n %s", v1.ResourceName, v1.Namespace)},
 			},
 		}
 
@@ -545,7 +662,7 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 
 	patternStr := string(pattern)
 
-	return &incidents.Incident{
+	incident := &incidents.Incident{
 		ID:          v1.ID,
 		Pattern:     pattern,
 		Severity:    severity,
@@ -563,6 +680,12 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		Diagnosis:       diagnosis,
 		Recommendations: recommendations,
 	}
+
+	// Enhance recommendations with fix actions
+	registry := incidents.NewFixGeneratorRegistry()
+	incidents.EnhanceRecommendationsWithActions(incident, registry)
+
+	return incident
 }
 
 // handleIncidentV2ByID handles GET/PUT /api/v2/incidents/{id}
