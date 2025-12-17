@@ -105,6 +105,8 @@ type App struct {
 	connectorManager *ConnectorManager
 	// SRE Agent
 	sreAgent *SREAgent
+	// Incident Intelligence
+	incidentIntelligence *IncidentIntelligence
 }
 
 // TableData holds the current table information
