@@ -1,4 +1,4 @@
-import { Component, createSignal, Show } from 'solid-js';
+import { Component, createSignal, createEffect, Show } from 'solid-js';
 import { api, FixPreviewResponse, FixApplyResponse } from '../services/api';
 
 interface FixPreviewModalProps {
@@ -19,23 +19,35 @@ const FixPreviewModal: Component<FixPreviewModalProps> = (props) => {
 
   // Fetch preview when modal opens
   const fetchPreview = async () => {
+    if (!props.incidentId) return;
+    
     setLoading(true);
     setError(null);
     setPreview(null);
+    setApplyResult(null);
     try {
+      console.log('Fetching fix preview for incident:', props.incidentId);
       const result = await api.previewIncidentFix(props.incidentId, props.recommendationId);
+      console.log('Fix preview result:', result);
       setPreview(result);
     } catch (err: any) {
+      console.error('Fix preview error:', err);
       setError(err.message || 'Failed to load fix preview');
     } finally {
       setLoading(false);
     }
   };
 
-  // Trigger preview fetch when modal opens
-  if (props.isOpen && !preview() && !loading() && !error()) {
-    fetchPreview();
-  }
+  // Use createEffect to properly react to modal opening
+  createEffect(() => {
+    if (props.isOpen && props.incidentId) {
+      // Reset state and fetch preview when modal opens
+      setPreview(null);
+      setError(null);
+      setApplyResult(null);
+      fetchPreview();
+    }
+  });
 
   const handleDryRun = async () => {
     setApplying(true);
