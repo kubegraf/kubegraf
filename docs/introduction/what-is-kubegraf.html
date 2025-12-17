@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What is KubeGraf? - KubeGraf Documentation</title>
+  <meta name="description" content="Understand what KubeGraf is, why it exists, and how it fits into your Kubernetes operations workflow.">
+  <link rel="canonical" href="https://kubegraf.io/docs/introduction/what-is-kubegraf.html" />
+
+  <meta property="og:title" content="What is KubeGraf? - AI-native Kubernetes Control Plane" />
+  <meta property="og:description" content="KubeGraf is a local-first AI-native Kubernetes control plane that helps DevOps and SREs understand and operate clusters faster." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://kubegraf.io/docs/introduction/what-is-kubegraf.html" />
+  <meta property="og:site_name" content="KubeGraf" />
+  <meta property="og:image" content="https://kubegraf.io/opengraph.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@kubegraf" />
+  <meta name="twitter:title" content="What is KubeGraf? - AI-native Kubernetes Control Plane" />
+  <meta name="twitter:description" content="KubeGraf is a local-first AI-native Kubernetes control plane that helps DevOps and SREs understand and operate clusters faster." />
+  <meta name="twitter:image" content="https://kubegraf.io/opengraph.jpg" />
+
+  <!-- Use the same favicon as the main landing page -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <!-- Use the same font stack as the main landing page -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #06b6d4;
+      --secondary: #4c1d95;
+      --accent: #8b5cf6;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --bg: #09090b;
+      --bg-secondary: #020617;
+      --bg-tertiary: #111827;
+      --border: rgba(148, 163, 184, 0.25);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Outfit', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+
+    .floating-orbs { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.12; animation: float 20s ease-in-out infinite; }
+    .orb-1 { width: 500px; height: 500px; background: var(--primary); top: -150px; right: -100px; }
+    .orb-2 { width: 350px; height: 350px; background: var(--secondary); bottom: 30%; left: 200px; animation-delay: -5s; }
+    .orb-3 { width: 400px; height: 400px; background: var(--accent); top: 60%; right: -100px; animation-delay: -10s; }
+    @keyframes float { 0%, 100% { transform: translate(0, 0) scale(1); } 25% { transform: translate(20px, -20px) scale(1.03); } 50% { transform: translate(-15px, 15px) scale(0.97); } 75% { transform: translate(15px, 20px) scale(1.01); } }
+
+    .docs-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 1.5rem; position: fixed; height: 100vh; overflow-y: auto; }
+    .sidebar-logo { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; margin-bottom: 2rem; }
+    .sidebar-logo-icon { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; }
+    .sidebar-section ul { list-style: none; }
+    .sidebar-section a { display: block; padding: 0.5rem 0.75rem; color: var(--text-muted); border-radius: 6px; font-size: 0.9rem; transition: all 0.2s; text-decoration: none; }
+    .sidebar-section a:hover { background: var(--bg-tertiary); color: var(--text); }
+    .sidebar-section a.active { background: rgba(50, 108, 229, 0.15); color: var(--primary); }
+
+    .docs-content { flex: 1; margin-left: 280px; padding: 3rem 3rem; max-width: 960px; position: relative; z-index: 1; }
+    .docs-content h1 { font-size: 2.2rem; font-weight: 600; margin-bottom: 0.75rem; font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: -0.03em; }
+    .docs-content h2 { font-size: 1.4rem; font-weight: 600; margin: 2rem 0 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); font-family: 'Space Grotesk', system-ui, sans-serif; }
+    .docs-content h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    .docs-content p { color: var(--text-muted); margin-bottom: 0.9rem; }
+    .docs-content ul { color: var(--text-muted); margin: 0.75rem 0 0.9rem 1.5rem; }
+    .docs-content li { margin-bottom: 0.4rem; }
+    .docs-content code { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; background: var(--bg-tertiary); padding: 0.15rem 0.35rem; border-radius: 4px; color: var(--accent); }
+    .docs-content pre { background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.75rem; padding: 1rem 1.25rem; overflow-x: auto; margin: 1rem 0 1.25rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .callout { border-radius: 0.75rem; border: 1px solid rgba(148, 163, 184, 0.35); padding: 0.9rem 1rem; background: rgba(15, 23, 42, 0.9); margin: 1.25rem 0; }
+    .callout strong { color: var(--text); }
+    @media (max-width: 900px) { .sidebar { display: none; } .docs-content { margin-left: 0; padding: 2rem 1.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="docs-layout">
+    <aside class="sidebar">
+      <a href="/" class="sidebar-logo">
+        <img src="/assets/logo/kubegraf_color_icon.png" alt="KubeGraf logo" class="sidebar-logo-icon">
+        KubeGraf
+      </a>
+
+      <div class="sidebar-section">
+        <h3>Introduction</h3>
+        <ul>
+          <li><a href="/docs/introduction/what-is-kubegraf.html" class="active">What is KubeGraf</a></li>
+          <li><a href="/docs/introduction/why-kubegraf.html">Why KubeGraf</a></li>
+          <li><a href="/docs/introduction/how-kubegraf-works.html">How KubeGraf works</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Getting Started</h3>
+        <ul>
+          <li><a href="/docs/installation.html">Installation</a></li>
+          <li><a href="/docs/getting-started/first-cluster.html">First cluster</a></li>
+          <li><a href="/docs/quickstart.html">Quick Start</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Workflows</h3>
+        <ul>
+          <li><a href="/docs/workflows/debug-crashloop.html">Debug CrashLoopBackOff</a></li>
+          <li><a href="/docs/resource-map.html">Capacity & topology</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Reference</h3>
+        <ul>
+          <li><a href="/docs/commands.html">CLI reference</a></li>
+          <li><a href="/docs/configuration.html">Config</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Resources</h3>
+        <ul>
+          <li><a href="https://github.com/kubegraf/kubegraf">GitHub</a></li>
+          <li><a href="https://github.com/kubegraf/kubegraf/releases">Releases</a></li>
+          <li><a href="https://github.com/kubegraf/kubegraf/issues">Report Issue</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <div class="floating-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <main class="docs-content">
+      <h1>What is KubeGraf?</h1>
+
+      <h2>Why this matters</h2>
+      <p>
+        Most engineers meet Kubernetes through production incidents, not conference talks.
+        When a cluster is on fire, you don’t want to hand‑assemble <code>kubectl</code> one‑liners and mentally stitch logs,
+        events, and dashboards together. KubeGraf exists to give you a single, AI‑aware control plane
+        for understanding “what’s going on in this cluster” in seconds instead of minutes.
+      </p>
+
+      <div class="callout">
+        <p><strong>Info:</strong> Think of KubeGraf as a <em>local‑first</em> control plane that sits on top of the same kubeconfig and RBAC you
+        already use with <code>kubectl</code>, not a replacement for it.</p>
+      </div>
+
+      <h2>What KubeGraf actually is</h2>
+      <p>KubeGraf is a local-first, AI-native Kubernetes control plane that gives you three ways to work with your clusters:</p>
+      <ul>
+        <li><strong>Terminal UI</strong> – a fast, keyboard‑driven TUI (<code>kubegraf</code>) that feels like <code>k9s</code> with better navigation and context.</li>
+        <li><strong>Web dashboard</strong> – a browser UI (<code>kubegraf --web</code>) with cluster topology, incident timelines, and live event streams.</li>
+        <li><strong>SPA dashboard</strong> – the hosted SPA at <code>kubegraf.io</code> that mirrors the same concepts for teams who prefer the browser.</li>
+      </ul>
+
+      <p>All three experiences share the same mental model:</p>
+      <ul>
+        <li><strong>Clusters and contexts</strong> from your <code>~/.kube/config</code>.</li>
+        <li><strong>Topology graph</strong> of workloads, services, and infra.</li>
+        <li><strong>Live events and incident timelines</strong> that KubeGraf’s Brain Panel can analyze for you.</li>
+      </ul>
+
+      <h2>Real‑world example: “What is wrong with payments right now?”</h2>
+      <p>Imagine you’re on‑call for the <code>payments</code> namespace. SRE pings you: “payments API is 500’ing in <code>prod-cluster</code>.”</p>
+
+      <p>First, you confirm the blast radius with raw <code>kubectl</code>:</p>
+      <pre><code>kubectl config use-context prod-cluster
+kubectl get pods -n payments</code></pre>
+
+      <pre><code>NAME                                   READY   STATUS             RESTARTS   AGE
+payments-api-66cbd9d4dc-7xg9n          0/1     CrashLoopBackOff   5          2m31s
+payments-api-66cbd9d4dc-87zc2          1/1     Running            0          5m12s
+redis-payments-0                       1/1     Running            0          10m
+</code></pre>
+
+      <p>Now the questions you actually care about are:</p>
+      <ul>
+        <li>What changed in the last 10 minutes?</li>
+        <li>Is it just this one pod or the whole deployment?</li>
+        <li>Is there a config / secret / image mismatch?</li>
+      </ul>
+
+      <p>KubeGraf lets you:</p>
+      <ul>
+        <li>Open the Terminal UI with <code>kubegraf</code>.</li>
+        <li>Jump to the <code>payments</code> namespace and see all CrashLooping pods highlighted.</li>
+        <li>Open the Incident Timeline to see deploy events, config changes, and failing health checks in a single view.</li>
+        <li>Ask the Brain Panel for a proposed root cause based on events and logs.</li>
+      </ul>
+
+      <div class="callout">
+        <p><strong>Tip:</strong> Use <code>kubectl config current-context</code> before launching KubeGraf to avoid debugging the wrong cluster.</p>
+      </div>
+
+      <h2>Screenshot placeholder</h2>
+      <p><em>Replace this placeholder with a real capture from the Cluster Overview screen showing the topology graph and active incidents.</em></p>
+      <pre><code>[ screenshot: cluster overview with highlighted CrashLoopBackOff pods in the payments namespace ]</code></pre>
+
+      <h2>How KubeGraf fits into your workflow</h2>
+      <p>KubeGraf is designed to sit alongside tools you already use:</p>
+      <ul>
+        <li><strong>kubectl</strong> – for imperative actions, one‑off patching, and scripting.</li>
+        <li><strong>Prometheus / Grafana</strong> – for time‑series metrics and SLO dashboards.</li>
+        <li><strong>ArgoCD</strong> – for GitOps and rollout control.</li>
+      </ul>
+      <p>The value add is a single, opinionated view of cluster state (topology + events + logs), a local‑first UI, and AI‑assisted analysis.</p>
+
+      <h2>Step‑by‑step: from zero to “what’s running?”</h2>
+      <ol>
+        <li><strong>Install KubeGraf</strong>
+          <pre><code>curl -sSL https://kubegraf.io/install.sh | bash</code></pre>
+        </li>
+        <li><strong>Confirm kubeconfig access</strong>
+          <pre><code>kubectl config get-contexts
+kubectl get nodes</code></pre>
+        </li>
+        <li><strong>Launch the Terminal UI</strong>
+          <pre><code>kubegraf</code></pre>
+        </li>
+        <li><strong>Scan the cluster</strong> with vim‑style navigation (<code>j</code>/<code>k</code>, <code>Tab</code>, <code>/</code>, <code>c</code>).</li>
+        <li><strong>Open the Brain Panel</strong> from a problematic workload to see summarized events, log highlights, and suggested next actions.</li>
+      </ol>
+
+      <h2>Expected outcome</h2>
+      <p>After this page, you should:</p>
+      <ul>
+        <li>Understand what KubeGraf is (a local‑first AI‑native control plane, not a hosted black box).</li>
+        <li>See how it plugs into your existing kubeconfig and tooling.</li>
+        <li>Be able to launch KubeGraf and scan a cluster without changing any manifests.</li>
+      </ul>
+
+      <div class="callout">
+        <p><strong>Common mistakes:</strong> launching against the wrong context, or assuming KubeGraf bypasses Kubernetes RBAC.</p>
+        <p><strong>Pro tip:</strong> Keep a small “playground” cluster in your kubeconfig so you can safely explore KubeGraf features without touching production.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
+
+

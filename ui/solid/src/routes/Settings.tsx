@@ -1,5 +1,5 @@
 import { Component, For, Show, createSignal, createEffect } from 'solid-js';
-import { currentTheme, setTheme, themes, type ThemeName } from '../stores/theme';
+import { currentTheme, setTheme, themes, type ThemeName, visibleThemes } from '../stores/theme';
 import { namespace, setNamespace, namespaces } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { settings, updateSetting, resetSettings, type AppSettings } from '../stores/settings';
@@ -124,7 +124,7 @@ const Settings: Component = () => {
           label: 'Color Theme',
           description: 'Choose your preferred color scheme',
           type: 'select',
-          options: (Object.keys(themes) as ThemeName[]).map(theme => ({
+          options: visibleThemes.map((theme) => ({
             label: themes[theme].label,
             value: theme,
           })),

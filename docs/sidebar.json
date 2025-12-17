@@ -1,0 +1,293 @@
+{
+  "groups": [
+    {
+      "id": "introduction",
+      "label": "Introduction",
+      "items": [
+        {
+          "id": "what-is-kubegraf",
+          "label": "What is KubeGraf",
+          "href": "/docs/introduction/what-is-kubegraf"
+        },
+        {
+          "id": "why-kubegraf",
+          "label": "Why KubeGraf",
+          "href": "/docs/introduction/why-kubegraf"
+        },
+        {
+          "id": "how-kubegraf-works",
+          "label": "How KubeGraf works",
+          "href": "/docs/introduction/how-kubegraf-works"
+        }
+      ]
+    },
+    {
+      "id": "getting-started",
+      "label": "Getting started",
+      "items": [
+        {
+          "id": "installation",
+          "label": "Installation",
+          "href": "/docs/getting-started/installation"
+        },
+        {
+          "id": "first-cluster",
+          "label": "First cluster",
+          "href": "/docs/getting-started/first-cluster"
+        },
+        {
+          "id": "ui-overview",
+          "label": "UI overview",
+          "href": "/docs/getting-started/ui-overview"
+        }
+      ]
+    },
+    {
+      "id": "core-concepts",
+      "label": "Core concepts",
+      "items": [
+        {
+          "id": "clusters-and-contexts",
+          "label": "Clusters & contexts",
+          "href": "/docs/core-concepts/clusters-and-contexts"
+        },
+        {
+          "id": "topology-graph",
+          "label": "Topology graph",
+          "href": "/docs/core-concepts/topology-graph"
+        },
+        {
+          "id": "live-events",
+          "label": "Live events",
+          "href": "/docs/core-concepts/live-events"
+        },
+        {
+          "id": "incident-timeline",
+          "label": "Incident timeline",
+          "href": "/docs/core-concepts/incident-timeline"
+        }
+      ]
+    },
+    {
+      "id": "workflows",
+      "label": "Workflows",
+      "items": [
+        {
+          "id": "debug-crashloop",
+          "label": "Debug CrashLoopBackOff",
+          "href": "/docs/workflows/debug-crashloop"
+        },
+        {
+          "id": "rollout-and-rollback",
+          "label": "Rollout & rollback",
+          "href": "/docs/workflows/rollout-and-rollback"
+        },
+        {
+          "id": "capacity-analysis",
+          "label": "Capacity analysis",
+          "href": "/docs/workflows/capacity-analysis"
+        },
+        {
+          "id": "security-insights",
+          "label": "Security insights",
+          "href": "/docs/workflows/security-insights"
+        }
+      ]
+    },
+    {
+      "id": "integrations",
+      "label": "Integrations",
+      "items": [
+        {
+          "id": "prometheus",
+          "label": "Prometheus",
+          "href": "/docs/integrations/prometheus"
+        },
+        {
+          "id": "grafana",
+          "label": "Grafana",
+          "href": "/docs/integrations/grafana"
+        },
+        {
+          "id": "argocd",
+          "label": "ArgoCD",
+          "href": "/docs/integrations/argocd"
+        },
+        {
+          "id": "slack",
+          "label": "Slack",
+          "href": "/docs/integrations/slack"
+        }
+      ]
+    },
+    {
+      "id": "reference",
+      "label": "Reference",
+      "items": [
+        {
+          "id": "cli",
+          "label": "CLI",
+          "href": "/docs/reference/cli"
+        },
+        {
+          "id": "config",
+          "label": "Config",
+          "href": "/docs/reference/config"
+        },
+        {
+          "id": "faq",
+          "label": "FAQ",
+          "href": "/docs/reference/faq"
+        }
+      ]
+    }
+  ]
+}
+
+{
+  "groups": [
+    {
+      "id": "introduction",
+      "label": "Introduction",
+      "items": [
+        {
+          "id": "what-is-kubegraf",
+          "label": "What is KubeGraf",
+          "href": "/docs/introduction/what-is-kubegraf"
+        },
+        {
+          "id": "why-kubegraf",
+          "label": "Why KubeGraf",
+          "href": "/docs/introduction/why-kubegraf"
+        },
+        {
+          "id": "how-kubegraf-works",
+          "label": "How KubeGraf works",
+          "href": "/docs/introduction/how-kubegraf-works"
+        }
+      ]
+    },
+    {
+      "id": "getting-started",
+      "label": "Getting started",
+      "items": [
+        {
+          "id": "installation",
+          "label": "Installation",
+          "href": "/docs/getting-started/installation"
+        },
+        {
+          "id": "first-cluster",
+          "label": "First cluster",
+          "href": "/docs/getting-started/first-cluster"
+        },
+        {
+          "id": "ui-overview",
+          "label": "UI overview",
+          "href": "/docs/getting-started/ui-overview"
+        }
+      ]
+    },
+    {
+      "id": "core-concepts",
+      "label": "Core concepts",
+      "items": [
+        {
+          "id": "clusters-and-contexts",
+          "label": "Clusters & contexts",
+          "href": "/docs/core-concepts/clusters-and-contexts"
+        },
+        {
+          "id": "topology-graph",
+          "label": "Topology graph",
+          "href": "/docs/core-concepts/topology-graph"
+        },
+        {
+          "id": "live-events",
+          "label": "Live events",
+          "href": "/docs/core-concepts/live-events"
+        },
+        {
+          "id": "incident-timeline",
+          "label": "Incident timeline",
+          "href": "/docs/core-concepts/incident-timeline"
+        }
+      ]
+    },
+    {
+      "id": "workflows",
+      "label": "Workflows",
+      "items": [
+        {
+          "id": "debug-crashloop",
+          "label": "Debug CrashLoopBackOff",
+          "href": "/docs/workflows/debug-crashloop"
+        },
+        {
+          "id": "rollout-and-rollback",
+          "label": "Rollout & rollback",
+          "href": "/docs/workflows/rollout-and-rollback"
+        },
+        {
+          "id": "capacity-analysis",
+          "label": "Capacity analysis",
+          "href": "/docs/workflows/capacity-analysis"
+        },
+        {
+          "id": "security-insights",
+          "label": "Security insights",
+          "href": "/docs/workflows/security-insights"
+        }
+      ]
+    },
+    {
+      "id": "integrations",
+      "label": "Integrations",
+      "items": [
+        {
+          "id": "prometheus",
+          "label": "Prometheus",
+          "href": "/docs/integrations/prometheus"
+        },
+        {
+          "id": "grafana",
+          "label": "Grafana",
+          "href": "/docs/integrations/grafana"
+        },
+        {
+          "id": "argocd",
+          "label": "ArgoCD",
+          "href": "/docs/integrations/argocd"
+        },
+        {
+          "id": "slack",
+          "label": "Slack",
+          "href": "/docs/integrations/slack"
+        }
+      ]
+    },
+    {
+      "id": "reference",
+      "label": "Reference",
+      "items": [
+        {
+          "id": "cli",
+          "label": "CLI",
+          "href": "/docs/reference/cli"
+        },
+        {
+          "id": "config",
+          "label": "Config",
+          "href": "/docs/reference/config"
+        },
+        {
+          "id": "faq",
+          "label": "FAQ",
+          "href": "/docs/reference/faq"
+        }
+      ]
+    }
+  ]
+}
+
+

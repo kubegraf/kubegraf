@@ -1,8 +1,9 @@
 import { Component, For, Show, createSignal, createResource, createMemo, onMount, createEffect } from 'solid-js';
 import { api, Anomaly, AnomalyStats } from '../services/api';
 import { setCurrentView, setSelectedResource, addNotification } from '../stores/ui';
-import { refreshTrigger, currentContext } from '../stores/cluster';
+import { refreshTrigger, currentContext, clusterStatus } from '../stores/cluster';
 import ConfirmationModal from '../components/ConfirmationModal';
+import CommandPreview from '../components/CommandPreview';
 
 const Anomalies: Component = () => {
   const [activeTab, setActiveTab] = createSignal<'anomalies' | 'recommendations'>('anomalies');
@@ -12,6 +13,36 @@ const Anomalies: Component = () => {
   const [confirmModalOpen, setConfirmModalOpen] = createSignal(false);
   const [pendingAction, setPendingAction] = createSignal<{ type: 'anomaly' | 'recommendation', data: any } | null>(null);
   const [isApplying, setIsApplying] = createSignal(false);
+
+  const buildRecommendationCommand = (rec: any): string => {
+    // Best-effort equivalent "kubectl" commands for transparency only.
+    const [kind, name] = String(rec.resource || '').split('/');
+    const ns = rec.namespace || 'default';
+    if (!kind || !name) {
+      return `# Resource: ${rec.resource || 'unknown'}\n# Namespace: ${ns}\n# Actual operations depend on the recommendation type.`;
+    }
+
+    if (rec.recommendedValue && typeof rec.recommendedValue === 'number') {
+      // Common case: scaling
+      switch (kind) {
+        case 'Deployment':
+          return `kubectl scale deployment ${name} -n ${ns} --replicas=${rec.recommendedValue}`;
+        case 'StatefulSet':
+          return `kubectl scale statefulset ${name} -n ${ns} --replicas=${rec.recommendedValue}`;
+        case 'DaemonSet':
+          return `kubectl get daemonset ${name} -n ${ns} -o yaml  # Recommendation may patch this resource`;
+        default:
+          return `# Recommendation for ${kind}/${name} in ${ns}\n# Suggested value: ${rec.recommendedValue}`;
+      }
+    }
+
+    switch (kind) {
+      case 'Pod':
+        return `kubectl delete pod ${name} -n ${ns}  # Recommendation may restart or reschedule this pod`;
+      default:
+        return `# Recommendation will modify ${kind}/${name} in namespace ${ns}\n# Exact kubectl commands depend on recommendation type.`;
+    }
+  };
 
   // Fetch anomalies - refresh when cluster changes
   const [anomaliesData, { refetch: refetchAnomalies }] = createResource(
@@ -92,6 +123,11 @@ const Anomalies: Component = () => {
     setIsApplying(true);
     try {
       if (action.type === 'recommendation') {
+        const status = clusterStatus();
+        if (!status?.connected) {
+          addNotification('Cluster is not connected. Connect to a cluster before applying recommendations.', 'error');
+          return;
+        }
         const result = await api.applyRecommendation(action.data.id);
         if (result?.success) {
           setConfirmModalOpen(false);
@@ -616,11 +652,13 @@ const Anomalies: Component = () => {
       <ConfirmationModal
         isOpen={confirmModalOpen()}
         title="Apply Recommendation"
-        message="Are you sure you want to apply this recommendation?"
+        message={pendingAction()
+          ? 'Are you sure you want to apply this recommendation? Review the details and equivalent kubectl operations below.'
+          : 'Are you sure you want to apply this recommendation?'}
         variant="info"
         confirmText="Apply"
         loading={isApplying()}
-        size="sm"
+        size="md"
         details={pendingAction() ? [
           { label: 'Title', value: pendingAction()!.data.title },
           { label: 'Description', value: pendingAction()!.data.description },
@@ -631,7 +669,18 @@ const Anomalies: Component = () => {
           setPendingAction(null);
         }}
         onConfirm={confirmApply}
-      />
+      >
+        <Show when={pendingAction()}>
+          {(action) => (
+            <CommandPreview
+              label="Equivalent kubectl operations"
+              defaultCollapsed={true}
+              command={buildRecommendationCommand(action().data)}
+              description="This shows an approximate kubectl-equivalent view of what the recommendation will do. The actual changes are applied via the recommendation API on the backend."
+            />
+          )}
+        </Show>
+      </ConfirmationModal>
     </div>
   );
 };

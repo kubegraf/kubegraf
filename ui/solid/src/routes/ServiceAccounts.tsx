@@ -1,6 +1,6 @@
 import { Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
@@ -9,6 +9,7 @@ import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface ServiceAccount {
   name: string;
@@ -122,33 +123,75 @@ const ServiceAccounts: Component = () => {
     const sa = selectedSA();
     if (!sa) return;
 
-    try {
-      const params = new URLSearchParams({
-        name: sa.name,
-        namespace: sa.namespace,
-      });
-      const response = await fetch(`/api/serviceaccount/update?${params.toString()}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/yaml' },
-        body: yaml,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Update failed' }));
-        throw new Error(errorData.error || 'Update failed');
-      }
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Update failed');
-      }
-
-      addNotification(`Successfully updated ${sa.name}`, 'success');
-      setShowEdit(false);
-      refetch();
-    } catch (err: any) {
-      addNotification(`Failed to update: ${err.message}`, 'error');
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Apply ServiceAccount YAML: ${sa.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: sa.namespace,
+      context: status.context,
+      userAction: 'serviceaccounts-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'serviceaccounts',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const sa = selectedSA();
+    if (!sa) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run ServiceAccount YAML: ${sa.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: sa.namespace,
+      context: status.context,
+      userAction: 'serviceaccounts-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'serviceaccounts',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   const handleDelete = async (sa: ServiceAccount) => {
@@ -498,7 +541,8 @@ const ServiceAccounts: Component = () => {
             <YAMLEditor 
               yaml={yamlContent() || ''} 
               title={selectedSA()?.name} 
-              onSave={handleSaveYAML} 
+              onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => {
                 setShowEdit(false);
                 setSelectedSA(null);

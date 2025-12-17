@@ -1,5 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount } from 'solid-js';
 import { api } from '../services/api';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import {
   selectedNamespaces,
@@ -15,6 +16,7 @@ import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface NetworkPolicy {
   name: string;
@@ -132,17 +134,76 @@ const NetworkPolicies: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const np = selected();
     if (!np) return;
-    try {
-      await api.updateNetworkPolicy(np.name, np.namespace, yaml);
-      addNotification(`✅ NetworkPolicy ${np.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => policiesCache.refetch(), 500);
-      setTimeout(() => policiesCache.refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update NetworkPolicy: ${errorMsg}`, 'error');
-      throw error; // Re-throw so YAMLEditor can handle it
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Apply NetworkPolicy YAML: ${np.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: np.namespace,
+      context: status.context,
+      userAction: 'networkpolicies-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'networkpolicy',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => policiesCache.refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const np = selected();
+    if (!np) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run NetworkPolicy YAML: ${np.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: np.namespace,
+      context: status.context,
+      userAction: 'networkpolicies-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'networkpolicy',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   const parseAge = (age: string | undefined): number => {
@@ -584,6 +645,7 @@ const NetworkPolicies: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

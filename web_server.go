@@ -171,6 +171,11 @@ type WebServer struct {
 	costCacheMu   sync.RWMutex
 	// Event monitor integration
 	eventMonitorStarted bool
+	// Execution streaming state (for live command execution panel)
+	execMu       sync.RWMutex
+	executions   map[string]*ExecutionRecord
+	execLogs     map[string][]ExecutionLogLine
+	execLogLimit int
 	// MCP Server for AI agents
 	mcpServer *server.MCPServer
 	// Production upgrades
@@ -198,6 +203,9 @@ func NewWebServer(app *App) *WebServer {
 		stopCh:        make(chan struct{}),
 		costCache:     make(map[string]*ClusterCost),
 		costCacheTime: make(map[string]time.Time),
+		executions:    make(map[string]*ExecutionRecord),
+		execLogs:      make(map[string][]ExecutionLogLine),
+		execLogLimit:  500,
 	}
 	// Initialize MCP server for AI agents
 	ws.mcpServer = server.NewMCPServer(app)
@@ -369,6 +377,10 @@ func (ws *WebServer) Start(port int) error {
 	// Real-time events endpoint
 	http.HandleFunc("/api/events", ws.handleEvents)
 
+	// Live execution history endpoints for the execution panel
+	http.HandleFunc("/api/executions", ws.handleExecutionList)
+	http.HandleFunc("/api/executions/logs", ws.handleExecutionLogs)
+
 	// Apps marketplace endpoints
 	http.HandleFunc("/api/apps", ws.handleApps)
 	http.HandleFunc("/api/apps/installed", ws.handleInstalledApps)
@@ -388,6 +400,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
 	http.HandleFunc("/api/pod/logs", ws.handlePodLogs)
 	http.HandleFunc("/api/local/terminal", ws.handleLocalTerminalWS)
+	http.HandleFunc("/api/execution/stream", ws.handleExecutionStream)
 	http.HandleFunc("/terminal", ws.handleLocalTerminalPage)
 	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
 	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)

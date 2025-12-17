@@ -1,5 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount } from 'solid-js';
 import { api } from '../services/api';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import {
@@ -10,11 +11,13 @@ import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
+import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface ConfigMap {
   name: string;
@@ -122,17 +125,83 @@ const ConfigMaps: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const cm = selected();
     if (!cm) return;
-    try {
-      await api.updateConfigMap(cm.name, cm.namespace, yaml);
-      addNotification(`✅ ConfigMap ${cm.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update ConfigMap: ${errorMsg}`, 'error');
-      throw error;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Run apply YAML via the streaming execution pipeline so output is visible
+    // in the ExecutionPanel. This uses the Kubernetes API on the backend (no kubectl).
+    startExecution({
+      label: `Apply ConfigMap YAML: ${cm.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: cm.namespace,
+      context: status.context,
+      userAction: 'configmaps-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'configmaps',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    // Close the editor once the execution has been started; the ExecutionPanel
+    // now owns the UX for tracking success/failure.
+    setShowEdit(false);
+
+    // Trigger a background refetch after a short delay so the table reflects
+    // any changes from the apply.
+    setTimeout(() => refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const cm = selected();
+    if (!cm) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run ConfigMap YAML: ${cm.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: cm.namespace,
+      context: status.context,
+      userAction: 'configmaps-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'configmaps',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   // Parse age for sorting
@@ -645,10 +714,21 @@ const ConfigMaps: Component = () => {
           }
         >
           <div style={{ height: '70vh' }}>
+            <Show when={selected()}>
+              {(cm) => (
+                <CommandPreview
+                  label="Equivalent kubectl command"
+                  defaultCollapsed={true}
+                  command={`kubectl apply -f - -n ${cm().namespace || 'default'}  # YAML from editor is sent via Kubernetes API`}
+                  description="This is an equivalent kubectl-style view of the ConfigMap update. The actual change is applied via Kubernetes API."
+                />
+              )}
+            </Show>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

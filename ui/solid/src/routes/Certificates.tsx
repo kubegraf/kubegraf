@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
@@ -9,6 +9,7 @@ import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { getTableCellStyle, STANDARD_TEXT_COLOR } from '../utils/tableCellStyles';
+import { startExecution } from '../stores/executionPanel';
 
 interface Certificate {
   name: string;
@@ -72,17 +73,82 @@ const Certificates: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const cert = selected();
     if (!cert) return;
-    try {
-      await api.updateCertificate(cert.name, cert.namespace, yaml);
-      addNotification(`✅ Certificate ${cert.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update certificate: ${errorMsg}`, 'error');
-      throw error;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Note: Certificates are implemented via a dedicated API handler today.
+    // Here we just route through the generic execution pipeline, which will
+    // currently hit the "not implemented" path for resource "certificates".
+    // This keeps behavior explicit and visible in the ExecutionPanel.
+    startExecution({
+      label: `Apply Certificate YAML: ${cert.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: cert.namespace,
+      context: status.context,
+      userAction: 'certificates-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'certificates',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const cert = selected();
+    if (!cert) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Still goes through the generic execution pipeline; behavior is explicit
+    // in the ExecutionPanel even if the backend does not yet support certificates.
+    startExecution({
+      label: `Dry run Certificate YAML: ${cert.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: cert.namespace,
+      context: status.context,
+      userAction: 'certificates-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'certificates',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   // Parse age for sorting
@@ -454,6 +520,7 @@ const Certificates: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

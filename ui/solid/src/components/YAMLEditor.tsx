@@ -4,6 +4,7 @@ interface YAMLEditorProps {
   yaml: string;
   title?: string;
   onSave?: (yaml: string) => Promise<void>;
+  onDryRun?: (yaml: string) => Promise<void>;
   onCancel?: () => void;
   loading?: boolean;
 }
@@ -11,6 +12,7 @@ interface YAMLEditorProps {
 const YAMLEditor: Component<YAMLEditorProps> = (props) => {
   const [editedYaml, setEditedYaml] = createSignal(props.yaml);
   const [saving, setSaving] = createSignal(false);
+  const [dryRunning, setDryRunning] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   const handleSave = async () => {
@@ -22,6 +24,19 @@ const YAMLEditor: Component<YAMLEditorProps> = (props) => {
       setError(err instanceof Error ? err.message : 'Failed to save YAML');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDryRun = async () => {
+    if (!props.onDryRun) return;
+    setError(null);
+    setDryRunning(true);
+    try {
+      await props.onDryRun(editedYaml());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Dry run failed');
+    } finally {
+      setDryRunning(false);
     }
   };
 
@@ -51,6 +66,19 @@ const YAMLEditor: Component<YAMLEditorProps> = (props) => {
           >
             Cancel
           </button>
+          <Show when={props.onDryRun}>
+            <button
+              onClick={handleDryRun}
+              disabled={saving() || props.loading || dryRunning()}
+              class="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--warning-color)', border: '1px solid rgba(245, 158, 11, 0.4)' }}
+            >
+              <Show when={dryRunning() || props.loading} fallback="Dry run">
+                <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                Dry running...
+              </Show>
+            </button>
+          </Show>
           <button
             onClick={handleSave}
             disabled={saving() || props.loading || editedYaml() === props.yaml}

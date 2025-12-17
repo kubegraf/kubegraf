@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup, createEffect } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { getHighlightedPod, clearHighlightedPod, getPodForLogs, clearPodLogs, shouldHighlightPod } from '../utils/pod-selection';
 import {
@@ -16,6 +16,7 @@ import { getRowHoverBackground } from '../utils/rowHoverStyles';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
+import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import ContainerStatusBadge from '../components/ContainerStatusBadge';
@@ -27,6 +28,7 @@ import { containersToTableRows, ContainerTableRow } from '../utils/containerTabl
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface Pod {
   name: string;
@@ -511,17 +513,83 @@ const Pods: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const pod = selectedPod();
     if (!pod) return;
-    try {
-      await api.updatePod(pod.name, pod.namespace, yaml);
-      addNotification(`✅ Pod ${pod.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => podsCache.refetch(), 500);
-      setTimeout(() => podsCache.refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update pod: ${errorMsg}`, 'error');
-      throw error;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Run apply YAML via the streaming execution pipeline so output is visible
+    // in the ExecutionPanel. This uses the Kubernetes API on the backend (no kubectl).
+    startExecution({
+      label: `Apply Pod YAML: ${pod.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: pod.namespace,
+      context: status.context,
+      userAction: 'pods-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'pods',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    // Close the editor once the execution has been started; the ExecutionPanel
+    // now owns the UX for tracking success/failure.
+    setShowEdit(false);
+
+    // Trigger a background refetch after a short delay so the table reflects
+    // any changes from the apply.
+    setTimeout(() => podsCache.refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const pod = selectedPod();
+    if (!pod) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Pod YAML: ${pod.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: pod.namespace,
+      context: status.context,
+      userAction: 'pods-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'pods',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   // Parse CPU value for sorting (e.g., "1m" -> 1, "100m" -> 100)
@@ -1923,10 +1991,21 @@ const Pods: Component = () => {
       <Modal isOpen={showEdit()} onClose={() => setShowEdit(false)} title={`Edit YAML: ${selectedPod()?.name}`} size="xl">
         <Show when={!yamlContent.loading} fallback={<div class="flex items-center justify-center p-8">Loading...</div>}>
           <div style={{ height: '70vh' }}>
+            <Show when={selectedPod()}>
+              {(pod) => (
+                <CommandPreview
+                  label="Equivalent kubectl command"
+                  defaultCollapsed={true}
+                  command={`kubectl apply -f - -n ${pod().namespace || 'default'}  # YAML from editor is sent via Kubernetes API`}
+                  description="This is an equivalent kubectl-style view of the Pod update. The actual change is applied via Kubernetes API."
+                />
+              )}
+            </Show>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selectedPod()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => setShowEdit(false)}
             />
           </div>

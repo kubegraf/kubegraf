@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import {
   selectedCluster,
@@ -17,6 +17,7 @@ import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import SecurityRecommendations from '../components/SecurityRecommendations';
+import { startExecution } from '../stores/executionPanel';
 
 interface PDB {
   name: string;
@@ -159,15 +160,78 @@ const PDB: Component = () => {
   };
 
   const handleSaveYAML = async (yaml: string) => {
-    if (!selected()) return;
-    try {
-      await api.updatePDB(selected()!.name, selected()!.namespace, yaml);
-      addNotification('PDB updated successfully', 'success');
-      setShowEdit(false);
-      pdbsResource.refetch();
-    } catch (error: any) {
-      addNotification(`Failed to update PDB: ${error.message}`, 'error');
+    const pdb = selected();
+    if (!pdb) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Apply PDB YAML: ${pdb.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: pdb.namespace,
+      context: status.context,
+      userAction: 'pdb-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'pdb',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => pdbsResource.refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const pdb = selected();
+    if (!pdb) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run PDB YAML: ${pdb.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: pdb.namespace,
+      context: status.context,
+      userAction: 'pdb-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'pdb',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   const statusSummary = createMemo(() => {
@@ -541,6 +605,7 @@ const PDB: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

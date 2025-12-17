@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
-import { namespace } from '../stores/cluster';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import {
   selectedCluster,
@@ -19,6 +19,8 @@ import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
+import CommandPreview from '../components/CommandPreview';
 
 interface Deployment {
   name: string;
@@ -140,17 +142,85 @@ const Deployments: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const dep = selected();
     if (!dep) return;
-    try {
-      await api.updateDeployment(dep.name, dep.namespace, yaml);
-      addNotification(`✅ Deployment ${dep.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => deploymentsCache.refetch(), 500);
-      setTimeout(() => deploymentsCache.refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update deployment: ${errorMsg}`, 'error');
-      throw error; // Re-throw so YAMLEditor can handle it
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Run apply YAML via the streaming execution pipeline so output is visible
+    // in the ExecutionPanel. This uses the Kubernetes API on the backend (no kubectl).
+    startExecution({
+      label: `Apply Deployment YAML: ${dep.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: dep.namespace,
+      context: status.context,
+      userAction: 'deployments-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'deployments',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    // Close the editor once the execution has been started; the ExecutionPanel
+    // now owns the UX for tracking success/failure.
+    setShowEdit(false);
+    setSelected(null);
+    setYamlKey(null);
+
+    // Trigger a background refetch after a short delay so the table reflects
+    // any changes from the apply.
+    setTimeout(() => deploymentsCache.refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const dep = selected();
+    if (!dep) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Deployment YAML: ${dep.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: dep.namespace,
+      context: status.context,
+      userAction: 'deployments-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'deployments',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   // Parse age for sorting
@@ -793,10 +863,21 @@ const Deployments: Component = () => {
           }
         >
           <div style={{ height: '70vh' }}>
+            <Show when={selected()}>
+              {(dep) => (
+                <CommandPreview
+                  label="Equivalent kubectl command"
+                  defaultCollapsed={true}
+                  command={`kubectl apply -f - -n ${dep().namespace || 'default'}  # YAML from editor is sent via Kubernetes API`}
+                  description="This is an equivalent kubectl-style representation of what will be applied. The actual operation uses the Kubernetes API with your current context and namespace."
+                />
+              )}
+            </Show>
             <YAMLEditor
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

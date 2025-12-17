@@ -1,6 +1,7 @@
 import { Component, createSignal } from 'solid-js';
 import Skeleton, { DashboardCardSkeleton, TableRowSkeleton } from './Skeleton';
 import EmptyState, { NoDataEmptyState, ErrorEmptyState, NoResultsEmptyState } from './EmptyState';
+import { startExecution } from '../stores/executionPanel';
 
 const UIDemo: Component = () => {
   const [loading, setLoading] = createSignal(true);
@@ -151,6 +152,20 @@ const UIDemo: Component = () => {
               <button class="px-6 py-3 rounded-lg focus-visible-enhanced" 
                 style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
                 Focus Visible
+              </button>
+              <button
+                class="btn-accent px-6 py-3 rounded-lg btn-ripple"
+                onClick={() =>
+                  startExecution({
+                    label: 'Example: echo dry-run',
+                    command: 'echo',
+                    args: ['[kubegraf] This is a real shell command executed via the streaming panel.'],
+                    mode: 'dry-run',
+                    kubernetesEquivalent: false,
+                  })
+                }
+              >
+                Run ExecutionPanel Demo
               </button>
             </div>
           </div>

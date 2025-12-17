@@ -1,5 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource, createEffect, onMount } from 'solid-js';
 import { api } from '../services/api';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { setGlobalLoading } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
@@ -12,6 +13,7 @@ import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface Namespace {
   name: string;
@@ -119,17 +121,76 @@ const Namespaces: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const ns = selected();
     if (!ns) return;
-    try {
-      await api.updateNamespace(ns.name, yaml);
-      addNotification(`✅ Namespace ${ns.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update namespace: ${errorMsg}`, 'error');
-      throw error;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Apply Namespace YAML: ${ns.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: ns.name,
+      context: status.context,
+      userAction: 'namespaces-apply-yaml',
+      dryRun: false,
+      allowClusterWide: true,
+      resource: 'namespaces',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const ns = selected();
+    if (!ns) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Namespace YAML: ${ns.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: ns.name,
+      context: status.context,
+      userAction: 'namespaces-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: true,
+      resource: 'namespaces',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   // Parse age for sorting
@@ -585,6 +646,7 @@ const Namespaces: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

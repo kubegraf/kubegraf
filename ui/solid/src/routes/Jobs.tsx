@@ -1,5 +1,6 @@
 import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
 import { api } from '../services/api';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import {
   selectedNamespaces,
@@ -16,6 +17,7 @@ import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
+import { startExecution } from '../stores/executionPanel';
 
 interface Job {
   name: string;
@@ -119,17 +121,76 @@ const Jobs: Component = () => {
   const handleSaveYAML = async (yaml: string) => {
     const job = selected();
     if (!job) return;
-    try {
-      await api.updateJob(job.name, job.namespace, yaml);
-      addNotification(`✅ Job ${job.name} updated successfully`, 'success');
-      setShowEdit(false);
-      setTimeout(() => refetch(), 500);
-      setTimeout(() => refetch(), 2000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      addNotification(`❌ Failed to update job: ${errorMsg}`, 'error');
-      throw error;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
     }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before applying YAML.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Apply Job YAML: ${job.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'apply',
+      kubernetesEquivalent: true,
+      namespace: job.namespace,
+      context: status.context,
+      userAction: 'jobs-apply-yaml',
+      dryRun: false,
+      allowClusterWide: false,
+      resource: 'jobs',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+
+    setShowEdit(false);
+    setTimeout(() => refetch(), 1500);
+  };
+
+  const handleDryRunYAML = async (yaml: string) => {
+    const job = selected();
+    if (!job) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Job YAML: ${job.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: job.namespace,
+      context: status.context,
+      userAction: 'jobs-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'jobs',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
   };
 
   // Parse age for sorting
@@ -610,6 +671,7 @@ const Jobs: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>
