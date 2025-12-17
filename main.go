@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/fatih/color"
 
 	"github.com/kubegraf/kubegraf/internal/cluster"
+	"github.com/kubegraf/kubegraf/pkg/telemetry"
 )
 
 func main() {
@@ -40,6 +42,11 @@ func main() {
 
 	// Suppress verbose Kubernetes client logs
 	os.Setenv("KUBE_LOG_LEVEL", "0")
+
+	// Check for telemetry CLI commands first
+	if telemetry.RunCLI(os.Args, GetVersion()) {
+		return
+	}
 
 	// Check for flags first (before splash)
 	webMode := false
@@ -68,6 +75,13 @@ func main() {
 			}
 		}
 	}
+
+	// Initialize telemetry (non-blocking, best-effort)
+	telemetryClient := telemetry.NewClient(GetVersion())
+	ctx := context.Background()
+	telemetryClient.Initialize(ctx)
+	telemetryClient.TrackInstall(ctx)
+	telemetryClient.TrackHeartbeat(ctx)
 
 	// Parse namespace
 	namespace := "default"
@@ -240,12 +254,19 @@ func printHelp() {
 USAGE:
   kubegraf [namespace] [flags]
   kubegraf web [--port=PORT]     Start web UI instead of terminal UI
+  kubegraf telemetry [command]   Manage anonymous telemetry
 
 FLAGS:
   web, --web        Launch web UI dashboard (browser-based)
   --port=PORT        Specify web server port (default: 3000, auto-finds next available if in use)
   --version, -v      Show version information
   --help, -h         Show this help message
+
+TELEMETRY COMMANDS:
+  telemetry          Show telemetry status
+  telemetry enable   Enable anonymous telemetry
+  telemetry disable  Disable telemetry
+  telemetry status   Show telemetry status
 
 EXAMPLES:
   kubegraf                    # Launch terminal UI in default namespace
@@ -254,6 +275,7 @@ EXAMPLES:
   kubegraf --web              # Same as above (alternative syntax)
   kubegraf web --port=8080    # Launch web UI at custom port
   kubegraf web --ephemeral    # Launch with ephemeral mode (data wiped on exit)
+  kubegraf telemetry status   # Check telemetry status
 
 KEYBOARD SHORTCUTS (Terminal UI):
   q, Ctrl+C    Quit application
