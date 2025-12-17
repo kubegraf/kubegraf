@@ -16,6 +16,9 @@ export interface LegacyApp {
   chartName: string;
   installedInstances?: LegacyInstalledInstance[];
   isCustom?: boolean;
+  maintainer?: string;
+  documentation?: string;
+  sourceCitation?: string;
 }
 
 export interface LegacyInstalledInstance {
@@ -38,6 +41,9 @@ export function marketplaceAppToLegacyApp(marketplaceApp: MarketplaceApp): Legac
     version: marketplaceApp.version,
     chartRepo: marketplaceApp.chartRepo,
     chartName: marketplaceApp.chartName,
+    maintainer: marketplaceApp.maintainer,
+    documentation: marketplaceApp.documentation,
+    sourceCitation: marketplaceApp.sourceCitation,
     installedInstances: marketplaceApp.installedInstances?.map(inst => ({
       namespace: inst.namespace,
       chart: inst.chart,
@@ -68,6 +74,9 @@ export function legacyAppToMarketplaceApp(legacyApp: LegacyApp): MarketplaceApp 
       releaseName: inst.releaseName,
     })),
     isCustom: legacyApp.isCustom,
+    maintainer: legacyApp.maintainer,
+    documentation: legacyApp.documentation,
+    sourceCitation: legacyApp.sourceCitation,
   };
 }
 

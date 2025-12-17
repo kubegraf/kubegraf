@@ -23,6 +23,7 @@ import { formatInstalledNamespaces, getInstalledInstancesForApp, getInstalledNam
 import NamespaceBadge from '../components/NamespaceBadge';
 import NamespaceBadges from '../components/NamespaceBadges';
 import { formatNamespacesForUninstall } from '../features/marketplace/uninstallFormatting';
+import { getAppSourceMetadata } from '../features/marketplace/sourceRegistry';
 import CommandPreview from '../components/CommandPreview';
 
 // Use LegacyApp type from adapters for backward compatibility
@@ -228,6 +229,9 @@ const Apps: Component<AppsProps> = (props) => {
       available: all.filter(a => !a.installedInstances || a.installedInstances.length === 0).length,
     };
   });
+
+  // Active install modal tab
+  const [installTab, setInstallTab] = createSignal<'overview' | 'sources' | 'plan' | 'values' | 'permissions'>('overview');
 
   const helmCommandPreview = createMemo(() => {
     const app = selectedApp();
@@ -804,6 +808,7 @@ const Apps: Component<AppsProps> = (props) => {
               {(app) => {
                 const isDeploying = () => !!deployingApps()[app.name];
                 const deployInfo = () => deployingApps()[app.name];
+                const sourceMeta = getAppSourceMetadata(app);
                 return (
                   <div
                     class={`card p-4 relative overflow-hidden group transition-all ${
@@ -850,31 +855,61 @@ const Apps: Component<AppsProps> = (props) => {
                       {app.description}
                     </p>
 
-                    {/* Source Citation */}
-                    <Show when={app.sourceCitation}>
-                      <div class="mt-2 text-xs px-2 py-1.5 rounded" style={{ 
-                        background: 'rgba(6, 182, 212, 0.1)', 
-                        color: 'var(--accent-primary)',
-                        border: '1px solid rgba(6, 182, 212, 0.2)'
-                      }}>
-                        <div class="font-semibold mb-1">📚 Source Citation:</div>
-                        <div class="leading-relaxed">{app.sourceCitation}</div>
-                        <Show when={app.chartRepo && app.chartRepo !== 'local-cluster'}>
-                          <div class="mt-1 pt-1 border-t" style={{ borderColor: 'rgba(6, 182, 212, 0.2)' }}>
-                            <span class="opacity-75">Helm Repository: </span>
-                            <a 
-                              href={app.chartRepo} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              class="underline hover:opacity-80"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {app.chartRepo}
-                            </a>
+                    {/* Source & integrity snippet */}
+                    <div class="mt-2 text-xs px-2 py-1.5 rounded" style={{
+                      background: 'rgba(15,23,42,0.7)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid rgba(148, 163, 184, 0.35)'
+                    }}>
+                      <div class="flex items-center justify-between gap-2 mb-1">
+                        <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>Source</span>
+                        <span
+                          class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                            sourceMeta.verified
+                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-slate-600/20 text-slate-200 border border-slate-500/40'
+                          }`}
+                        >
+                          {sourceMeta.verified ? (
+                            <>
+                              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Verified publisher
+                            </>
+                          ) : (
+                            <>Community source</>
+                          )}
+                        </span>
+                      </div>
+                      <div class="leading-relaxed space-y-0.5">
+                        <div>
+                          Artifact from <span class="font-semibold">{sourceMeta.publisher}</span>
+                        </div>
+                        <div>
+                          <span class="opacity-75">Repo: </span>
+                          <a
+                            href={sourceMeta.helmRepo}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="underline hover:opacity-80"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {sourceMeta.helmRepo}
+                          </a>
+                        </div>
+                        <div>
+                          <span class="opacity-75">Chart: </span>
+                          <span>{sourceMeta.chartName}</span>
+                          {sourceMeta.chartVersion && <span> · v{sourceMeta.chartVersion}</span>}
+                        </div>
+                        <Show when={app.sourceCitation}>
+                          <div class="pt-1 border-t text-[11px]" style={{ borderColor: 'rgba(148, 163, 184, 0.3)' }}>
+                            {app.sourceCitation}
                           </div>
                         </Show>
                       </div>
-                    </Show>
+                    </div>
 
                     <div class="mt-4 flex items-center justify-between">
                       <span class="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
@@ -1424,100 +1459,315 @@ const Apps: Component<AppsProps> = (props) => {
             </div>
           </Show>
 
-          <div class="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-            <div class="flex items-center justify-between text-sm">
-              <span style={{ color: 'var(--text-muted)' }}>Chart</span>
-              <span style={{ color: 'var(--text-primary)' }}>{selectedApp()?.chartName}</span>
-            </div>
-            <div class="flex items-center justify-between text-sm mt-2">
-              <span style={{ color: 'var(--text-muted)' }}>Version</span>
-              <span style={{ color: 'var(--text-primary)' }}>{selectedApp()?.version}</span>
-            </div>
-            <div class="flex items-center justify-between text-sm mt-2">
-              <span style={{ color: 'var(--text-muted)' }}>Repository</span>
-              <span class="text-xs truncate max-w-xs" style={{ color: 'var(--accent-primary)' }}>{selectedApp()?.chartRepo}</span>
-            </div>
-          </div>
-
-          {/* Cluster Name for Local Clusters */}
-          <Show when={selectedApp()?.name === 'k3d' || selectedApp()?.name === 'kind' || selectedApp()?.name === 'minikube'}>
-            <div>
-              <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                Cluster Name <span style={{ color: 'var(--error-color)' }}>*</span>
-              </label>
-              <input
-                type="text"
-                value={clusterName()}
-                onInput={(e) => {
-                  setClusterName(e.currentTarget.value);
-                  setClusterNameError('');
-                }}
-                class="w-full px-3 py-2 rounded-lg text-sm"
-                style={{ 
-                  background: 'var(--bg-secondary)', 
-                  color: 'var(--text-primary)', 
-                  border: `1px solid ${clusterNameError() ? 'var(--error-color)' : 'var(--border-color)'}` 
-                }}
-                placeholder="kubegraf-my-cluster"
-              />
-              <Show when={clusterNameError()}>
-                <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>
-                  {clusterNameError()}
-                </p>
-              </Show>
-              <p class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                Must start with "kubegraf-" followed by lowercase letters, numbers, or hyphens
-              </p>
-            </div>
-          </Show>
-
-          {/* Namespace for Regular Apps */}
-          <Show when={selectedApp()?.name !== 'k3d' && selectedApp()?.name !== 'kind' && selectedApp()?.name !== 'minikube'}>
-            <div>
-              <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                Target Namespace
-              </label>
-              <input
-                type="text"
-                value={installNamespace()}
-                onInput={(e) => setInstallNamespace(e.currentTarget.value)}
-                class="w-full px-3 py-2 rounded-lg text-sm"
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                placeholder="default"
-              />
-            </div>
-          </Show>
-
           <Show when={selectedApp()}>
-            {(app) => (
-              <CommandPreview
-                label={
-                  isLocalClusterApp(app().name)
-                    ? 'Local cluster installation steps (approximate)'
-                    : 'Equivalent Helm command'
-                }
-                defaultCollapsed={true}
-                command={helmCommandPreview()}
-                description={
-                  isLocalClusterApp(app().name)
-                    ? 'This outlines the high-level steps KubeGraf will perform to create a local Kubernetes cluster using Docker. Exact commands may differ slightly.'
-                    : 'This shows an approximate Helm command for this install. The actual installation runs through the KubeGraf backend with additional validation and tracking.'
-                }
-                badge={
-                  isLocalClusterApp(app().name)
-                    ? (
-                      <span>
-                        cluster: <span class="font-semibold">{clusterName()}</span>
-                      </span>
-                    )
-                    : (
-                      <span>
-                        ns: <span class="font-semibold">{installNamespace() || 'default'}</span>
-                      </span>
-                    )
-                }
-              />
-            )}
+            {(app) => {
+              const source = getAppSourceMetadata(app());
+              return (
+                <>
+                  {/* Install modal tabs */}
+                  <div class="flex items-center gap-2 border-b pb-2 mb-3" style={{ 'border-color': 'var(--border-color)' }}>
+                    {[
+                      { id: 'overview', label: 'Overview' },
+                      { id: 'sources', label: 'Sources' },
+                      { id: 'plan', label: 'Plan' },
+                      { id: 'values', label: 'Values' },
+                      { id: 'permissions', label: 'Permissions' },
+                    ].map((tab) => (
+                      <button
+                        type="button"
+                        onClick={() => setInstallTab(tab.id as any)}
+                        class={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                          installTab() === tab.id
+                            ? 'bg-[var(--accent-primary)] text-black'
+                            : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tab content */}
+                  <Switch>
+                    {/* Overview */}
+                    <Match when={installTab() === 'overview'}>
+                      <p class="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+                        {app().description}
+                      </p>
+                      <div class="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                        <div class="flex items-center justify-between text-sm">
+                          <span style={{ color: 'var(--text-muted)' }}>Chart</span>
+                          <span style={{ color: 'var(--text-primary)' }}>{app().chartName}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm mt-2">
+                          <span style={{ color: 'var(--text-muted)' }}>Chart version</span>
+                          <span style={{ color: 'var(--text-primary)' }}>{app().version}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm mt-2">
+                          <span style={{ color: 'var(--text-muted)' }}>Repository</span>
+                          <a
+                            href={app().chartRepo}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-xs truncate max-w-xs underline"
+                            style={{ color: 'var(--accent-primary)' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {app().chartRepo}
+                          </a>
+                        </div>
+                        <div class="flex items-center justify-between text-sm mt-2">
+                          <span style={{ color: 'var(--text-muted)' }}>Publisher</span>
+                          <span class="flex items-center gap-2">
+                            <span style={{ color: 'var(--text-primary)' }}>{source.publisher}</span>
+                            <span
+                              class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                                source.verified
+                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'
+                                  : 'bg-slate-600/15 text-slate-200 border border-slate-600/40'
+                              }`}
+                            >
+                              {source.verified ? (
+                                <>
+                                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  Verified
+                                </>
+                              ) : (
+                                <>Community source</>
+                              )}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </Match>
+
+                    {/* Sources */}
+                    <Match when={installTab() === 'sources'}>
+                      <div class="space-y-3 text-xs">
+                        <div>
+                          <div class="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                            Source
+                          </div>
+                          <p style={{ color: 'var(--text-secondary)' }}>
+                            Artifact from <span class="font-semibold">{source.publisher}</span>
+                            {source.verified && (
+                              <span class="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                                style={{ background: 'rgba(34,197,94,0.18)', color: 'var(--success-color)' }}
+                              >
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Verified publisher
+                              </span>
+                            )}
+                          </p>
+                        </div>
+
+                        <div>
+                          <div class="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                            Helm chart
+                          </div>
+                          <ul class="space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
+                            <li>
+                              <span class="opacity-75">Repository: </span>
+                              <a
+                                href={source.helmRepo}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {source.helmRepo}
+                              </a>
+                            </li>
+                            <li>
+                              <span class="opacity-75">Chart: </span>
+                              <span>{source.chartName}</span>
+                              {source.chartVersion && <span> · v{source.chartVersion}</span>}
+                            </li>
+                            <li>
+                              <span class="opacity-75">App version: </span>
+                              <span>v{source.appVersion || app().version}</span>
+                            </li>
+                          </ul>
+                        </div>
+
+                        <Show when={source.officialDocsUrl || source.githubUrl}>
+                          <div>
+                            <div class="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                              Official links
+                            </div>
+                            <ul class="space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
+                              <Show when={source.officialDocsUrl}>
+                                <li>
+                                  <span class="opacity-75">Docs: </span>
+                                  <a
+                                    href={source.officialDocsUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {source.officialDocsUrl}
+                                  </a>
+                                </li>
+                              </Show>
+                              <Show when={source.githubUrl}>
+                                <li>
+                                  <span class="opacity-75">GitHub: </span>
+                                  <a
+                                    href={source.githubUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {source.githubUrl}
+                                  </a>
+                                </li>
+                              </Show>
+                            </ul>
+                          </div>
+                        </Show>
+
+                        <div>
+                          <div class="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                            Integrity
+                          </div>
+                          <p style={{ color: 'var(--text-secondary)' }}>{source.integrityNote}</p>
+                        </div>
+
+                        <Show when={app().sourceCitation}>
+                          <div class="pt-2 border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                            <div class="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                              Additional notes
+                            </div>
+                            <p style={{ color: 'var(--text-secondary)' }}>{app().sourceCitation}</p>
+                          </div>
+                        </Show>
+                      </div>
+                    </Match>
+
+                    {/* Plan: what KubeGraf will do */}
+                    <Match when={installTab() === 'plan'}>
+                      <p class="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                        KubeGraf will install this Helm chart into your selected namespace and track the release.
+                        Resources such as Deployments, Services, ConfigMaps, and Secrets will be created according to
+                        the chart defaults and any overrides you apply.
+                      </p>
+                      <CommandPreview
+                        label={
+                          isLocalClusterApp(app().name)
+                            ? 'Local cluster installation steps (approximate)'
+                            : 'Equivalent Helm command'
+                        }
+                        defaultCollapsed={true}
+                        command={helmCommandPreview()}
+                        description={
+                          isLocalClusterApp(app().name)
+                            ? 'This outlines the high-level steps KubeGraf will perform to create a local Kubernetes cluster using Docker. Exact commands may differ slightly.'
+                            : 'This shows an approximate Helm command for this install. The actual installation runs through the KubeGraf backend with additional validation and tracking.'
+                        }
+                        badge={
+                          isLocalClusterApp(app().name)
+                            ? (
+                              <span>
+                                cluster: <span class="font-semibold">{clusterName()}</span>
+                              </span>
+                            )
+                            : (
+                              <span>
+                                ns: <span class="font-semibold">{installNamespace() || 'default'}</span>
+                              </span>
+                            )
+                        }
+                      />
+                    </Match>
+
+                    {/* Values: cluster name / namespace inputs */}
+                    <Match when={installTab() === 'values'}>
+                      {/* Cluster Name for Local Clusters */}
+                      <Show when={app().name === 'k3d' || app().name === 'kind' || app().name === 'minikube'}>
+                        <div class="mb-4">
+                          <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                            Cluster Name <span style={{ color: 'var(--error-color)' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={clusterName()}
+                            onInput={(e) => {
+                              setClusterName(e.currentTarget.value);
+                              setClusterNameError('');
+                            }}
+                            class="w-full px-3 py-2 rounded-lg text-sm"
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              color: 'var(--text-primary)',
+                              border: `1px solid ${clusterNameError() ? 'var(--error-color)' : 'var(--border-color)'}`
+                            }}
+                            placeholder="kubegraf-my-cluster"
+                          />
+                          <Show when={clusterNameError()}>
+                            <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>
+                              {clusterNameError()}
+                            </p>
+                          </Show>
+                          <p class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            Must start with &quot;kubegraf-&quot; followed by lowercase letters, numbers, or hyphens
+                          </p>
+                        </div>
+                      </Show>
+
+                      {/* Namespace for Regular Apps */}
+                      <Show when={app().name !== 'k3d' && app().name !== 'kind' && app().name !== 'minikube'}>
+                        <div>
+                          <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                            Target Namespace
+                          </label>
+                          <input
+                            type="text"
+                            value={installNamespace()}
+                            onInput={(e) => setInstallNamespace(e.currentTarget.value)}
+                            class="w-full px-3 py-2 rounded-lg text-sm"
+                            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                            placeholder="default"
+                          />
+                          <p class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            KubeGraf will create or reuse this namespace when installing the chart.
+                          </p>
+                        </div>
+                      </Show>
+                    </Match>
+
+                    {/* Permissions: high-level RBAC + scope info */}
+                    <Match when={installTab() === 'permissions'}>
+                      <div class="space-y-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <p>
+                          This install will create Kubernetes resources owned by the Helm release in the selected namespace.
+                          Access to those resources is controlled by your cluster&apos;s RBAC configuration.
+                        </p>
+                        <ul class="list-disc list-inside space-y-1">
+                          <li>
+                            <span class="opacity-75">Scope:</span> usually namespaced (no direct cluster-wide privileges),
+                            unless the chart itself defines cluster-scoped resources.
+                          </li>
+                          <li>
+                            <span class="opacity-75">Who can install:</span> users with permission to create resources in the
+                            target namespace and, if applicable, cluster-scoped objects.
+                          </li>
+                          <li>
+                            <span class="opacity-75">Recommendation:</span> review the chart documentation and your RBAC
+                            policies before installing in production clusters.
+                          </li>
+                        </ul>
+                      </div>
+                    </Match>
+                  </Switch>
+                </>
+              );
+            }}
           </Show>
 
           <div class="flex justify-end gap-3 mt-6">
