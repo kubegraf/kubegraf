@@ -201,6 +201,42 @@ const HPA: Component = () => {
     setTimeout(() => hpasResource.refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const hpa = selected();
+    if (!hpa) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run HPA YAML: ${hpa.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: hpa.namespace,
+      context: status.context,
+      userAction: 'hpa-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'hpa',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   const statusSummary = createMemo(() => {
     const all = filteredHPAs();
     return {
@@ -628,6 +664,7 @@ const HPA: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

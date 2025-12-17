@@ -243,6 +243,78 @@ const Storage: Component = () => {
     }
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    if (activeTab() === 'pvs' && selectedPV()) {
+      const pv = selectedPV()!;
+      startExecution({
+        label: `Dry run PersistentVolume YAML: ${pv.name}`,
+        command: '__k8s-apply-yaml',
+        args: [],
+        mode: 'dry-run',
+        kubernetesEquivalent: true,
+        namespace: '', // PV is cluster-scoped
+        context: status.context,
+        userAction: 'storage-pv-apply-yaml-dry-run',
+        dryRun: true,
+        allowClusterWide: true,
+        resource: 'pv',
+        action: 'update',
+        intent: 'apply-yaml',
+        yaml: trimmed,
+      });
+    } else if (activeTab() === 'pvcs' && selectedPVC()) {
+      const pvc = selectedPVC()!;
+      startExecution({
+        label: `Dry run PVC YAML: ${pvc.name}`,
+        command: '__k8s-apply-yaml',
+        args: [],
+        mode: 'dry-run',
+        kubernetesEquivalent: true,
+        namespace: pvc.namespace || 'default',
+        context: status.context,
+        userAction: 'storage-pvc-apply-yaml-dry-run',
+        dryRun: true,
+        allowClusterWide: false,
+        resource: 'pvc',
+        action: 'update',
+        intent: 'apply-yaml',
+        yaml: trimmed,
+      });
+    } else if (activeTab() === 'storageclasses' && selectedSC()) {
+      const sc = selectedSC()!;
+      startExecution({
+        label: `Dry run StorageClass YAML: ${sc.name}`,
+        command: '__k8s-apply-yaml',
+        args: [],
+        mode: 'dry-run',
+        kubernetesEquivalent: true,
+        namespace: '',
+        context: status.context,
+        userAction: 'storage-sc-apply-yaml-dry-run',
+        dryRun: true,
+        allowClusterWide: true,
+        resource: 'storageclasses',
+        action: 'update',
+        intent: 'apply-yaml',
+        yaml: trimmed,
+      });
+    }
+  };
+
   const handleDelete = async (type: 'pv' | 'pvc' | 'sc', name: string, ns?: string) => {
     if (!confirm(`Are you sure you want to delete ${name}?`)) return;
     try {
@@ -861,6 +933,7 @@ const Storage: Component = () => {
               yaml={yamlContent() || ''}
               title={activeTab() === 'pvs' ? selectedPV()?.name : activeTab() === 'pvcs' ? selectedPVC()?.name : selectedSC()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelectedPV(null); setSelectedPVC(null); setSelectedSC(null); setYamlKey(null); }}
             />
           </div>

@@ -276,6 +276,60 @@ const RBAC: Component = () => {
     else if (type === 'clusterrolebinding') clusterRoleBindings.refetch();
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const currentResource = activeTab() === 'roles' ? selectedRole() :
+                            activeTab() === 'rolebindings' ? selectedRB() :
+                            activeTab() === 'clusterroles' ? selectedCR() :
+                            selectedCRB();
+    
+    if (!currentResource) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const type = activeTab() === 'roles' ? 'role' :
+                 activeTab() === 'rolebindings' ? 'rolebinding' :
+                 activeTab() === 'clusterroles' ? 'clusterrole' :
+                 'clusterrolebinding';
+
+    const isNamespaced = type === 'role' || type === 'rolebinding';
+    const ns = isNamespaced ? (currentResource.namespace || namespace()) : '';
+
+    const resource =
+      type === 'role' ? 'roles' :
+      type === 'rolebinding' ? 'rolebindings' :
+      type === 'clusterrole' ? 'clusterroles' :
+      'clusterrolebindings';
+
+    startExecution({
+      label: `Dry run ${type} YAML: ${currentResource.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: ns || '',
+      context: status.context,
+      userAction: `rbac-${type}-apply-yaml-dry-run`,
+      dryRun: true,
+      allowClusterWide: !isNamespaced,
+      resource,
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   return (
     <div class="space-y-4">
       {/* Header */}
@@ -1081,7 +1135,8 @@ const RBAC: Component = () => {
             <YAMLEditor 
               yaml={yamlContent() || ''} 
               title={activeTab() === 'roles' ? selectedRole()?.name : activeTab() === 'rolebindings' ? selectedRB()?.name : activeTab() === 'clusterroles' ? selectedCR()?.name : selectedCRB()?.name} 
-              onSave={handleSaveYAML} 
+              onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => {
                 setShowEdit(false);
                 setSelectedRole(null);

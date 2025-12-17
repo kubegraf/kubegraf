@@ -760,6 +760,21 @@ func (ws *WebServer) runApplyYAMLExecution(
 		return
 	}
 
+	// If this execution is a dry run, emit a clear informational line so users
+	// understand that only server-side admission / policy validation is running.
+	if mode == ExecutionModeDryRun || req.DryRun {
+		now := time.Now()
+		_ = writeJSON(ExecutionLineMessage{
+			Type:        "line",
+			ExecutionID: execID,
+			Timestamp:   now,
+			Stream:      "stdout",
+			Text:        "Running in DRY RUN mode: Kubernetes server-side validation only. Admission controllers, webhooks, and policies will run, but no changes will be persisted.",
+			Mode:        mode,
+			SourceLabel: sourceLabel,
+		})
+	}
+
 	// Phase: validating manifest
 	phaseValidate := ExecutionPhaseMessage{
 		Type:        "phase",

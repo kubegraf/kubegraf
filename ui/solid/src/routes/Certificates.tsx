@@ -113,6 +113,44 @@ const Certificates: Component = () => {
     setTimeout(() => refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const cert = selected();
+    if (!cert) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    // Still goes through the generic execution pipeline; behavior is explicit
+    // in the ExecutionPanel even if the backend does not yet support certificates.
+    startExecution({
+      label: `Dry run Certificate YAML: ${cert.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: cert.namespace,
+      context: status.context,
+      userAction: 'certificates-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'certificates',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
     if (!age) return 0;
@@ -482,6 +520,7 @@ const Certificates: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

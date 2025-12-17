@@ -187,6 +187,42 @@ const Deployments: Component = () => {
     setTimeout(() => deploymentsCache.refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const dep = selected();
+    if (!dep) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Deployment YAML: ${dep.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: dep.namespace,
+      context: status.context,
+      userAction: 'deployments-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'deployments',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
     if (!age) return 0;
@@ -841,6 +877,7 @@ const Deployments: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

@@ -198,6 +198,42 @@ const PDB: Component = () => {
     setTimeout(() => pdbsResource.refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const pdb = selected();
+    if (!pdb) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run PDB YAML: ${pdb.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: pdb.namespace,
+      context: status.context,
+      userAction: 'pdb-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'pdb',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   const statusSummary = createMemo(() => {
     const all = filteredPDBs();
     return {
@@ -569,6 +605,7 @@ const PDB: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

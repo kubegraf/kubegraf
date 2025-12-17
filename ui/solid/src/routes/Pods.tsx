@@ -556,6 +556,42 @@ const Pods: Component = () => {
     setTimeout(() => podsCache.refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const pod = selectedPod();
+    if (!pod) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Pod YAML: ${pod.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: pod.namespace,
+      context: status.context,
+      userAction: 'pods-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'pods',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   // Parse CPU value for sorting (e.g., "1m" -> 1, "100m" -> 100)
   const parseCpu = (cpu: string | undefined): number => {
     if (!cpu) return 0;
@@ -1969,6 +2005,7 @@ const Pods: Component = () => {
               yaml={yamlContent() || ''}
               title={selectedPod()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => setShowEdit(false)}
             />
           </div>

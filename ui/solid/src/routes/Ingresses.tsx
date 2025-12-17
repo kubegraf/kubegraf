@@ -175,6 +175,42 @@ const Ingresses: Component = () => {
     setTimeout(() => refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const ing = selected();
+    if (!ing) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Ingress YAML: ${ing.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: ing.namespace,
+      context: status.context,
+      userAction: 'ingresses-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'ingresses',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
     if (!age) return 0;
@@ -691,6 +727,7 @@ const Ingresses: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

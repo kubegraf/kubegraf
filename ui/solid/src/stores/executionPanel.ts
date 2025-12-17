@@ -471,4 +471,25 @@ export const executionCombinedOutput = createMemo(() => {
     .join('\n');
 });
 
+export const executionSeveritySummary = createMemo(() => {
+  let errors = 0;
+  let warnings = 0;
+  let infos = 0;
+
+  for (const line of executionLines()) {
+    const textLower = line.text.toLowerCase();
+    if (line.stream === 'stderr') {
+      if (textLower.includes('warning') || textLower.includes('deprecated')) {
+        warnings++;
+      } else {
+        errors++;
+      }
+    } else {
+      infos++;
+    }
+  }
+
+  return { errors, warnings, infos };
+});
+
 

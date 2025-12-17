@@ -158,6 +158,42 @@ const ServiceAccounts: Component = () => {
     setTimeout(() => refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const sa = selectedSA();
+    if (!sa) return;
+
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run ServiceAccount YAML: ${sa.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: sa.namespace,
+      context: status.context,
+      userAction: 'serviceaccounts-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'serviceaccounts',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   const handleDelete = async (sa: ServiceAccount) => {
     if (!confirm(`Are you sure you want to delete ServiceAccount ${sa.name}?`)) {
       return;
@@ -505,7 +541,8 @@ const ServiceAccounts: Component = () => {
             <YAMLEditor 
               yaml={yamlContent() || ''} 
               title={selectedSA()?.name} 
-              onSave={handleSaveYAML} 
+              onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => {
                 setShowEdit(false);
                 setSelectedSA(null);

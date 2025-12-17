@@ -170,6 +170,42 @@ const NetworkPolicies: Component = () => {
     setTimeout(() => policiesCache.refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const np = selected();
+    if (!np) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run NetworkPolicy YAML: ${np.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: np.namespace,
+      context: status.context,
+      userAction: 'networkpolicies-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'networkpolicy',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   const parseAge = (age: string | undefined): number => {
     if (!age) return 0;
     let total = 0;
@@ -609,6 +645,7 @@ const NetworkPolicies: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

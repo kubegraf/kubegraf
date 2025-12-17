@@ -1,6 +1,14 @@
 import { createSignal, createEffect } from 'solid-js';
 
-export type ThemeName = 'dark' | 'light' | 'midnight' | 'nord' | 'ocean' | 'terminal' | 'github-dark';
+export type ThemeName =
+  | 'dark'
+  | 'light'
+  | 'midnight'
+  | 'nord'
+  | 'ocean'
+  | 'terminal'
+  | 'terminal-pro'
+  | 'github-dark';
 
 export interface Theme {
   name: ThemeName;
@@ -30,7 +38,7 @@ export interface Theme {
 export const themes: Record<ThemeName, Theme> = {
   dark: {
     name: 'dark',
-    label: 'Dark',
+    label: 'Dark (Legacy)',
     icon: 'moon',
     colors: {
       bgPrimary: '#0f172a',
@@ -54,26 +62,33 @@ export const themes: Record<ThemeName, Theme> = {
   },
   light: {
     name: 'light',
-    label: 'Light',
+    // Polar Light — primary light theme
+    label: 'Polar Light',
     icon: 'sun',
     colors: {
-      bgPrimary: '#f8fafc',
-      bgSecondary: '#e2e8f0',
-      bgTertiary: '#cbd5e1',
-      bgCard: 'rgba(255, 255, 255, 0.95)',
-      bgNavbar: 'rgba(248, 250, 252, 0.95)',
-      bgInput: 'rgba(255, 255, 255, 0.9)',
-      textPrimary: '#0f172a',
-      textSecondary: '#475569',
-      textMuted: '#64748b',
-      borderColor: 'rgba(148, 163, 184, 0.4)',
-      borderLight: 'rgba(148, 163, 184, 0.6)',
-      accentPrimary: '#0891b2',
-      accentSecondary: '#2563eb',
-      accentGradient: 'linear-gradient(135deg, #0891b2 0%, #2563eb 100%)',
-      successColor: '#16a34a',
-      warningColor: '#d97706',
-      errorColor: '#dc2626',
+      // Backgrounds: soft neutral, no pure white at page level
+      bgPrimary: '#F7F8FA', // primary background
+      bgSecondary: '#E5E7EB', // secondary surfaces / table headers
+      bgTertiary: '#D1D5DB',
+      // Panels / cards: near-white panels with subtle borders instead of heavy shadows
+      bgCard: '#FFFFFF',
+      bgNavbar: '#F9FAFB',
+      bgInput: '#FFFFFF',
+      // Text: neutral ink on light background
+      textPrimary: '#1F2937',
+      textSecondary: '#4B5563',
+      textMuted: '#6B7280',
+      // Borders: light slate instead of strong outlines
+      borderColor: 'rgba(15, 23, 42, 0.08)',
+      borderLight: 'rgba(15, 23, 42, 0.14)',
+      // Accent: Slate blue
+      accentPrimary: '#4F46E5',
+      accentSecondary: '#6366F1',
+      accentGradient: 'linear-gradient(135deg, #4F46E5 0%, #6366F1 100%)',
+      // Status colors tuned for light background
+      successColor: '#16A34A',
+      warningColor: '#D97706',
+      errorColor: '#DC2626',
     },
   },
   midnight: {
@@ -102,50 +117,57 @@ export const themes: Record<ThemeName, Theme> = {
   },
   nord: {
     name: 'nord',
-    label: 'Nord',
-    icon: 'snowflake',
+    // Solar Dusk — warm, low-fatigue dark
+    label: 'Solar Dusk',
+    icon: 'sunset',
     colors: {
-      bgPrimary: '#2e3440',
-      bgSecondary: '#3b4252',
-      bgTertiary: '#434c5e',
-      bgCard: 'rgba(46, 52, 64, 0.9)',
-      bgNavbar: 'rgba(46, 52, 64, 0.98)',
-      bgInput: 'rgba(46, 52, 64, 0.9)',
-      textPrimary: '#eceff4',
-      textSecondary: '#d8dee9',
-      textMuted: '#81a1c1',
-      borderColor: 'rgba(129, 161, 193, 0.3)',
-      borderLight: 'rgba(129, 161, 193, 0.5)',
-      accentPrimary: '#81a1c1',
-      accentSecondary: '#5e81ac',
-      accentGradient: 'linear-gradient(135deg, #81a1c1 0%, #5e81ac 100%)',
-      successColor: '#a3be8c',
-      warningColor: '#ebcb8b',
-      errorColor: '#bf616a',
+      // Dark brown / slate mix
+      bgPrimary: '#111827',
+      bgSecondary: '#1F2933',
+      bgTertiary: '#292524',
+      bgCard: 'rgba(17, 24, 39, 0.96)',
+      bgNavbar: 'rgba(15, 23, 42, 0.98)',
+      bgInput: 'rgba(31, 41, 51, 0.96)',
+      textPrimary: '#F9FAFB',
+      textSecondary: '#E5E7EB',
+      textMuted: '#9CA3AF',
+      // Softer, warmer borders
+      borderColor: 'rgba(120, 53, 15, 0.4)',
+      borderLight: 'rgba(180, 83, 9, 0.6)',
+      // Warm amber accents
+      accentPrimary: '#F59E0B',
+      accentSecondary: '#F97316',
+      accentGradient: 'linear-gradient(135deg, #F97316 0%, #F59E0B 100%)',
+      successColor: '#22C55E',
+      warningColor: '#F59E0B',
+      errorColor: '#F97373',
     },
   },
   ocean: {
     name: 'ocean',
-    label: 'Ocean',
+    // Aurora Blue — modern SaaS / demo theme
+    label: 'Aurora Blue',
     icon: 'wave',
     colors: {
-      bgPrimary: '#0c1929',
-      bgSecondary: '#132f4c',
-      bgTertiary: '#1a4971',
-      bgCard: 'rgba(19, 47, 76, 0.9)',
-      bgNavbar: 'rgba(12, 25, 41, 0.98)',
-      bgInput: 'rgba(19, 47, 76, 0.9)',
-      textPrimary: '#ffffff',
-      textSecondary: '#b2bac2',
-      textMuted: '#8b949e',
-      borderColor: 'rgba(48, 98, 139, 0.5)',
-      borderLight: 'rgba(48, 98, 139, 0.7)',
-      accentPrimary: '#29b6f6',
-      accentSecondary: '#4fc3f7',
-      accentGradient: 'linear-gradient(135deg, #29b6f6 0%, #4fc3f7 100%)',
-      successColor: '#66bb6a',
-      warningColor: '#ffa726',
-      errorColor: '#ef5350',
+      // Deep blue base with subtle gradient-ready surfaces
+      bgPrimary: '#020617',
+      bgSecondary: '#02081F',
+      bgTertiary: '#0B1120',
+      bgCard: 'rgba(15, 23, 42, 0.96)',
+      bgNavbar: 'rgba(2, 6, 23, 0.98)',
+      bgInput: 'rgba(15, 23, 42, 0.96)',
+      textPrimary: '#E5F2FF',
+      textSecondary: '#9CA3AF',
+      textMuted: '#6B7280',
+      borderColor: 'rgba(37, 99, 235, 0.4)',
+      borderLight: 'rgba(59, 130, 246, 0.6)',
+      // Neon blue / cyan highlights
+      accentPrimary: '#22D3EE',
+      accentSecondary: '#38BDF8',
+      accentGradient: 'linear-gradient(135deg, #22D3EE 0%, #38BDF8 40%, #6366F1 100%)',
+      successColor: '#22C55E',
+      warningColor: '#FACC15',
+      errorColor: '#FB7185',
     },
   },
   terminal: {
@@ -170,6 +192,31 @@ export const themes: Record<ThemeName, Theme> = {
       successColor: '#34c759',
       warningColor: '#ff9500',
       errorColor: '#ff3b30',
+    },
+  },
+  'terminal-pro': {
+    name: 'terminal-pro',
+    label: 'Terminal Pro',
+    icon: 'terminal',
+    colors: {
+      // Slightly refined terminal aesthetic: deep charcoal with subtle blue-green accents
+      bgPrimary: '#020617',
+      bgSecondary: '#050816',
+      bgTertiary: '#0B1220',
+      bgCard: 'rgba(3, 7, 18, 0.96)',
+      bgNavbar: 'rgba(3, 7, 18, 0.98)',
+      bgInput: 'rgba(15, 23, 42, 0.96)',
+      textPrimary: '#E5E7EB',
+      textSecondary: '#9CA3AF',
+      textMuted: '#6B7280',
+      borderColor: 'rgba(31, 41, 55, 0.7)',
+      borderLight: 'rgba(55, 65, 81, 0.9)',
+      accentPrimary: '#22C55E',
+      accentSecondary: '#0EA5E9',
+      accentGradient: 'linear-gradient(135deg, #22C55E 0%, #0EA5E9 50%, #6366F1 100%)',
+      successColor: '#22C55E',
+      warningColor: '#FACC15',
+      errorColor: '#FB7185',
     },
   },
   'github-dark': {
@@ -236,8 +283,21 @@ export function setTheme(themeName: ThemeName) {
 }
 
 // Cycle through themes
+// Recommended visible theme lineup
+export const visibleThemes: ThemeName[] = [
+  // Primary / default
+  'midnight',      // Midnight (default dark)
+  'light',         // Polar Light
+  // Power users
+  'terminal',      // Terminal (classic)
+  'terminal-pro',  // Terminal Pro (refined)
+  // Optional / experimental
+  'ocean',         // Aurora Blue
+  'nord',          // Solar Dusk
+];
+
 export function cycleTheme() {
-  const themeOrder: ThemeName[] = ['dark', 'light', 'midnight', 'nord', 'ocean', 'terminal', 'github-dark'];
+  const themeOrder: ThemeName[] = visibleThemes;
   const currentIndex = themeOrder.indexOf(currentTheme());
   const nextIndex = (currentIndex + 1) % themeOrder.length;
   setTheme(themeOrder[nextIndex]);

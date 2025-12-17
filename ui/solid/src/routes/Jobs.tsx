@@ -157,6 +157,42 @@ const Jobs: Component = () => {
     setTimeout(() => refetch(), 1500);
   };
 
+  const handleDryRunYAML = async (yaml: string) => {
+    const job = selected();
+    if (!job) return;
+    
+    const trimmed = yaml.trim();
+    if (!trimmed) {
+      const msg = 'YAML cannot be empty';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    const status = clusterStatus();
+    if (!status?.connected) {
+      const msg = 'Cluster is not connected. Connect to a cluster before running a dry run.';
+      addNotification(msg, 'error');
+      throw new Error(msg);
+    }
+
+    startExecution({
+      label: `Dry run Job YAML: ${job.name}`,
+      command: '__k8s-apply-yaml',
+      args: [],
+      mode: 'dry-run',
+      kubernetesEquivalent: true,
+      namespace: job.namespace,
+      context: status.context,
+      userAction: 'jobs-apply-yaml-dry-run',
+      dryRun: true,
+      allowClusterWide: false,
+      resource: 'jobs',
+      action: 'update',
+      intent: 'apply-yaml',
+      yaml: trimmed,
+    });
+  };
+
   // Parse age for sorting
   const parseAge = (age: string | undefined): number => {
     if (!age) return 0;
@@ -635,6 +671,7 @@ const Jobs: Component = () => {
               yaml={yamlContent() || ''}
               title={selected()?.name}
               onSave={handleSaveYAML}
+              onDryRun={handleDryRunYAML}
               onCancel={() => { setShowEdit(false); setSelected(null); setYamlKey(null); }}
             />
           </div>

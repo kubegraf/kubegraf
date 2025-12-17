@@ -24,7 +24,14 @@ const CloudProviderLogo: Component<CloudProviderLogoProps> = (props) => {
   const theme = () => currentTheme();
   const isDarkTheme = () => {
     const t = theme();
-    return t === 'dark' || t === 'midnight' || t === 'cosmic' || t === 'github-dark' || t === 'terminal';
+    return (
+      t === 'dark' ||
+      t === 'midnight' ||
+      t === 'cosmic' ||
+      t === 'github-dark' ||
+      t === 'terminal' ||
+      t === 'terminal-pro'
+    );
   };
 
   createEffect(() => {

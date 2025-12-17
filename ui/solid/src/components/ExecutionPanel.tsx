@@ -8,6 +8,7 @@ import {
   executionLabel,
   executionLines,
   executionSummaryState,
+  executionSeveritySummary,
   executionError,
   executionRawError,
   executionAutoScrollEnabled,
@@ -245,6 +246,41 @@ const ExecutionPanel: Component = () => {
     );
   };
 
+  const severityChips = () => {
+    const sev = executionSeveritySummary();
+    if (!sev) return null;
+    const chips: { label: string; value: number; color: string }[] = [];
+
+    if (sev.errors > 0) {
+      chips.push({ label: 'Errors', value: sev.errors, color: 'var(--error-color)' });
+    }
+    if (sev.warnings > 0) {
+      chips.push({ label: 'Warnings', value: sev.warnings, color: 'var(--warning-color)' });
+    }
+
+    if (!chips.length) return null;
+
+    return (
+      <div class="flex flex-wrap gap-2 mt-1">
+        <For each={chips}>
+          {(chip) => (
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px]"
+              style={{
+                background: 'rgba(15, 23, 42, 0.7)',
+                color: chip.color,
+                border: '1px solid rgba(148, 163, 184, 0.4)',
+              }}
+            >
+              <span class="uppercase tracking-wide opacity-70">{chip.label}</span>
+              <span class="font-semibold">{chip.value}</span>
+            </span>
+          )}
+        </For>
+      </div>
+    );
+  };
+
   const prettyTime = (iso: string | null) => {
     if (!iso) return '';
     const d = new Date(iso);
@@ -446,6 +482,11 @@ const ExecutionPanel: Component = () => {
                 {summaryChips()}
               </Show>
 
+              {/* Warning/error summary */}
+              <Show when={executionSeveritySummary().errors > 0 || executionSeveritySummary().warnings > 0}>
+                {severityChips()}
+              </Show>
+
               {/* Log output */}
               <div
                 ref={containerRef}
@@ -466,8 +507,9 @@ const ExecutionPanel: Component = () => {
                       class="px-3 py-2 text-[11px]"
                       style={{ color: 'var(--text-muted)' }}
                     >
-                      Output will appear here as the command runs. Secrets and sensitive tokens are
-                      automatically masked on the server.
+                      {executionMode() === 'dry-run'
+                        ? 'Dry run mode: Kubernetes server-side validation only. No changes will be persisted. Admission controllers and policies still run; any validation or webhook errors will appear here.'
+                        : 'Output will appear here as the command runs. Secrets and sensitive tokens are automatically masked on the server.'}
                     </div>
                   }
                 >
