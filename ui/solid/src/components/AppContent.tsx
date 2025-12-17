@@ -105,8 +105,16 @@ export const AppContent: Component<AppContentProps> = (props) => {
             }
           })()}
         </Show>
-        {/* Show ConnectionOverlay for dashboard and other views when not connected */}
-        <Show when={!props.isConnected() && currentView() !== 'clustermanager' && currentView() !== 'settings' && currentView() !== 'logs'}>
+        {/* Show ConnectionOverlay for most views when not connected (but allow Apps & Cluster Manager) */}
+        <Show
+          when={
+            !props.isConnected() &&
+            currentView() !== 'clustermanager' &&
+            currentView() !== 'settings' &&
+            currentView() !== 'logs' &&
+            currentView() !== 'apps'
+          }
+        >
           <ConnectionOverlay
             connectionStatus={props.connectionStatus}
             refetchStatus={props.refetchStatus}
