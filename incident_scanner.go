@@ -106,8 +106,9 @@ func (scanner *IncidentScanner) ScanPodsForIncidents(namespace string) []Kuberne
 			return incidents
 		}
 
-		// Scan each non-system namespace (limit to first 10 namespaces for performance)
-		maxNamespaces := 10
+		// Scan each non-system namespace (previously limited to first 10 namespaces)
+		// For correctness, scan all user namespaces while still keeping per-namespace pod limits.
+		maxNamespaces := len(namespaces.Items)
 		scanned := 0
 		for _, ns := range namespaces.Items {
 			// Check context cancellation

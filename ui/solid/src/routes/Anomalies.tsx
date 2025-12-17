@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createResource, createMemo, onMount, createEffect } from 'solid-js';
+import { Component, For, Show, createSignal, createResource, createMemo, onMount, createEffect, onCleanup } from 'solid-js';
 import { api, Anomaly, AnomalyStats } from '../services/api';
 import { setCurrentView, setSelectedResource, addNotification } from '../stores/ui';
 import { refreshTrigger, currentContext, clusterStatus } from '../stores/cluster';
@@ -231,12 +231,57 @@ const Anomalies: Component = () => {
     }
   );
 
-  // Refetch recommendations when tab changes to recommendations
+  // Refetch recommendations when tab changes to recommendations and no data is present yet
   createEffect(() => {
     if (activeTab() === 'recommendations' && !recommendations.loading && !recommendations()) {
       console.log('[Anomalies] Tab changed to recommendations, fetching...');
       refetchRecommendations();
     }
+  });
+
+  // Auto-poll ML recommendations when enough data has been collected but recommendations are still empty
+  let recommendationsPollAttempts = 0;
+  createEffect(() => {
+    const isRecommendationsTab = activeTab() === 'recommendations';
+    const data = recommendations();
+    const isLoading = recommendations.loading;
+
+    // Clear when leaving tab
+    if (!isRecommendationsTab) {
+      recommendationsPollAttempts = 0;
+      return;
+    }
+
+    if (isLoading || !data) {
+      return;
+    }
+
+    const stats = data.metricsStats;
+    const hasEnoughData = stats?.hasEnoughData || false;
+    const recs = Array.isArray(data.recommendations) ? data.recommendations : [];
+    const hasError = Boolean(data.error);
+
+    // Stop polling on error or once we have recommendations
+    if (hasError || recs.length > 0 || !hasEnoughData) {
+      recommendationsPollAttempts = 0;
+      return;
+    }
+
+    // Limit polling attempts to avoid infinite loops (e.g. ~1 minute if interval is 5s)
+    const maxAttempts = 12;
+    if (recommendationsPollAttempts >= maxAttempts) {
+      return;
+    }
+
+    recommendationsPollAttempts += 1;
+    const timeoutId = setTimeout(() => {
+      console.log('[Anomalies] Auto-polling ML recommendations (attempt', recommendationsPollAttempts, ')');
+      refetchRecommendations();
+    }, 5000);
+
+    onCleanup(() => {
+      clearTimeout(timeoutId);
+    });
   });
 
   onMount(() => {
@@ -496,7 +541,17 @@ const Anomalies: Component = () => {
           </div>
         </Show>
 
-        <Show when={!recommendations.loading && recommendations() && !recommendations()!.error && (!recommendations()!.recommendations || !Array.isArray(recommendations()!.recommendations) || recommendations()!.recommendations.length === 0)}>
+        {/* Empty state when there are no recommendations yet */}
+        <Show
+          when={
+            !recommendations.loading &&
+            recommendations() &&
+            !recommendations()!.error &&
+            (!recommendations()!.recommendations ||
+              !Array.isArray(recommendations()!.recommendations) ||
+              recommendations()!.recommendations.length === 0)
+          }
+        >
           {() => {
             const stats = recommendations()?.metricsStats;
             const totalSamples = stats?.totalSamples || 0;
@@ -505,13 +560,29 @@ const Anomalies: Component = () => {
             const hasEnoughData = stats?.hasEnoughData || false;
             const remainingNeeded = stats?.remainingNeeded || minRequired;
 
+            // When we have enough data but no recommendations yet, treat this as a "preparing" state
+            const isPreparing = hasEnoughData && totalSamples >= minRequired;
+
             return (
               <div class="card p-8 text-center">
-                <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                <svg
+                  class={`w-16 h-16 mx-auto mb-4 ${isPreparing ? 'animate-spin-slow' : 'opacity-50'}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  />
                 </svg>
-                <p class="text-lg font-medium mb-4" style={{ color: 'var(--text-primary)' }}>No ML Recommendations Yet</p>
-                
+                <p class="text-lg font-medium mb-4" style={{ color: 'var(--text-primary)' }}>
+                  {isPreparing ? 'Preparing ML Recommendations…' : 'No ML Recommendations Yet'}
+                </p>
+
                 {/* Metrics Progress */}
                 <div class="max-w-md mx-auto mb-4">
                   <div class="flex items-center justify-between mb-2">
@@ -527,23 +598,26 @@ const Anomalies: Component = () => {
                       class="h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${Math.min(progress, 100)}%`,
-                        background: hasEnoughData 
-                          ? 'linear-gradient(90deg, #22c55e, #10b981)' 
+                        background: hasEnoughData
+                          ? 'linear-gradient(90deg, #22c55e, #10b981)'
                           : 'linear-gradient(90deg, #3b82f6, #2563eb)',
                       }}
                     />
                   </div>
                   <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
-                    {hasEnoughData 
-                      ? '✓ Enough data collected! Recommendations will appear after analysis.' 
+                    {hasEnoughData
+                      ? '✓ Enough data collected! We are generating recommendations automatically.'
                       : `${remainingNeeded} more sample${remainingNeeded !== 1 ? 's' : ''} needed`}
                   </p>
                 </div>
 
                 <div class="text-sm space-y-2 max-w-md mx-auto" style={{ color: 'var(--text-secondary)' }}>
-                  <p>Recommendations will appear as the system learns from your cluster metrics.</p>
+                  <p>
+                    Recommendations will appear as the system learns from your cluster metrics and completes the analysis.
+                  </p>
                   <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    💡 <strong>Tip:</strong> Run anomaly detection multiple times to collect more metrics. Each scan adds new samples to the history.
+                    💡 <strong>Tip:</strong> Run anomaly detection multiple times to collect more metrics. Each scan adds new
+                    samples to the history.
                   </p>
                 </div>
               </div>

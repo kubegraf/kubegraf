@@ -14,68 +14,12 @@ import { setActive, closeWithDelay } from '../stores/sidebarState';
 import { currentTheme } from '../stores/theme';
 import SidebarLogo from './SidebarLogo';
 
-// Update button component for sidebar
-const SidebarUpdateButton: Component = () => {
-  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
-  const [updateModalOpen, setUpdateModalOpen] = createSignal(false);
-  const [updateInfo, setUpdateInfoState] = createSignal<any>(null);
-
-  return (
-    <>
-      <button
-        onClick={async () => {
-          setCheckingUpdate(true);
-          try {
-            const info = await api.checkUpdate();
-            setUpdateInfoState(info);
-            setUpdateInfo(info);
-            if (info.updateAvailable) {
-              setUpdateModalOpen(true);
-            } else {
-              addNotification("You're on the latest version 🎉", 'success');
-            }
-          } catch (err) {
-            addNotification('Failed to check for updates', 'error');
-            console.error('Update check failed:', err);
-          } finally {
-            setCheckingUpdate(false);
-          }
-        }}
-        class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all hover:bg-bg-hover text-text-secondary hover:text-text-primary"
-        title="Check for Updates"
-        disabled={checkingUpdate()}
-      >
-        <Show when={!checkingUpdate()} fallback={
-          <svg class="w-4 h-4 flex-shrink-0 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        }>
-          <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="12" fill="#3b82f6" />
-            <circle cx="12" cy="12" r="10" stroke="white" stroke-width="1.5" fill="none" />
-            <path d="M12 7v6M9 10l3-3 3 3" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-          </svg>
-        </Show>
-        <span class="text-sm flex-1 min-w-0 truncate">Check Updates</span>
-      </button>
-      <Show when={updateModalOpen() && updateInfo()}>
-        <UpdateModal
-          isOpen={updateModalOpen()}
-          onClose={() => setUpdateModalOpen(false)}
-          updateInfo={updateInfo()!}
-        />
-      </Show>
-    </>
-  );
-};
-
 const SidebarV2: Component = () => {
   const [version, setVersion] = createSignal<string>('');
   const [bottomSectionCollapsed, setBottomSectionCollapsed] = createSignal(true);
   const [quickSwitcherOpen, setQuickSwitcherOpen] = createSignal(false);
   const [updateInfo, setUpdateInfoState] = createSignal<any>(null);
   const [updateModalOpen, setUpdateModalOpen] = createSignal(false);
-  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
 
   // Auto-hide behavior: collapse when not hovered
   createEffect(() => {
@@ -117,19 +61,19 @@ const SidebarV2: Component = () => {
     }
   };
 
-  // Check for updates function
+  // Check for updates function (auto, no manual button in sidebar bottom controls)
   const checkForUpdates = async (showNotification = false) => {
     try {
       const info = await api.autoCheckUpdate();
       setUpdateInfoState(info);
       setUpdateInfo(info);
-      
+
       if (info.updateAvailable) {
         // Check if we should show daily reminder
         const lastReminderKey = 'kubegraf-update-reminder-date';
         const lastReminder = localStorage.getItem(lastReminderKey);
         const today = new Date().toDateString();
-        
+
         if (lastReminder !== today) {
           // Show reminder notification once per day
           if (showNotification) {
@@ -297,34 +241,35 @@ const SidebarV2: Component = () => {
                 </span>
               </button>
 
-              {/* Update and Settings Buttons */}
+              {/* Settings Button (only) inside More panel */}
               <Show when={!bottomSectionCollapsed()}>
-                <div 
+                <div
                   class="border-t border-border-subtle/50 py-0.5"
-                  style={{ 
-                    width: '64px', 
-                    maxWidth: '64px', 
+                  style={{
+                    width: '64px',
+                    maxWidth: '64px',
                     minWidth: '64px',
                     boxSizing: 'border-box',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '8px',
-                    overflow: 'visible'
+                    overflow: 'visible',
                   }}
                 >
-                  {/* Settings Button (first) */}
-                  <div style={{ 
-                    width: '64px', 
-                    maxWidth: '64px', 
-                    minWidth: '64px',
-                    boxSizing: 'border-box',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flexShrink: 0,
-                    visibility: 'visible',
-                    opacity: 1
-                  }}>
+                  <div
+                    style={{
+                      width: '64px',
+                      maxWidth: '64px',
+                      minWidth: '64px',
+                      boxSizing: 'border-box',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                      visibility: 'visible',
+                      opacity: 1,
+                    }}
+                  >
                     <button
                       onClick={() => setCurrentView('settings')}
                       class={`
@@ -337,13 +282,13 @@ const SidebarV2: Component = () => {
                         }
                       `}
                       title="Settings"
-                      style={{ 
-                        width: '64px', 
-                        maxWidth: '64px', 
-                        minWidth: '64px', 
-                        boxSizing: 'border-box', 
-                        display: 'flex', 
-                        flexDirection: 'column', 
+                      style={{
+                        width: '64px',
+                        maxWidth: '64px',
+                        minWidth: '64px',
+                        boxSizing: 'border-box',
+                        display: 'flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
@@ -354,82 +299,23 @@ const SidebarV2: Component = () => {
                         background: 'transparent',
                         cursor: 'pointer',
                         minHeight: '32px',
-                        color: 'var(--text-primary, #e5e7eb)'
+                        color: 'var(--text-primary, #e5e7eb)',
                       }}
                     >
-                      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ margin: '0 auto', display: 'block', visibility: 'visible' }}>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <svg
+                        class="w-4 h-4 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        style={{ margin: '0 auto', display: 'block', visibility: 'visible' }}
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
                       </svg>
-                    </button>
-                  </div>
-
-                  {/* Update Button (second) */}
-                  <div style={{ 
-                    width: '64px', 
-                    maxWidth: '64px', 
-                    minWidth: '64px',
-                    boxSizing: 'border-box',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flexShrink: 0
-                  }}>
-                    <button
-                      onClick={async () => {
-                        setCheckingUpdate(true);
-                        try {
-                          const info = await api.checkUpdate();
-                          setUpdateInfoState(info);
-                          setUpdateInfo(info);
-                          if (info.updateAvailable) {
-                            setUpdateModalOpen(true);
-                          } else {
-                            addNotification("You're on the latest version 🎉", 'success');
-                          }
-                        } catch (err) {
-                          addNotification('Failed to check for updates', 'error');
-                          console.error('Update check failed:', err);
-                        } finally {
-                          setCheckingUpdate(false);
-                        }
-                      }}
-                      class={`
-                        transition-all duration-150
-                        focus:outline-none focus:ring-1 focus:ring-brand-cyan/40
-                        ${checkingUpdate()
-                          ? 'text-brand-cyan'
-                          : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}
-                      `}
-                      title="Check for Updates"
-                      disabled={checkingUpdate()}
-                      style={{ 
-                        width: '64px', 
-                        maxWidth: '64px', 
-                        minWidth: '64px', 
-                        boxSizing: 'border-box', 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        flexBasis: 'auto',
-                        padding: '8px 0',
-                        margin: '0',
-                        border: 'none',
-                        background: 'transparent',
-                        cursor: checkingUpdate() ? 'wait' : 'pointer',
-                        minHeight: '40px'
-                      }}
-                    >
-                      <Show when={!checkingUpdate()} fallback={
-                        <svg class="w-5 h-5 flex-shrink-0 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ margin: '0 auto' }}>
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                      }>
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ margin: '0 auto' }}>
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                      </Show>
                     </button>
                   </div>
                 </div>
@@ -488,7 +374,7 @@ const SidebarV2: Component = () => {
         onClose={() => setQuickSwitcherOpen(false)}
       />
 
-      {/* Update Modal */}
+      {/* Update Modal (triggered from auto-checks or other global surfaces) */}
       <Show when={updateModalOpen() && updateInfo()}>
         <UpdateModal
           isOpen={updateModalOpen()}

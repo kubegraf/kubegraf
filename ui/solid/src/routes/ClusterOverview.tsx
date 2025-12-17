@@ -1,54 +1,48 @@
-import { Component, For, Show, createResource, createMemo } from 'solid-js';
-import { api } from '../services/api';
-import { namespace, podsResource, deploymentsResource, servicesResource, nodesResource } from '../stores/cluster';
+import { Component, For, Show, createMemo } from 'solid-js';
+import { clusterStatus, podsResource, deploymentsResource, servicesResource, nodesResource } from '../stores/cluster';
 
 const ClusterOverview: Component = () => {
-  // Fetch cluster metrics
-  const [clusterMetrics] = createResource(async () => {
-    try {
-      const [pods, deployments, services, nodes] = await Promise.all([
-        fetch('/api/pods').then(r => r.json()).catch(() => []),
-        fetch('/api/deployments').then(r => r.json()).catch(() => []),
-        fetch('/api/services').then(r => r.json()).catch(() => []),
-        fetch('/api/nodes').then(r => r.json()).catch(() => []),
-      ]);
+  // Derive cluster metrics from shared cluster resources so this view stays in sync
+  const clusterMetrics = createMemo(() => {
+    const pods = podsResource() || [];
+    const deployments = deploymentsResource() || [];
+    const services = servicesResource() || [];
+    const nodes = nodesResource() || [];
 
-      // Calculate statistics
-      const podStats = {
-        total: pods.length,
-        running: pods.filter((p: any) => p.status === 'Running').length,
-        pending: pods.filter((p: any) => p.status === 'Pending').length,
-        failed: pods.filter((p: any) => p.status === 'Failed' || p.status === 'Error').length,
-      };
+    // Calculate statistics
+    const podStats = {
+      total: pods.length,
+      running: pods.filter((p: any) => p.status === 'Running').length,
+      pending: pods.filter((p: any) => p.status === 'Pending').length,
+      failed: pods.filter((p: any) => p.status === 'Failed' || p.status === 'Error').length,
+    };
 
-      const deploymentStats = {
-        total: deployments.length,
-        ready: deployments.filter((d: any) => {
-          const [ready, total] = d.ready.split('/').map(Number);
-          return ready === total && total > 0;
-        }).length,
-        notReady: deployments.filter((d: any) => {
-          const [ready, total] = d.ready.split('/').map(Number);
-          return ready !== total || total === 0;
-        }).length,
-      };
+    const deploymentStats = {
+      total: deployments.length,
+      ready: deployments.filter((d: any) => {
+        if (!d.ready) return 0;
+        const [ready, total] = String(d.ready).split('/').map(Number);
+        return ready === total && total > 0;
+      }).length,
+      notReady: deployments.filter((d: any) => {
+        if (!d.ready) return 0;
+        const [ready, total] = String(d.ready).split('/').map(Number);
+        return ready !== total || total === 0;
+      }).length,
+    };
 
-      const nodeStats = {
-        total: nodes.length,
-        ready: nodes.filter((n: any) => n.status === 'Ready').length,
-        notReady: nodes.filter((n: any) => n.status !== 'Ready').length,
-      };
+    const nodeStats = {
+      total: nodes.length,
+      ready: nodes.filter((n: any) => n.status === 'Ready').length,
+      notReady: nodes.filter((n: any) => n.status !== 'Ready').length,
+    };
 
-      return {
-        pods: podStats,
-        deployments: deploymentStats,
-        services: { total: services.length },
-        nodes: nodeStats,
-      };
-    } catch (err) {
-      console.error('Failed to fetch cluster metrics:', err);
-      return null;
-    }
+    return {
+      pods: podStats,
+      deployments: deploymentStats,
+      services: { total: services.length },
+      nodes: nodeStats,
+    };
   });
 
   const healthScore = createMemo(() => {
@@ -98,15 +92,22 @@ const ClusterOverview: Component = () => {
     <div class="p-6">
       <div class="mb-6">
         <h1 class="text-2xl font-bold mb-1">Cluster Overview</h1>
-        <p class="text-sm opacity-70">Real-time cluster health and resource summary</p>
+        <p class="text-sm opacity-70">
+          {clusterStatus().connected ? 'Real-time cluster health and resource summary' : 'Connect to a cluster to see overview'}
+        </p>
       </div>
 
-      <Show when={!clusterMetrics.loading && clusterMetrics()} fallback={
-        <div class="text-center py-12">
-          <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-          <p class="mt-4 text-sm opacity-70">Loading cluster metrics...</p>
-        </div>
-      }>
+      <Show
+        when={clusterStatus().connected && clusterMetrics()}
+        fallback={
+          <div class="text-center py-12">
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            <p class="mt-4 text-sm opacity-70">
+              {clusterStatus().connected ? 'Loading cluster metrics...' : 'No cluster connected'}
+            </p>
+          </div>
+        }
+      >
         {() => {
           const metrics = clusterMetrics()!;
           const score = healthScore();
