@@ -1,6 +1,7 @@
 import { Component, For, Show, createSignal } from 'solid-js';
-import { Incident } from '../services/api';
+import { Incident, FixApplyResponse } from '../services/api';
 import ActionMenu from './ActionMenu';
+import FixPreviewModal from './FixPreviewModal';
 
 interface IncidentTableProps {
   incidents: Incident[];
@@ -12,6 +13,29 @@ interface IncidentTableProps {
 
 const IncidentTable: Component<IncidentTableProps> = (props) => {
   const [expandedRow, setExpandedRow] = createSignal<string | null>(null);
+  const [fixModalOpen, setFixModalOpen] = createSignal(false);
+  const [fixModalIncidentId, setFixModalIncidentId] = createSignal('');
+  const [fixModalRecId, setFixModalRecId] = createSignal<string | undefined>(undefined);
+  const [fixModalTitle, setFixModalTitle] = createSignal('');
+
+  const openFixModal = (incidentId: string, recId?: string, title?: string) => {
+    setFixModalIncidentId(incidentId);
+    setFixModalRecId(recId);
+    setFixModalTitle(title || 'Proposed Fix');
+    setFixModalOpen(true);
+  };
+
+  const closeFixModal = () => {
+    setFixModalOpen(false);
+    setFixModalIncidentId('');
+    setFixModalRecId(undefined);
+    setFixModalTitle('');
+  };
+
+  const handleFixApplied = (result: FixApplyResponse) => {
+    console.log('Fix applied:', result);
+    // Could refresh incidents here
+  };
 
   const getPatternIcon = (pattern: string): string => {
     const p = pattern?.toUpperCase() || '';
@@ -378,30 +402,31 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                     <p style={{ color: 'var(--text-secondary)', 'font-size': '12px', margin: 0 }}>
                                       {rec.explanation}
                                     </p>
-                                    <Show when={rec.proposedFix}>
+                                    <Show when={rec.proposedFix || rec.action}>
                                       <div style={{ 'margin-top': '8px', display: 'flex', gap: '8px' }}>
-                                        <button style={{
-                                          padding: '4px 10px',
-                                          'font-size': '11px',
-                                          'border-radius': '4px',
-                                          border: '1px solid var(--accent-primary)',
-                                          background: 'transparent',
-                                          color: 'var(--accent-primary)',
-                                          cursor: 'pointer'
-                                        }}>
-                                          Preview Fix
-                                        </button>
-                                        <button style={{
-                                          padding: '4px 10px',
-                                          'font-size': '11px',
-                                          'border-radius': '4px',
-                                          border: 'none',
-                                          background: 'var(--accent-primary)',
-                                          color: '#000',
-                                          cursor: 'pointer',
-                                          'font-weight': '600'
-                                        }}>
-                                          Dry Run
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openFixModal(incident.id, rec.id, rec.action?.label || rec.title);
+                                          }}
+                                          style={{
+                                            padding: '6px 12px',
+                                            'font-size': '11px',
+                                            'border-radius': '4px',
+                                            border: 'none',
+                                            background: 'var(--accent-primary)',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            'font-weight': '600',
+                                            display: 'flex',
+                                            'align-items': 'center',
+                                            gap: '4px'
+                                          }}
+                                        >
+                                          {rec.action?.type === 'RESTART' ? '🔄' : 
+                                           rec.action?.type === 'SCALE' ? '📊' : 
+                                           rec.action?.type === 'ROLLBACK' ? '⏪' : '🔧'}
+                                          {rec.action?.label || 'Propose Fix'}
                                         </button>
                                       </div>
                                     </Show>
@@ -452,6 +477,16 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
           </For>
         </tbody>
       </table>
+
+      {/* Fix Preview Modal */}
+      <FixPreviewModal
+        isOpen={fixModalOpen()}
+        incidentId={fixModalIncidentId()}
+        recommendationId={fixModalRecId()}
+        recommendationTitle={fixModalTitle()}
+        onClose={closeFixModal}
+        onApplied={handleFixApplied}
+      />
     </div>
   );
 };

@@ -113,6 +113,8 @@ type Recommendation struct {
 	Priority int `json:"priority"`
 	// ProposedFix contains the fix details if applicable
 	ProposedFix *ProposedFix `json:"proposedFix,omitempty"`
+	// Action is a clickable action button for the UI
+	Action *FixAction `json:"action,omitempty"`
 	// ManualSteps for recommendations that cannot be automated
 	ManualSteps []string `json:"manualSteps,omitempty"`
 	// Tags for categorization

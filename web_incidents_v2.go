@@ -826,3 +826,249 @@ func getBaseID(id string) string {
 	return id
 }
 
+// handleFixPreview handles POST /api/v2/incidents/fix-preview
+// Also handles POST /api/v2/incidents/{id}/fix-preview
+func (ws *WebServer) handleFixPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse request body
+	var req incidents.FixPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract incident ID from path if present
+	path := r.URL.Path
+	if idx := strings.Index(path, "/incidents/"); idx != -1 {
+		remaining := path[idx+len("/incidents/"):]
+		if previewIdx := strings.Index(remaining, "/fix-preview"); previewIdx != -1 {
+			req.IncidentID = remaining[:previewIdx]
+		}
+	}
+
+	if req.IncidentID == "" {
+		http.Error(w, "Missing incident ID", http.StatusBadRequest)
+		return
+	}
+
+	manager := ws.app.incidentIntelligence.GetManager()
+
+	// Get the incident from manager first
+	incident := manager.GetIncident(req.IncidentID)
+	
+	// If not found in manager, try to find in v1 incidents and convert
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == req.IncidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the fix
+	var fix *incidents.ProposedFix
+	if req.RecommendationID != "" {
+		for _, rec := range incident.Recommendations {
+			if rec.ID == req.RecommendationID && rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	} else {
+		// Get first available fix
+		for _, rec := range incident.Recommendations {
+			if rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				req.RecommendationID = rec.ID
+				break
+			}
+		}
+	}
+
+	// If no fix found on recommendations, generate one
+	if fix == nil {
+		registry := incidents.NewFixGeneratorRegistry()
+		fixes := registry.GenerateFixes(incident)
+		if len(fixes) > 0 {
+			fix = fixes[0]
+		}
+	}
+
+	if fix == nil {
+		http.Error(w, "No fix available for this incident", http.StatusNotFound)
+		return
+	}
+
+	// Generate preview response
+	response := incidents.CreateFixPreviewResponse(fix)
+
+	// Validate safety
+	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
+		response.Valid = false
+		response.ValidationError = err.Error()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleFixApply handles POST /api/v2/incidents/fix-apply
+// Also handles POST /api/v2/incidents/{id}/fix-apply
+func (ws *WebServer) handleFixApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse request body
+	var req incidents.FixApplyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract incident ID from path if present
+	path := r.URL.Path
+	if idx := strings.Index(path, "/incidents/"); idx != -1 {
+		remaining := path[idx+len("/incidents/"):]
+		if applyIdx := strings.Index(remaining, "/fix-apply"); applyIdx != -1 {
+			req.IncidentID = remaining[:applyIdx]
+		}
+	}
+
+	if req.IncidentID == "" {
+		http.Error(w, "Missing incident ID", http.StatusBadRequest)
+		return
+	}
+
+	manager := ws.app.incidentIntelligence.GetManager()
+	ctx := r.Context()
+
+	// Get the incident from manager first
+	incident := manager.GetIncident(req.IncidentID)
+	
+	// If not found in manager, try to find in v1 incidents and convert
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == req.IncidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the fix
+	var fix *incidents.ProposedFix
+	if req.RecommendationID != "" {
+		for _, rec := range incident.Recommendations {
+			if rec.ID == req.RecommendationID && rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	} else {
+		for _, rec := range incident.Recommendations {
+			if rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				req.RecommendationID = rec.ID
+				break
+			}
+		}
+	}
+
+	if fix == nil {
+		registry := incidents.NewFixGeneratorRegistry()
+		fixes := registry.GenerateFixes(incident)
+		if len(fixes) > 0 {
+			fix = fixes[0]
+		}
+	}
+
+	if fix == nil {
+		http.Error(w, "No fix available for this incident", http.StatusNotFound)
+		return
+	}
+
+	// Validate safety
+	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
+		response := &incidents.FixApplyResponse{
+			Success:   false,
+			Error:     err.Error(),
+			DryRun:    req.DryRun,
+			AppliedAt: time.Now(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Execute the fix using the manager
+	var result *incidents.FixResult
+	var err error
+
+	if req.DryRun {
+		result, err = manager.DryRunFix(ctx, req.IncidentID, req.RecommendationID)
+	} else {
+		result, err = manager.ApplyFix(ctx, req.IncidentID, req.RecommendationID)
+	}
+
+	response := &incidents.FixApplyResponse{
+		DryRun:    req.DryRun,
+		AppliedAt: time.Now(),
+	}
+
+	if err != nil {
+		response.Success = false
+		response.Error = err.Error()
+	} else if result != nil {
+		response.Success = result.Success
+		response.Message = result.Message
+		response.Changes = result.Changes
+		response.Error = result.Error
+		if result.RollbackCommand != "" {
+			response.RollbackCmd = result.RollbackCommand
+		}
+	} else {
+		// Fallback response when no executor
+		response.Success = true
+		if req.DryRun {
+			response.Message = fmt.Sprintf("Dry run successful: %s", fix.Description)
+		} else {
+			response.Message = fmt.Sprintf("Command to execute: %s", fix.ApplyCmd)
+		}
+		response.Changes = []string{fix.Description}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+

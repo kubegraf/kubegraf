@@ -1122,17 +1122,24 @@ export const api = {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);
   },
 
-  previewIncidentFix: async (incidentId: string, recommendationId: string) => {
-    return fetchAPI<ProposedFix>(`/v2/incidents/${incidentId}/recommendations/${recommendationId}/preview`);
-  },
-
-  dryRunIncidentFix: async (incidentId: string, recommendationId: string) => {
-    return fetchAPI<{ success: boolean; message: string }>(`/v2/incidents/${incidentId}/recommendations/${recommendationId}/dry-run`);
-  },
-
-  applyIncidentFix: async (incidentId: string, recommendationId: string) => {
-    return fetchAPI<{ success: boolean; message: string }>(`/v2/incidents/${incidentId}/recommendations/${recommendationId}/apply`, {
+  previewIncidentFix: async (incidentId: string, recommendationId?: string) => {
+    return fetchAPI<FixPreviewResponse>(`/v2/incidents/fix-preview`, {
       method: 'POST',
+      body: JSON.stringify({ incidentId, recommendationId }),
+    });
+  },
+
+  dryRunIncidentFix: async (incidentId: string, recommendationId?: string) => {
+    return fetchAPI<FixApplyResponse>(`/v2/incidents/fix-apply`, {
+      method: 'POST',
+      body: JSON.stringify({ incidentId, recommendationId, dryRun: true }),
+    });
+  },
+
+  applyIncidentFix: async (incidentId: string, recommendationId?: string) => {
+    return fetchAPI<FixApplyResponse>(`/v2/incidents/fix-apply`, {
+      method: 'POST',
+      body: JSON.stringify({ incidentId, recommendationId, dryRun: false }),
     });
   },
 
@@ -1376,6 +1383,14 @@ export interface ProposedFix {
   requiresConfirmation: boolean;
 }
 
+export interface FixAction {
+  label: string;
+  type: 'PREVIEW_PATCH' | 'SCALE' | 'RESTART' | 'ROLLBACK' | 'DELETE_POD';
+  description: string;
+  safe: boolean;
+  requiresConfirmation: boolean;
+}
+
 export interface Recommendation {
   id: string;
   title: string;
@@ -1384,8 +1399,31 @@ export interface Recommendation {
   risk: 'low' | 'medium' | 'high';
   priority: number;
   proposedFix?: ProposedFix;
+  action?: FixAction;
   manualSteps?: string[];
   tags?: string[];
+}
+
+export interface FixPreviewResponse {
+  valid: boolean;
+  description: string;
+  diff: string;
+  dryRunCmd: string;
+  applyCmd: string;
+  risks: string[];
+  targetResource: KubeResourceRef;
+  validationError?: string;
+  generatedAt: string;
+}
+
+export interface FixApplyResponse {
+  success: boolean;
+  message: string;
+  dryRun: boolean;
+  changes?: string[];
+  error?: string;
+  rollbackCmd?: string;
+  appliedAt: string;
 }
 
 export interface Symptom {
