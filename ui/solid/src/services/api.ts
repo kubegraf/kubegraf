@@ -1103,47 +1103,71 @@ export const api = {
     }),
 
   // ============ Incidents ============
-  getIncidents: async (namespace?: string, type?: string, severity?: string) => {
+  getIncidents: async (namespace?: string, pattern?: string, severity?: string) => {
     const params = new URLSearchParams();
     if (namespace) params.append('namespace', namespace);
-    if (type) params.append('type', type);
+    if (pattern) params.append('pattern', pattern);
     if (severity) params.append('severity', severity);
     const query = params.toString();
-    const endpoint = query ? `/incidents?${query}` : '/incidents';
-    const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
+    const endpoint = query ? `/v2/incidents?${query}` : '/v2/incidents';
+    const data = await fetchAPI<{ incidents: Incident[]; total: number; summary?: any }>(endpoint);
     return data.incidents || [];
   },
 
-  getIncidentCount: async (namespace?: string, type?: string, severity?: string) => {
+  getIncident: async (id: string) => {
+    return fetchAPI<Incident>(`/v2/incidents/${id}`);
+  },
+
+  getIncidentRecommendations: async (incidentId: string) => {
+    return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);
+  },
+
+  previewIncidentFix: async (incidentId: string, recommendationId: string) => {
+    return fetchAPI<ProposedFix>(`/v2/incidents/${incidentId}/recommendations/${recommendationId}/preview`);
+  },
+
+  dryRunIncidentFix: async (incidentId: string, recommendationId: string) => {
+    return fetchAPI<{ success: boolean; message: string }>(`/v2/incidents/${incidentId}/recommendations/${recommendationId}/dry-run`);
+  },
+
+  applyIncidentFix: async (incidentId: string, recommendationId: string) => {
+    return fetchAPI<{ success: boolean; message: string }>(`/v2/incidents/${incidentId}/recommendations/${recommendationId}/apply`, {
+      method: 'POST',
+    });
+  },
+
+  resolveIncident: async (incidentId: string, resolution: string) => {
+    return fetchAPI<{ status: string }>(`/v2/incidents/${incidentId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ resolution }),
+    });
+  },
+
+  acknowledgeIncident: async (incidentId: string) => {
+    return fetchAPI<{ status: string }>(`/v2/incidents/${incidentId}/acknowledge`, {
+      method: 'POST',
+    });
+  },
+
+  getIncidentCount: async (namespace?: string, pattern?: string, severity?: string) => {
     const params = new URLSearchParams();
     if (namespace) params.append('namespace', namespace);
-    if (type) params.append('type', type);
+    if (pattern) params.append('pattern', pattern);
     if (severity) params.append('severity', severity);
     const query = params.toString();
-    const endpoint = query ? `/incidents?${query}` : '/incidents';
+    const endpoint = query ? `/v2/incidents?${query}` : '/v2/incidents';
     const data = await fetchAPI<{ incidents: Incident[]; total: number }>(endpoint);
     return data.total || 0;
   },
 
   getIncidentsSummary: async () => {
-    const data = await fetchAPI<{ incidents: Incident[]; total: number }>('/incidents');
-    const incidents = data.incidents || [];
-    const bySeverity = incidents.reduce((acc: Record<string, number>, inc: any) => {
-      const sev = String(inc?.severity || 'unknown');
-      acc[sev] = (acc[sev] || 0) + 1;
-      return acc;
-    }, {});
-
-    const byKind = incidents.reduce((acc: Record<string, number>, inc: any) => {
-      const kind = String(inc?.resourceKind || 'unknown');
-      acc[kind] = (acc[kind] || 0) + 1;
-      return acc;
-    }, {});
-
+    const data = await fetchAPI<{ summary: any; patternStats: any }>('/v2/incidents/summary');
     return {
-      total: data.total || incidents.length,
-      bySeverity,
-      byKind,
+      total: data.summary?.total || 0,
+      active: data.summary?.active || 0,
+      bySeverity: data.summary?.bySeverity || {},
+      byPattern: data.summary?.byPattern || {},
+      patternStats: data.patternStats || {},
     };
   },
 
@@ -1324,16 +1348,85 @@ interface Connector {
   updatedAt: string;
 }
 
+// V2 Incident types with full intelligence
+export interface KubeResourceRef {
+  kind: string;
+  name: string;
+  namespace: string;
+  apiVersion?: string;
+  uid?: string;
+}
+
+export interface Diagnosis {
+  summary: string;
+  probableCauses: string[];
+  confidence: number;
+  evidence: string[];
+  generatedAt: string;
+}
+
+export interface ProposedFix {
+  type: 'PATCH' | 'SCALE' | 'RESTART' | 'ROLLBACK' | 'DELETE' | 'CREATE';
+  description: string;
+  previewDiff?: string;
+  dryRunCmd?: string;
+  applyCmd?: string;
+  targetResource: KubeResourceRef;
+  safe: boolean;
+  requiresConfirmation: boolean;
+}
+
+export interface Recommendation {
+  id: string;
+  title: string;
+  explanation: string;
+  evidence: string[];
+  risk: 'low' | 'medium' | 'high';
+  priority: number;
+  proposedFix?: ProposedFix;
+  manualSteps?: string[];
+  tags?: string[];
+}
+
+export interface Symptom {
+  type: string;
+  confidence: number;
+  evidence: string[];
+  detectedAt: string;
+}
+
+export interface TimelineEntry {
+  timestamp: string;
+  type: string;
+  title: string;
+  description: string;
+}
+
 export interface Incident {
   id: string;
-  type: string;
-  severity: 'warning' | 'critical';
-  resourceKind: string;
-  resourceName: string;
-  namespace: string;
+  fingerprint?: string;
+  pattern: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'warning';
+  status: 'open' | 'investigating' | 'remediating' | 'resolved' | 'suppressed';
+  resource: KubeResourceRef;
+  relatedResources?: KubeResourceRef[];
+  title: string;
+  description: string;
+  occurrences: number;
   firstSeen: string;
   lastSeen: string;
-  count: number;
+  symptoms?: Symptom[];
+  diagnosis?: Diagnosis;
+  recommendations?: Recommendation[];
+  timeline?: TimelineEntry[];
+  resolvedAt?: string;
+  resolution?: string;
+  // Legacy fields for backward compatibility
+  type?: string;
+  resourceKind?: string;
+  resourceName?: string;
+  namespace?: string;
+  count?: number;
   message?: string;
 }
 

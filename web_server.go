@@ -609,8 +609,17 @@ func (ws *WebServer) Start(port int) error {
 	// Custom Resources
 	ws.RegisterCustomResourcesHandlers()
 
-	// Incidents endpoint
+	// Incidents endpoint (legacy)
 	http.HandleFunc("/api/incidents", ws.handleIncidents)
+
+	// Initialize Incident Intelligence system
+	ws.RegisterIncidentIntelligenceRoutes()
+
+	// Incidents V2 endpoint (full incident intelligence with diagnosis, recommendations, fixes)
+	http.HandleFunc("/api/v2/incidents/summary", ws.handleIncidentsV2Summary)
+	http.HandleFunc("/api/v2/incidents/patterns", ws.handleIncidentsV2Patterns)
+	http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
+	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
 
 	// Brain endpoints (real cluster data)
 	http.HandleFunc("/api/brain/timeline", ws.handleBrainTimeline)

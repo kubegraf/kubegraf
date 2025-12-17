@@ -272,40 +272,83 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ws.app.incidentIntelligence == nil {
-		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
-		return
-	}
-
-	manager := ws.app.incidentIntelligence.GetManager()
-
 	// Parse query parameters
 	query := r.URL.Query()
-	
-	filter := incidents.IncidentFilter{
-		Namespace: query.Get("namespace"),
-	}
-
-	if pattern := query.Get("pattern"); pattern != "" {
-		filter.Pattern = incidents.FailurePattern(pattern)
-	}
-
-	if severity := query.Get("severity"); severity != "" {
-		filter.Severity = incidents.Severity(severity)
-	}
-
-	if status := query.Get("status"); status != "" {
-		filter.Status = incidents.IncidentStatus(status)
-	}
-
-	// Get incidents
-	activeOnly := query.Get("active") == "true"
+	namespace := query.Get("namespace")
+	patternStr := query.Get("pattern")
+	severityStr := query.Get("severity")
 
 	var incidentList []*incidents.Incident
-	if activeOnly {
-		incidentList = manager.GetActiveIncidents()
-	} else {
-		incidentList = manager.FilterIncidents(filter)
+
+	// Try to get incidents from the v2 incident intelligence system
+	if ws.app.incidentIntelligence != nil {
+		manager := ws.app.incidentIntelligence.GetManager()
+		
+		filter := incidents.IncidentFilter{
+			Namespace: namespace,
+		}
+
+		if patternStr != "" {
+			filter.Pattern = incidents.FailurePattern(patternStr)
+		}
+
+		if severityStr != "" {
+			filter.Severity = incidents.Severity(severityStr)
+		}
+
+		if status := query.Get("status"); status != "" {
+			filter.Status = incidents.IncidentStatus(status)
+		}
+
+		activeOnly := query.Get("active") == "true"
+
+		if activeOnly {
+			incidentList = manager.GetActiveIncidents()
+		} else {
+			incidentList = manager.FilterIncidents(filter)
+		}
+	}
+
+	// Fallback: If no v2 incidents, convert v1 incidents to v2 format
+	if len(incidentList) == 0 {
+		v1Incidents := ws.getV1Incidents(namespace)
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			
+			// Apply filters
+			if patternStr != "" && string(v2Inc.Pattern) != patternStr {
+				continue
+			}
+			if severityStr != "" && string(v2Inc.Severity) != severityStr {
+				continue
+			}
+			
+			incidentList = append(incidentList, v2Inc)
+		}
+	}
+
+	// Build summary
+	summary := map[string]interface{}{
+		"total":      len(incidentList),
+		"active":     len(incidentList),
+		"bySeverity": make(map[string]int),
+		"byPattern":  make(map[string]int),
+		"byStatus":   make(map[string]int),
+	}
+
+	for _, inc := range incidentList {
+		sev := string(inc.Severity)
+		pat := string(inc.Pattern)
+		stat := string(inc.Status)
+		
+		sevMap := summary["bySeverity"].(map[string]int)
+		sevMap[sev]++
+		
+		patMap := summary["byPattern"].(map[string]int)
+		patMap[pat]++
+		
+		statMap := summary["byStatus"].(map[string]int)
+		statMap[stat]++
 	}
 
 	// Format response
@@ -313,8 +356,213 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"incidents": incidentList,
 		"total":     len(incidentList),
-		"summary":   manager.GetSummary(),
+		"summary":   summary,
 	})
+}
+
+// getV1Incidents fetches incidents from the v1 system using the incident scanner
+func (ws *WebServer) getV1Incidents(namespace string) []KubernetesIncident {
+	if ws.app.clientset == nil || !ws.app.connected {
+		return []KubernetesIncident{}
+	}
+
+	scanner := NewIncidentScanner(ws.app)
+	return scanner.ScanAllIncidents(namespace)
+}
+
+// convertV1ToV2Incident converts a v1 incident to v2 format with diagnosis and recommendations
+func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Incident {
+	// Map v1 type to v2 pattern
+	pattern := incidents.PatternUnknown
+	var diagnosis *incidents.Diagnosis
+	var recommendations []incidents.Recommendation
+
+	switch v1.Type {
+	case "high_restarts":
+		pattern = incidents.PatternRestartStorm
+		diagnosis = &incidents.Diagnosis{
+			Summary:        fmt.Sprintf("%s is experiencing frequent restarts (%d times)", v1.ResourceName, v1.Count),
+			ProbableCauses: []string{"Application crash", "Resource limits too low", "Liveness probe failing"},
+			Confidence:     0.75,
+			Evidence:       []string{fmt.Sprintf("Restart count: %d", v1.Count)},
+			GeneratedAt:    time.Now(),
+		}
+		recommendations = []incidents.Recommendation{
+			{
+				ID:          "check-logs",
+				Title:       "Check container logs",
+				Explanation: "Review the container logs to identify the root cause of restarts",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace},
+			},
+			{
+				ID:          "increase-resources",
+				Title:       "Increase resource limits",
+				Explanation: "If the container is being OOM killed, increase memory limits",
+				Risk:        incidents.RiskMedium,
+				Priority:    2,
+			},
+		}
+
+	case "oom", "oom_killed":
+		pattern = incidents.PatternOOMPressure
+		diagnosis = &incidents.Diagnosis{
+			Summary:        fmt.Sprintf("%s was killed due to Out Of Memory (OOM)", v1.ResourceName),
+			ProbableCauses: []string{"Memory limit too low", "Memory leak in application", "Unexpected load spike"},
+			Confidence:     0.95,
+			Evidence:       []string{"Container terminated with OOMKilled reason", "Exit code: 137"},
+			GeneratedAt:    time.Now(),
+		}
+		recommendations = []incidents.Recommendation{
+			{
+				ID:          "increase-memory",
+				Title:       "Increase memory limit",
+				Explanation: "The container exceeded its memory limit. Consider increasing the limit.",
+				Risk:        incidents.RiskMedium,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:                 incidents.FixTypePatch,
+					Description:          "Increase container memory limit by 50%",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
+				ID:          "check-memory-usage",
+				Title:       "Analyze memory usage patterns",
+				Explanation: "Review memory metrics to understand usage patterns",
+				Risk:        incidents.RiskLow,
+				Priority:    2,
+			},
+		}
+
+	case "crashloop":
+		pattern = incidents.PatternCrashLoop
+		diagnosis = &incidents.Diagnosis{
+			Summary:        fmt.Sprintf("%s is stuck in CrashLoopBackOff after %d restarts", v1.ResourceName, v1.Count),
+			ProbableCauses: []string{"Application startup failure", "Missing dependencies", "Configuration error", "Resource exhaustion"},
+			Confidence:     0.90,
+			Evidence:       []string{"Container state: CrashLoopBackOff", fmt.Sprintf("Restart count: %d", v1.Count)},
+			GeneratedAt:    time.Now(),
+		}
+		recommendations = []incidents.Recommendation{
+			{
+				ID:          "check-logs",
+				Title:       "Check container logs",
+				Explanation: "Review logs to identify why the container is crashing",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+			},
+			{
+				ID:          "check-config",
+				Title:       "Verify ConfigMaps and Secrets",
+				Explanation: "Ensure all required configuration is present and valid",
+				Risk:        incidents.RiskLow,
+				Priority:    2,
+			},
+			{
+				ID:          "restart-pod",
+				Title:       "Delete and recreate pod",
+				Explanation: "Sometimes a fresh start can resolve transient issues",
+				Risk:        incidents.RiskMedium,
+				Priority:    3,
+				ProposedFix: &incidents.ProposedFix{
+					Type:                 incidents.FixTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+		}
+
+	case "job_failure", "cronjob_failure":
+		pattern = incidents.PatternAppCrash
+		diagnosis = &incidents.Diagnosis{
+			Summary:        fmt.Sprintf("Job %s has %d failed pod(s)", v1.ResourceName, v1.Count),
+			ProbableCauses: []string{"Job logic error", "Dependency unavailable", "Timeout exceeded"},
+			Confidence:     0.80,
+			Evidence:       []string{fmt.Sprintf("Failed pods: %d", v1.Count)},
+			GeneratedAt:    time.Now(),
+		}
+		recommendations = []incidents.Recommendation{
+			{
+				ID:          "check-job-logs",
+				Title:       "Check job pod logs",
+				Explanation: "Review the logs from the failed job pods",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+			},
+		}
+
+	case "node_pressure", "node_memory_pressure", "node_disk_pressure":
+		pattern = incidents.PatternNodePressure
+		diagnosis = &incidents.Diagnosis{
+			Summary:        fmt.Sprintf("Node %s is experiencing resource pressure", v1.ResourceName),
+			ProbableCauses: []string{"High memory usage", "Disk space low", "Too many pods scheduled"},
+			Confidence:     0.85,
+			Evidence:       []string{v1.Message},
+			GeneratedAt:    time.Now(),
+		}
+		recommendations = []incidents.Recommendation{
+			{
+				ID:          "check-node-resources",
+				Title:       "Check node resource usage",
+				Explanation: "Review node metrics to identify which resources are under pressure",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+			},
+			{
+				ID:          "drain-node",
+				Title:       "Consider draining the node",
+				Explanation: "Move pods to other nodes to relieve pressure",
+				Risk:        incidents.RiskHigh,
+				Priority:    2,
+			},
+		}
+
+	default:
+		pattern = incidents.PatternUnknown
+		diagnosis = &incidents.Diagnosis{
+			Summary:        v1.Message,
+			ProbableCauses: []string{"Unknown cause - requires investigation"},
+			Confidence:     0.50,
+			Evidence:       []string{v1.Message},
+			GeneratedAt:    time.Now(),
+		}
+	}
+
+	// Map severity
+	severity := incidents.SeverityMedium
+	switch v1.Severity {
+	case "critical":
+		severity = incidents.SeverityCritical
+	case "warning":
+		severity = incidents.SeverityMedium
+	case "info":
+		severity = incidents.SeverityLow
+	}
+
+	patternStr := string(pattern)
+
+	return &incidents.Incident{
+		ID:          v1.ID,
+		Pattern:     pattern,
+		Severity:    severity,
+		Status:      incidents.StatusOpen,
+		Resource: incidents.KubeResourceRef{
+			Kind:      v1.ResourceKind,
+			Name:      v1.ResourceName,
+			Namespace: v1.Namespace,
+		},
+		Title:           fmt.Sprintf("%s: %s", patternStr, v1.ResourceName),
+		Description:     v1.Message,
+		Occurrences:     v1.Count,
+		FirstSeen:       v1.FirstSeen,
+		LastSeen:        v1.LastSeen,
+		Diagnosis:       diagnosis,
+		Recommendations: recommendations,
+	}
 }
 
 // handleIncidentV2ByID handles GET/PUT /api/v2/incidents/{id}

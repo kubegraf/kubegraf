@@ -1,49 +1,58 @@
 import { Component, For } from 'solid-js';
-import { Incident } from '../services/api';
 
 interface IncidentFiltersProps {
-  typeFilter: string;
+  patternFilter: string;
   severityFilter: string;
   namespaceFilter: string;
   namespaces: string[];
-  onTypeFilterChange: (type: string) => void;
+  onPatternFilterChange: (pattern: string) => void;
   onSeverityFilterChange: (severity: string) => void;
   onNamespaceFilterChange: (namespace: string) => void;
 }
 
 const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
-  const incidentTypes = [
-    { value: '', label: 'All Types' },
-    { value: 'oom', label: 'OOMKilled' },
-    { value: 'crashloop', label: 'CrashLoopBackOff' },
-    { value: 'node_pressure', label: 'Node Pressure' },
-    { value: 'node_memory_pressure', label: 'Node Memory Pressure' },
-    { value: 'node_disk_pressure', label: 'Node Disk Pressure' },
-    { value: 'job_failure', label: 'Job Failure' },
-    { value: 'cronjob_failure', label: 'CronJob Failure' },
+  // V2 failure patterns
+  const patterns = [
+    { value: '', label: 'All Patterns' },
+    { value: 'APP_CRASH', label: '💀 App Crash' },
+    { value: 'CRASHLOOP', label: '🔄 CrashLoop' },
+    { value: 'OOM_PRESSURE', label: '💥 OOM Pressure' },
+    { value: 'RESTART_STORM', label: '🌪️ Restart Storm' },
+    { value: 'NO_READY_ENDPOINTS', label: '🔌 No Ready Endpoints' },
+    { value: 'INTERNAL_ERRORS', label: '🐛 Internal Errors' },
+    { value: 'UPSTREAM_FAILURE', label: '⬆️ Upstream Failure' },
+    { value: 'TIMEOUTS', label: '⏱️ Timeouts' },
+    { value: 'IMAGE_PULL_FAILURE', label: '📦 Image Pull Failure' },
+    { value: 'CONFIG_ERROR', label: '⚙️ Config Error' },
+    { value: 'DNS_FAILURE', label: '🌐 DNS Failure' },
+    { value: 'PERMISSION_DENIED', label: '🔒 Permission Denied' },
   ];
 
   const severities = [
     { value: '', label: 'All Severities' },
-    { value: 'warning', label: 'Warning' },
-    { value: 'critical', label: 'Critical' },
+    { value: 'critical', label: '🔴 Critical' },
+    { value: 'high', label: '🟠 High' },
+    { value: 'medium', label: '🟡 Medium' },
+    { value: 'low', label: '🔵 Low' },
+    { value: 'info', label: '⚪ Info' },
   ];
 
   return (
     <div class="flex flex-wrap items-center gap-4 mb-4">
       <select
-        value={props.typeFilter}
-        onChange={(e) => props.onTypeFilterChange(e.currentTarget.value)}
+        value={props.patternFilter}
+        onChange={(e) => props.onPatternFilterChange(e.currentTarget.value)}
         class="px-3 py-2 rounded-lg text-sm"
         style={{ 
           background: 'var(--bg-secondary)', 
           color: 'var(--text-primary)', 
-          border: '1px solid var(--border-color)' 
+          border: '1px solid var(--border-color)',
+          'min-width': '180px'
         }}
       >
-        <For each={incidentTypes}>
-          {(type) => (
-            <option value={type.value}>{type.label}</option>
+        <For each={patterns}>
+          {(pattern) => (
+            <option value={pattern.value}>{pattern.label}</option>
           )}
         </For>
       </select>
@@ -55,7 +64,8 @@ const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
         style={{ 
           background: 'var(--bg-secondary)', 
           color: 'var(--text-primary)', 
-          border: '1px solid var(--border-color)' 
+          border: '1px solid var(--border-color)',
+          'min-width': '150px'
         }}
       >
         <For each={severities}>
@@ -72,7 +82,8 @@ const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
         style={{ 
           background: 'var(--bg-secondary)', 
           color: 'var(--text-primary)', 
-          border: '1px solid var(--border-color)' 
+          border: '1px solid var(--border-color)',
+          'min-width': '150px'
         }}
       >
         <option value="">All Namespaces</option>
@@ -87,7 +98,3 @@ const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
 };
 
 export default IncidentFilters;
-
-
-
-
