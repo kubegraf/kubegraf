@@ -330,11 +330,367 @@ Consider:
 
 ---
 
+---
+
+## 🆕 Autonomous AI SRE System (v2)
+
+The Incident Intelligence System has been upgraded to a **production-ready autonomous AI SRE system** with:
+
+- Deep summarized intelligence with evidence + citations
+- High-accuracy fix proposals with preview → apply workflow
+- Guarded auto-remediation with autonomy levels
+- ML learning from new patterns
+- Local knowledge bank (SQLite)
+
+### Core Principles
+
+1. **Deterministic first, ML second** - Rule-based core with optional ML enhancement
+2. **Evidence before intelligence** - Every conclusion backed by signals
+3. **Preview before apply** - Always show diff before mutation
+4. **Rollback always available** - Every fix must be reversible
+5. **Progressive autonomy** - Gated from observe-only to auto-execute
+6. **Everything explainable** - No black-box decisions
+
+---
+
+## 🧠 Intelligence Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer 1: SIGNAL INGESTION                                       │
+│  Events → Logs → Pod Status → Metrics → Probes                  │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer 2: INCIDENT ENGINE                                        │
+│  Pattern Detection → Confidence Scoring → Aggregation           │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer 3: EVIDENCE PACK                                          │
+│  Events + Logs + StatusFacts + MetricsFacts + ChangeHistory     │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer 4: INTELLIGENT SUMMARY                                    │
+│  Deterministic Summary + Cited Diagnosis + Runbook Match        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📦 Evidence Pack
+
+Every incident now has a structured evidence bundle:
+
+```go
+type EvidencePack struct {
+    IncidentID    string         // Linked incident
+    Events        []EvidenceItem // K8s events
+    Logs          []EvidenceItem // Container logs
+    StatusFacts   []EvidenceItem // Pod status snapshots
+    MetricsFacts  []EvidenceItem // Metric observations
+    ChangeHistory []EvidenceItem // Config/deployment changes
+    ProbeResults  []EvidenceItem // Liveness/readiness results
+}
+```
+
+**UI Access:** Click incident → **📦 Evidence** tab
+
+---
+
+## 📚 Citations
+
+Every diagnosis includes citations to:
+
+- **Event references** - Exact K8s event IDs
+- **Log snippets** - Relevant log lines
+- **Kubernetes documentation** - Links to official docs
+
+```go
+type Citation struct {
+    Source string  // event | log | status | doc
+    Ref    string  // Exact reference (event ID, log line, URL)
+    Text   string  // Cited snippet
+    Link   string  // Optional URL for docs
+}
+```
+
+**Built-in K8s Docs:** OOMKilled, CrashLoopBackOff, ImagePullBackOff, DNS failures, RBAC issues, etc.
+
+**UI Access:** Click incident → **📚 Citations** tab
+
+---
+
+## 📋 Runbook-Driven Fix Engine
+
+Fixes are now driven by **runbooks** - predefined, tested remediation procedures:
+
+```go
+type Runbook struct {
+    ID            string          // Unique runbook ID
+    Name          string          // Human-readable name
+    Description   string          // What this runbook does
+    Pattern       FailurePattern  // Target failure pattern
+    Preconditions []Check         // Must pass before execution
+    Action        RunbookAction   // The actual fix action
+    Verification  []Check         // Must pass after execution
+    Rollback      *RunbookAction  // How to undo if verification fails
+    Risk          string          // low | medium | high
+    AutonomyLevel AutonomyLevel   // 0-3
+}
+```
+
+### Built-in Runbooks
+
+| Runbook | Pattern | Risk | Action |
+|---------|---------|------|--------|
+| `rb-restart-pod` | RESTART_STORM | Low | Delete pod to trigger recreation |
+| `rb-increase-memory` | OOM_PRESSURE | Medium | Patch memory limits +50% |
+| `rb-rolling-restart` | NO_READY_ENDPOINTS | Low | Rolling restart deployment |
+| `rb-retry-job` | APP_CRASH | Low | Delete failed job to retry |
+
+**UI Access:** Click incident → **📋 Runbooks** tab
+
+---
+
+## 🤖 Auto-Remediation
+
+### Autonomy Levels
+
+| Level | Name | Behavior |
+|-------|------|----------|
+| 0 | Observe | Only collect data, no recommendations |
+| 1 | Recommend | Show suggestions to user |
+| 2 | Propose | Show fix preview with diff, require user apply |
+| 3 | Auto-Execute | Execute low-risk fixes automatically |
+
+### Safety Guards
+
+Auto-execute only allowed when:
+- ✅ Confidence ≥ 0.9
+- ✅ Runbook marked as safe
+- ✅ Rollback defined
+- ✅ Verification checks pass
+- ✅ Resource not in blocked namespaces
+
+### Blocked Namespaces
+- `kube-system`
+- `kube-public`
+- `kube-node-lease`
+
+**UI Access:** **🤖 Auto-Remediation** panel on Incidents page
+
+---
+
+## 🧠 Learning Engine
+
+The system learns from incidents to improve over time:
+
+### Incident Clusters
+Similar incidents are grouped by fingerprint for pattern recognition.
+
+### Pattern Stats
+Track per-pattern: occurrences, resolutions, MTTR, success rates.
+
+### Runbook Ranking
+Runbooks are ranked by past success rate for each pattern.
+
+### Anomaly Detection
+New/unusual patterns are flagged for review.
+
+**UI Access:** **🧠 Learning Intelligence** panel on Incidents page
+
+---
+
+## 💬 Feedback Loop
+
+Users can provide feedback to improve the system:
+
+| Feedback Type | Description |
+|---------------|-------------|
+| `resolved` | Mark incident as resolved |
+| `root_cause_confirmed` | Confirm diagnosis was correct |
+| `fix_worked` | Applied fix was successful |
+| `fix_failed` | Applied fix didn't work |
+| `dismiss` | Dismiss as false positive |
+| `escalate` | Escalate for manual review |
+| `note` | Add custom notes |
+
+**UI Access:** Click incident → **💬 Feedback** tab
+
+---
+
+## 🔗 Similar Incidents
+
+For each incident, find similar past incidents:
+
+- Same failure pattern
+- Similar resource types
+- Comparable symptoms
+- Previous resolutions
+
+**UI Access:** Click incident → **🔗 Similar** tab
+
+---
+
+## 🆕 V2 API Endpoints
+
+### Intelligence APIs
+
+```bash
+# Get full incident with intelligence
+GET /api/v2/incidents/{id}
+
+# Get evidence pack
+GET /api/v2/incidents/{id}/evidence
+
+# Get citations
+GET /api/v2/incidents/{id}/citations
+
+# Get applicable runbooks
+GET /api/v2/incidents/{id}/runbooks
+
+# Find similar incidents
+GET /api/v2/incidents/{id}/similar
+```
+
+### Fix APIs
+
+```bash
+# Preview a fix (shows diff, dry-run command)
+POST /api/v2/incidents/{id}/fix/preview
+{
+  "runbookId": "rb-restart-pod"
+}
+
+# Apply a fix
+POST /api/v2/incidents/{id}/fix/apply
+{
+  "runbookId": "rb-restart-pod"
+}
+
+# Enable auto-remediation for incident
+POST /api/v2/incidents/{id}/fix/auto-enable
+```
+
+### Auto-Remediation APIs
+
+```bash
+# Get auto-remediation status
+GET /api/v2/auto-remediation/status
+
+# Enable auto-remediation globally
+POST /api/v2/auto-remediation/enable
+
+# Disable auto-remediation globally
+POST /api/v2/auto-remediation/disable
+
+# Get recent decisions
+GET /api/v2/auto-remediation/decisions
+```
+
+### Learning APIs
+
+```bash
+# Get incident clusters
+GET /api/v2/learning/clusters
+
+# Get learned patterns (including anomalies)
+GET /api/v2/learning/patterns?anomalies=true
+
+# Get pattern trends
+GET /api/v2/learning/trends
+
+# Find similar incidents
+GET /api/v2/learning/similar?incidentId={id}
+```
+
+### Feedback API
+
+```bash
+# Submit feedback for an incident
+POST /api/v2/incidents/{id}/feedback
+{
+  "type": "resolved",
+  "content": "Fixed by restarting pod"
+}
+```
+
+---
+
+## 📊 UI Components
+
+### Incidents Page
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| **Summary Cards** | Top | Critical/High/Warning/Diagnosed/Fixable counts |
+| **Incident Table** | Main | List of incidents with expandable details |
+| **Auto-Remediation Panel** | Side panel | Toggle auto-remediation, view stats |
+| **Learning Dashboard** | Side panel | Clusters, patterns, trends |
+
+### Incident Detail Modal
+
+Click "View Details" on any incident to see:
+
+| Tab | Content |
+|-----|---------|
+| **📦 Evidence** | Events, logs, status, metrics, changes |
+| **📚 Citations** | References with K8s doc links |
+| **📋 Runbooks** | Available runbooks with preview |
+| **🔗 Similar** | Similar past incidents |
+| **💬 Feedback** | Provide feedback buttons |
+
+### Fix Preview Modal
+
+When clicking a fix action:
+
+1. Shows **description** of proposed fix
+2. Shows **diff** (for patches)
+3. Shows **dry-run command** to test
+4. Shows **apply command** to execute
+5. **Dry Run** button - test without applying
+6. **Apply Fix** button - execute with confirmation
+
+---
+
+## 📁 New Files
+
+```
+pkg/incidents/
+├── evidence.go           # EvidencePack, EvidenceItem
+├── citations.go          # Citation, CitedDiagnosis, K8s docs
+├── runbooks.go           # Runbook, RunbookRegistry, RunbookExecutor
+├── knowledge_bank.go     # SQLite storage for learning
+├── autoremediation.go    # AutoRemediationEngine
+├── learning.go           # LearningEngine, clustering, ranking
+├── feedback.go           # Feedback APIs
+├── intelligence_handlers.go  # HTTP handlers for v2 APIs
+└── intelligence_system.go    # Main orchestrator
+
+ui/solid/src/components/intelligence/
+├── index.ts              # Exports
+├── EvidencePanel.tsx     # Evidence pack display
+├── CitationsPanel.tsx    # Citations with links
+├── RunbookSelector.tsx   # Runbook selection + preview
+├── SimilarIncidents.tsx  # Similar incidents list
+├── FeedbackButtons.tsx   # Feedback actions
+├── AutoRemediationPanel.tsx  # Auto-remediation control
+├── LearningDashboard.tsx     # Learning insights
+└── IncidentDetailModal.tsx   # Full incident detail modal
+```
+
+---
+
 ## Future Improvements
 
-- [ ] Custom symptom rules via YAML config
+- [x] Custom symptom rules via YAML config
 - [ ] Slack/PagerDuty integration for alerts
-- [ ] Historical incident analytics
-- [ ] Machine learning for pattern discovery (opt-in)
-- [ ] Runbook linking for recommendations
+- [x] Historical incident analytics
+- [x] Machine learning for pattern discovery (local, opt-in)
+- [x] Runbook linking for recommendations
+- [ ] Custom runbook editor
+- [ ] Prometheus/Grafana integration
+- [ ] Multi-cluster incident correlation
 

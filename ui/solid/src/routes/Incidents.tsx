@@ -5,11 +5,16 @@ import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
 import { Incident } from '../services/api';
 import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
+import IncidentDetailModal from '../components/intelligence/IncidentDetailModal';
+import { AutoRemediationPanel, LearningDashboard } from '../components/intelligence';
 
 const Incidents: Component = () => {
   const [patternFilter, setPatternFilter] = createSignal('');
   const [severityFilter, setSeverityFilter] = createSignal('');
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
+  const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = createSignal(false);
+  const [showSidePanels, setShowSidePanels] = createSignal(true);
 
   // Fetch namespaces for filter
   const [namespaces] = createResource(api.getNamespaces);
@@ -63,8 +68,13 @@ const Incidents: Component = () => {
   };
 
   const handleViewDetails = (incident: Incident) => {
-    // For now, just log - could open a modal
-    console.log('View incident details:', incident);
+    setSelectedIncident(incident);
+    setDetailModalOpen(true);
+  };
+
+  const closeDetailModal = () => {
+    setDetailModalOpen(false);
+    setSelectedIncident(null);
   };
 
   // Count by severity
@@ -224,16 +234,50 @@ const Incidents: Component = () => {
         />
       </Show>
 
+      {/* Side Panels Toggle */}
+      <div class="mt-6 mb-4">
+        <button
+          onClick={() => setShowSidePanels(!showSidePanels())}
+          style={{
+            padding: '8px 16px',
+            'font-size': '12px',
+            'border-radius': '6px',
+            border: '1px solid var(--border-color)',
+            background: showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
+            color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            cursor: 'pointer',
+            'font-weight': '500'
+          }}
+        >
+          {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
+        </button>
+      </div>
+
+      {/* Intelligence Panels */}
+      <Show when={showSidePanels()}>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          <AutoRemediationPanel />
+          <LearningDashboard />
+        </div>
+      </Show>
+
       {/* Footer Info */}
       <div class="mt-6 p-4 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
         <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', color: 'var(--text-secondary)', 'font-size': '12px' }}>
           <span>ℹ️</span>
           <span>
             Click on any incident row to expand and see diagnosis, probable causes, and recommendations.
-            Incidents are automatically detected using rule-based pattern matching.
+            Click "View Details" in the action menu for full incident intelligence with evidence, citations, and runbooks.
           </span>
         </div>
       </div>
+
+      {/* Incident Detail Modal */}
+      <IncidentDetailModal
+        incident={selectedIncident()}
+        isOpen={detailModalOpen()}
+        onClose={closeDetailModal}
+      />
     </div>
   );
 };
