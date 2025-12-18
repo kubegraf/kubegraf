@@ -17,6 +17,9 @@ const (
 	ActionTypeRestart      FixActionType = "RESTART"
 	ActionTypeRollback     FixActionType = "ROLLBACK"
 	ActionTypeDeletePod    FixActionType = "DELETE_POD"
+	ActionTypeViewLogs     FixActionType = "VIEW_LOGS"     // Opens logs viewer (UI-only action)
+	ActionTypeViewEvents   FixActionType = "VIEW_EVENTS"   // Opens events viewer (UI-only action)
+	ActionTypeDescribe     FixActionType = "DESCRIBE"      // Shows kubectl describe output
 )
 
 // FixAction represents a clickable action that can be taken on a recommendation

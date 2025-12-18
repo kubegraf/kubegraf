@@ -387,6 +387,21 @@ func (a *IncidentAggregator) GetAllIncidents() []*Incident {
 	return incidents
 }
 
+// RegenerateRecommendations regenerates recommendations for all incidents using the latest recommendation engine.
+// This is useful when recommendation logic has been updated and we want to apply it to existing incidents.
+func (a *IncidentAggregator) RegenerateRecommendations() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	count := 0
+	for _, inc := range a.incidents {
+		inc.Recommendations = a.recommendationEngine.GenerateRecommendations(inc)
+		count++
+	}
+
+	return count
+}
+
 // GetActiveIncidents returns only active incidents.
 func (a *IncidentAggregator) GetActiveIncidents() []*Incident {
 	a.mu.RLock()

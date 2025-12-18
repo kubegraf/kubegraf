@@ -10,7 +10,7 @@ interface IncidentTableProps {
   onViewDetails?: (incident: Incident) => void;
 }
 
-// Inline FixPreviewModal to avoid import issues
+// Inline FixPreviewModal with proper confirmation modal
 const FixPreviewModalInline: Component<{
   isOpen: boolean;
   incidentId: string;
@@ -23,6 +23,8 @@ const FixPreviewModalInline: Component<{
   const [preview, setPreview] = createSignal<any>(null);
   const [applyResult, setApplyResult] = createSignal<any>(null);
   const [applying, setApplying] = createSignal(false);
+  const [showConfirmation, setShowConfirmation] = createSignal(false);
+  const [dryRunStatus, setDryRunStatus] = createSignal<'idle' | 'running' | 'success' | 'failed'>('idle');
 
   const fetchPreview = async () => {
     if (!props.incidentId) return;
@@ -30,15 +32,25 @@ const FixPreviewModalInline: Component<{
     setLoading(true);
     setError(null);
     setPreview(null);
+    setApplyResult(null);
+    setDryRunStatus('idle');
     
     try {
       const endpoint = props.recommendationId
         ? `/api/v2/incidents/${props.incidentId}/recommendations/${props.recommendationId}/preview`
         : `/api/v2/incidents/${props.incidentId}/fix-preview`;
       
-      const response = await fetch(endpoint, { method: 'POST' });
+      const response = await fetch(endpoint, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          incidentId: props.incidentId,
+          recommendationId: props.recommendationId 
+        })
+      });
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       const data = await response.json();
       setPreview(data);
@@ -52,31 +64,46 @@ const FixPreviewModalInline: Component<{
   const handleDryRun = async () => {
     setApplying(true);
     setApplyResult(null);
+    setDryRunStatus('running');
     try {
       const response = await fetch(`/api/v2/incidents/${props.incidentId}/fix-apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: true, recommendationId: props.recommendationId })
+        body: JSON.stringify({ 
+          dryRun: true, 
+          incidentId: props.incidentId,
+          recommendationId: props.recommendationId 
+        })
       });
       const data = await response.json();
       setApplyResult(data);
+      setDryRunStatus(data.success ? 'success' : 'failed');
     } catch (err: any) {
       setApplyResult({ success: false, error: err.message, dryRun: true });
+      setDryRunStatus('failed');
     } finally {
       setApplying(false);
     }
   };
 
-  const handleApply = async () => {
-    if (!confirm('Are you sure you want to apply this fix?')) return;
-    
+  const handleApplyClick = () => {
+    // Show centered confirmation modal instead of browser confirm
+    setShowConfirmation(true);
+  };
+
+  const handleApplyConfirmed = async () => {
+    setShowConfirmation(false);
     setApplying(true);
     setApplyResult(null);
     try {
       const response = await fetch(`/api/v2/incidents/${props.incidentId}/fix-apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: false, recommendationId: props.recommendationId })
+        body: JSON.stringify({ 
+          dryRun: false, 
+          incidentId: props.incidentId,
+          recommendationId: props.recommendationId 
+        })
       });
       const data = await response.json();
       setApplyResult(data);
@@ -85,6 +112,10 @@ const FixPreviewModalInline: Component<{
     } finally {
       setApplying(false);
     }
+  };
+
+  const handleApplyCancelled = () => {
+    setShowConfirmation(false);
   };
 
   // Fetch preview when modal opens
@@ -253,6 +284,7 @@ const FixPreviewModalInline: Component<{
                 </div>
               </Show>
 
+              {/* Execution Summary */}
               <Show when={applyResult()}>
                 <div style={{
                   background: applyResult()?.success ? '#28a74520' : '#dc354520',
@@ -261,22 +293,162 @@ const FixPreviewModalInline: Component<{
                   padding: '16px',
                   'margin-bottom': '16px',
                 }}>
+                  {/* Header with status */}
                   <div style={{ 
-                    color: applyResult()?.success ? '#28a745' : '#dc3545',
-                    'font-weight': '600',
-                    'margin-bottom': '8px',
+                    display: 'flex',
+                    'justify-content': 'space-between',
+                    'align-items': 'center',
+                    'margin-bottom': '12px',
+                    'padding-bottom': '12px',
+                    'border-bottom': `1px solid ${applyResult()?.success ? '#28a74540' : '#dc354540'}`,
                   }}>
-                    {applyResult()?.dryRun ? '🧪 Dry Run' : '✅ Applied'} {applyResult()?.success ? 'Successful' : 'Failed'}
+                    <div style={{ 
+                      color: applyResult()?.success ? '#28a745' : '#dc3545',
+                      'font-weight': '700',
+                      'font-size': '14px',
+                      display: 'flex',
+                      'align-items': 'center',
+                      gap: '8px',
+                    }}>
+                      {applyResult()?.success ? '✅' : '❌'}
+                      {applyResult()?.dryRun ? 'Dry Run' : 'Execution'} {applyResult()?.success ? 'Succeeded' : 'Failed'}
+                    </div>
+                    <Show when={applyResult()?.appliedAt}>
+                      <span style={{ 
+                        'font-size': '11px', 
+                        color: 'var(--text-muted)',
+                        background: 'var(--bg-secondary)',
+                        padding: '2px 8px',
+                        'border-radius': '4px',
+                      }}>
+                        {new Date(applyResult()?.appliedAt).toLocaleTimeString()}
+                      </span>
+                    </Show>
                   </div>
+
+                  {/* Message */}
                   <Show when={applyResult()?.message}>
-                    <p style={{ margin: 0, color: 'var(--text-primary)', 'font-size': '13px' }}>
-                      {applyResult()?.message}
-                    </p>
+                    <div style={{ 'margin-bottom': '12px' }}>
+                      <div style={{ 
+                        'font-size': '11px', 
+                        color: 'var(--text-muted)', 
+                        'margin-bottom': '4px',
+                        'text-transform': 'uppercase',
+                        'font-weight': '600',
+                      }}>
+                        Result
+                      </div>
+                      <p style={{ 
+                        margin: 0, 
+                        color: 'var(--text-primary)', 
+                        'font-size': '13px',
+                        'line-height': '1.5',
+                      }}>
+                        {applyResult()?.message}
+                      </p>
+                    </div>
                   </Show>
+
+                  {/* Changes Made */}
+                  <Show when={applyResult()?.changes && applyResult()?.changes.length > 0}>
+                    <div style={{ 'margin-bottom': '12px' }}>
+                      <div style={{ 
+                        'font-size': '11px', 
+                        color: 'var(--text-muted)', 
+                        'margin-bottom': '4px',
+                        'text-transform': 'uppercase',
+                        'font-weight': '600',
+                      }}>
+                        Changes Made
+                      </div>
+                      <ul style={{ 
+                        margin: 0, 
+                        'padding-left': '16px',
+                        'font-size': '12px',
+                        color: 'var(--text-secondary)',
+                      }}>
+                        <For each={applyResult()?.changes}>
+                          {(change) => (
+                            <li style={{ 'margin-bottom': '2px' }}>{change}</li>
+                          )}
+                        </For>
+                      </ul>
+                    </div>
+                  </Show>
+
+                  {/* Rollback Command */}
+                  <Show when={applyResult()?.rollbackCmd && !applyResult()?.dryRun}>
+                    <div style={{ 'margin-bottom': '12px' }}>
+                      <div style={{ 
+                        'font-size': '11px', 
+                        color: 'var(--text-muted)', 
+                        'margin-bottom': '4px',
+                        'text-transform': 'uppercase',
+                        'font-weight': '600',
+                        display: 'flex',
+                        'align-items': 'center',
+                        gap: '6px',
+                      }}>
+                        ⏪ Rollback Command
+                      </div>
+                      <pre style={{
+                        background: 'var(--bg-secondary)',
+                        padding: '8px 10px',
+                        'border-radius': '4px',
+                        'font-family': 'monospace',
+                        'font-size': '11px',
+                        color: 'var(--text-primary)',
+                        overflow: 'auto',
+                        margin: 0,
+                      }}>
+                        {applyResult()?.rollbackCmd}
+                      </pre>
+                    </div>
+                  </Show>
+
+                  {/* Error */}
                   <Show when={applyResult()?.error}>
-                    <p style={{ margin: '8px 0 0', color: '#dc3545', 'font-size': '13px' }}>
-                      Error: {applyResult()?.error}
-                    </p>
+                    <div style={{ 
+                      background: '#dc354515',
+                      padding: '10px',
+                      'border-radius': '4px',
+                      'margin-top': '8px',
+                    }}>
+                      <div style={{ 
+                        'font-size': '11px', 
+                        color: '#dc3545', 
+                        'margin-bottom': '4px',
+                        'text-transform': 'uppercase',
+                        'font-weight': '600',
+                      }}>
+                        Error Details
+                      </div>
+                      <p style={{ 
+                        margin: 0, 
+                        color: '#dc3545', 
+                        'font-size': '12px',
+                        'font-family': 'monospace',
+                      }}>
+                        {applyResult()?.error}
+                      </p>
+                    </div>
+                  </Show>
+
+                  {/* Target Resource Summary */}
+                  <Show when={preview()?.targetResource && !applyResult()?.dryRun}>
+                    <div style={{ 
+                      'margin-top': '12px',
+                      'padding-top': '12px',
+                      'border-top': '1px solid var(--border-color)',
+                      display: 'flex',
+                      gap: '16px',
+                      'font-size': '11px',
+                      color: 'var(--text-muted)',
+                    }}>
+                      <span>📦 {preview()?.targetResource?.kind}</span>
+                      <span>🏷️ {preview()?.targetResource?.name}</span>
+                      <span>📁 {preview()?.targetResource?.namespace}</span>
+                    </div>
                   </Show>
                 </div>
               </Show>
@@ -314,18 +486,20 @@ const FixPreviewModalInline: Component<{
               style={{
                 padding: '8px 16px',
                 'border-radius': '6px',
-                border: '1px solid var(--accent-primary)',
-                background: 'transparent',
-                color: 'var(--accent-primary)',
+                border: `1px solid ${dryRunStatus() === 'success' ? '#28a745' : dryRunStatus() === 'failed' ? '#dc3545' : 'var(--accent-primary)'}`,
+                background: dryRunStatus() === 'success' ? '#28a74520' : dryRunStatus() === 'failed' ? '#dc354520' : 'transparent',
+                color: dryRunStatus() === 'success' ? '#28a745' : dryRunStatus() === 'failed' ? '#dc3545' : 'var(--accent-primary)',
                 cursor: applying() ? 'not-allowed' : 'pointer',
                 'font-size': '13px',
                 opacity: applying() ? 0.6 : 1,
               }}
             >
-              🧪 Dry Run
+              {dryRunStatus() === 'running' ? '⏳ Running...' : 
+               dryRunStatus() === 'success' ? '✅ Dry Run OK' :
+               dryRunStatus() === 'failed' ? '❌ Dry Run Failed' : '🧪 Dry Run'}
             </button>
             <button 
-              onClick={handleApply}
+              onClick={handleApplyClick}
               disabled={applying() || loading()}
               style={{
                 padding: '8px 16px',
@@ -339,10 +513,103 @@ const FixPreviewModalInline: Component<{
                 opacity: applying() ? 0.6 : 1,
               }}
             >
-              ⚡ Apply Fix
+              {applying() && !applyResult()?.dryRun ? '⏳ Applying...' : '⚡ Apply Fix'}
             </button>
           </div>
         </div>
+
+        {/* Confirmation Modal - Centered */}
+        <Show when={showConfirmation()}>
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            'align-items': 'center',
+            'justify-content': 'center',
+            'z-index': 10000,
+          }}>
+            <div style={{
+              background: 'var(--bg-card)',
+              'border-radius': '12px',
+              border: '2px solid var(--warning-color)',
+              padding: '24px',
+              'max-width': '450px',
+              width: '90%',
+              'text-align': 'center',
+              'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4)',
+            }}>
+              <div style={{ 'font-size': '48px', 'margin-bottom': '16px' }}>⚠️</div>
+              <h3 style={{ 
+                margin: '0 0 12px', 
+                color: 'var(--text-primary)', 
+                'font-size': '18px',
+                'font-weight': '700',
+              }}>
+                Confirm Fix Application
+              </h3>
+              <p style={{ 
+                margin: '0 0 20px', 
+                color: 'var(--text-secondary)', 
+                'font-size': '14px',
+                'line-height': '1.5',
+              }}>
+                You are about to apply a fix that will modify your Kubernetes cluster.
+                <br /><br />
+                <strong style={{ color: 'var(--warning-color)' }}>This action cannot be undone automatically.</strong>
+              </p>
+              <Show when={preview()?.targetResource}>
+                <div style={{
+                  background: 'var(--bg-secondary)',
+                  padding: '12px',
+                  'border-radius': '6px',
+                  'margin-bottom': '20px',
+                  'font-family': 'monospace',
+                  'font-size': '12px',
+                  color: 'var(--text-primary)',
+                }}>
+                  Target: {preview()?.targetResource?.kind}/{preview()?.targetResource?.name}
+                  <br />
+                  Namespace: {preview()?.targetResource?.namespace}
+                </div>
+              </Show>
+              <div style={{ display: 'flex', gap: '12px', 'justify-content': 'center' }}>
+                <button
+                  onClick={handleApplyCancelled}
+                  style={{
+                    padding: '10px 24px',
+                    'border-radius': '6px',
+                    border: '1px solid var(--border-color)',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    'font-size': '14px',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleApplyConfirmed}
+                  style={{
+                    padding: '10px 24px',
+                    'border-radius': '6px',
+                    border: 'none',
+                    background: 'var(--warning-color)',
+                    color: '#000',
+                    cursor: 'pointer',
+                    'font-size': '14px',
+                    'font-weight': '700',
+                  }}
+                >
+                  Yes, Apply Fix
+                </button>
+              </div>
+            </div>
+          </div>
+        </Show>
       </div>
     </Show>
   );
@@ -709,16 +976,31 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                           onClick={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('Fix button clicked!', { incidentId: incident.id, recId: rec.id });
-                                            openFixModal(incident.id, rec.id, rec.action?.label || rec.title);
+                                            const actionType = rec.action?.type || '';
+                                            console.log('Action button clicked!', { incidentId: incident.id, recId: rec.id, actionType });
+                                            
+                                            // Handle different action types - route to appropriate UI views
+                                            if (actionType === 'VIEW_LOGS' && props.onViewLogs) {
+                                              props.onViewLogs(incident);
+                                            } else if (actionType === 'VIEW_EVENTS' && props.onViewEvents) {
+                                              props.onViewEvents(incident);
+                                            } else if (actionType === 'DESCRIBE' && props.onViewDetails) {
+                                              // DESCRIBE opens the pod details view
+                                              props.onViewDetails(incident);
+                                            } else {
+                                              // Default: open fix modal for RESTART, SCALE, ROLLBACK, PREVIEW_PATCH, etc.
+                                              openFixModal(incident.id, rec.id, rec.action?.label || rec.title);
+                                            }
                                           }}
                                           style={{
                                             padding: '6px 12px',
                                             'font-size': '11px',
                                             'border-radius': '4px',
                                             border: 'none',
-                                            background: 'var(--accent-primary)',
-                                            color: '#000',
+                                            background: rec.action?.type === 'VIEW_LOGS' || rec.action?.type === 'VIEW_EVENTS' || rec.action?.type === 'DESCRIBE'
+                                              ? 'var(--accent-secondary, #6c5ce7)' 
+                                              : 'var(--accent-primary)',
+                                            color: '#fff',
                                             cursor: 'pointer',
                                             'font-weight': '600',
                                             display: 'inline-flex',
@@ -729,7 +1011,10 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                           {rec.action?.type === 'RESTART' ? '🔄' : 
                                            rec.action?.type === 'SCALE' ? '📊' : 
                                            rec.action?.type === 'ROLLBACK' ? '⏪' : 
-                                           rec.action?.type === 'DELETE' ? '🗑️' : '🔧'}
+                                           rec.action?.type === 'DELETE_POD' ? '🗑️' : 
+                                           rec.action?.type === 'VIEW_LOGS' ? '📋' :
+                                           rec.action?.type === 'VIEW_EVENTS' ? '📅' :
+                                           rec.action?.type === 'DESCRIBE' ? '🔍' : '🔧'}
                                           {rec.action?.label || rec.title}
                                         </button>
                                       </div>

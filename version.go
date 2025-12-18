@@ -16,10 +16,10 @@ package main
 
 // Version is the current version of KubeGraf
 // This can be set at build time using ldflags: -ldflags "-X main.version=1.0.0"
-var version = "1.7.19"
+var version = "1.7.20"
 
 // Version constant for backward compatibility
-const Version = "1.7.19"
+const Version = "1.7.20"
 
 // GetVersion returns the current version
 // If version was set via ldflags, it returns that value, otherwise returns the default

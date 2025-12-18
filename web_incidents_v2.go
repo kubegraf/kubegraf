@@ -423,6 +423,12 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 				Risk:        incidents.RiskLow,
 				Priority:    2,
 				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace + " --previous"},
+				Action: &incidents.FixAction{
+					Label:       "Check container logs",
+					Type:        incidents.ActionTypeViewLogs,
+					Description: "Open the logs viewer for this pod",
+					Safe:        true,
+				},
 			},
 			{
 				ID:          "increase-resources",
@@ -430,6 +436,12 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 				Explanation: "If the container is being OOM killed, increase memory limits",
 				Risk:        incidents.RiskMedium,
 				Priority:    3,
+				Action: &incidents.FixAction{
+					Label:       "Increase resource limits",
+					Type:        incidents.ActionTypePreviewPatch,
+					Description: "Propose memory limit increase",
+					Safe:        false,
+				},
 			},
 		}
 
@@ -552,6 +564,12 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 				Risk:        incidents.RiskLow,
 				Priority:    2,
 				ManualSteps: []string{fmt.Sprintf("kubectl logs %s -n %s --previous", v1.ResourceName, v1.Namespace)},
+				Action: &incidents.FixAction{
+					Label:       "Check container logs",
+					Type:        incidents.ActionTypeViewLogs,
+					Description: "Open the logs viewer for this pod",
+					Safe:        true,
+				},
 			},
 			{
 				ID:          "check-config",
@@ -949,6 +967,29 @@ func (ws *WebServer) handleIncidentsV2Patterns(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(incidents.AllPatterns())
+}
+
+// handleIncidentsV2Refresh handles POST /api/v2/incidents/refresh
+// This regenerates recommendations for all incidents using the latest recommendation logic.
+func (ws *WebServer) handleIncidentsV2Refresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	count := ws.app.incidentIntelligence.GetManager().RegenerateRecommendations()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":          true,
+		"incidentsUpdated": count,
+		"message":          fmt.Sprintf("Regenerated recommendations for %d incidents", count),
+	})
 }
 
 // Helper functions

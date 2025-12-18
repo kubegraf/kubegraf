@@ -203,17 +203,29 @@ func (ws *WebServer) handlePortForwardStart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Get current cluster context
+	clusterContext := ""
+	if ws.app.contextManager != nil && ws.app.contextManager.CurrentContext != "" {
+		clusterContext = ws.app.contextManager.CurrentContext
+	} else if ws.app.cluster != "" {
+		clusterContext = ws.app.cluster
+	}
+
+	// Include cluster context in session ID for proper isolation
+	sessionID = fmt.Sprintf("%s-%s-%s-%s-%d", clusterContext, resourceType, namespace, name, remotePort)
+
 	// Store the session
 	session := &PortForwardSession{
-		ID:         sessionID,
-		Type:       resourceType,
-		Name:       name,
-		Namespace:  namespace,
-		LocalPort:  localPort,
-		RemotePort: remotePort,
-		StartedAt:  time.Now(),
-		stopChan:   stopChan,
-		readyChan:  readyChan,
+		ID:             sessionID,
+		Type:           resourceType,
+		Name:           name,
+		Namespace:      namespace,
+		ClusterContext: clusterContext,
+		LocalPort:      localPort,
+		RemotePort:     remotePort,
+		StartedAt:      time.Now(),
+		stopChan:       stopChan,
+		readyChan:      readyChan,
 	}
 
 	ws.pfMu.Lock()
@@ -261,29 +273,44 @@ func (ws *WebServer) handlePortForwardStop(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// handlePortForwardList lists all active port-forward sessions
+// handlePortForwardList lists all active port-forward sessions for the current cluster
 func (ws *WebServer) handlePortForwardList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Get current cluster context for filtering
+	currentCluster := ""
+	if ws.app.contextManager != nil && ws.app.contextManager.CurrentContext != "" {
+		currentCluster = ws.app.contextManager.CurrentContext
+	} else if ws.app.cluster != "" {
+		currentCluster = ws.app.cluster
+	}
 
 	ws.pfMu.Lock()
 	sessions := make([]map[string]interface{}, 0)
 	for _, session := range ws.portForwards {
+		// Only show sessions for the current cluster
+		if session.ClusterContext != "" && session.ClusterContext != currentCluster {
+			continue
+		}
+		
 		sessions = append(sessions, map[string]interface{}{
-			"id":         session.ID,
-			"type":       session.Type,
-			"name":       session.Name,
-			"namespace":  session.Namespace,
-			"localPort":  session.LocalPort,
-			"remotePort": session.RemotePort,
-			"startedAt":  session.StartedAt.Format(time.RFC3339),
-			"duration":   formatAge(time.Since(session.StartedAt)),
-			"url":        fmt.Sprintf("http://localhost:%d", session.LocalPort),
+			"id":             session.ID,
+			"type":           session.Type,
+			"name":           session.Name,
+			"namespace":      session.Namespace,
+			"clusterContext": session.ClusterContext,
+			"localPort":      session.LocalPort,
+			"remotePort":     session.RemotePort,
+			"startedAt":      session.StartedAt.Format(time.RFC3339),
+			"duration":       formatAge(time.Since(session.StartedAt)),
+			"url":            fmt.Sprintf("http://localhost:%d", session.LocalPort),
 		})
 	}
 	ws.pfMu.Unlock()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"sessions": sessions,
+		"success":        true,
+		"sessions":       sessions,
+		"clusterContext": currentCluster,
 	})
 }

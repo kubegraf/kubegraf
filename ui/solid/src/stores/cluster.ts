@@ -346,6 +346,21 @@ createEffect(() => {
 // Global refresh event system for cluster switching
 const [refreshTrigger, setRefreshTrigger] = createSignal(0);
 
+// Cluster switch callbacks - pages can register to be notified
+const clusterSwitchCallbacks: Array<() => void> = [];
+
+// Register a callback to be called when cluster switches
+function onClusterSwitch(callback: () => void) {
+  clusterSwitchCallbacks.push(callback);
+  // Return unsubscribe function
+  return () => {
+    const index = clusterSwitchCallbacks.indexOf(callback);
+    if (index > -1) {
+      clusterSwitchCallbacks.splice(index, 1);
+    }
+  };
+}
+
 // Refresh all resources
 function refreshAll() {
   refetchPods();
@@ -353,6 +368,17 @@ function refreshAll() {
   refetchServices();
   refetchNodes();
   refetchStatus();
+  
+  // Notify all registered callbacks (page-specific cache invalidation)
+  clusterSwitchCallbacks.forEach(cb => {
+    try {
+      cb();
+    } catch (e) {
+      console.error('Error in cluster switch callback:', e);
+    }
+  });
+  
+  // Increment refresh trigger for reactive updates
   setRefreshTrigger(prev => prev + 1);
 }
 
@@ -386,6 +412,7 @@ export {
   refetchStatus,
   refetchContexts,
   refreshTrigger,
+  onClusterSwitch,
   workspaceVersion,
   selectedNamespaces,
   setSelectedNamespaces,
