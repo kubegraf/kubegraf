@@ -1,4 +1,4 @@
-import { Component, createSignal, For, Show, onCleanup } from 'solid-js';
+import { Component, createSignal, For, Show, onCleanup, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
 
 interface ActionItem {
@@ -27,57 +27,80 @@ const icons: Record<string, string> = {
   scale: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4',
   details: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
   edit: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+  info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  pod: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  events: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
 };
 
 const ActionMenu: Component<ActionMenuProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
   const [menuPosition, setMenuPosition] = createSignal({ top: 0, left: 0 });
   let buttonRef: HTMLButtonElement | undefined;
+  let menuRef: HTMLDivElement | undefined;
 
-  const handleClick = (e: MouseEvent) => {
+  const toggleMenu = (e: MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
+    
     const newState = !isOpen();
     if (buttonRef && newState) {
       const rect = buttonRef.getBoundingClientRect();
       setMenuPosition({
         top: rect.bottom + 4,
-        left: rect.right - 180, // Menu width approximately 180px
+        left: Math.max(10, rect.right - 180), // Menu width approximately 180px
       });
     }
     setIsOpen(newState);
     props.onOpenChange?.(newState);
   };
 
-  const handleActionClick = (action: ActionItem) => {
+  const executeAction = (action: ActionItem) => {
+    console.log('ActionMenu: Executing action:', action.label);
     setIsOpen(false);
     props.onOpenChange?.(false);
-    action.onClick();
-  };
-
-  // Close menu when clicking outside
-  const handleClickOutside = (e: MouseEvent) => {
-    if (isOpen() && buttonRef && !buttonRef.contains(e.target as Node)) {
-      setIsOpen(false);
-      props.onOpenChange?.(false);
+    
+    // Execute the action
+    try {
+      action.onClick();
+    } catch (err) {
+      console.error('ActionMenu: Error executing action:', err);
     }
   };
 
-  // Add global click listener
-  if (typeof window !== 'undefined') {
-    document.addEventListener('click', handleClickOutside);
-    onCleanup(() => document.removeEventListener('click', handleClickOutside));
-  }
+  // Close menu when clicking outside
+  createEffect(() => {
+    if (!isOpen()) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      
+      // Don't close if clicking inside button or menu
+      if (buttonRef?.contains(target)) return;
+      if (menuRef?.contains(target)) return;
+      
+      setIsOpen(false);
+      props.onOpenChange?.(false);
+    };
+
+    // Use capture phase to handle before other handlers
+    document.addEventListener('click', handleClickOutside, true);
+    
+    onCleanup(() => {
+      document.removeEventListener('click', handleClickOutside, true);
+    });
+  });
 
   return (
-    <div class="relative">
+    <div class="relative" style={{ display: 'inline-block' }}>
       <button
         ref={buttonRef}
-        onClick={handleClick}
+        onClick={toggleMenu}
         class="flex items-center justify-center p-1 rounded transition-all hover:bg-opacity-80"
         style={{
           background: 'var(--bg-tertiary)',
           color: 'var(--text-primary)',
           border: '1px solid var(--border-color)',
+          cursor: 'pointer',
         }}
         title="Actions"
       >
@@ -89,13 +112,15 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
       <Show when={isOpen()}>
         <Portal>
           <div
-            class="fixed z-50 py-2 rounded-lg shadow-xl min-w-[180px]"
+            ref={menuRef}
+            class="fixed py-2 rounded-lg shadow-xl min-w-[180px]"
             style={{
               top: `${menuPosition().top}px`,
               left: `${menuPosition().left}px`,
               background: 'var(--bg-card)',
               border: '1px solid var(--border-color)',
               'box-shadow': '0 10px 40px rgba(0, 0, 0, 0.3)',
+              'z-index': 9998,
             }}
           >
             <For each={props.actions}>
@@ -105,16 +130,24 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
                     <div class="my-1 border-t" style={{ 'border-color': 'var(--border-color)' }} />
                   </Show>
                   <button
-                    onClick={() => !action.disabled && !action.loading && handleActionClick(action)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!action.disabled && !action.loading) {
+                        executeAction(action);
+                      }
+                    }}
                     disabled={action.disabled || action.loading}
                     class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
                     classList={{
                       'opacity-50 cursor-not-allowed': action.disabled || action.loading,
-                      'hover:bg-opacity-50': !action.disabled && !action.loading,
                     }}
                     style={{
                       color: action.variant === 'danger' ? 'var(--error-color)' : 'var(--text-primary)',
                       background: 'transparent',
+                      border: 'none',
+                      cursor: action.disabled || action.loading ? 'not-allowed' : 'pointer',
+                      'text-align': 'left',
                     }}
                     onMouseEnter={(e) => {
                       if (!action.disabled && !action.loading) {

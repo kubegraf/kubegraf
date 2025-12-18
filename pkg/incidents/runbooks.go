@@ -1,0 +1,777 @@
+// Copyright 2025 KubeGraf Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+package incidents
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+)
+
+// Runbook defines an automated remediation procedure
+type Runbook struct {
+	// ID uniquely identifies this runbook
+	ID string `json:"id"`
+
+	// Name is the human-readable name
+	Name string `json:"name"`
+
+	// Description explains what this runbook does
+	Description string `json:"description"`
+
+	// Pattern is the failure pattern this runbook addresses
+	Pattern FailurePattern `json:"pattern"`
+
+	// Preconditions that must be met before execution
+	Preconditions []Check `json:"preconditions"`
+
+	// Action to perform
+	Action RunbookAction `json:"action"`
+
+	// Verification checks after action
+	Verification []Check `json:"verification"`
+
+	// Rollback action if verification fails
+	Rollback *RunbookAction `json:"rollback,omitempty"`
+
+	// Risk level of this runbook
+	Risk RunbookRisk `json:"risk"`
+
+	// AutonomyLevel defines when this can run automatically
+	AutonomyLevel AutonomyLevel `json:"autonomyLevel"`
+
+	// BlastRadius indicates potential impact scope
+	BlastRadius int `json:"blastRadius"`
+
+	// SuccessRate from historical executions (0.0-1.0)
+	SuccessRate float64 `json:"successRate"`
+
+	// ExecutionCount how many times this has been executed
+	ExecutionCount int `json:"executionCount"`
+
+	// LastExecuted when this was last run
+	LastExecuted *time.Time `json:"lastExecuted,omitempty"`
+
+	// Enabled whether this runbook is active
+	Enabled bool `json:"enabled"`
+
+	// Tags for categorization
+	Tags []string `json:"tags,omitempty"`
+}
+
+// Check represents a condition to verify
+type Check struct {
+	// ID uniquely identifies this check
+	ID string `json:"id"`
+
+	// Name of the check
+	Name string `json:"name"`
+
+	// Type of check
+	Type CheckType `json:"type"`
+
+	// Target to check
+	Target string `json:"target"`
+
+	// Operator for comparison
+	Operator CheckOperator `json:"operator"`
+
+	// Expected value
+	Expected interface{} `json:"expected"`
+
+	// Timeout for this check
+	Timeout time.Duration `json:"timeout"`
+
+	// Description explains the check
+	Description string `json:"description"`
+}
+
+// CheckType defines the type of check
+type CheckType string
+
+const (
+	CheckTypePodStatus        CheckType = "pod_status"
+	CheckTypeContainerStatus  CheckType = "container_status"
+	CheckTypeDeploymentStatus CheckType = "deployment_status"
+	CheckTypeEndpointCount    CheckType = "endpoint_count"
+	CheckTypeMetricValue      CheckType = "metric_value"
+	CheckTypeResourceExists   CheckType = "resource_exists"
+	CheckTypeEventAbsent      CheckType = "event_absent"
+	CheckTypeLogPattern       CheckType = "log_pattern"
+	CheckTypeHTTPProbe        CheckType = "http_probe"
+)
+
+// CheckOperator defines comparison operators
+type CheckOperator string
+
+const (
+	OpEquals       CheckOperator = "equals"
+	OpNotEquals    CheckOperator = "not_equals"
+	OpGreaterThan  CheckOperator = "greater_than"
+	OpLessThan     CheckOperator = "less_than"
+	OpContains     CheckOperator = "contains"
+	OpNotContains  CheckOperator = "not_contains"
+	OpExists       CheckOperator = "exists"
+	OpNotExists    CheckOperator = "not_exists"
+)
+
+// RunbookAction defines an action to perform
+type RunbookAction struct {
+	// Type of action
+	Type FixType `json:"type"`
+
+	// Target resource
+	Target KubeResourceRef `json:"target"`
+
+	// Parameters for the action
+	Parameters map[string]interface{} `json:"parameters,omitempty"`
+
+	// DryRunCommand for preview
+	DryRunCommand string `json:"dryRunCommand"`
+
+	// ApplyCommand for execution
+	ApplyCommand string `json:"applyCommand"`
+
+	// RollbackCommand to undo
+	RollbackCommand string `json:"rollbackCommand,omitempty"`
+
+	// Timeout for execution
+	Timeout time.Duration `json:"timeout"`
+
+	// Description of what this action does
+	Description string `json:"description"`
+}
+
+// RunbookRisk defines the risk level
+type RunbookRisk string
+
+const (
+	RiskRunbookLow      RunbookRisk = "low"
+	RiskRunbookMedium   RunbookRisk = "medium"
+	RiskRunbookHigh     RunbookRisk = "high"
+	RiskRunbookCritical RunbookRisk = "critical"
+)
+
+// AutonomyLevel defines when a runbook can run automatically
+type AutonomyLevel int
+
+const (
+	// AutonomyObserve - only observe and collect data
+	AutonomyObserve AutonomyLevel = 0
+	// AutonomyRecommend - recommend actions to user
+	AutonomyRecommend AutonomyLevel = 1
+	// AutonomyPropose - propose fixes with preview
+	AutonomyPropose AutonomyLevel = 2
+	// AutonomyAutoExecute - auto-execute low-risk fixes
+	AutonomyAutoExecute AutonomyLevel = 3
+)
+
+// String returns the string representation of AutonomyLevel
+func (a AutonomyLevel) String() string {
+	switch a {
+	case AutonomyObserve:
+		return "observe"
+	case AutonomyRecommend:
+		return "recommend"
+	case AutonomyPropose:
+		return "propose"
+	case AutonomyAutoExecute:
+		return "auto_execute"
+	default:
+		return "unknown"
+	}
+}
+
+// RunbookExecution represents a single execution of a runbook
+type RunbookExecution struct {
+	// ID of this execution
+	ID string `json:"id"`
+
+	// RunbookID of the executed runbook
+	RunbookID string `json:"runbookId"`
+
+	// IncidentID this execution is for
+	IncidentID string `json:"incidentId"`
+
+	// StartedAt when execution started
+	StartedAt time.Time `json:"startedAt"`
+
+	// CompletedAt when execution completed
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+
+	// Status of execution
+	Status ExecutionStatus `json:"status"`
+
+	// InitiatedBy who started this (user/auto/agent)
+	InitiatedBy string `json:"initiatedBy"`
+
+	// DryRun if this was a dry run
+	DryRun bool `json:"dryRun"`
+
+	// PreconditionResults results of precondition checks
+	PreconditionResults []CheckResult `json:"preconditionResults,omitempty"`
+
+	// ActionResult result of the main action
+	ActionResult *ActionResult `json:"actionResult,omitempty"`
+
+	// VerificationResults results of verification checks
+	VerificationResults []CheckResult `json:"verificationResults,omitempty"`
+
+	// RollbackResult if rollback was executed
+	RollbackResult *ActionResult `json:"rollbackResult,omitempty"`
+
+	// Error message if failed
+	Error string `json:"error,omitempty"`
+}
+
+// ExecutionStatus represents the status of a runbook execution
+type ExecutionStatus string
+
+const (
+	ExecutionPending      ExecutionStatus = "pending"
+	ExecutionRunning      ExecutionStatus = "running"
+	ExecutionCompleted    ExecutionStatus = "completed"
+	ExecutionFailed       ExecutionStatus = "failed"
+	ExecutionRolledBack   ExecutionStatus = "rolled_back"
+	ExecutionCancelled    ExecutionStatus = "cancelled"
+)
+
+// CheckResult is the result of a check execution
+type CheckResult struct {
+	Check   Check       `json:"check"`
+	Passed  bool        `json:"passed"`
+	Actual  interface{} `json:"actual"`
+	Message string      `json:"message"`
+	Time    time.Time   `json:"time"`
+}
+
+// ActionResult is the result of an action execution
+type ActionResult struct {
+	Action    RunbookAction `json:"action"`
+	Success   bool          `json:"success"`
+	Output    string        `json:"output"`
+	Changes   []string      `json:"changes,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	StartTime time.Time     `json:"startTime"`
+	EndTime   time.Time     `json:"endTime"`
+}
+
+// RunbookRegistry manages all registered runbooks
+type RunbookRegistry struct {
+	runbooks map[string]*Runbook
+	mu       sync.RWMutex
+}
+
+// NewRunbookRegistry creates a new runbook registry with default runbooks
+func NewRunbookRegistry() *RunbookRegistry {
+	registry := &RunbookRegistry{
+		runbooks: make(map[string]*Runbook),
+	}
+
+	// Register default runbooks
+	registry.registerDefaultRunbooks()
+
+	return registry
+}
+
+// registerDefaultRunbooks registers built-in runbooks
+func (r *RunbookRegistry) registerDefaultRunbooks() {
+	// Restart Pod runbook (low risk, can auto-execute)
+	r.Register(&Runbook{
+		ID:          "restart-pod",
+		Name:        "Restart Pod",
+		Description: "Delete pod to trigger recreation by controller",
+		Pattern:     PatternRestartStorm,
+		Preconditions: []Check{
+			{
+				ID:       "check-controller",
+				Name:     "Pod has controller",
+				Type:     CheckTypeResourceExists,
+				Target:   "ownerReferences",
+				Operator: OpExists,
+				Description: "Ensure pod is managed by a controller",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypeRestart,
+			Description: "Delete pod to trigger recreation",
+			DryRunCommand: "kubectl delete pod {{.Name}} -n {{.Namespace}} --dry-run=client",
+			ApplyCommand:  "kubectl delete pod {{.Name}} -n {{.Namespace}}",
+			Timeout:       60 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-pod-running",
+				Name:     "New pod is running",
+				Type:     CheckTypePodStatus,
+				Target:   "status.phase",
+				Operator: OpEquals,
+				Expected: "Running",
+				Timeout:  120 * time.Second,
+				Description: "Verify replacement pod is running",
+			},
+		},
+		Risk:          RiskRunbookLow,
+		AutonomyLevel: AutonomyPropose,
+		BlastRadius:   1,
+		SuccessRate:   0.95,
+		Enabled:       true,
+		Tags:          []string{"pod", "restart", "safe"},
+	})
+
+	// Scale Up Deployment runbook (low risk)
+	r.Register(&Runbook{
+		ID:          "scale-up-deployment",
+		Name:        "Scale Up Deployment",
+		Description: "Increase deployment replicas to improve availability",
+		Pattern:     PatternNoReadyEndpoints,
+		Preconditions: []Check{
+			{
+				ID:       "check-current-replicas",
+				Name:     "Check current replicas",
+				Type:     CheckTypeDeploymentStatus,
+				Target:   "spec.replicas",
+				Operator: OpLessThan,
+				Expected: 10,
+				Description: "Ensure we don't scale beyond reasonable limits",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypeScale,
+			Description: "Increase replica count by 1",
+			Parameters:  map[string]interface{}{"increment": 1},
+			DryRunCommand: "kubectl scale deployment {{.Name}} -n {{.Namespace}} --replicas={{.NewReplicas}} --dry-run=client",
+			ApplyCommand:  "kubectl scale deployment {{.Name}} -n {{.Namespace}} --replicas={{.NewReplicas}}",
+			Timeout:       60 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-endpoints",
+				Name:     "Service has ready endpoints",
+				Type:     CheckTypeEndpointCount,
+				Operator: OpGreaterThan,
+				Expected: 0,
+				Timeout:  120 * time.Second,
+				Description: "Verify service has at least one ready endpoint",
+			},
+		},
+		Rollback: &RunbookAction{
+			Type:            FixTypeScale,
+			Description:     "Scale back to original replica count",
+			RollbackCommand: "kubectl scale deployment {{.Name}} -n {{.Namespace}} --replicas={{.OriginalReplicas}}",
+		},
+		Risk:          RiskRunbookLow,
+		AutonomyLevel: AutonomyPropose,
+		BlastRadius:   1,
+		SuccessRate:   0.90,
+		Enabled:       true,
+		Tags:          []string{"deployment", "scale", "availability"},
+	})
+
+	// Increase Memory Limit runbook (medium risk)
+	r.Register(&Runbook{
+		ID:          "increase-memory-limit",
+		Name:        "Increase Memory Limit",
+		Description: "Increase container memory limit to prevent OOM",
+		Pattern:     PatternOOMPressure,
+		Preconditions: []Check{
+			{
+				ID:       "check-current-limit",
+				Name:     "Memory limit exists",
+				Type:     CheckTypeResourceExists,
+				Target:   "spec.containers[0].resources.limits.memory",
+				Operator: OpExists,
+				Description: "Ensure memory limit is currently set",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypePatch,
+			Description: "Increase memory limit by 50%",
+			Parameters:  map[string]interface{}{"increase_percent": 50},
+			DryRunCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.NewLimit}}\"}]' --dry-run=client",
+			ApplyCommand:  "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.NewLimit}}\"}]'",
+			Timeout:       120 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-no-oom",
+				Name:     "No OOM events",
+				Type:     CheckTypeEventAbsent,
+				Target:   "OOMKilled",
+				Timeout:  300 * time.Second,
+				Description: "Verify no new OOM events after increase",
+			},
+		},
+		Rollback: &RunbookAction{
+			Type:            FixTypePatch,
+			Description:     "Restore original memory limit",
+			RollbackCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.OriginalLimit}}\"}]'",
+		},
+		Risk:          RiskRunbookMedium,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.85,
+		Enabled:       true,
+		Tags:          []string{"memory", "oom", "resources"},
+	})
+
+	// Rollback Deployment runbook (medium risk)
+	r.Register(&Runbook{
+		ID:          "rollback-deployment",
+		Name:        "Rollback Deployment",
+		Description: "Rollback deployment to previous revision",
+		Pattern:     PatternCrashLoop,
+		Preconditions: []Check{
+			{
+				ID:       "check-revision-history",
+				Name:     "Previous revision exists",
+				Type:     CheckTypeResourceExists,
+				Target:   "metadata.annotations.deployment.kubernetes.io/revision",
+				Operator: OpGreaterThan,
+				Expected: 1,
+				Description: "Ensure there is a previous revision to rollback to",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypeRollback,
+			Description: "Rollback to previous revision",
+			DryRunCommand: "kubectl rollout undo deployment {{.Name}} -n {{.Namespace}} --dry-run=client",
+			ApplyCommand:  "kubectl rollout undo deployment {{.Name}} -n {{.Namespace}}",
+			Timeout:       180 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-rollout-complete",
+				Name:     "Rollout completed",
+				Type:     CheckTypeDeploymentStatus,
+				Target:   "status.conditions",
+				Operator: OpContains,
+				Expected: "Progressing=True",
+				Timeout:  300 * time.Second,
+				Description: "Verify rollback completed successfully",
+			},
+			{
+				ID:       "verify-pods-ready",
+				Name:     "Pods are ready",
+				Type:     CheckTypePodStatus,
+				Target:   "status.phase",
+				Operator: OpEquals,
+				Expected: "Running",
+				Timeout:  300 * time.Second,
+				Description: "Verify pods are running after rollback",
+			},
+		},
+		Risk:          RiskRunbookMedium,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.90,
+		Enabled:       true,
+		Tags:          []string{"deployment", "rollback", "crashloop"},
+	})
+
+	// Rolling Restart runbook (low risk)
+	r.Register(&Runbook{
+		ID:          "rolling-restart",
+		Name:        "Rolling Restart Deployment",
+		Description: "Trigger a rolling restart of all pods",
+		Pattern:     PatternRestartStorm,
+		Preconditions: []Check{
+			{
+				ID:       "check-deployment-exists",
+				Name:     "Deployment exists",
+				Type:     CheckTypeResourceExists,
+				Operator: OpExists,
+				Description: "Ensure deployment exists",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypeRestart,
+			Description: "Trigger rolling restart",
+			DryRunCommand: "kubectl rollout restart deployment {{.Name}} -n {{.Namespace}} --dry-run=client",
+			ApplyCommand:  "kubectl rollout restart deployment {{.Name}} -n {{.Namespace}}",
+			Timeout:       300 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-rollout-complete",
+				Name:     "Rollout completed",
+				Type:     CheckTypeDeploymentStatus,
+				Target:   "status.updatedReplicas",
+				Operator: OpEquals,
+				Expected: "{{.DesiredReplicas}}",
+				Timeout:  300 * time.Second,
+				Description: "Verify all pods have been restarted",
+			},
+		},
+		Risk:          RiskRunbookLow,
+		AutonomyLevel: AutonomyPropose,
+		BlastRadius:   1,
+		SuccessRate:   0.95,
+		Enabled:       true,
+		Tags:          []string{"deployment", "restart", "rolling"},
+	})
+}
+
+// Register adds a runbook to the registry
+func (r *RunbookRegistry) Register(runbook *Runbook) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runbooks[runbook.ID] = runbook
+}
+
+// Get retrieves a runbook by ID
+func (r *RunbookRegistry) Get(id string) *Runbook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.runbooks[id]
+}
+
+// GetByPattern returns all runbooks for a pattern
+func (r *RunbookRegistry) GetByPattern(pattern FailurePattern) []*Runbook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var result []*Runbook
+	for _, rb := range r.runbooks {
+		if rb.Pattern == pattern && rb.Enabled {
+			result = append(result, rb)
+		}
+	}
+	return result
+}
+
+// GetAll returns all registered runbooks
+func (r *RunbookRegistry) GetAll() []*Runbook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]*Runbook, 0, len(r.runbooks))
+	for _, rb := range r.runbooks {
+		result = append(result, rb)
+	}
+	return result
+}
+
+// GetEligibleForAuto returns runbooks eligible for auto-execution
+func (r *RunbookRegistry) GetEligibleForAuto() []*Runbook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var result []*Runbook
+	for _, rb := range r.runbooks {
+		if rb.Enabled && rb.AutonomyLevel >= AutonomyAutoExecute &&
+			rb.Risk == RiskRunbookLow && rb.SuccessRate >= 0.9 {
+			result = append(result, rb)
+		}
+	}
+	return result
+}
+
+// CanAutoExecute checks if a runbook can be auto-executed for an incident
+func (r *RunbookRegistry) CanAutoExecute(runbook *Runbook, incident *Incident, confidence float64) bool {
+	// Must be enabled
+	if !runbook.Enabled {
+		return false
+	}
+
+	// Must have auto-execute autonomy level
+	if runbook.AutonomyLevel < AutonomyAutoExecute {
+		return false
+	}
+
+	// Must be low risk
+	if runbook.Risk != RiskRunbookLow {
+		return false
+	}
+
+	// Must have high confidence
+	if confidence < 0.9 {
+		return false
+	}
+
+	// Must have high success rate
+	if runbook.SuccessRate < 0.9 {
+		return false
+	}
+
+	// Must have rollback defined
+	if runbook.Rollback == nil {
+		return false
+	}
+
+	return true
+}
+
+// RunbookExecutor executes runbooks
+type RunbookExecutor struct {
+	registry    *RunbookRegistry
+	kubeClient  KubeFixExecutor
+	executions  map[string]*RunbookExecution
+	mu          sync.RWMutex
+}
+
+// NewRunbookExecutor creates a new runbook executor
+func NewRunbookExecutor(registry *RunbookRegistry, kubeClient KubeFixExecutor) *RunbookExecutor {
+	return &RunbookExecutor{
+		registry:   registry,
+		kubeClient: kubeClient,
+		executions: make(map[string]*RunbookExecution),
+	}
+}
+
+// Execute runs a runbook for an incident
+func (e *RunbookExecutor) Execute(ctx context.Context, runbookID string, incident *Incident, dryRun bool, initiatedBy string) (*RunbookExecution, error) {
+	runbook := e.registry.Get(runbookID)
+	if runbook == nil {
+		return nil, fmt.Errorf("runbook not found: %s", runbookID)
+	}
+
+	execution := &RunbookExecution{
+		ID:          fmt.Sprintf("exec-%s-%d", runbookID, time.Now().UnixNano()),
+		RunbookID:   runbookID,
+		IncidentID:  incident.ID,
+		StartedAt:   time.Now(),
+		Status:      ExecutionPending,
+		InitiatedBy: initiatedBy,
+		DryRun:      dryRun,
+	}
+
+	e.mu.Lock()
+	e.executions[execution.ID] = execution
+	e.mu.Unlock()
+
+	// Run in goroutine
+	go e.runExecution(ctx, execution, runbook, incident)
+
+	return execution, nil
+}
+
+// runExecution performs the actual execution
+func (e *RunbookExecutor) runExecution(ctx context.Context, execution *RunbookExecution, runbook *Runbook, incident *Incident) {
+	execution.Status = ExecutionRunning
+
+	// Step 1: Check preconditions
+	allPassed := true
+	for _, check := range runbook.Preconditions {
+		result := e.runCheck(ctx, check, incident.Resource)
+		execution.PreconditionResults = append(execution.PreconditionResults, result)
+		if !result.Passed {
+			allPassed = false
+			break
+		}
+	}
+
+	if !allPassed {
+		execution.Status = ExecutionFailed
+		execution.Error = "Preconditions not met"
+		now := time.Now()
+		execution.CompletedAt = &now
+		return
+	}
+
+	// Step 2: Execute action
+	actionResult := e.runAction(ctx, runbook.Action, incident.Resource, execution.DryRun)
+	execution.ActionResult = &actionResult
+
+	if !actionResult.Success {
+		execution.Status = ExecutionFailed
+		execution.Error = actionResult.Error
+		now := time.Now()
+		execution.CompletedAt = &now
+		return
+	}
+
+	// If dry run, we're done
+	if execution.DryRun {
+		execution.Status = ExecutionCompleted
+		now := time.Now()
+		execution.CompletedAt = &now
+		return
+	}
+
+	// Step 3: Verify results
+	allVerified := true
+	for _, check := range runbook.Verification {
+		result := e.runCheck(ctx, check, incident.Resource)
+		execution.VerificationResults = append(execution.VerificationResults, result)
+		if !result.Passed {
+			allVerified = false
+		}
+	}
+
+	if !allVerified && runbook.Rollback != nil {
+		// Execute rollback
+		rollbackResult := e.runAction(ctx, *runbook.Rollback, incident.Resource, false)
+		execution.RollbackResult = &rollbackResult
+		execution.Status = ExecutionRolledBack
+		execution.Error = "Verification failed, rolled back"
+	} else if !allVerified {
+		execution.Status = ExecutionFailed
+		execution.Error = "Verification failed, no rollback available"
+	} else {
+		execution.Status = ExecutionCompleted
+		
+		// Update runbook stats
+		runbook.ExecutionCount++
+		now := time.Now()
+		runbook.LastExecuted = &now
+	}
+
+	now := time.Now()
+	execution.CompletedAt = &now
+}
+
+// runCheck executes a single check
+func (e *RunbookExecutor) runCheck(ctx context.Context, check Check, resource KubeResourceRef) CheckResult {
+	result := CheckResult{
+		Check: check,
+		Time:  time.Now(),
+	}
+
+	// TODO: Implement actual check logic using kubeClient
+	// For now, return a placeholder
+	result.Passed = true
+	result.Message = "Check passed (placeholder)"
+
+	return result
+}
+
+// runAction executes a runbook action
+func (e *RunbookExecutor) runAction(ctx context.Context, action RunbookAction, resource KubeResourceRef, dryRun bool) ActionResult {
+	result := ActionResult{
+		Action:    action,
+		StartTime: time.Now(),
+	}
+
+	// TODO: Implement actual action execution using kubeClient
+	// For now, return a placeholder
+	result.Success = true
+	result.Output = "Action executed (placeholder)"
+	result.EndTime = time.Now()
+
+	return result
+}
+
+// GetExecution retrieves an execution by ID
+func (e *RunbookExecutor) GetExecution(id string) *RunbookExecution {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.executions[id]
+}
+
+// GetExecutionsForIncident returns all executions for an incident
+func (e *RunbookExecutor) GetExecutionsForIncident(incidentID string) []*RunbookExecution {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var result []*RunbookExecution
+	for _, exec := range e.executions {
+		if exec.IncidentID == incidentID {
+			result = append(result, exec)
+		}
+	}
+	return result
+}
+

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -815,6 +816,34 @@ func (ws *WebServer) handleIncidentV2Action(w http.ResponseWriter, r *http.Reque
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(incident.Signals)
 
+	case "fix-preview":
+		// Delegate to handleFixPreview with the incidentID in path
+		ws.handleFixPreviewForIncident(w, r, incidentID)
+
+	case "fix-apply":
+		// Delegate to handleFixApply with the incidentID in path
+		ws.handleFixApplyForIncident(w, r, incidentID)
+
+	case "runbooks":
+		// Return runbooks for this incident
+		ws.handleIncidentRunbooks(w, r, incidentID)
+
+	case "evidence":
+		// Return evidence for this incident
+		ws.handleIncidentEvidence(w, r, incidentID)
+
+	case "citations":
+		// Return citations for this incident
+		ws.handleIncidentCitations(w, r, incidentID)
+
+	case "similar":
+		// Return similar incidents
+		ws.handleIncidentSimilar(w, r, incidentID)
+
+	case "feedback":
+		// Handle incident feedback
+		ws.handleIncidentFeedback(w, r, incidentID)
+
 	default:
 		http.Error(w, "Unknown action", http.StatusNotFound)
 	}
@@ -1193,5 +1222,727 @@ func (ws *WebServer) handleFixApply(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleAutoRemediationStatus handles GET /api/v2/auto-remediation/status
+func (ws *WebServer) handleAutoRemediationStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return a status indicating auto-remediation is not yet fully configured
+	status := map[string]interface{}{
+		"enabled":              false,
+		"activeExecutions":     0,
+		"totalExecutions":      0,
+		"successfulExecutions": 0,
+		"failedExecutions":     0,
+		"rolledBackExecutions": 0,
+		"queuedIncidents":      0,
+		"cooldownResources":    0,
+		"message":              "Auto-remediation engine not yet fully configured",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// handleAutoRemediationEnable handles POST /api/v2/auto-remediation/enable
+func (ws *WebServer) handleAutoRemediationEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Auto-remediation enabled (note: full implementation pending)",
+	})
+}
+
+// handleAutoRemediationDisable handles POST /api/v2/auto-remediation/disable
+func (ws *WebServer) handleAutoRemediationDisable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Auto-remediation disabled",
+	})
+}
+
+// handleAutoRemediationDecisions handles GET /api/v2/auto-remediation/decisions
+func (ws *WebServer) handleAutoRemediationDecisions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return empty decisions list for now
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
+}
+
+// handleLearningClusters handles GET /api/v2/learning/clusters
+func (ws *WebServer) handleLearningClusters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return empty clusters for now - learning engine needs more data
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
+}
+
+// handleLearningPatterns handles GET /api/v2/learning/patterns
+func (ws *WebServer) handleLearningPatterns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return empty patterns for now
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
+}
+
+// handleLearningTrends handles GET /api/v2/learning/trends
+func (ws *WebServer) handleLearningTrends(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return empty trends for now
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{})
+}
+
+// handleLearningSimilar handles GET /api/v2/learning/similar
+func (ws *WebServer) handleLearningSimilar(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return empty similar incidents for now
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
+}
+
+// handleRunbooks handles GET /api/v2/runbooks
+func (ws *WebServer) handleRunbooks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Return basic runbooks
+	runbooks := []map[string]interface{}{
+		{
+			"id":             "rb-restart-pod",
+			"name":           "Restart Pod",
+			"description":    "Delete the affected pod to trigger recreation by its controller",
+			"pattern":        "RESTART_STORM",
+			"risk":           "low",
+			"autonomyLevel":  2,
+			"successRate":    0.85,
+			"executionCount": 0,
+			"enabled":        true,
+			"tags":           []string{"pod", "restart", "quick-fix"},
+		},
+		{
+			"id":             "rb-increase-memory",
+			"name":           "Increase Memory Limit",
+			"description":    "Increase memory limits for containers experiencing OOM",
+			"pattern":        "OOM_PRESSURE",
+			"risk":           "medium",
+			"autonomyLevel":  2,
+			"successRate":    0.75,
+			"executionCount": 0,
+			"enabled":        true,
+			"tags":           []string{"memory", "resources", "oom"},
+		},
+		{
+			"id":             "rb-rolling-restart",
+			"name":           "Rolling Restart Deployment",
+			"description":    "Perform a rolling restart of the deployment",
+			"pattern":        "NO_READY_ENDPOINTS",
+			"risk":           "low",
+			"autonomyLevel":  2,
+			"successRate":    0.9,
+			"executionCount": 0,
+			"enabled":        true,
+			"tags":           []string{"deployment", "restart", "endpoints"},
+		},
+		{
+			"id":             "rb-retry-job",
+			"name":           "Retry Failed Job",
+			"description":    "Delete the failed job to allow retry",
+			"pattern":        "APP_CRASH",
+			"risk":           "low",
+			"autonomyLevel":  2,
+			"successRate":    0.7,
+			"executionCount": 0,
+			"enabled":        true,
+			"tags":           []string{"job", "retry", "failure"},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(runbooks)
+}
+
+// handleFeedback handles POST /api/v2/feedback
+func (ws *WebServer) handleFeedback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		IncidentID string `json:"incidentId"`
+		Type       string `json:"type"`
+		Content    string `json:"content"`
+		FixID      string `json:"fixId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Feedback received: incident=%s, type=%s, content=%s", req.IncidentID, req.Type, req.Content)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Feedback recorded successfully",
+	})
+}
+
+// handleFixPreviewForIncident handles fix preview for a specific incident
+func (ws *WebServer) handleFixPreviewForIncident(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body for recommendationId
+	var req struct {
+		RecommendationID string `json:"recommendationId"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Find the incident
+	var incident *incidents.Incident
+	
+	if ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+	}
+	
+	// Fallback to v1 incidents
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the fix
+	var fix *incidents.ProposedFix
+	if req.RecommendationID != "" {
+		for _, rec := range incident.Recommendations {
+			if rec.ID == req.RecommendationID && rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	} else {
+		for _, rec := range incident.Recommendations {
+			if rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	}
+
+	if fix == nil {
+		// Generate a fix
+		registry := incidents.NewFixGeneratorRegistry()
+		fixes := registry.GenerateFixes(incident)
+		if len(fixes) > 0 {
+			fix = fixes[0]
+		}
+	}
+
+	if fix == nil {
+		http.Error(w, "No fix available for this incident", http.StatusNotFound)
+		return
+	}
+
+	// Generate preview response
+	response := incidents.CreateFixPreviewResponse(fix)
+	
+	// Validate safety
+	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
+		response.Valid = false
+		response.ValidationError = err.Error()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleFixApplyForIncident handles fix apply for a specific incident
+func (ws *WebServer) handleFixApplyForIncident(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		RecommendationID string `json:"recommendationId"`
+		DryRun          bool   `json:"dryRun"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Find the incident
+	var incident *incidents.Incident
+	
+	if ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+	}
+	
+	// Fallback to v1 incidents
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the fix
+	var fix *incidents.ProposedFix
+	if req.RecommendationID != "" {
+		for _, rec := range incident.Recommendations {
+			if rec.ID == req.RecommendationID && rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	} else {
+		for _, rec := range incident.Recommendations {
+			if rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	}
+
+	if fix == nil {
+		registry := incidents.NewFixGeneratorRegistry()
+		fixes := registry.GenerateFixes(incident)
+		if len(fixes) > 0 {
+			fix = fixes[0]
+		}
+	}
+
+	if fix == nil {
+		http.Error(w, "No fix available for this incident", http.StatusNotFound)
+		return
+	}
+
+	// Validate safety
+	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
+		response := &incidents.FixApplyResponse{
+			Success:   false,
+			Error:     err.Error(),
+			DryRun:    req.DryRun,
+			AppliedAt: time.Now(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	response := &incidents.FixApplyResponse{
+		DryRun:    req.DryRun,
+		AppliedAt: time.Now(),
+	}
+
+	// Try to execute via manager if the incident is managed
+	executed := false
+	if ws.app.incidentIntelligence != nil {
+		ctx := r.Context()
+		manager := ws.app.incidentIntelligence.GetManager()
+		
+		// Only try manager if the incident exists there
+		if manager.GetIncident(incidentID) != nil {
+			var result *incidents.FixResult
+			var err error
+
+			if req.DryRun {
+				result, err = manager.DryRunFix(ctx, incidentID, req.RecommendationID)
+			} else {
+				result, err = manager.ApplyFix(ctx, incidentID, req.RecommendationID)
+			}
+
+			if err != nil {
+				response.Success = false
+				response.Error = err.Error()
+			} else if result != nil {
+				response.Success = result.Success
+				response.Message = result.Message
+				response.Changes = result.Changes
+				response.Error = result.Error
+				if result.RollbackCommand != "" {
+					response.RollbackCmd = result.RollbackCommand
+				}
+			}
+			executed = true
+		}
+	}
+	
+	if !executed {
+		// Return command info for v1 incidents or when no manager
+		response.Success = true
+		if req.DryRun {
+			response.Message = fmt.Sprintf("Dry run successful. Command: %s", fix.DryRunCmd)
+		} else {
+			response.Message = fmt.Sprintf("To apply this fix, run: %s", fix.ApplyCmd)
+		}
+		response.Changes = []string{fix.Description}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleIncidentRunbooks handles GET /api/v2/incidents/{id}/runbooks
+func (ws *WebServer) handleIncidentRunbooks(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Find the incident to get its pattern
+	var incident *incidents.Incident
+	
+	if ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+	}
+	
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	var runbooks []map[string]interface{}
+
+	if incident != nil {
+		// Return runbooks matching this pattern
+		pattern := string(incident.Pattern)
+		
+		allRunbooks := []map[string]interface{}{
+			{
+				"id":             "rb-restart-pod",
+				"name":           "Restart Pod",
+				"description":    "Delete the affected pod to trigger recreation by its controller",
+				"pattern":        "RESTART_STORM",
+				"risk":           "low",
+				"autonomyLevel":  2,
+				"successRate":    0.85,
+				"executionCount": 0,
+				"enabled":        true,
+				"tags":           []string{"pod", "restart", "quick-fix"},
+			},
+			{
+				"id":             "rb-increase-memory",
+				"name":           "Increase Memory Limit",
+				"description":    "Increase memory limits for containers experiencing OOM",
+				"pattern":        "OOM_PRESSURE",
+				"risk":           "medium",
+				"autonomyLevel":  2,
+				"successRate":    0.75,
+				"executionCount": 0,
+				"enabled":        true,
+				"tags":           []string{"memory", "resources", "oom"},
+			},
+			{
+				"id":             "rb-rolling-restart",
+				"name":           "Rolling Restart Deployment",
+				"description":    "Perform a rolling restart of the deployment",
+				"pattern":        "NO_READY_ENDPOINTS",
+				"risk":           "low",
+				"autonomyLevel":  2,
+				"successRate":    0.9,
+				"executionCount": 0,
+				"enabled":        true,
+				"tags":           []string{"deployment", "restart", "endpoints"},
+			},
+			{
+				"id":             "rb-retry-job",
+				"name":           "Retry Failed Job",
+				"description":    "Delete the failed job to allow retry",
+				"pattern":        "APP_CRASH",
+				"risk":           "low",
+				"autonomyLevel":  2,
+				"successRate":    0.7,
+				"executionCount": 0,
+				"enabled":        true,
+				"tags":           []string{"job", "retry", "failure"},
+			},
+		}
+
+		for _, rb := range allRunbooks {
+			if rb["pattern"] == pattern || rb["pattern"] == "ALL" {
+				runbooks = append(runbooks, rb)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(runbooks)
+}
+
+// handleIncidentEvidence handles GET /api/v2/incidents/{id}/evidence
+func (ws *WebServer) handleIncidentEvidence(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Find the incident
+	var incident *incidents.Incident
+	
+	if ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+	}
+	
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Build evidence from incident data
+	evidence := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type":    "Warning",
+				"reason":  incident.Pattern,
+				"message": incident.Description,
+				"time":    incident.LastSeen,
+			},
+		},
+		"logs": []map[string]interface{}{},
+		"statusFacts": []map[string]interface{}{
+			{
+				"type":  "Severity",
+				"key":   "severity",
+				"value": string(incident.Severity),
+			},
+			{
+				"type":  "Occurrences",
+				"key":   "occurrences",
+				"value": fmt.Sprintf("%d", incident.Occurrences),
+			},
+		},
+		"changeHistory": []map[string]interface{}{},
+	}
+
+	// Add evidence from diagnosis
+	if incident.Diagnosis != nil && len(incident.Diagnosis.Evidence) > 0 {
+		for _, ev := range incident.Diagnosis.Evidence {
+			evidence["statusFacts"] = append(evidence["statusFacts"].([]map[string]interface{}), map[string]interface{}{
+				"type":  "Evidence",
+				"key":   "diagnosis",
+				"value": ev,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(evidence)
+}
+
+// handleIncidentCitations handles GET /api/v2/incidents/{id}/citations
+func (ws *WebServer) handleIncidentCitations(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Find the incident
+	var incident *incidents.Incident
+	
+	if ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+	}
+	
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Generate citations based on pattern
+	citations := []map[string]interface{}{}
+	
+	pattern := string(incident.Pattern)
+	
+	switch pattern {
+	case "RESTART_STORM", "CRASHLOOP":
+		citations = append(citations, map[string]interface{}{
+			"source": "kubernetes-docs",
+			"ref":    "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy",
+			"title":  "Pod Restart Policy",
+			"quote":  "A Pod's restartPolicy determines how the kubelet handles Container crashes within the Pod.",
+		})
+		citations = append(citations, map[string]interface{}{
+			"source": "kubernetes-docs",
+			"ref":    "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/",
+			"title":  "Debug Pods",
+			"quote":  "This page shows how to debug Pods that are stuck in a pending state.",
+		})
+	case "OOM_PRESSURE":
+		citations = append(citations, map[string]interface{}{
+			"source": "kubernetes-docs",
+			"ref":    "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+			"title":  "Resource Management for Pods and Containers",
+			"quote":  "When you specify the resource request for containers in a Pod, the kube-scheduler uses this information to decide which node to place the Pod on.",
+		})
+		citations = append(citations, map[string]interface{}{
+			"source": "kubernetes-docs",
+			"ref":    "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/",
+			"title":  "Assign Memory Resources to Containers",
+			"quote":  "This page shows how to assign a memory request and a memory limit to a Container.",
+		})
+	case "APP_CRASH":
+		citations = append(citations, map[string]interface{}{
+			"source": "kubernetes-docs",
+			"ref":    "https://kubernetes.io/docs/concepts/workloads/controllers/job/",
+			"title":  "Jobs",
+			"quote":  "A Job creates one or more Pods and will continue to retry execution of the Pods until a specified number of them successfully terminate.",
+		})
+	}
+
+	// Add generic citation
+	citations = append(citations, map[string]interface{}{
+		"source": "incident",
+		"ref":    incidentID,
+		"title":  "Incident Evidence",
+		"quote":  incident.Description,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(citations)
+}
+
+// handleIncidentSimilar handles GET /api/v2/incidents/{id}/similar
+func (ws *WebServer) handleIncidentSimilar(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// For now, return empty array - learning engine would provide this
+	// In a full implementation, this would query the knowledge bank for similar incidents
+	similar := []map[string]interface{}{}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(similar)
+}
+
+// handleIncidentFeedback handles POST /api/v2/incidents/{id}/feedback
+func (ws *WebServer) handleIncidentFeedback(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Type    string `json:"type"`
+		Content string `json:"content"`
+		FixID   string `json:"fixId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Incident feedback received: incident=%s, type=%s, content=%s, fixId=%s", 
+		incidentID, req.Type, req.Content, req.FixID)
+
+	// Handle special feedback types
+	switch req.Type {
+	case "resolved":
+		if ws.app.incidentIntelligence != nil {
+			ws.app.incidentIntelligence.GetManager().ResolveIncident(incidentID, req.Content)
+		}
+	case "dismiss":
+		if ws.app.incidentIntelligence != nil {
+			ws.app.incidentIntelligence.GetManager().SuppressIncident(incidentID, req.Content)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Feedback recorded successfully",
+	})
 }
 

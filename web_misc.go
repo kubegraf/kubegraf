@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -61,12 +62,28 @@ func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Actually test the connection by trying to list namespaces
+	// Fast path: if already connected and not retry, return cached status immediately
+	// Don't re-test connection on every request - it's slow (~2s)
+	if ws.app.connected && !retry {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected": true,
+			"error":     "",
+			"cluster":   ws.app.cluster,
+			"version":   GetVersion(),
+		})
+		return
+	}
+
+	// Only test connection if not connected or retry requested
 	connected := false
 	errorMsg := ws.app.connectionError
 
 	if ws.app.clientset != nil {
-		_, err := ws.app.clientset.CoreV1().Namespaces().List(ws.app.ctx, metav1.ListOptions{Limit: 1})
+		// Use a short timeout for connection test
+		ctx, cancel := context.WithTimeout(ws.app.ctx, 2*time.Second)
+		defer cancel()
+		
+		_, err := ws.app.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
 		if err != nil {
 			connected = false
 			errorMsg = err.Error()
