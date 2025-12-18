@@ -19,10 +19,12 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
   const [fixModalTitle, setFixModalTitle] = createSignal('');
 
   const openFixModal = (incidentId: string, recId?: string, title?: string) => {
+    console.log('openFixModal called:', { incidentId, recId, title });
     setFixModalIncidentId(incidentId);
     setFixModalRecId(recId);
     setFixModalTitle(title || 'Proposed Fix');
     setFixModalOpen(true);
+    console.log('Modal state after open:', { isOpen: true, incidentId, recId });
   };
 
   const closeFixModal = () => {
@@ -405,10 +407,14 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                     <Show when={rec.proposedFix || rec.action}>
                                       <div style={{ 'margin-top': '8px', display: 'flex', gap: '8px' }}>
                                         <button 
+                                          type="button"
                                           onClick={(e) => {
+                                            e.preventDefault();
                                             e.stopPropagation();
+                                            console.log('Fix button clicked!', { incidentId: incident.id, recId: rec.id });
                                             openFixModal(incident.id, rec.id, rec.action?.label || rec.title);
                                           }}
+                                          onMouseDown={(e) => e.stopPropagation()}
                                           style={{
                                             padding: '6px 12px',
                                             'font-size': '11px',
@@ -420,7 +426,10 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                             'font-weight': '600',
                                             display: 'flex',
                                             'align-items': 'center',
-                                            gap: '4px'
+                                            gap: '4px',
+                                            'pointer-events': 'auto',
+                                            'z-index': '10',
+                                            position: 'relative'
                                           }}
                                         >
                                           {rec.action?.type === 'RESTART' ? '🔄' : 

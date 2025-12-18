@@ -6,19 +6,34 @@ import { setCurrentView, addNotification } from '../stores/ui';
 import { setNamespaces } from '../stores/globalStore';
 import { Incident } from '../services/api';
 
+// Helper to get resource fields from both v1 and v2 incident formats
+function getResourceKind(incident: Incident): string {
+  return incident.resource?.kind || incident.resourceKind || 'Pod';
+}
+
+function getResourceName(incident: Incident): string {
+  return incident.resource?.name || incident.resourceName || '';
+}
+
+function getResourceNamespace(incident: Incident): string {
+  return incident.resource?.namespace || incident.namespace || 'default';
+}
+
 /**
  * Navigate to a specific pod in the Pods view
  */
 export function navigateToPod(incident: Incident): void {
-  if (incident.resourceKind !== 'Pod') {
+  const kind = getResourceKind(incident);
+  if (kind !== 'Pod') {
     addNotification('This incident is not related to a Pod', 'warning');
     return;
   }
 
   // Parse pod name from resourceName (format: "pod-name/container-name" or just "pod-name")
-  const parts = incident.resourceName.split('/');
+  const resourceName = getResourceName(incident);
+  const parts = resourceName.split('/');
   const podName = parts[0];
-  const namespace = incident.namespace || 'default';
+  const namespace = getResourceNamespace(incident);
 
   // Set namespace in both stores
   setNamespace(namespace);
@@ -39,15 +54,17 @@ export function navigateToPod(incident: Incident): void {
  * Open pod logs for an incident
  */
 export function openPodLogs(incident: Incident, onOpenLogs?: (podName: string, namespace: string) => void): void {
-  if (incident.resourceKind !== 'Pod') {
+  const kind = getResourceKind(incident);
+  if (kind !== 'Pod') {
     addNotification('This incident is not related to a Pod', 'warning');
     return;
   }
 
   // Parse pod name from resourceName
-  const parts = incident.resourceName.split('/');
+  const resourceName = getResourceName(incident);
+  const parts = resourceName.split('/');
   const podName = parts[0];
-  const namespace = incident.namespace || 'default';
+  const namespace = getResourceNamespace(incident);
 
   // Set namespace in both stores
   setNamespace(namespace);
@@ -74,9 +91,9 @@ export function openPodLogs(incident: Incident, onOpenLogs?: (podName: string, n
  * Navigate to Events view and filter by resource
  */
 export function navigateToEvent(incident: Incident): void {
-  const resourceName = incident.resourceName;
-  const namespace = incident.namespace || 'default';
-  const resourceKind = incident.resourceKind || 'Pod';
+  const resourceName = getResourceName(incident);
+  const namespace = getResourceNamespace(incident);
+  const resourceKind = getResourceKind(incident);
 
   // Parse pod name from resourceName (format: "pod-name/container-name" or just "pod-name")
   const parts = resourceName.split('/');
