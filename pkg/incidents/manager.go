@@ -273,6 +273,12 @@ func (m *Manager) GetSummary() IncidentSummary {
 	return m.aggregator.GetSummary()
 }
 
+// RegenerateRecommendations regenerates recommendations for all incidents.
+// This is useful when recommendation logic has been updated.
+func (m *Manager) RegenerateRecommendations() int {
+	return m.aggregator.RegenerateRecommendations()
+}
+
 // ResolveIncident marks an incident as resolved.
 func (m *Manager) ResolveIncident(id string, resolution string) error {
 	return m.aggregator.ResolveIncident(id, resolution)

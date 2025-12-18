@@ -683,6 +683,93 @@ ui/solid/src/components/intelligence/
 
 ---
 
+## Phase 1 Features (New)
+
+### Change Intelligence
+
+**What changed before this incident?**
+
+Correlates Kubernetes changes with incidents by time window.
+
+```bash
+GET /api/incidents/{id}/changes?lookback=30
+```
+
+**Response includes:**
+- `changes[]` - List of changes with relevance scoring
+- `relevanceScore` - 0.0 to 1.0 (higher = more likely related)
+- `relationship` - "before", "during", or "after" the incident
+- `timeDelta` - Human-readable time difference ("5m before")
+
+**UI Component:** `ui/solid/src/features/changes/ChangeTimeline.tsx`
+
+### Developer Mode ("Explain this Pod")
+
+Deep pod analysis for developers.
+
+```bash
+GET /api/explain/pod?namespace=default&pod=my-pod
+```
+
+**Response includes:**
+- `summary` - One-line status description
+- `status` - "healthy", "warning", "error", "unknown"
+- `timeline` - Lifecycle events
+- `keyFindings` - Most important observations
+- `containers` - Per-container analysis
+- `restartAnalysis` - Restart pattern detection
+
+**UI Component:** `ui/solid/src/features/developer/ExplainPodPanel.tsx`
+
+### Multi-Cluster Summaries
+
+Aggregate incidents across all clusters.
+
+```bash
+GET /api/clusters/summary
+```
+
+**Response includes:**
+- `totalClusters` / `totalIncidents` - Global counts
+- `clusters[]` - Per-cluster health with scores
+- `topPatterns` - Most common failure patterns
+- `severityCounts` - Distribution by severity
+
+**UI Component:** `ui/solid/src/features/clusters/MultiClusterSummary.tsx`
+
+### Knowledge Bank Sharing
+
+Export/import incident knowledge between installations.
+
+```bash
+# Export
+POST /api/knowledge/export?description=Production%20knowledge
+
+# Import (multipart form)
+POST /api/knowledge/import
+```
+
+**Export format:**
+```json
+{
+  "version": "1.0",
+  "entries": [
+    {
+      "fingerprint": "fp-123",
+      "pattern": "OOM_PRESSURE",
+      "rootCause": "Memory limit too low",
+      "fixSummary": "Increased to 512Mi",
+      "outcome": "success",
+      "confidence": 0.9
+    }
+  ]
+}
+```
+
+**UI Component:** `ui/solid/src/features/knowledge/KnowledgeExportImport.tsx`
+
+---
+
 ## Future Improvements
 
 - [x] Custom symptom rules via YAML config
@@ -692,5 +779,5 @@ ui/solid/src/components/intelligence/
 - [x] Runbook linking for recommendations
 - [ ] Custom runbook editor
 - [ ] Prometheus/Grafana integration
-- [ ] Multi-cluster incident correlation
+- [x] Multi-cluster incident correlation (Phase 1)
 

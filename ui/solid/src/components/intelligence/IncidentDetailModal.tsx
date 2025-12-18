@@ -5,6 +5,7 @@ import CitationsPanel from './CitationsPanel';
 import RunbookSelector from './RunbookSelector';
 import SimilarIncidents from './SimilarIncidents';
 import FeedbackButtons from './FeedbackButtons';
+import ChangeTimeline from './ChangeTimeline';
 
 interface IncidentDetailModalProps {
   incident: Incident | null;
@@ -35,6 +36,7 @@ const IncidentDetailModal: Component<IncidentDetailModalProps> = (props) => {
 
   const sections = [
     { id: 'evidence', label: '📦 Evidence', icon: '📦' },
+    { id: 'changes', label: '🔄 Changes', icon: '🔄' },
     { id: 'citations', label: '📚 Citations', icon: '📚' },
     { id: 'runbooks', label: '📋 Runbooks', icon: '📋' },
     { id: 'similar', label: '🔗 Similar', icon: '🔗' },
@@ -216,6 +218,10 @@ const IncidentDetailModal: Component<IncidentDetailModalProps> = (props) => {
             {/* Section Content */}
             <Show when={activeSection() === 'evidence'}>
               <EvidencePanel incidentId={props.incident!.id} />
+            </Show>
+
+            <Show when={activeSection() === 'changes'}>
+              <ChangeTimeline incidentId={props.incident!.id} />
             </Show>
 
             <Show when={activeSection() === 'citations'}>

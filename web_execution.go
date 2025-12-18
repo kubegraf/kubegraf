@@ -2179,6 +2179,52 @@ func finalizeApplyYAMLExecution(
 		summary.Resources = &changed
 	}
 
+	// Emit a summary line before completion so users see what happened
+	summaryParts := []string{}
+	if changed.Created > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d created", changed.Created))
+	}
+	if changed.Configured > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d configured", changed.Configured))
+	}
+	if changed.Unchanged > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d unchanged", changed.Unchanged))
+	}
+	if changed.Deleted > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d deleted", changed.Deleted))
+	}
+
+	if len(summaryParts) > 0 {
+		summaryText := fmt.Sprintf("Summary: %s", strings.Join(summaryParts, ", "))
+		_ = writeJSON(ExecutionLineMessage{
+			Type:        "line",
+			ExecutionID: execID,
+			Timestamp:   completedAt,
+			Stream:      "stdout",
+			Text:        summaryText,
+			Mode:        mode,
+			SourceLabel: sourceLabel,
+		})
+	}
+
+	// Emit completion status line
+	statusText := "Execution completed successfully"
+	if status == ExecutionStatusFailed {
+		statusText = "Execution failed"
+	}
+	if mode == ExecutionModeDryRun {
+		statusText = "Dry run completed - no changes made"
+	}
+	_ = writeJSON(ExecutionLineMessage{
+		Type:        "line",
+		ExecutionID: execID,
+		Timestamp:   completedAt,
+		Stream:      "stdout",
+		Text:        statusText,
+		Mode:        mode,
+		SourceLabel: sourceLabel,
+	})
+
 	completeMsg := ExecutionCompleteMessage{
 		Type:        "complete",
 		ExecutionID: execID,

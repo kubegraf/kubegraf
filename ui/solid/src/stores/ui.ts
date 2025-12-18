@@ -58,7 +58,10 @@ export type View =
   | 'mlflow'
   | 'feast'
   | 'gpudashboard'
-  | 'mlworkflows';
+  | 'mlworkflows'
+  | 'multicluster'
+  | 'knowledgebank'
+  | 'sreagent';
 
 // Initialize currentView - check sessionStorage, default to 'clustermanager'
 const getInitialView = (): View => {

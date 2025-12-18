@@ -39,6 +39,8 @@ const InferenceServices = lazy(() => import('./InferenceServices'));
 const Feast = lazy(() => import('./Feast'));
 const GPUDashboard = lazy(() => import('./GPUDashboard'));
 const MLWorkflows = lazy(() => import('./MLWorkflows'));
+const MultiCluster = lazy(() => import('./MultiCluster'));
+const KnowledgeBank = lazy(() => import('./KnowledgeBank'));
 const Logs = lazy(() => import('./Logs'));
 const Anomalies = lazy(() => import('./Anomalies'));
 const Incidents = lazy(() => import('./Incidents'));
@@ -168,6 +170,8 @@ export const views: Record<string, Component> = {
   releases: Releases,
   rollouts: Rollouts,
   uidemo: UIDemo,
+  multicluster: MultiCluster,
+  knowledgebank: KnowledgeBank,
 } satisfies Record<string, Component>;
 
 // Views that should be accessible even when not connected

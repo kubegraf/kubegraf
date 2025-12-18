@@ -20,7 +20,21 @@
 
 ---
 
-## 🎉 What's New in v1.3.0-rc2
+## 🎉 What's New
+
+### ✅ Incident Intelligence System (v2)
+- **Failure Pattern Detection** - Automatic detection of CrashLoops, OOM, Restart Storms, and 12+ patterns
+- **Evidence-Backed Diagnosis** - Every conclusion supported by cluster evidence
+- **Safe Fix Recommendations** - Preview + dry-run before any action
+- **Runbook-Driven Fixes** - Pre-defined, tested remediation actions
+- **Knowledge Bank** - SQLite storage for incident learning
+- **Guarded Auto-Remediation** - Safe automation with confidence thresholds
+
+### ✅ Phase 1 Features (New)
+- **Change Intelligence** - "What changed before this incident?" timeline
+- **Developer Mode** - "Explain this pod" with lifecycle analysis
+- **Multi-Cluster Summaries** - Aggregated health across all clusters
+- **Knowledge Bank Sharing** - Export/import incident knowledge
 
 ### ✅ Complete IAM/Login System
 - **LoginModal** component with registration & authentication
@@ -33,11 +47,6 @@
 - **Session persistence** across tabs and restarts
 - **Filter resources** by selected namespaces
 
-### ✅ Deployment Progress
-- **Real-time progress** overlay with task tracking
-- **Sound alerts** for completion/errors
-- **Minimizable panel** with deployment history
-
 ### ✅ Production Infrastructure
 - **Redis caching** with LRU fallback (15x performance boost)
 - **SQLite database** with AES-256-GCM encryption
@@ -45,8 +54,9 @@
 - **Secure sessions** with HttpOnly cookies
 
 ### ✅ Complete Documentation
+- [**Complete Feature Reference**](FEATURES.md) - All v1, v2, and Phase 1 features
 - [**Build Instructions**](BUILD.md) - Clear guide for building frontend and backend
-- [First-Time Setup Guide](FIRST_TIME_SETUP_GUIDE.md)
+- [Incident Intelligence Guide](docs/INCIDENT_INTELLIGENCE.md)
 - [AI Agent Integration](docs/AI_AGENT_INTEGRATION.md)
 - [ML Deployment Guide](docs/ML_DEPLOYMENT.md)
 - [Marketplace Documentation](docs/MARKETPLACE.md)
@@ -73,7 +83,7 @@
 - **Deployment Operations** - Scale replicas, restart rolling updates, rollback, history
 - **YAML Viewer** - Syntax-highlighted complete resource configurations
 - **Multi-Namespace** - Switch namespaces or view all at once
-- **Multi-Cluster** - Switch between Kubernetes contexts
+- **Multi-Cluster** - Switch between Kubernetes contexts with aggregated summaries
 - **Security Analysis** - Automated security posture assessment with 0-100 score
 - **Cost Management** - Cloud cost estimation for GCP, AWS, Azure, and more
 - **Drift Detection** - Configuration drift monitoring and GitOps sync status
@@ -82,6 +92,16 @@
 - **Plugin System** - Extensible architecture with Helm, ArgoCD, Flux support
 - **Events** - Real-time cluster events and notifications
 - **Diagnostics** - Automated cluster health and performance analysis
+
+### 🔥 Incident Intelligence (New)
+
+- **Failure Pattern Detection** - CrashLoop, OOM, Restart Storm, Image Pull Failure, and 12+ patterns
+- **Evidence-Backed Diagnosis** - Citations from events, logs, and Kubernetes docs
+- **Safe Fix Recommendations** - Preview diffs before applying any changes
+- **Change Intelligence** - "What changed before this incident?" correlation
+- **Developer Mode** - "Explain this pod" with lifecycle analysis
+- **Knowledge Bank** - Local SQLite storage for incident learning and sharing
+- **Guarded Auto-Remediation** - Confidence-based safe automation
 
 ### Advanced Visualization
 
@@ -450,6 +470,10 @@ KubeGraf provides a comprehensive Kubernetes management solution with:
 
 - **3 Interfaces** - Terminal UI, Web Dashboard, and Modern Solid.js SPA
 - **20+ Resource Types** - Complete Kubernetes resource coverage
+- **Incident Intelligence** - Failure pattern detection, evidence-backed diagnosis, safe fixes
+- **Change Intelligence** - Correlate incidents with recent cluster changes
+- **Developer Mode** - "Explain this pod" with lifecycle and restart analysis
+- **Knowledge Bank** - Local storage for incident learning and sharing
 - **Security Analysis** - Automated security posture assessment with scoring
 - **Cost Management** - Multi-cloud cost estimation (GCP, AWS, Azure, etc.)
 - **Drift Detection** - Configuration drift monitoring and GitOps integration
@@ -457,7 +481,7 @@ KubeGraf provides a comprehensive Kubernetes management solution with:
 - **Visualization** - Multiple topology views (D3.js, Graphviz, Terminal Canvas)
 - **Real-time Monitoring** - Live metrics, events, and WebSocket updates
 - **Plugin System** - Extensible architecture with Helm, ArgoCD, Flux support
-- **Multi-cluster** - Support for multiple Kubernetes contexts
+- **Multi-cluster** - Support for multiple Kubernetes contexts with aggregated summaries
 
 For a complete list of features and capabilities, see [FEATURES.md](FEATURES.md).
 
@@ -497,7 +521,9 @@ kubegraf/
 
 ## 📚 Documentation
 
-- **[FEATURES.md](FEATURES.md)** - Complete feature and capability documentation
+- **[FEATURES.md](FEATURES.md)** - Complete feature reference (v1, v2, Phase 1)
+- **[docs/INCIDENT_INTELLIGENCE.md](docs/INCIDENT_INTELLIGENCE.md)** - Incident Intelligence System guide
+- **[docs/guides/FEATURES.md](docs/guides/FEATURES.md)** - Detailed UI features guide
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup and contribution guidelines
 - **[DEPENDENCIES.md](DEPENDENCIES.md)** - Project dependencies and licenses
 

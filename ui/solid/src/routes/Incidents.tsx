@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, Show, onMount, lazy } from 'solid-js';
+import { Component, createSignal, createMemo, Show, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
 import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
@@ -11,8 +11,10 @@ import {
   setCachedIncidentsData, 
   isCacheValid,
   getIsFetching,
-  setFetching 
+  setFetching,
+  invalidateIncidentsCache
 } from '../stores/incidents';
+import { currentContext, onClusterSwitch } from '../stores/cluster';
 
 // Separate component for intelligence panels to avoid loading until needed
 const IntelligencePanels: Component = () => (
@@ -46,7 +48,8 @@ const Incidents: Component = () => {
       const data = await api.getIncidents();
       const incidents = data || [];
       setLocalIncidents(incidents);
-      setCachedIncidentsData(incidents);
+      // Save with current cluster context for cache validation
+      setCachedIncidentsData(incidents, currentContext());
     } catch (error) {
       console.error('Error fetching incidents:', error);
     } finally {
@@ -67,14 +70,16 @@ const Incidents: Component = () => {
 
   // On mount: show cached data INSTANTLY, then refresh in background
   onMount(() => {
-    // Show cached data immediately (already set in signal initialization)
+    const ctx = currentContext();
+    
+    // Show cached data immediately if from same cluster
     const cached = getCachedIncidents();
-    if (cached.length > 0) {
+    if (cached.length > 0 && isCacheValid(ctx)) {
       setLocalIncidents(cached);
     }
     
     // Fetch fresh data in background (non-blocking)
-    if (!isCacheValid()) {
+    if (!isCacheValid(ctx)) {
       fetchIncidentsBackground();
     } else {
       // Even with valid cache, refresh after short delay
@@ -83,6 +88,20 @@ const Incidents: Component = () => {
     
     // Fetch namespaces in background
     fetchNamespacesBackground();
+    
+    // Register for cluster switch notifications
+    const unsubscribe = onClusterSwitch(() => {
+      console.log('[Incidents] Cluster switched - refreshing data');
+      // Invalidate cache and clear local data
+      invalidateIncidentsCache();
+      setLocalIncidents([]);
+      // Refetch data for new cluster
+      fetchIncidentsBackground();
+      fetchNamespacesBackground();
+    });
+    
+    // Cleanup on unmount
+    onCleanup(unsubscribe);
   });
 
   // Manual refresh

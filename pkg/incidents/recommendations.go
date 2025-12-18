@@ -123,6 +123,12 @@ func (r *CrashLoopRecommender) Generate(incident *Incident) []Recommendation {
 				fmt.Sprintf("kubectl logs %s -n %s -c <container-name> --previous", name, ns),
 			},
 			Tags: []string{"investigation", "logs"},
+			Action: &FixAction{
+				Label:       "View Logs",
+				Type:        ActionTypeViewLogs,
+				Description: "Open the logs viewer for this pod",
+				Safe:        true,
+			},
 		},
 		{
 			Title:       "Validate Configuration",
@@ -228,14 +234,74 @@ func (r *RestartStormRecommender) Generate(incident *Incident) []Recommendation 
 
 	return []Recommendation{
 		{
+			Title:       "Restart Pod",
+			Explanation: "Delete the pod to trigger recreation by its controller and get a fresh start",
+			Evidence:    incident.Diagnosis.Evidence,
+			Risk:        RiskLow,
+			Priority:    1,
+			ProposedFix: &ProposedFix{
+				Description:    fmt.Sprintf("Restart pod %s to get a fresh start", name),
+				Type:           FixTypeRestart,
+				TargetResource: resource,
+				DryRunCmd:      fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", name, ns),
+				ApplyCmd:       fmt.Sprintf("kubectl delete pod %s -n %s", name, ns),
+				Safe:           true,
+				RequiresConfirmation: true,
+			},
+			Action: &FixAction{
+				Label:       "Restart Pod",
+				Type:        ActionTypeRestart,
+				Description: "Delete the pod to trigger recreation",
+				Safe:        true,
+			},
+			Tags: []string{"remediation", "restart"},
+		},
+		{
+			Title:       "Check container logs",
+			Explanation: "Review the container logs to identify the root cause of restarts",
+			Risk:        RiskLow,
+			Priority:    2,
+			ManualSteps: []string{
+				fmt.Sprintf("kubectl logs %s -n %s --previous", name, ns),
+				fmt.Sprintf("kubectl logs %s -n %s", name, ns),
+			},
+			Action: &FixAction{
+				Label:       "Check container logs",
+				Type:        ActionTypeViewLogs,
+				Description: "Open the logs viewer for this pod",
+				Safe:        true,
+			},
+			Tags: []string{"investigation", "logs"},
+		},
+		{
+			Title:       "Increase resource limits",
+			Explanation: "If the container is being OOM killed, increase memory limits",
+			Risk:        RiskMedium,
+			Priority:    3,
+			ProposedFix: generateMemoryIncreaseFix(resource),
+			Action: &FixAction{
+				Label:       "Increase resource limits",
+				Type:        ActionTypePreviewPatch,
+				Description: "Propose memory limit increase",
+				Safe:        false,
+			},
+			Tags: []string{"resources", "memory"},
+		},
+		{
 			Title:       "Check Liveness Probe Configuration",
 			Explanation: "Frequent restarts may be caused by overly aggressive liveness probes",
 			Risk:        RiskLow,
-			Priority:    1,
+			Priority:    4,
 			ManualSteps: []string{
 				fmt.Sprintf("kubectl get pod %s -n %s -o yaml | grep -A 10 livenessProbe", name, ns),
 				"Increase initialDelaySeconds if app needs more startup time",
 				"Increase timeoutSeconds and periodSeconds",
+			},
+			Action: &FixAction{
+				Label:       "View Pod Details",
+				Type:        ActionTypeDescribe,
+				Description: "View pod configuration including probe settings",
+				Safe:        true,
 			},
 			Tags: []string{"probes", "configuration"},
 		},
@@ -243,24 +309,18 @@ func (r *RestartStormRecommender) Generate(incident *Incident) []Recommendation 
 			Title:       "Review Container Exit Codes",
 			Explanation: "Understand why containers are exiting to identify the root cause",
 			Risk:        RiskLow,
-			Priority:    2,
+			Priority:    5,
 			ManualSteps: []string{
 				fmt.Sprintf("kubectl describe pod %s -n %s | grep -A 5 'Last State'", name, ns),
 				"Check for pattern in exit codes",
 			},
-			Tags: []string{"investigation"},
-		},
-		{
-			Title:       "Check External Dependencies",
-			Explanation: "Intermittent failures may be caused by unreliable external dependencies",
-			Risk:        RiskLow,
-			Priority:    3,
-			ManualSteps: []string{
-				"Verify database connectivity",
-				"Check message queue health",
-				"Review external API availability",
+			Action: &FixAction{
+				Label:       "View Events",
+				Type:        ActionTypeViewEvents,
+				Description: "View pod events to see restart history and exit codes",
+				Safe:        true,
 			},
-			Tags: []string{"investigation", "dependencies"},
+			Tags: []string{"investigation"},
 		},
 	}
 }

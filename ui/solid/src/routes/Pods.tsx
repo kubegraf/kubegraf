@@ -73,6 +73,12 @@ const Pods: Component = () => {
   const [podToDelete, setPodToDelete] = createSignal<Pod | null>(null);
   const [showContainerSelect, setShowContainerSelect] = createSignal(false);
   const [containerSelectPod, setContainerSelectPod] = createSignal<Pod | null>(null);
+  
+  // Explain Pod state
+  const [showExplain, setShowExplain] = createSignal(false);
+  const [explainData, setExplainData] = createSignal<any>(null);
+  const [explainLoading, setExplainLoading] = createSignal(false);
+  const [explainError, setExplainError] = createSignal<string | null>(null);
 
   // Track if any action menu is open to pause auto-refresh
   const [actionMenuOpen, setActionMenuOpen] = createSignal(false);
@@ -426,37 +432,60 @@ const Pods: Component = () => {
     }
   });
 
-  // Handle auto-open logs from incidents
+  // Handle auto-open logs from incidents - watch for pods cache changes
   createEffect(() => {
     const podForLogs = getPodForLogs();
     const flag = sessionStorage.getItem('kubegraf-open-logs-flag');
-    if (podForLogs && flag === 'true') {
-      const pods = podsCache();
-      if (pods && pods.length > 0) {
-        const pod = pods.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
-        if (pod) {
-          setSelectedPod(pod);
-          fetchLogs(pod, logsFollow());
-          setShowLogs(true);
-          clearPodLogs();
-          sessionStorage.removeItem('kubegraf-open-logs-flag');
-        } else {
-          // Pod not found yet, wait a bit and retry
-          setTimeout(() => {
-            const podsRetry = podsCache();
-            if (podsRetry && podsRetry.length > 0) {
-              const podRetry = podsRetry.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
-              if (podRetry) {
-                setSelectedPod(podRetry);
-                fetchLogs(podRetry, logsFollow());
-                setShowLogs(true);
-                clearPodLogs();
-                sessionStorage.removeItem('kubegraf-open-logs-flag');
-              }
-            }
-          }, 1000);
-        }
+    const pods = podsCache(); // Track pods cache changes
+    
+    if (podForLogs && flag === 'true' && pods && pods.length > 0) {
+      const pod = pods.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
+      if (pod) {
+        // Found the pod - open logs
+        sessionStorage.removeItem('kubegraf-open-logs-flag');
+        clearPodLogs();
+        setSelectedPod(pod);
+        fetchLogs(pod, logsFollow());
+        setShowLogs(true);
+        addNotification(`Opening logs for ${pod.name}`, 'info');
       }
+    }
+  });
+
+  // Fallback: If pods are loaded but target pod not found, open logs directly after a delay
+  createEffect(() => {
+    const podForLogs = getPodForLogs();
+    const flag = sessionStorage.getItem('kubegraf-open-logs-flag');
+    
+    if (podForLogs && flag === 'true') {
+      // Set a timeout to open logs directly if pod isn't found after pods load
+      const timeoutId = setTimeout(() => {
+        const currentFlag = sessionStorage.getItem('kubegraf-open-logs-flag');
+        if (currentFlag === 'true') {
+          // Flag still set means we couldn't find the pod in the list
+          sessionStorage.removeItem('kubegraf-open-logs-flag');
+          clearPodLogs();
+          
+          addNotification(`Opening logs for ${podForLogs.podName} (pod may not be in current view)`, 'info');
+          
+          // Create a temporary pod object and open logs directly
+          const tempPod: Pod = {
+            name: podForLogs.podName,
+            namespace: podForLogs.namespace,
+            status: 'Unknown',
+            ready: '0/0',
+            restarts: 0,
+            age: 'Unknown',
+            node: 'Unknown'
+          };
+          setSelectedPod(tempPod);
+          fetchLogs(tempPod, logsFollow());
+          setShowLogs(true);
+        }
+      }, 3000); // Wait 3 seconds for pods to load
+      
+      // Cleanup timeout if flag is cleared (pod was found)
+      return () => clearTimeout(timeoutId);
     }
   });
 
@@ -894,6 +923,30 @@ const Pods: Component = () => {
   const openDeleteConfirm = (pod: Pod) => {
     setPodToDelete(pod);
     setShowDeleteConfirm(true);
+  };
+
+  // Explain Pod functionality
+  const openExplain = async (pod: Pod) => {
+    setSelectedPod(pod);
+    setShowExplain(true);
+    setExplainLoading(true);
+    setExplainError(null);
+    setExplainData(null);
+    
+    try {
+      const response = await fetch(`/api/explain/pod?namespace=${encodeURIComponent(pod.namespace)}&pod=${encodeURIComponent(pod.name)}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Failed to explain pod: ${response.statusText}`);
+      }
+      const data = await response.json();
+      setExplainData(data);
+    } catch (err: any) {
+      setExplainError(err.message || 'Failed to explain pod');
+      console.error('Explain error:', err);
+    } finally {
+      setExplainLoading(false);
+    }
   };
 
   const deletePod = async () => {
@@ -1466,7 +1519,8 @@ const Pods: Component = () => {
                             { label: 'View YAML', icon: 'yaml', onClick: () => openModal(pod, 'yaml') },
                             { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPod(pod); setShowEdit(true); } },
                             { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
-                            { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger', divider: true },
+                            { label: 'Explain Pod', icon: 'info', onClick: () => openExplain(pod), divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger' },
                           ]}
                           onOpenChange={setActionMenuOpen}
                         />
@@ -2010,6 +2064,126 @@ const Pods: Component = () => {
             />
           </div>
         </Show>
+      </Modal>
+
+      {/* Explain Pod Modal */}
+      <Modal 
+        isOpen={showExplain()} 
+        onClose={() => { setShowExplain(false); setExplainData(null); setExplainError(null); }} 
+        title={`🧠 Explain Pod: ${selectedPod()?.name}`} 
+        size="lg"
+      >
+        <div style={{ 'max-height': '70vh', 'overflow-y': 'auto' }}>
+          <Show when={explainLoading()}>
+            <div style={{
+              display: 'flex',
+              'align-items': 'center',
+              'justify-content': 'center',
+              padding: '40px',
+              color: 'var(--text-secondary)'
+            }}>
+              <div class="spinner" style={{ 'margin-right': '12px' }} />
+              Analyzing pod...
+            </div>
+          </Show>
+
+          <Show when={explainError()}>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              'border-radius': '8px',
+              padding: '16px',
+              color: 'var(--error-color)'
+            }}>
+              <strong>Error:</strong> {explainError()}
+            </div>
+          </Show>
+
+          <Show when={explainData() && !explainLoading()}>
+            {/* Summary */}
+            <div style={{
+              background: 'var(--bg-secondary)',
+              'border-radius': '8px',
+              padding: '16px',
+              'margin-bottom': '16px'
+            }}>
+              <h4 style={{ margin: '0 0 8px', color: 'var(--accent-primary)', 'font-size': '14px' }}>
+                📋 Summary
+              </h4>
+              <p style={{ margin: 0, color: 'var(--text-primary)', 'font-size': '13px', 'line-height': '1.5' }}>
+                {explainData()?.Summary || 'No summary available'}
+              </p>
+            </div>
+
+            {/* Key Findings */}
+            <Show when={explainData()?.KeyFindings && explainData()?.KeyFindings.length > 0}>
+              <div style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                'border-radius': '8px',
+                padding: '16px',
+                'margin-bottom': '16px'
+              }}>
+                <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', 'font-size': '14px' }}>
+                  🔍 Key Findings
+                </h4>
+                <ul style={{ margin: 0, 'padding-left': '20px' }}>
+                  <For each={explainData()?.KeyFindings || []}>
+                    {(finding: string) => (
+                      <li style={{ 
+                        'font-size': '13px', 
+                        color: 'var(--text-secondary)', 
+                        'margin-bottom': '6px',
+                        'line-height': '1.4'
+                      }}>
+                        {finding}
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </div>
+            </Show>
+
+            {/* Timeline */}
+            <Show when={explainData()?.Timeline && explainData()?.Timeline.length > 0}>
+              <div style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                'border-radius': '8px',
+                padding: '16px'
+              }}>
+                <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', 'font-size': '14px' }}>
+                  🕐 Timeline
+                </h4>
+                <div style={{
+                  'max-height': '300px',
+                  'overflow-y': 'auto',
+                  background: 'var(--bg-secondary)',
+                  'border-radius': '6px',
+                  padding: '12px',
+                  'font-family': 'monospace',
+                  'font-size': '11px',
+                  'line-height': '1.6'
+                }}>
+                  <For each={explainData()?.Timeline || []}>
+                    {(event: string, index) => (
+                      <div style={{ 
+                        color: event.includes('Error') || event.includes('Failed') ? 'var(--error-color)' :
+                               event.includes('Warning') ? 'var(--warning-color)' :
+                               'var(--text-secondary)',
+                        'padding-bottom': '4px',
+                        'border-bottom': index() < (explainData()?.Timeline.length - 1) ? '1px dashed var(--border-color)' : 'none',
+                        'margin-bottom': '4px'
+                      }}>
+                        {event}
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </div>
+            </Show>
+          </Show>
+        </div>
       </Modal>
 
       {/* Bulk Delete Modal */}

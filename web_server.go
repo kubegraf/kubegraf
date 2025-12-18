@@ -130,15 +130,16 @@ func formatAge(d time.Duration) string {
 
 // PortForwardSession tracks an active port-forward session
 type PortForwardSession struct {
-	ID         string    `json:"id"`
-	Type       string    `json:"type"` // "pod" or "service"
-	Name       string    `json:"name"`
-	Namespace  string    `json:"namespace"`
-	LocalPort  int       `json:"localPort"`
-	RemotePort int       `json:"remotePort"`
-	StartedAt  time.Time `json:"startedAt"`
-	stopChan   chan struct{}
-	readyChan  chan struct{}
+	ID             string    `json:"id"`
+	Type           string    `json:"type"` // "pod" or "service"
+	Name           string    `json:"name"`
+	Namespace      string    `json:"namespace"`
+	ClusterContext string    `json:"clusterContext"` // Cluster context for isolation
+	LocalPort      int       `json:"localPort"`
+	RemotePort     int       `json:"remotePort"`
+	StartedAt      time.Time `json:"startedAt"`
+	stopChan       chan struct{}
+	readyChan      chan struct{}
 }
 
 // WebEvent represents a Kubernetes event for web UI
@@ -618,6 +619,7 @@ func (ws *WebServer) Start(port int) error {
 	// Incidents V2 endpoint (full incident intelligence with diagnosis, recommendations, fixes)
 	http.HandleFunc("/api/v2/incidents/summary", ws.handleIncidentsV2Summary)
 	http.HandleFunc("/api/v2/incidents/patterns", ws.handleIncidentsV2Patterns)
+	http.HandleFunc("/api/v2/incidents/refresh", ws.handleIncidentsV2Refresh)
 	http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
 	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
 
@@ -655,6 +657,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Session token validation endpoint
 	http.HandleFunc("/api/auth/validate-token", ws.handleValidateSessionToken)
+
+	// Phase 1 features (Change Intelligence, Explain Pod, Multi-Cluster, Knowledge Sharing)
+	ws.registerPhase1Routes()
 
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
