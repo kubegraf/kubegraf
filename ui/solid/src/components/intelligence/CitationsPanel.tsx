@@ -1,13 +1,10 @@
 import { Component, For, Show, createResource } from 'solid-js';
 
 interface Citation {
-  id: string;
   source: string;
   ref: string;
   title: string;
-  excerpt?: string;
-  timestamp?: string;
-  confidence: number;
+  quote?: string;
 }
 
 interface CitationsPanelProps {
@@ -21,7 +18,8 @@ const CitationsPanel: Component<CitationsPanelProps> = (props) => {
       try {
         const response = await fetch(`/api/v2/incidents/${id}/citations`);
         if (!response.ok) return [];
-        return await response.json() as Citation[];
+        const data = await response.json();
+        return Array.isArray(data) ? data as Citation[] : [];
       } catch (e) {
         console.error('Failed to fetch citations:', e);
         return [];
@@ -30,32 +28,28 @@ const CitationsPanel: Component<CitationsPanelProps> = (props) => {
   );
 
   const getSourceIcon = (source: string) => {
-    switch (source) {
+    switch (source?.toLowerCase()) {
+      case 'kubernetes-docs': return '📚';
+      case 'incident': return '🔔';
       case 'event': return '📢';
       case 'log': return '📝';
-      case 'status': return '📊';
-      case 'metric': return '📈';
-      case 'doc': return '📚';
       case 'runbook': return '📋';
-      case 'history': return '🕐';
       default: return '📎';
     }
   };
 
   const getSourceColor = (source: string) => {
-    switch (source) {
-      case 'event': return '#ff6b6b';
+    switch (source?.toLowerCase()) {
+      case 'kubernetes-docs': return '#326ce5';
+      case 'incident': return '#ff6b6b';
+      case 'event': return '#45b7d1';
       case 'log': return '#4ecdc4';
-      case 'status': return '#45b7d1';
-      case 'metric': return '#96ceb4';
-      case 'doc': return '#ffeaa7';
-      case 'runbook': return '#dfe6e9';
-      case 'history': return '#a29bfe';
+      case 'runbook': return '#96ceb4';
       default: return 'var(--text-secondary)';
     }
   };
 
-  const isExternalLink = (ref: string) => ref.startsWith('http');
+  const isExternalLink = (ref: string) => ref?.startsWith('http');
 
   return (
     <div style={{ background: 'var(--bg-card)', 'border-radius': '8px', border: '1px solid var(--border-color)' }}>
@@ -70,7 +64,7 @@ const CitationsPanel: Component<CitationsPanelProps> = (props) => {
         <h4 style={{ margin: 0, color: 'var(--text-primary)', 'font-size': '14px', 'font-weight': '600' }}>
           📚 Citations & References
         </h4>
-        <Show when={citations()}>
+        <Show when={!citations.loading && citations()}>
           <span style={{ 
             'font-size': '11px', 
             color: 'var(--text-muted)',
@@ -147,7 +141,7 @@ const CitationsPanel: Component<CitationsPanelProps> = (props) => {
                       {citation.source}
                     </span>
                   </div>
-                  <Show when={citation.excerpt}>
+                  <Show when={citation.quote}>
                     <div style={{ 
                       'font-size': '11px', 
                       color: 'var(--text-secondary)',
@@ -156,27 +150,9 @@ const CitationsPanel: Component<CitationsPanelProps> = (props) => {
                       'border-left': '2px solid var(--border-color)',
                       'font-style': 'italic'
                     }}>
-                      "{citation.excerpt}"
+                      "{citation.quote}"
                     </div>
                   </Show>
-                  <div style={{ 
-                    display: 'flex', 
-                    'justify-content': 'space-between',
-                    'align-items': 'center',
-                    'margin-top': '6px'
-                  }}>
-                    <Show when={citation.timestamp}>
-                      <span style={{ 'font-size': '10px', color: 'var(--text-muted)' }}>
-                        {new Date(citation.timestamp!).toLocaleString()}
-                      </span>
-                    </Show>
-                    <span style={{ 
-                      'font-size': '10px', 
-                      color: 'var(--text-muted)' 
-                    }}>
-                      {Math.round(citation.confidence * 100)}% confidence
-                    </span>
-                  </div>
                 </div>
               )}
             </For>
@@ -188,4 +164,3 @@ const CitationsPanel: Component<CitationsPanelProps> = (props) => {
 };
 
 export default CitationsPanel;
-

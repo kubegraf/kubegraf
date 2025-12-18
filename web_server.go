@@ -625,6 +625,24 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/v2/incidents/fix-preview", ws.handleFixPreview)
 	http.HandleFunc("/api/v2/incidents/fix-apply", ws.handleFixApply)
 
+	// Auto-remediation endpoints
+	http.HandleFunc("/api/v2/auto-remediation/status", ws.handleAutoRemediationStatus)
+	http.HandleFunc("/api/v2/auto-remediation/enable", ws.handleAutoRemediationEnable)
+	http.HandleFunc("/api/v2/auto-remediation/disable", ws.handleAutoRemediationDisable)
+	http.HandleFunc("/api/v2/auto-remediation/decisions", ws.handleAutoRemediationDecisions)
+
+	// Learning endpoints
+	http.HandleFunc("/api/v2/learning/clusters", ws.handleLearningClusters)
+	http.HandleFunc("/api/v2/learning/patterns", ws.handleLearningPatterns)
+	http.HandleFunc("/api/v2/learning/trends", ws.handleLearningTrends)
+	http.HandleFunc("/api/v2/learning/similar", ws.handleLearningSimilar)
+
+	// Runbooks endpoints
+	http.HandleFunc("/api/v2/runbooks", ws.handleRunbooks)
+
+	// Feedback endpoint
+	http.HandleFunc("/api/v2/feedback", ws.handleFeedback)
+
 	// Brain endpoints (real cluster data)
 	http.HandleFunc("/api/brain/timeline", ws.handleBrainTimeline)
 	http.HandleFunc("/api/brain/oom-insights", ws.handleBrainOOMInsights)

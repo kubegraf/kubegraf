@@ -1,12 +1,26 @@
-import { Component, createSignal, createResource, createMemo, Show } from 'solid-js';
+import { Component, createSignal, createMemo, Show, onMount, lazy } from 'solid-js';
 import { api } from '../services/api';
-import { addNotification } from '../stores/ui';
 import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
 import { Incident } from '../services/api';
 import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
 import IncidentDetailModal from '../components/intelligence/IncidentDetailModal';
 import { AutoRemediationPanel, LearningDashboard } from '../components/intelligence';
+import { 
+  getCachedIncidents, 
+  setCachedIncidentsData, 
+  isCacheValid,
+  getIsFetching,
+  setFetching 
+} from '../stores/incidents';
+
+// Separate component for intelligence panels to avoid loading until needed
+const IntelligencePanels: Component = () => (
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <AutoRemediationPanel />
+    <LearningDashboard />
+  </div>
+);
 
 const Incidents: Component = () => {
   const [patternFilter, setPatternFilter] = createSignal('');
@@ -14,36 +28,69 @@ const Incidents: Component = () => {
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
   const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
-  const [showSidePanels, setShowSidePanels] = createSignal(true);
+  const [showSidePanels, setShowSidePanels] = createSignal(false);
+  
+  // Initialize with cached data immediately - NO loading state blocking UI
+  const [localIncidents, setLocalIncidents] = createSignal<Incident[]>(getCachedIncidents());
+  const [isRefreshing, setIsRefreshing] = createSignal(false); // Subtle indicator, doesn't block UI
+  const [namespaces, setNamespaces] = createSignal<string[]>([]);
 
-  // Fetch namespaces for filter
-  const [namespaces] = createResource(api.getNamespaces);
-
-  // Fetch incidents with filters (now using v2 API)
-  const [incidents, { refetch }] = createResource(
-    () => ({
-      namespace: namespaceFilter() || undefined,
-      pattern: patternFilter() || undefined,
-      severity: severityFilter() || undefined,
-    }),
-    async (params) => {
-      try {
-        const data = await api.getIncidents(params.namespace, params.pattern, params.severity);
-        return data || [];
-      } catch (error) {
-        console.error('Error fetching incidents:', error);
-        addNotification({
-          type: 'error',
-          message: `Failed to load incidents: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        });
-        return []; // Return empty array on error
-      }
+  // Fast background fetch - never blocks UI
+  const fetchIncidentsBackground = async () => {
+    if (getIsFetching()) return;
+    
+    setFetching(true);
+    setIsRefreshing(true);
+    
+    try {
+      const data = await api.getIncidents();
+      const incidents = data || [];
+      setLocalIncidents(incidents);
+      setCachedIncidentsData(incidents);
+    } catch (error) {
+      console.error('Error fetching incidents:', error);
+    } finally {
+      setIsRefreshing(false);
+      setFetching(false);
     }
-  );
+  };
 
-  // Filter incidents client-side (in case backend doesn't filter)
+  // Fetch namespaces in background
+  const fetchNamespacesBackground = async () => {
+    try {
+      const ns = await api.getNamespaces();
+      setNamespaces(ns || []);
+    } catch (e) {
+      console.error('Error fetching namespaces:', e);
+    }
+  };
+
+  // On mount: show cached data INSTANTLY, then refresh in background
+  onMount(() => {
+    // Show cached data immediately (already set in signal initialization)
+    const cached = getCachedIncidents();
+    if (cached.length > 0) {
+      setLocalIncidents(cached);
+    }
+    
+    // Fetch fresh data in background (non-blocking)
+    if (!isCacheValid()) {
+      fetchIncidentsBackground();
+    } else {
+      // Even with valid cache, refresh after short delay
+      setTimeout(fetchIncidentsBackground, 500);
+    }
+    
+    // Fetch namespaces in background
+    fetchNamespacesBackground();
+  });
+
+  // Manual refresh
+  const refetch = () => fetchIncidentsBackground();
+
+  // Client-side filtering
   const filteredIncidents = createMemo(() => {
-    const all = incidents() || [];
+    const all = localIncidents() || [];
     return all.filter((inc: Incident) => {
       const pattern = inc.pattern || inc.type || '';
       const namespace = inc.resource?.namespace || inc.namespace || '';
@@ -55,29 +102,24 @@ const Incidents: Component = () => {
     });
   });
 
-  const handleViewPod = (incident: Incident) => {
-    navigateToPod(incident);
-  };
-
-  const handleViewLogs = (incident: Incident) => {
-    openPodLogs(incident);
-  };
-
-  const handleViewEvents = (incident: Incident) => {
-    navigateToEvent(incident);
-  };
-
+  const handleViewPod = (incident: Incident) => navigateToPod(incident);
+  const handleViewLogs = (incident: Incident) => openPodLogs(incident);
+  const handleViewEvents = (incident: Incident) => navigateToEvent(incident);
+  
   const handleViewDetails = (incident: Incident) => {
+    console.log('handleViewDetails called with incident:', incident);
     setSelectedIncident(incident);
     setDetailModalOpen(true);
+    console.log('Modal state set - selectedIncident:', incident.id, 'detailModalOpen:', true);
   };
 
   const closeDetailModal = () => {
+    console.log('closeDetailModal called');
     setDetailModalOpen(false);
     setSelectedIncident(null);
   };
 
-  // Count by severity
+  // Counts - always computed from current data
   const criticalCount = createMemo(() => 
     filteredIncidents().filter((inc: Incident) => inc.severity === 'critical').length
   );
@@ -89,13 +131,9 @@ const Incidents: Component = () => {
       inc.severity === 'medium' || inc.severity === 'warning'
     ).length
   );
-
-  // Count incidents with diagnosis
   const diagnosedCount = createMemo(() => 
     filteredIncidents().filter((inc: Incident) => inc.diagnosis).length
   );
-
-  // Count incidents with recommendations
   const fixableCount = createMemo(() => 
     filteredIncidents().filter((inc: Incident) => 
       inc.recommendations && inc.recommendations.length > 0
@@ -104,6 +142,7 @@ const Incidents: Component = () => {
 
   return (
     <div class="space-y-4 p-6">
+      {/* Header */}
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -114,18 +153,23 @@ const Incidents: Component = () => {
           </p>
         </div>
         <button
-          onClick={() => refetch()}
-          class="px-4 py-2 rounded-lg text-sm font-medium"
+          onClick={refetch}
+          disabled={isRefreshing()}
+          class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
           style={{ 
             background: 'var(--accent-primary)', 
-            color: '#000' 
+            color: '#000',
+            opacity: isRefreshing() ? 0.7 : 1
           }}
         >
-          Refresh
+          <Show when={isRefreshing()}>
+            <span class="inline-block animate-spin">⟳</span>
+          </Show>
+          {isRefreshing() ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - Always visible, shows current counts */}
       <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <div class="card p-4" style={{ 'border-left': '4px solid var(--error-color)' }}>
           <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical</div>
@@ -159,10 +203,30 @@ const Incidents: Component = () => {
         </div>
       </div>
 
-      {/* Info Banner */}
-      <Show when={filteredIncidents().length === 0 && !incidents.loading}>
+      {/* Filters - Always visible */}
+      <IncidentFilters
+        patternFilter={patternFilter()}
+        severityFilter={severityFilter()}
+        namespaceFilter={namespaceFilter()}
+        namespaces={namespaces()}
+        onPatternFilterChange={setPatternFilter}
+        onSeverityFilterChange={setSeverityFilter}
+        onNamespaceFilterChange={setNamespaceFilter}
+      />
+
+      {/* Incidents Table - Always rendered, shows empty state or data */}
+      <IncidentTable
+        incidents={filteredIncidents()}
+        onViewPod={handleViewPod}
+        onViewLogs={handleViewLogs}
+        onViewEvents={handleViewEvents}
+        onViewDetails={handleViewDetails}
+      />
+
+      {/* Info Banner - Only when no incidents and not refreshing */}
+      <Show when={filteredIncidents().length === 0 && !isRefreshing()}>
         <div 
-          class="p-4 rounded-lg mb-4"
+          class="p-4 rounded-lg"
           style={{ 
             background: 'var(--accent-primary)15', 
             border: '1px solid var(--accent-primary)40' 
@@ -175,63 +239,11 @@ const Incidents: Component = () => {
                 No incidents detected
               </div>
               <div style={{ color: 'var(--text-secondary)', 'font-size': '13px' }}>
-                The incident intelligence system is actively monitoring your cluster. 
-                Incidents will appear here when issues are detected.
+                The incident intelligence system is actively monitoring your cluster.
               </div>
             </div>
           </div>
         </div>
-      </Show>
-
-      {/* Filters */}
-      <IncidentFilters
-        patternFilter={patternFilter()}
-        severityFilter={severityFilter()}
-        namespaceFilter={namespaceFilter()}
-        namespaces={namespaces() || []}
-        onPatternFilterChange={setPatternFilter}
-        onSeverityFilterChange={setSeverityFilter}
-        onNamespaceFilterChange={setNamespaceFilter}
-      />
-
-      {/* Incidents Table */}
-      <Show
-        when={!incidents.loading && !incidents.error}
-        fallback={
-          <div class="p-8 text-center">
-            {incidents.loading ? (
-              <>
-                <div class="spinner mx-auto mb-2" />
-                <span style={{ color: 'var(--text-muted)' }}>Loading incidents...</span>
-              </>
-            ) : (
-              <div>
-                <div class="text-red-500 mb-2">Error loading incidents</div>
-                <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  {incidents.error?.message || 'Unknown error occurred'}
-                </div>
-                <button
-                  onClick={() => refetch()}
-                  class="mt-4 px-4 py-2 rounded-lg text-sm font-medium"
-                  style={{ 
-                    background: 'var(--accent-primary)', 
-                    color: '#000' 
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-          </div>
-        }
-      >
-        <IncidentTable
-          incidents={filteredIncidents()}
-          onViewPod={handleViewPod}
-          onViewLogs={handleViewLogs}
-          onViewEvents={handleViewEvents}
-          onViewDetails={handleViewDetails}
-        />
       </Show>
 
       {/* Side Panels Toggle */}
@@ -253,26 +265,22 @@ const Incidents: Component = () => {
         </button>
       </div>
 
-      {/* Intelligence Panels */}
+      {/* Intelligence Panels - Only render when toggled */}
       <Show when={showSidePanels()}>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-          <AutoRemediationPanel />
-          <LearningDashboard />
-        </div>
+        <IntelligencePanels />
       </Show>
 
-      {/* Footer Info */}
+      {/* Footer */}
       <div class="mt-6 p-4 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
         <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', color: 'var(--text-secondary)', 'font-size': '12px' }}>
           <span>ℹ️</span>
           <span>
             Click on any incident row to expand and see diagnosis, probable causes, and recommendations.
-            Click "View Details" in the action menu for full incident intelligence with evidence, citations, and runbooks.
           </span>
         </div>
       </div>
 
-      {/* Incident Detail Modal */}
+      {/* Modal */}
       <IncidentDetailModal
         incident={selectedIncident()}
         isOpen={detailModalOpen()}

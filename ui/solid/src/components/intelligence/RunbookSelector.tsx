@@ -64,11 +64,17 @@ const RunbookSelector: Component<RunbookSelectorProps> = (props) => {
     setPreviewResult(null);
 
     try {
-      const response = await fetch(`/api/v2/incidents/${props.incidentId}/fix/preview`, {
+      // Use the correct endpoint: fix-preview (not fix/preview)
+      const response = await fetch(`/api/v2/incidents/${props.incidentId}/fix-preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runbookId: runbook.id })
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
       const result = await response.json();
       setPreviewResult(result);
       props.onPreviewFix?.(runbook.id);

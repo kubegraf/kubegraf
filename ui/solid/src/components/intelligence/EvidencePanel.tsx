@@ -1,27 +1,20 @@
 import { Component, For, Show, createSignal, createResource } from 'solid-js';
-import { api } from '../../services/api';
 
 interface EvidenceItem {
-  id: string;
-  source: string;
   type: string;
-  timestamp: string;
-  content: string;
-  summary: string;
-  severity?: string;
-  relevance: number;
+  key: string;
+  value: string;
+  time?: string;
+  reason?: string;
+  message?: string;
 }
 
 interface EvidencePack {
-  incidentId: string;
   events: EvidenceItem[];
   logs: EvidenceItem[];
   statusFacts: EvidenceItem[];
-  metricsFacts: EvidenceItem[];
-  changeHistory: EvidenceItem[];
-  probeResults: EvidenceItem[];
-  generatedAt: string;
-  confidence: number;
+  metricsFacts?: EvidenceItem[];
+  changeHistory?: EvidenceItem[];
 }
 
 interface EvidencePanelProps {
@@ -51,36 +44,39 @@ const EvidencePanel: Component<EvidencePanelProps> = (props) => {
     { id: 'status', label: 'Status', icon: '📊' },
     { id: 'metrics', label: 'Metrics', icon: '📈' },
     { id: 'changes', label: 'Changes', icon: '🔄' },
-    { id: 'probes', label: 'Probes', icon: '🏥' },
   ];
 
   const getTabData = (tabId: string): EvidenceItem[] => {
     const pack = evidencePack();
     if (!pack) return [];
     switch (tabId) {
-      case 'events': return pack.events || [];
-      case 'logs': return pack.logs || [];
-      case 'status': return pack.statusFacts || [];
-      case 'metrics': return pack.metricsFacts || [];
-      case 'changes': return pack.changeHistory || [];
-      case 'probes': return pack.probeResults || [];
+      case 'events': return Array.isArray(pack.events) ? pack.events : [];
+      case 'logs': return Array.isArray(pack.logs) ? pack.logs : [];
+      case 'status': return Array.isArray(pack.statusFacts) ? pack.statusFacts : [];
+      case 'metrics': return Array.isArray(pack.metricsFacts) ? pack.metricsFacts : [];
+      case 'changes': return Array.isArray(pack.changeHistory) ? pack.changeHistory : [];
       default: return [];
     }
   };
 
-  const getSeverityColor = (severity?: string) => {
-    switch (severity) {
-      case 'critical': return '#dc3545';
-      case 'error': return '#ff6b6b';
+  const getSeverityColor = (type?: string) => {
+    switch (type?.toLowerCase()) {
       case 'warning': return '#ffc107';
-      case 'info': return '#17a2b8';
+      case 'error': return '#dc3545';
+      case 'critical': return '#dc3545';
       default: return 'var(--text-secondary)';
     }
   };
 
-  const formatTimestamp = (ts: string) => {
-    const date = new Date(ts);
-    return date.toLocaleString();
+  const formatTimestamp = (ts?: string) => {
+    if (!ts) return '';
+    try {
+      const date = new Date(ts);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleString();
+    } catch {
+      return '';
+    }
   };
 
   return (
@@ -96,17 +92,6 @@ const EvidencePanel: Component<EvidencePanelProps> = (props) => {
         <h4 style={{ margin: 0, color: 'var(--text-primary)', 'font-size': '14px', 'font-weight': '600' }}>
           📦 Evidence Pack
         </h4>
-        <Show when={evidencePack()}>
-          <span style={{ 
-            'font-size': '11px', 
-            color: 'var(--text-muted)',
-            background: 'var(--bg-secondary)',
-            padding: '2px 8px',
-            'border-radius': '4px'
-          }}>
-            Confidence: {Math.round((evidencePack()?.confidence || 0) * 100)}%
-          </span>
-        </Show>
       </div>
 
       {/* Tabs */}
@@ -186,29 +171,21 @@ const EvidencePanel: Component<EvidencePanelProps> = (props) => {
                       'font-weight': '600', 
                       color: 'var(--text-primary)' 
                     }}>
-                      {item.summary}
+                      {item.reason || item.key || item.type || 'Evidence'}
                     </span>
-                    <div style={{ display: 'flex', gap: '6px', 'align-items': 'center' }}>
-                      <Show when={item.severity}>
-                        <span style={{
-                          'font-size': '10px',
-                          padding: '2px 6px',
-                          'border-radius': '3px',
-                          background: getSeverityColor(item.severity) + '20',
-                          color: getSeverityColor(item.severity),
-                          'text-transform': 'uppercase',
-                          'font-weight': '600'
-                        }}>
-                          {item.severity}
-                        </span>
-                      </Show>
+                    <Show when={item.type}>
                       <span style={{
                         'font-size': '10px',
-                        color: 'var(--text-muted)'
+                        padding: '2px 6px',
+                        'border-radius': '3px',
+                        background: getSeverityColor(item.type) + '20',
+                        color: getSeverityColor(item.type),
+                        'text-transform': 'uppercase',
+                        'font-weight': '600'
                       }}>
-                        {Math.round(item.relevance * 100)}% relevant
+                        {item.type}
                       </span>
-                    </div>
+                    </Show>
                   </div>
                   <div style={{ 
                     'font-size': '11px', 
@@ -219,15 +196,17 @@ const EvidencePanel: Component<EvidencePanelProps> = (props) => {
                     'max-height': '60px',
                     overflow: 'hidden'
                   }}>
-                    {item.content}
+                    {item.message || item.value || ''}
                   </div>
-                  <div style={{ 
-                    'font-size': '10px', 
-                    color: 'var(--text-muted)',
-                    'margin-top': '6px'
-                  }}>
-                    {formatTimestamp(item.timestamp)}
-                  </div>
+                  <Show when={item.time}>
+                    <div style={{ 
+                      'font-size': '10px', 
+                      color: 'var(--text-muted)',
+                      'margin-top': '6px'
+                    }}>
+                      {formatTimestamp(item.time)}
+                    </div>
+                  </Show>
                 </div>
               )}
             </For>
@@ -239,4 +218,3 @@ const EvidencePanel: Component<EvidencePanelProps> = (props) => {
 };
 
 export default EvidencePanel;
-
