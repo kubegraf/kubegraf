@@ -191,7 +191,7 @@ export const AppContent: Component<AppContentProps> = (props) => {
       </Show>
 
       {/* Notifications */}
-      <div class="fixed bottom-24 right-6 z-50 flex flex-col-reverse gap-3 max-w-sm">
+      <div class="fixed bottom-24 right-6 z-50 flex flex-col-reverse gap-3 max-w-md">
         <For each={notifications()}>
           {(notification) => (
             <div
@@ -200,24 +200,61 @@ export const AppContent: Component<AppContentProps> = (props) => {
                 background: notification.type === 'error' ? 'rgba(239, 68, 68, 0.95)' :
                            notification.type === 'warning' ? 'rgba(245, 158, 11, 0.95)' :
                            notification.type === 'success' ? 'rgba(34, 197, 94, 0.95)' :
+                           notification.type === 'update' ? 'rgba(99, 102, 241, 0.95)' :
                            'rgba(6, 182, 212, 0.95)',
                 'border-color': notification.type === 'error' ? 'rgba(239, 68, 68, 0.5)' :
                                notification.type === 'warning' ? 'rgba(245, 158, 11, 0.5)' :
                                notification.type === 'success' ? 'rgba(34, 197, 94, 0.5)' :
+                               notification.type === 'update' ? 'rgba(99, 102, 241, 0.5)' :
                                'rgba(6, 182, 212, 0.5)',
                 color: notification.type === 'error' ? '#fff' :
                        notification.type === 'warning' ? '#000' :
                        notification.type === 'success' ? '#fff' :
+                       notification.type === 'update' ? '#fff' :
                        '#000',
+                'min-width': notification.type === 'update' ? '320px' : 'auto',
               }}
             >
               <div class="flex items-start gap-2.5">
                 <span class="flex-shrink-0 text-base">
                   {notification.type === 'error' ? '❌' :
                    notification.type === 'warning' ? '⚠️' :
-                   notification.type === 'success' ? '✓' : 'ℹ️'}
+                   notification.type === 'success' ? '✓' :
+                   notification.type === 'update' ? '🚀' : 'ℹ️'}
                 </span>
-                <span class="text-sm break-words leading-relaxed">{notification.message}</span>
+                <div class="flex-1">
+                  <span class="text-sm break-words leading-relaxed block">{notification.message}</span>
+                  
+                  {/* Action buttons for notifications with actions */}
+                  <Show when={notification.actions && notification.actions.length > 0}>
+                    <div class="flex gap-2 mt-3">
+                      <For each={notification.actions}>
+                        {(action) => (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              action.onClick();
+                            }}
+                            class="px-3 py-1.5 rounded text-xs font-medium transition-all hover:opacity-90"
+                            style={{
+                              background: action.variant === 'primary' 
+                                ? '#fff' 
+                                : 'rgba(255, 255, 255, 0.2)',
+                              color: action.variant === 'primary' 
+                                ? (notification.type === 'update' ? '#6366f1' : '#000')
+                                : '#fff',
+                              border: action.variant === 'secondary' 
+                                ? '1px solid rgba(255, 255, 255, 0.3)' 
+                                : 'none',
+                            }}
+                          >
+                            {action.label}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
               </div>
             </div>
           )}

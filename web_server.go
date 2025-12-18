@@ -658,6 +658,11 @@ func (ws *WebServer) Start(port int) error {
 	// Session token validation endpoint
 	http.HandleFunc("/api/auth/validate-token", ws.handleValidateSessionToken)
 
+	// Realtime metrics streaming (CPU/Memory)
+	http.HandleFunc("/ws/metrics", ws.handleMetricsWebSocket)
+	http.HandleFunc("/api/metrics/snapshot", ws.handleMetricsSnapshot)
+	http.HandleFunc("/api/metrics/status", ws.handleMetricsStatus)
+
 	// Phase 1 features (Change Intelligence, Explain Pod, Multi-Cluster, Knowledge Sharing)
 	ws.registerPhase1Routes()
 
@@ -711,6 +716,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
 	go ws.watchKubernetesEvents()
+
+	// Start realtime metrics collector
+	go ws.startMetricsCollector()
 
 	fmt.Printf("✅ Server starting, listening on %s\n", addr)
 

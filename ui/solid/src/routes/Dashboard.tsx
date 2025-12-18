@@ -1,8 +1,22 @@
-import { Component, createSignal, createResource, For, Show, createMemo, onMount, createEffect } from 'solid-js';
+import { Component, createSignal, createResource, For, Show, createMemo, onMount, createEffect, onCleanup } from 'solid-js';
 import { api } from '../services/api';
 import { setCurrentView } from '../stores/ui';
 import { navigateToSecurityCheck } from '../utils/security-navigation';
 import { currentContext, refreshTrigger, nodesResource } from '../stores/cluster';
+import { 
+  latestPoint, 
+  points, 
+  status as metricsStatus,
+  getCpuSparkline,
+  getMemSparkline,
+  getStatusColor,
+  getStatusLevel,
+  connectMetrics,
+  disconnectMetrics
+} from '../stores/metricsStore';
+import CpuMemChart from '../components/metrics/CpuMemChart';
+import Sparkline from '../components/metrics/Sparkline';
+import MetricsStatusBanner from '../components/metrics/MetricsStatusBanner';
 
 // Modern SVG Icons
 const CpuIcon = () => (
@@ -841,6 +855,172 @@ const Dashboard: Component = () => {
       <div>
         <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Dashboard</h1>
         <p style={{ color: 'var(--text-secondary)' }}>Cluster overview and health monitoring</p>
+      </div>
+
+      {/* Realtime Metrics Status Banner */}
+      <MetricsStatusBanner />
+
+      {/* Realtime KPI Cards */}
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Cluster CPU */}
+        <div class="card p-4 relative overflow-hidden">
+          <div class="absolute top-0 left-0 w-1 h-full" style={{ background: '#06b6d4' }} />
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <div class="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                Cluster CPU
+              </div>
+              <div class="text-3xl font-bold mt-1" style={{ color: '#06b6d4' }}>
+                {latestPoint()?.cluster.cpuPct?.toFixed(1) ?? '--'}%
+              </div>
+            </div>
+            <div 
+              class="px-2 py-1 rounded text-xs font-medium"
+              style={{ 
+                background: `${getStatusColor(latestPoint()?.cluster.cpuPct ?? 0)}20`,
+                color: getStatusColor(latestPoint()?.cluster.cpuPct ?? 0),
+              }}
+            >
+              {getStatusLevel(latestPoint()?.cluster.cpuPct ?? 0) === 'hot' ? '🔥 Hot' : 
+               getStatusLevel(latestPoint()?.cluster.cpuPct ?? 0) === 'moderate' ? '⚡ Moderate' : 
+               '✓ Normal'}
+            </div>
+          </div>
+          <Sparkline data={getCpuSparkline(30)} color="#06b6d4" height={32} showDots />
+        </div>
+
+        {/* Cluster Memory */}
+        <div class="card p-4 relative overflow-hidden">
+          <div class="absolute top-0 left-0 w-1 h-full" style={{ background: '#8b5cf6' }} />
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <div class="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                Cluster Memory
+              </div>
+              <div class="text-3xl font-bold mt-1" style={{ color: '#8b5cf6' }}>
+                {latestPoint()?.cluster.memPct?.toFixed(1) ?? '--'}%
+              </div>
+            </div>
+            <div 
+              class="px-2 py-1 rounded text-xs font-medium"
+              style={{ 
+                background: `${getStatusColor(latestPoint()?.cluster.memPct ?? 0)}20`,
+                color: getStatusColor(latestPoint()?.cluster.memPct ?? 0),
+              }}
+            >
+              {getStatusLevel(latestPoint()?.cluster.memPct ?? 0) === 'hot' ? '🔥 Hot' : 
+               getStatusLevel(latestPoint()?.cluster.memPct ?? 0) === 'moderate' ? '⚡ Moderate' : 
+               '✓ Normal'}
+            </div>
+          </div>
+          <Sparkline data={getMemSparkline(30)} color="#8b5cf6" height={32} showDots />
+        </div>
+
+        {/* Peak Node CPU */}
+        <div class="card p-4 relative overflow-hidden">
+          <div class="absolute top-0 left-0 w-1 h-full" style={{ background: '#f59e0b' }} />
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <div class="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                Peak Node CPU
+              </div>
+              <div class="text-3xl font-bold mt-1" style={{ color: '#f59e0b' }}>
+                {latestPoint()?.peaks.cpuPct?.toFixed(1) ?? '--'}%
+              </div>
+            </div>
+            <div 
+              class="px-2 py-1 rounded text-xs font-medium"
+              style={{ 
+                background: `${getStatusColor(latestPoint()?.peaks.cpuPct ?? 0)}20`,
+                color: getStatusColor(latestPoint()?.peaks.cpuPct ?? 0),
+              }}
+            >
+              {getStatusLevel(latestPoint()?.peaks.cpuPct ?? 0) === 'hot' ? '🔥 Hot' : 
+               getStatusLevel(latestPoint()?.peaks.cpuPct ?? 0) === 'moderate' ? '⚡ Moderate' : 
+               '✓ Normal'}
+            </div>
+          </div>
+          <Show when={latestPoint()?.topNodes?.[0]}>
+            <div class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              Top: {latestPoint()?.topNodes?.[0]?.name}
+            </div>
+          </Show>
+        </div>
+
+        {/* Peak Node Memory */}
+        <div class="card p-4 relative overflow-hidden">
+          <div class="absolute top-0 left-0 w-1 h-full" style={{ background: '#ec4899' }} />
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <div class="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                Peak Node Memory
+              </div>
+              <div class="text-3xl font-bold mt-1" style={{ color: '#ec4899' }}>
+                {latestPoint()?.peaks.memPct?.toFixed(1) ?? '--'}%
+              </div>
+            </div>
+            <div 
+              class="px-2 py-1 rounded text-xs font-medium"
+              style={{ 
+                background: `${getStatusColor(latestPoint()?.peaks.memPct ?? 0)}20`,
+                color: getStatusColor(latestPoint()?.peaks.memPct ?? 0),
+              }}
+            >
+              {getStatusLevel(latestPoint()?.peaks.memPct ?? 0) === 'hot' ? '🔥 Hot' : 
+               getStatusLevel(latestPoint()?.peaks.memPct ?? 0) === 'moderate' ? '⚡ Moderate' : 
+               '✓ Normal'}
+            </div>
+          </div>
+          <Show when={latestPoint()?.source && latestPoint()?.source !== 'unavailable'}>
+            <div class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              via {latestPoint()?.source === 'metrics_api' ? 'Metrics API' : 'Summary API'}
+            </div>
+          </Show>
+        </div>
+      </div>
+
+      {/* Realtime CPU/Memory Chart */}
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                 style={{
+                   background: 'linear-gradient(135deg, #06b6d420 0%, #8b5cf620 100%)',
+                   border: '1px solid rgba(139, 92, 246, 0.2)',
+                 }}>
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="url(#realtimeGrad)" stroke-width="2">
+                <defs>
+                  <linearGradient id="realtimeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#06b6d4" />
+                    <stop offset="100%" stop-color="#8b5cf6" />
+                  </linearGradient>
+                </defs>
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                Realtime Resource Usage
+              </h2>
+              <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Live streaming metrics • Last 15 minutes
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div 
+              class="w-2 h-2 rounded-full animate-pulse"
+              style={{ 
+                background: metricsStatus().connected ? '#22c55e' : '#ef4444',
+                'box-shadow': `0 0 8px ${metricsStatus().connected ? '#22c55e' : '#ef4444'}`,
+              }}
+            />
+            <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {metricsStatus().connected ? 'Live' : metricsStatus().reconnecting ? 'Reconnecting...' : 'Disconnected'}
+            </span>
+          </div>
+        </div>
+        <CpuMemChart height={200} showLegend />
       </div>
 
       {/* Resource Usage Visualization - Enhanced */}
