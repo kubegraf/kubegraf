@@ -621,6 +621,10 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
 	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
 
+	// Fix action endpoints (safe remediation actions)
+	http.HandleFunc("/api/v2/incidents/fix-preview", ws.handleFixPreview)
+	http.HandleFunc("/api/v2/incidents/fix-apply", ws.handleFixApply)
+
 	// Brain endpoints (real cluster data)
 	http.HandleFunc("/api/brain/timeline", ws.handleBrainTimeline)
 	http.HandleFunc("/api/brain/oom-insights", ws.handleBrainOOMInsights)

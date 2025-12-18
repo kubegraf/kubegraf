@@ -389,19 +389,46 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		}
 		recommendations = []incidents.Recommendation{
 			{
+				ID:          "restart-pod",
+				Title:       "Restart Pod",
+				Explanation: "Delete the pod to trigger recreation by its controller and get a fresh start",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeRestart,
+					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Restart Pod",
+					Type:                 incidents.ActionTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
 				ID:          "check-logs",
 				Title:       "Check container logs",
 				Explanation: "Review the container logs to identify the root cause of restarts",
 				Risk:        incidents.RiskLow,
-				Priority:    1,
-				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace},
+				Priority:    2,
+				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace + " --previous"},
 			},
 			{
 				ID:          "increase-resources",
 				Title:       "Increase resource limits",
 				Explanation: "If the container is being OOM killed, increase memory limits",
 				Risk:        incidents.RiskMedium,
-				Priority:    2,
+				Priority:    3,
 			},
 		}
 
@@ -418,12 +445,54 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 			{
 				ID:          "increase-memory",
 				Title:       "Increase memory limit",
-				Explanation: "The container exceeded its memory limit. Consider increasing the limit.",
+				Explanation: "The container exceeded its memory limit. Consider increasing the limit by 50%.",
 				Risk:        incidents.RiskMedium,
 				Priority:    1,
 				ProposedFix: &incidents.ProposedFix{
-					Type:                 incidents.FixTypePatch,
+					Type:        incidents.FixTypePatch,
+					Description: "Increase container memory limit by 50%",
+					PreviewDiff: "--- current\n+++ proposed\n@@ resources.limits @@\n-  memory: 256Mi\n+  memory: 384Mi",
+					DryRunCmd:   fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"384Mi\"}]' --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"384Mi\"}]'", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Deployment",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Propose Memory Increase",
+					Type:                 incidents.ActionTypePreviewPatch,
 					Description:          "Increase container memory limit by 50%",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
+				ID:          "restart-pod",
+				Title:       "Restart Pod",
+				Explanation: "Restart the pod to get a fresh start with current limits",
+				Risk:        incidents.RiskLow,
+				Priority:    2,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeRestart,
+					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Restart Pod",
+					Type:                 incidents.ActionTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
 					Safe:                 true,
 					RequiresConfirmation: true,
 				},
@@ -433,7 +502,8 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 				Title:       "Analyze memory usage patterns",
 				Explanation: "Review memory metrics to understand usage patterns",
 				Risk:        incidents.RiskLow,
-				Priority:    2,
+				Priority:    3,
+				ManualSteps: []string{fmt.Sprintf("kubectl top pod %s -n %s", v1.ResourceName, v1.Namespace)},
 			},
 		}
 
@@ -448,30 +518,49 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		}
 		recommendations = []incidents.Recommendation{
 			{
+				ID:          "restart-pod",
+				Title:       "Restart Pod",
+				Explanation: "Delete and recreate pod - sometimes a fresh start can resolve transient issues",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeRestart,
+					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Restart Pod",
+					Type:                 incidents.ActionTypeRestart,
+					Description:          "Delete the pod to trigger recreation",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
 				ID:          "check-logs",
 				Title:       "Check container logs",
 				Explanation: "Review logs to identify why the container is crashing",
 				Risk:        incidents.RiskLow,
-				Priority:    1,
+				Priority:    2,
+				ManualSteps: []string{fmt.Sprintf("kubectl logs %s -n %s --previous", v1.ResourceName, v1.Namespace)},
 			},
 			{
 				ID:          "check-config",
 				Title:       "Verify ConfigMaps and Secrets",
 				Explanation: "Ensure all required configuration is present and valid",
 				Risk:        incidents.RiskLow,
-				Priority:    2,
-			},
-			{
-				ID:          "restart-pod",
-				Title:       "Delete and recreate pod",
-				Explanation: "Sometimes a fresh start can resolve transient issues",
-				Risk:        incidents.RiskMedium,
 				Priority:    3,
-				ProposedFix: &incidents.ProposedFix{
-					Type:                 incidents.FixTypeRestart,
-					Description:          "Delete the pod to trigger recreation",
-					Safe:                 true,
-					RequiresConfirmation: true,
+				ManualSteps: []string{
+					fmt.Sprintf("kubectl describe pod %s -n %s", v1.ResourceName, v1.Namespace),
+					fmt.Sprintf("kubectl get events -n %s --field-selector involvedObject.name=%s", v1.Namespace, v1.ResourceName),
 				},
 			},
 		}
@@ -487,11 +576,39 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		}
 		recommendations = []incidents.Recommendation{
 			{
+				ID:          "retry-job",
+				Title:       "Retry failed job",
+				Explanation: "Delete the failed job to allow it to be retried",
+				Risk:        incidents.RiskLow,
+				Priority:    1,
+				ProposedFix: &incidents.ProposedFix{
+					Type:        incidents.FixTypeDelete,
+					Description: fmt.Sprintf("Delete job %s to allow retry", v1.ResourceName),
+					DryRunCmd:   fmt.Sprintf("kubectl delete job %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
+					ApplyCmd:    fmt.Sprintf("kubectl delete job %s -n %s", v1.ResourceName, v1.Namespace),
+					TargetResource: incidents.KubeResourceRef{
+						Kind:      "Job",
+						Name:      v1.ResourceName,
+						Namespace: v1.Namespace,
+					},
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+				Action: &incidents.FixAction{
+					Label:                "Retry Job",
+					Type:                 incidents.ActionTypeDeletePod,
+					Description:          "Delete the job to trigger a retry",
+					Safe:                 true,
+					RequiresConfirmation: true,
+				},
+			},
+			{
 				ID:          "check-job-logs",
 				Title:       "Check job pod logs",
 				Explanation: "Review the logs from the failed job pods",
 				Risk:        incidents.RiskLow,
-				Priority:    1,
+				Priority:    2,
+				ManualSteps: []string{fmt.Sprintf("kubectl logs job/%s -n %s", v1.ResourceName, v1.Namespace)},
 			},
 		}
 
@@ -545,7 +662,7 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 
 	patternStr := string(pattern)
 
-	return &incidents.Incident{
+	incident := &incidents.Incident{
 		ID:          v1.ID,
 		Pattern:     pattern,
 		Severity:    severity,
@@ -563,6 +680,12 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		Diagnosis:       diagnosis,
 		Recommendations: recommendations,
 	}
+
+	// Enhance recommendations with fix actions
+	registry := incidents.NewFixGeneratorRegistry()
+	incidents.EnhanceRecommendationsWithActions(incident, registry)
+
+	return incident
 }
 
 // handleIncidentV2ByID handles GET/PUT /api/v2/incidents/{id}
@@ -824,5 +947,251 @@ func getBaseID(id string) string {
 		return id[:idx]
 	}
 	return id
+}
+
+// handleFixPreview handles POST /api/v2/incidents/fix-preview
+// Also handles POST /api/v2/incidents/{id}/fix-preview
+func (ws *WebServer) handleFixPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse request body
+	var req incidents.FixPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract incident ID from path if present
+	path := r.URL.Path
+	if idx := strings.Index(path, "/incidents/"); idx != -1 {
+		remaining := path[idx+len("/incidents/"):]
+		if previewIdx := strings.Index(remaining, "/fix-preview"); previewIdx != -1 {
+			req.IncidentID = remaining[:previewIdx]
+		}
+	}
+
+	if req.IncidentID == "" {
+		http.Error(w, "Missing incident ID", http.StatusBadRequest)
+		return
+	}
+
+	manager := ws.app.incidentIntelligence.GetManager()
+
+	// Get the incident from manager first
+	incident := manager.GetIncident(req.IncidentID)
+	
+	// If not found in manager, try to find in v1 incidents and convert
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == req.IncidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the fix
+	var fix *incidents.ProposedFix
+	if req.RecommendationID != "" {
+		for _, rec := range incident.Recommendations {
+			if rec.ID == req.RecommendationID && rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	} else {
+		// Get first available fix
+		for _, rec := range incident.Recommendations {
+			if rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				req.RecommendationID = rec.ID
+				break
+			}
+		}
+	}
+
+	// If no fix found on recommendations, generate one
+	if fix == nil {
+		registry := incidents.NewFixGeneratorRegistry()
+		fixes := registry.GenerateFixes(incident)
+		if len(fixes) > 0 {
+			fix = fixes[0]
+		}
+	}
+
+	if fix == nil {
+		http.Error(w, "No fix available for this incident", http.StatusNotFound)
+		return
+	}
+
+	// Generate preview response
+	response := incidents.CreateFixPreviewResponse(fix)
+
+	// Validate safety
+	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
+		response.Valid = false
+		response.ValidationError = err.Error()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleFixApply handles POST /api/v2/incidents/fix-apply
+// Also handles POST /api/v2/incidents/{id}/fix-apply
+func (ws *WebServer) handleFixApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse request body
+	var req incidents.FixApplyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract incident ID from path if present
+	path := r.URL.Path
+	if idx := strings.Index(path, "/incidents/"); idx != -1 {
+		remaining := path[idx+len("/incidents/"):]
+		if applyIdx := strings.Index(remaining, "/fix-apply"); applyIdx != -1 {
+			req.IncidentID = remaining[:applyIdx]
+		}
+	}
+
+	if req.IncidentID == "" {
+		http.Error(w, "Missing incident ID", http.StatusBadRequest)
+		return
+	}
+
+	manager := ws.app.incidentIntelligence.GetManager()
+	ctx := r.Context()
+
+	// Get the incident from manager first
+	incident := manager.GetIncident(req.IncidentID)
+	
+	// If not found in manager, try to find in v1 incidents and convert
+	if incident == nil {
+		v1Incidents := ws.getV1Incidents("")
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == req.IncidentID {
+				incident = v2Inc
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the fix
+	var fix *incidents.ProposedFix
+	if req.RecommendationID != "" {
+		for _, rec := range incident.Recommendations {
+			if rec.ID == req.RecommendationID && rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				break
+			}
+		}
+	} else {
+		for _, rec := range incident.Recommendations {
+			if rec.ProposedFix != nil {
+				fix = rec.ProposedFix
+				req.RecommendationID = rec.ID
+				break
+			}
+		}
+	}
+
+	if fix == nil {
+		registry := incidents.NewFixGeneratorRegistry()
+		fixes := registry.GenerateFixes(incident)
+		if len(fixes) > 0 {
+			fix = fixes[0]
+		}
+	}
+
+	if fix == nil {
+		http.Error(w, "No fix available for this incident", http.StatusNotFound)
+		return
+	}
+
+	// Validate safety
+	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
+		response := &incidents.FixApplyResponse{
+			Success:   false,
+			Error:     err.Error(),
+			DryRun:    req.DryRun,
+			AppliedAt: time.Now(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Execute the fix using the manager
+	var result *incidents.FixResult
+	var err error
+
+	if req.DryRun {
+		result, err = manager.DryRunFix(ctx, req.IncidentID, req.RecommendationID)
+	} else {
+		result, err = manager.ApplyFix(ctx, req.IncidentID, req.RecommendationID)
+	}
+
+	response := &incidents.FixApplyResponse{
+		DryRun:    req.DryRun,
+		AppliedAt: time.Now(),
+	}
+
+	if err != nil {
+		response.Success = false
+		response.Error = err.Error()
+	} else if result != nil {
+		response.Success = result.Success
+		response.Message = result.Message
+		response.Changes = result.Changes
+		response.Error = result.Error
+		if result.RollbackCommand != "" {
+			response.RollbackCmd = result.RollbackCommand
+		}
+	} else {
+		// Fallback response when no executor
+		response.Success = true
+		if req.DryRun {
+			response.Message = fmt.Sprintf("Dry run successful: %s", fix.Description)
+		} else {
+			response.Message = fmt.Sprintf("Command to execute: %s", fix.ApplyCmd)
+		}
+		response.Changes = []string{fix.Description}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
