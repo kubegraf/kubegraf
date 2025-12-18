@@ -105,11 +105,20 @@ const [searchQuery, setSearchQuery] = createSignal('');
 const [notifications, setNotifications] = createSignal<Notification[]>([]);
 const [terminalOpen, setTerminalOpen] = createSignal(false);
 
+interface NotificationAction {
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
+}
+
 interface Notification {
   id: string;
-  type: 'info' | 'success' | 'warning' | 'error';
+  type: 'info' | 'success' | 'warning' | 'error' | 'update';
   message: string;
   timestamp: Date;
+  duration?: number; // Custom duration in ms (default 5000)
+  actions?: NotificationAction[];
+  persistent?: boolean; // If true, won't auto-dismiss
 }
 
 // Play sound effect for notification
@@ -152,22 +161,77 @@ function playNotificationSound(type: Notification['type']) {
   }
 }
 
-function addNotification(message: string, type: Notification['type'] = 'info') {
+interface AddNotificationOptions {
+  duration?: number;
+  actions?: NotificationAction[];
+  persistent?: boolean;
+}
+
+function addNotification(message: string, type: Notification['type'] = 'info', options?: AddNotificationOptions) {
   const notification: Notification = {
     id: crypto.randomUUID(),
     type,
     message,
     timestamp: new Date(),
+    duration: options?.duration,
+    actions: options?.actions,
+    persistent: options?.persistent,
   };
   setNotifications(prev => [notification, ...prev].slice(0, 10));
 
   // Play sound effect if enabled
-  playNotificationSound(type);
+  playNotificationSound(type === 'update' ? 'info' : type);
 
-  // Auto-dismiss after 5 seconds
+  // Auto-dismiss after specified duration (default 5 seconds), unless persistent
+  if (!options?.persistent) {
+    const duration = options?.duration || 5000;
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
+    }, duration);
+  }
+}
+
+function dismissNotification(id: string) {
+  setNotifications(prev => prev.filter(n => n.id !== id));
+}
+
+// Special function for update notifications with buttons
+function showUpdateNotification(version: string, onApply: () => void) {
+  const id = crypto.randomUUID();
+  const notification: Notification = {
+    id,
+    type: 'update',
+    message: `🆕 New version v${version} is available!`,
+    timestamp: new Date(),
+    duration: 10000,
+    actions: [
+      {
+        label: 'Remind me later',
+        variant: 'secondary',
+        onClick: () => {
+          dismissNotification(id);
+          // Store reminder time to show again later
+          localStorage.setItem('kubegraf-update-reminder-time', Date.now().toString());
+        },
+      },
+      {
+        label: 'Apply Update',
+        variant: 'primary',
+        onClick: () => {
+          dismissNotification(id);
+          onApply();
+        },
+      },
+    ],
+  };
+  
+  setNotifications(prev => [notification, ...prev].slice(0, 10));
+  playNotificationSound('info');
+
+  // Auto-dismiss after 10 seconds
   setTimeout(() => {
-    setNotifications(prev => prev.filter(n => n.id !== notification.id));
-  }, 5000);
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, 10000);
 }
 
 function toggleSidebar() {
@@ -230,4 +294,8 @@ export {
   setSearchQuery,
   notifications,
   addNotification,
+  dismissNotification,
+  showUpdateNotification,
 };
+
+export type { Notification, NotificationAction };

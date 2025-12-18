@@ -1,5 +1,5 @@
 import { Component, Show, createSignal, createMemo, createEffect, onMount, onCleanup } from 'solid-js';
-import { currentView, setCurrentView, setSidebarCollapsed, sidebarAutoHide, addNotification } from '../stores/ui';
+import { currentView, setCurrentView, setSidebarCollapsed, sidebarAutoHide, addNotification, showUpdateNotification } from '../stores/ui';
 import { setUpdateInfo } from '../stores/globalStore';
 import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
@@ -69,15 +69,25 @@ const SidebarV2: Component = () => {
       setUpdateInfo(info);
 
       if (info.updateAvailable) {
-        // Check if we should show daily reminder
+        // Check if we should show reminder (once per day or if user dismissed recently)
         const lastReminderKey = 'kubegraf-update-reminder-date';
+        const lastReminderTimeKey = 'kubegraf-update-reminder-time';
         const lastReminder = localStorage.getItem(lastReminderKey);
+        const lastReminderTime = localStorage.getItem(lastReminderTimeKey);
         const today = new Date().toDateString();
+        const now = Date.now();
+        
+        // Don't show if reminded in the last 30 minutes (after clicking "Remind me later")
+        const thirtyMinutes = 30 * 60 * 1000;
+        const recentlyReminded = lastReminderTime && (now - parseInt(lastReminderTime)) < thirtyMinutes;
 
-        if (lastReminder !== today) {
-          // Show reminder notification once per day
+        if (lastReminder !== today && !recentlyReminded) {
+          // Show update notification with action buttons
           if (showNotification) {
-            addNotification(`🆕 New version v${info.latestVersion} available! Click Update button to install.`, 'info');
+            showUpdateNotification(info.latestVersion, () => {
+              setUpdateInfoState(info);
+              setUpdateModalOpen(true);
+            });
           }
           localStorage.setItem(lastReminderKey, today);
         }
