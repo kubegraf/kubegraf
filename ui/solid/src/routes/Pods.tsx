@@ -145,6 +145,7 @@ const Pods: Component = () => {
   // Keyboard navigation
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
   const [selectedPodIndex, setSelectedPodIndex] = createSignal<number | null>(null); // Index in full filtered list
+  const [hoveredRowIndex, setHoveredRowIndex] = createSignal<number | null>(null); // Track which row is hovered
   let tableRef: HTMLTableElement | undefined;
 
   // Parse metric value to number for comparison
@@ -436,8 +437,8 @@ const Pods: Component = () => {
   createEffect(() => {
     const podForLogs = getPodForLogs();
     const flag = sessionStorage.getItem('kubegraf-open-logs-flag');
-    const pods = podsCache(); // Track pods cache changes
-    
+    const pods = podsCache.data(); // Track pods cache changes
+
     if (podForLogs && flag === 'true' && pods && pods.length > 0) {
       const pod = pods.find(p => p.name === podForLogs.podName && p.namespace === podForLogs.namespace);
       if (pod) {
@@ -1153,7 +1154,7 @@ const Pods: Component = () => {
       {/* Pods table */}
       <div class="w-full" style={{ background: 'var(--bg-primary)', margin: '0', padding: '0', border: '1px solid var(--border-color)', 'border-radius': '4px' }}>
         <Show
-          when={!podsCache.loading() || podsCache.data() !== undefined}
+          when={podsCache.data() !== undefined}
           fallback={
             <div class="p-8 text-center">
               <div class="spinner mx-auto mb-2" />
@@ -1302,36 +1303,29 @@ const Pods: Component = () => {
                 }>
                   {(pod: Pod, index) => {
                     const isSelected = () => selectedIndex() === index();
+                    const isHovered = () => hoveredRowIndex() === index();
                     const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
                     const isTerminating = pod.status === 'Terminating';
                     // Check for pending or initializing statuses
-                    const isPending = pod.status === 'Pending' || 
+                    const isPending = pod.status === 'Pending' ||
                                      pod.status === 'Initializing' ||
                                      pod.status?.includes('ContainerCreating') ||
                                      pod.status?.includes('PodInitializing') ||
                                      pod.status?.includes('Init:') ||
                                      pod.status?.toLowerCase().includes('initializing');
-                    const [isHovered, setIsHovered] = createSignal(false);
 
                     // Text color based on status - terminal style colors
-                    const getTextColor = () => {
-                      if (isTerminating) return '#a855f7'; // Purple/violet for terminating
-                      if (isFailed) return '#ef4444'; // Red text for failed
-                      if (isPending) return '#fbbf24'; // Yellow for pending/initializing
-                      return '#0ea5e9'; // Sky blue for default/running
-                    };
+                    const textColor = isTerminating ? '#a855f7' : // Purple/violet for terminating
+                                     isFailed ? '#ef4444' : // Red text for failed
+                                     isPending ? '#fbbf24' : // Yellow for pending/initializing
+                                     '#0ea5e9'; // Sky blue for default/running
 
-                    // Background color - violet/purple for terminating pods, transparent or hover for others
+                    // Background color - violet/purple for terminating pods, hover colors for others
                     const getRowBackground = () => {
-                      if (isTerminating) {
-                        // Entire row should be violet/purple for terminating pods
-                        return 'rgba(168, 85, 247, 0.15)'; // Purple/violet background
-                      }
+                      if (isTerminating) return 'rgba(168, 85, 247, 0.15)';
                       if (!isHovered()) return 'transparent';
                       return getRowHoverBackground(isSelected(), isFailed, isPending);
                     };
-
-                    const textColor = getTextColor();
 
                     return (
                     <tr
@@ -1358,7 +1352,7 @@ const Pods: Component = () => {
                         openModal(pod, 'details');
                       }}
                       onMouseEnter={() => {
-                        setIsHovered(true);
+                        setHoveredRowIndex(index());
                         const allPods = filteredAndSortedPods();
                         const start = (currentPage() - 1) * pageSize();
                         const globalIndex = start + index();
@@ -1367,7 +1361,7 @@ const Pods: Component = () => {
                           setSelectedIndex(index());
                         }
                       }}
-                      onMouseLeave={() => setIsHovered(false)}
+                      onMouseLeave={() => setHoveredRowIndex(null)}
                     >
                       <td style={{
                         padding: '0 8px',
