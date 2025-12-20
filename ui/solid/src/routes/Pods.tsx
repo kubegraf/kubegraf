@@ -1,7 +1,7 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { namespace, clusterStatus } from '../stores/cluster';
-import { addNotification } from '../stores/ui';
+import { addNotification, setCurrentView } from '../stores/ui';
 import { getHighlightedPod, clearHighlightedPod, getPodForLogs, clearPodLogs, shouldHighlightPod } from '../utils/pod-selection';
 import {
   selectedCluster,
@@ -10,6 +10,7 @@ import {
   setSearchQuery,
   globalLoading,
   setGlobalLoading,
+  setNamespaces,
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
 import { getRowHoverBackground } from '../utils/rowHoverStyles';
@@ -29,6 +30,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { WorkloadRef, kindAbbrev, formatWorkloadChain, workloadKindToView, navigateToWorkloadWithFocus } from '../utils/workload-navigation';
 
 interface Pod {
   name: string;
@@ -43,6 +45,7 @@ interface Pod {
   ip?: string;
   cpu?: string;
   memory?: string;
+  workloadRef?: WorkloadRef;
 }
 
 type SortField = 'name' | 'namespace' | 'status' | 'cpu' | 'memory' | 'restarts' | 'age';
@@ -524,6 +527,41 @@ const Pods: Component = () => {
 
   const pods = createMemo(() => podsCache.data() || []);
   
+  // Owner filter from URL params
+  const [ownerFilter, setOwnerFilter] = createSignal<{ kind?: string; name?: string; namespace?: string } | null>(null);
+  
+  // Read URL params on mount
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ownerKind = params.get('ownerKind');
+    const ownerName = params.get('ownerName');
+    const ownerNamespace = params.get('namespace');
+    if (ownerKind && ownerName) {
+      setOwnerFilter({ kind: ownerKind, name: ownerName, namespace: ownerNamespace || undefined });
+    }
+    
+    // Clear namespace filter if it was set programmatically (from navigation)
+    // Check if namespace was set programmatically via sessionStorage flag
+    const wasSetProgrammatically = sessionStorage.getItem('kubegraf:namespaceSetProgrammatically') === 'true';
+    const currentNamespaces = selectedNamespaces();
+    
+    // If namespace was set programmatically and matches URL param or is a single value, clear it
+    if (wasSetProgrammatically) {
+      if (ownerNamespace && currentNamespaces.length === 1 && currentNamespaces[0] === ownerNamespace) {
+        // Clear the programmatically set namespace to show all namespaces
+        setNamespaces([]);
+      } else if (currentNamespaces.length === 1 && !ownerNamespace) {
+        // No URL param but single namespace set - likely from previous navigation, clear it
+        setNamespaces([]);
+      }
+      // Clear the flag
+      sessionStorage.removeItem('kubegraf:namespaceSetProgrammatically');
+    } else if (ownerNamespace && currentNamespaces.length === 1 && currentNamespaces[0] === ownerNamespace) {
+      // Fallback: if namespace matches URL param, assume it was set programmatically
+      setNamespaces([]);
+    }
+  });
+  
   // Track initial load separately to avoid showing loading on refetch
   const [initialLoad, setInitialLoad] = createSignal(true);
   createEffect(() => {
@@ -687,6 +725,19 @@ const Pods: Component = () => {
       } else if (status === 'succeeded') {
         allPods = allPods.filter((p: Pod) => p.status === 'Succeeded');
       }
+    }
+
+    // Filter by owner (from URL params)
+    const owner = ownerFilter();
+    if (owner && owner.kind && owner.name) {
+      allPods = allPods.filter((p: Pod) => {
+        if (!p.workloadRef) return false;
+        const ref = p.workloadRef;
+        const kindMatch = ref.kind.toLowerCase() === owner.kind!.toLowerCase();
+        const nameMatch = ref.name === owner.name;
+        const namespaceMatch = !owner.namespace || ref.namespace === owner.namespace;
+        return kindMatch && nameMatch && namespaceMatch;
+      });
     }
 
     // Sort
@@ -1384,7 +1435,41 @@ const Pods: Component = () => {
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
                       }}>
-                        {pod.name.length > 40 ? pod.name.slice(0, 37) + '...' : pod.name}
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span>{pod.name.length > 40 ? pod.name.slice(0, 37) + '...' : pod.name}</span>
+                          <Show when={pod.workloadRef}>
+                            {(ref) => (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateToWorkloadWithFocus(ref(), setCurrentView);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    navigateToWorkloadWithFocus(ref(), setCurrentView);
+                                  }
+                                }}
+                                title={formatWorkloadChain(ref())}
+                                class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium transition-colors hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-offset-1"
+                                style={{
+                                  background: 'rgba(14, 165, 233, 0.2)',
+                                  color: '#0ea5e9',
+                                  border: '1px solid rgba(14, 165, 233, 0.3)',
+                                  'font-size': `${Math.max(10, fontSize() - 2)}px`,
+                                  'line-height': '1.2',
+                                  'max-width': '120px',
+                                  overflow: 'hidden',
+                                  'text-overflow': 'ellipsis',
+                                  'white-space': 'nowrap',
+                                }}
+                              >
+                                {kindAbbrev(ref().kind)} {ref().name.length > 12 ? ref().name.slice(0, 10) + '...' : ref().name}
+                              </button>
+                            )}
+                          </Show>
+                        </div>
                       </td>
                       <td style={{
                         padding: '0 8px',

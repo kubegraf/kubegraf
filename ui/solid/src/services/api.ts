@@ -334,6 +334,12 @@ export const api = {
   bulkDeleteDeployments: (namespace: string) =>
     fetchAPI<any>(`/deployments/bulk/delete?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
 
+  // Workload cross-navigation
+  getWorkloadDetails: (namespace: string, kind: string, name: string) =>
+    fetchAPI<any>(`/workloads/${namespace}/${kind}/${name}`),
+  getWorkloadRelated: (namespace: string, kind: string, name: string) =>
+    fetchAPI<any>(`/workloads/${namespace}/${kind}/${name}/related`),
+
   // StatefulSets
   getStatefulSets: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'

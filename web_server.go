@@ -426,6 +426,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/daemonset/restart", ws.handleDaemonSetRestart)
 	http.HandleFunc("/api/daemonset/delete", ws.handleDaemonSetDelete)
 
+	// Workload cross-navigation endpoints
+	http.HandleFunc("/api/workloads/", ws.handleWorkloadRoutes)
+
 	// Bulk operations by namespace
 	http.HandleFunc("/api/deployments/bulk/restart", ws.handleBulkDeploymentRestart)
 	http.HandleFunc("/api/deployments/bulk/delete", ws.handleBulkDeploymentDelete)
@@ -3354,6 +3357,7 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3361,8 +3365,11 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	dep, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	dep, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3374,14 +3381,92 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 	// Format selector as string
 	selector := metav1.FormatLabelSelector(dep.Spec.Selector)
 
+	// Get ReplicaSets for this deployment
+	replicaSets := []map[string]interface{}{}
+	if rss, err := ws.app.clientset.AppsV1().ReplicaSets(dep.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, rs := range rss.Items {
+			// Check if ReplicaSet is owned by this Deployment
+			for _, ownerRef := range rs.OwnerReferences {
+				if ownerRef.Kind == "Deployment" && ownerRef.Name == dep.Name {
+					replicas := int32(1)
+					if rs.Spec.Replicas != nil {
+						replicas = *rs.Spec.Replicas
+					}
+					replicaSets = append(replicaSets, map[string]interface{}{
+						"name":      rs.Name,
+						"ready":     fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas),
+						"replicas":  replicas,
+						"age":       formatAge(time.Since(rs.CreationTimestamp.Time)),
+					})
+					break
+				}
+			}
+		}
+	}
+
+	// Get Pods for this deployment
+	pods := []map[string]interface{}{}
+	if podList, err := ws.app.clientset.CoreV1().Pods(dep.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, pod := range podList.Items {
+			// Calculate total restarts
+			restarts := int32(0)
+			for _, cs := range pod.Status.ContainerStatuses {
+				restarts += cs.RestartCount
+			}
+			for _, ics := range pod.Status.InitContainerStatuses {
+				restarts += ics.RestartCount
+			}
+			
+			pods = append(pods, map[string]interface{}{
+				"name":      pod.Name,
+				"status":    string(pod.Status.Phase),
+				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts":  restarts,
+				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":        pod.Status.PodIP,
+				"node":      pod.Spec.NodeName,
+			})
+		}
+	}
+
+	// Format conditions
+	conditions := []map[string]interface{}{}
+	for _, cond := range dep.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    cond.Type,
+			"status":  string(cond.Status),
+			"reason":  cond.Reason,
+			"message": cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
+		})
+	}
+
+	replicas := int32(1)
+	if dep.Spec.Replicas != nil {
+		replicas = *dep.Spec.Replicas
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"name":      dep.Name,
-		"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
-		"available": fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, *dep.Spec.Replicas),
-		"strategy":  string(dep.Spec.Strategy.Type),
-		"selector":  selector,
-		"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
+		"success":     true,
+		"name":        dep.Name,
+		"namespace":   dep.Namespace,
+		"ready":       fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, replicas),
+		"available":  fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, replicas),
+		"updated":     dep.Status.UpdatedReplicas,
+		"replicas":    replicas,
+		"strategy":    string(dep.Spec.Strategy.Type),
+		"selector":    selector,
+		"labels":      dep.Labels,
+		"annotations": dep.Annotations,
+		"age":         formatAge(time.Since(dep.CreationTimestamp.Time)),
+		"createdAt":   dep.CreationTimestamp.Format(time.RFC3339),
+		"conditions":  conditions,
+		"replicaSets": replicaSets,
+		"pods":        pods,
 	})
 }
 
