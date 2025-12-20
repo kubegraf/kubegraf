@@ -31,41 +31,16 @@ body:
     attributes:
       label: Alternatives Considered
       description: Describe any alternative solutions or features you've considered
-
-  - type: dropdown
-    id: interface
-    attributes:
-      label: Target Interface
-      description: Which interface should this feature be implemented in?
-      options:
-        - Terminal UI (TUI)
-        - Web Dashboard
-        - Both
-        - CLI Flag/Option
-        - Other
     validations:
       required: true
 
-  - type: dropdown
-    id: priority
+  - type: textarea
+    id: impact
     attributes:
-      label: Priority
-      description: How important is this feature to you?
-      options:
-        - Nice to have
-        - Important
-        - Critical - blocking my usage
+      label: Impact / Who Benefits
+      description: Who would benefit from this feature? What impact would it have?
     validations:
       required: true
-
-  - type: checkboxes
-    id: contribution
-    attributes:
-      label: Contribution
-      description: Would you be willing to contribute this feature?
-      options:
-        - label: I would be willing to submit a PR for this feature
-          required: false
 
   - type: textarea
     id: additional
