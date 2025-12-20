@@ -21,7 +21,7 @@ const UIDemo: Component = () => {
       <div>
         <h2 class="text-2xl font-bold mb-4 gradient-text">UI/UX Improvements Demo</h2>
         <p class="text-gray-400 mb-6">
-          This demo showcases the UI/UX improvements implemented for KubeGraf.
+          This demo showcases the UI/UX improvements implemented for KubēGraf.
         </p>
       </div>
 
@@ -104,7 +104,7 @@ const UIDemo: Component = () => {
           <div>
             <h4 class="font-medium mb-3">Custom Empty State</h4>
             <EmptyState
-              title="Welcome to KubeGraf!"
+              title="Welcome to KubēGraf!"
               description="Get started by connecting to your Kubernetes cluster."
               variant="info"
               size="lg"

@@ -51,10 +51,12 @@ export function createCachedResource<T>(
   const loadFromCache = (): boolean => {
     const cached = getCachedResource<T>(resourceType);
     if (cached) {
+      console.log(`[${resourceType}] Loading from cache, ${cached.data.length} items, age: ${Date.now() - cached.lastUpdated}ms`);
       setData(cached.data);
       setError(undefined);
       return true;
     }
+    console.log(`[${resourceType}] No cache found`);
     return false;
   };
 

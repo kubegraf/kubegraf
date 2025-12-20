@@ -19,12 +19,12 @@ const Documentation: Component = () => {
       id: 'overview',
       title: 'Overview',
       icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
-      description: 'Get started with KubeGraf and understand the basics',
+      description: 'Get started with KubēGraf and understand the basics',
       content: [
         {
-          title: 'What is KubeGraf?',
+          title: 'What is KubēGraf?',
           items: [
-            'KubeGraf is an advanced Kubernetes visualization and management platform',
+            'KubēGraf is an advanced Kubernetes visualization and management platform',
             'Provides real-time monitoring, resource management, and cluster insights',
             'Designed for DevOps engineers, SREs, and platform teams',
             'All data is stored locally on your device for maximum privacy',
@@ -142,7 +142,7 @@ const Documentation: Component = () => {
       id: 'features',
       title: 'Core Features',
       icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-      description: 'Detailed explanation of KubeGraf features',
+      description: 'Detailed explanation of KubēGraf features',
       content: [
         {
           title: 'Event Monitoring',
@@ -209,7 +209,7 @@ const Documentation: Component = () => {
       id: 'best-practices',
       title: 'Best Practices',
       icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
-      description: 'Tips and best practices for using KubeGraf',
+      description: 'Tips and best practices for using KubēGraf',
       content: [
         {
           title: 'Security',
@@ -261,10 +261,10 @@ const Documentation: Component = () => {
       {/* Header */}
       <div class="mb-8">
         <h1 class="text-4xl font-bold mb-4 gradient-text">
-          KubeGraf Documentation
+          KubēGraf Documentation
         </h1>
         <p class="text-lg" style={{ color: 'var(--text-muted)' }}>
-          Learn how to use KubeGraf effectively and understand all features
+          Learn how to use KubēGraf effectively and understand all features
         </p>
       </div>
 

@@ -317,7 +317,7 @@ const LandingPage: Component = () => {
               </svg>
             </div>
             <span class="text-xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-              KubeGraf
+              KubēGraf
             </span>
           </div>
           <div class="flex items-center gap-6">
@@ -369,11 +369,11 @@ const LandingPage: Component = () => {
             }}
           >
             <span class="bg-gradient-to-r from-white via-cyan-200 to-white bg-clip-text text-transparent">
-              Kubernetes Dashboard
+              Intelligent Insight
             </span>
             <br />
             <span class="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-              Reimagined
+              for Kubernetes Incidents
             </span>
           </h1>
 
@@ -513,7 +513,7 @@ const LandingPage: Component = () => {
             Ready to <span class="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">Get Started?</span>
           </h2>
           <p class="text-xl text-gray-400 mb-10">
-            Deploy KubeGraf and start managing your Kubernetes clusters with style.
+            Deploy KubēGraf and start managing your Kubernetes clusters with style.
           </p>
           <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
             <div class="bg-[#12121a] rounded-xl p-4 font-mono text-sm text-gray-300 border border-white/10">
@@ -542,7 +542,7 @@ const LandingPage: Component = () => {
                   <path d="M42 46 L22 34 L22 54 L42 66 Z" fill="white" opacity="0.75"/>
                 </svg>
               </div>
-              <span class="text-lg font-bold">KubeGraf</span>
+              <span class="text-lg font-bold">KubēGraf</span>
             </div>
             <div class="flex items-center gap-6 text-gray-400">
               <a href="https://github.com/kubegraf/kubegraf" target="_blank" class="hover:text-white transition-colors">GitHub</a>

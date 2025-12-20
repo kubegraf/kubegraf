@@ -162,7 +162,7 @@ const AIAgents: Component = () => {
             MCP Server Not Available
           </div>
           <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
-            The MCP server is not running or not accessible. Make sure KubeGraf is running and the MCP endpoint is enabled.
+            The MCP server is not running or not accessible. Make sure KubēGraf is running and the MCP endpoint is enabled.
           </p>
         </div>
       </Show>

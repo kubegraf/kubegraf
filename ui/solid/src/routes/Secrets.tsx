@@ -746,20 +746,49 @@ const Secrets: Component = () => {
                 const yaml = await api.getSecretYAML(params.name, params.ns);
                 // Parse YAML to extract data fields
                 try {
-                  // Simple extraction of data fields from YAML
-                  const dataMatch = yaml.yaml.match(/data:\s*([\s\S]*?)(?=\n\w|$)/);
-                  if (dataMatch) {
-                    const dataSection = dataMatch[1];
-                    const data: SecretData = {};
-                    const lines = dataSection.split('\n');
-                    for (const line of lines) {
-                      const match = line.match(/^\s+([^:]+):\s*(.+)$/);
+                  // Improved YAML parsing - find data: section and extract key-value pairs
+                  const lines = yaml.yaml.split('\n');
+                  const data: SecretData = {};
+                  let inDataSection = false;
+                  let dataIndent = 0;
+
+                  for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+
+                    // Check if we're entering the data section
+                    if (line.match(/^data:\s*$/)) {
+                      inDataSection = true;
+                      dataIndent = 0; // Reset indent
+                      continue;
+                    }
+
+                    // If we're in the data section
+                    if (inDataSection) {
+                      // Calculate current line's indentation
+                      const indent = line.search(/\S/);
+
+                      // Extract key-value pairs (lines with "  key: value" format)
+                      const match = line.match(/^\s+([^:]+):\s*(.*)$/);
                       if (match) {
-                        data[match[1].trim()] = match[2].trim();
+                        // Set the data indent based on first key-value pair found
+                        if (dataIndent === 0) {
+                          dataIndent = indent;
+                        }
+
+                        const key = match[1].trim();
+                        const value = match[2].trim();
+                        // Store key even if value is empty (some secrets may have empty values)
+                        if (key) {
+                          data[key] = value;
+                        }
+                      } else if (indent !== -1 && dataIndent > 0 && indent < dataIndent) {
+                        // If we encounter a line with less indentation than data fields, we've exited the section
+                        break;
                       }
                     }
-                    return data;
                   }
+
+                  return data;
                 } catch (e) {
                   console.error('Failed to parse secret data:', e);
                 }

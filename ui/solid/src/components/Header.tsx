@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createMemo, createEffect, onCleanup, createResource } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, createEffect, onCleanup, createResource, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import {
   namespace,
@@ -27,6 +27,7 @@ import { favorites, toggleFavorite, isFavorite } from '../stores/favorites';
 import { navSections } from '../config/navSections';
 import { CloudProviderLogo } from './cloud-logos';
 import { useWorkerFilter } from '../hooks/useWorkerFilter';
+import { settings } from '../stores/settings';
 
 const Header: Component = () => {
   const [nsDropdownOpen, setNsDropdownOpen] = createSignal(false);
@@ -37,10 +38,34 @@ const Header: Component = () => {
   const [terminalOpen, setTerminalOpen] = createSignal(false);
   const [nsSelection, setNsSelection] = createSignal<string[]>([]);
   const [nsSelectionMode, setNsSelectionMode] = createSignal<'default' | 'all' | 'custom'>('default');
+  const [backendAvailable, setBackendAvailable] = createSignal<boolean | null>(null); // null = not checked yet
   let nsDropdownRef: HTMLDivElement | undefined;
   let nsButtonRef: HTMLButtonElement | undefined;
   let ctxDropdownRef: HTMLDivElement | undefined;
   let ctxButtonRef: HTMLButtonElement | undefined;
+
+  // Check backend health on mount (only once)
+  onMount(() => {
+    // Check if checkHealth exists (for backwards compatibility)
+    if (api.checkHealth && typeof api.checkHealth === 'function') {
+      api.checkHealth()
+        .then(() => {
+          setBackendAvailable(true);
+        })
+        .catch(() => {
+          setBackendAvailable(false);
+        });
+    } else {
+      // Fallback: use getStatus if checkHealth is not available
+      api.getStatus()
+        .then(() => {
+          setBackendAvailable(true);
+        })
+        .catch(() => {
+          setBackendAvailable(false);
+        });
+    }
+  });
 
   // Fetch cloud info (fast endpoint - single API call)
   const [cloudInfo] = createResource(() => api.getCloudInfo().catch(() => null));
@@ -572,9 +597,48 @@ const Header: Component = () => {
 
         {/* Terminal button */}
         <button
-          onClick={() => setTerminalOpen(true)}
+          onClick={async () => {
+            const preferSystem = settings().preferSystemTerminal;
+            const backendOk = backendAvailable();
+
+            // If backend is available and user prefers system terminal, try to open native terminal
+            if (preferSystem && backendOk) {
+              try {
+                const result = await api.openNativeTerminal();
+                if (result.status === 'opened') {
+                  addNotification(`System terminal opened (${result.os})`, 'success');
+                  return;
+                } else {
+                  // API returned error, fallback to web terminal
+                  addNotification(
+                    `Failed to open system terminal: ${result.error || 'Unknown error'}. Opening web terminal instead.`,
+                    'warning'
+                  );
+                  setTerminalOpen(true);
+                }
+              } catch (error) {
+                // Network error or API unavailable, fallback to web terminal
+                console.error('[Header] Failed to open native terminal:', error);
+                addNotification(
+                  'Native terminal access requires the local KubēGraf runtime. Opening web terminal instead.',
+                  'info'
+                );
+                setTerminalOpen(true);
+              }
+            } else if (backendOk === false) {
+              // Backend not available, show message and open web terminal
+              addNotification(
+                'Native terminal access requires the local KubeGraf runtime. Opening web terminal instead.',
+                'info'
+              );
+              setTerminalOpen(true);
+            } else {
+              // User prefers web terminal or backend status unknown, open web terminal
+              setTerminalOpen(true);
+            }
+          }}
           class="icon-btn"
-          title="Open Local Terminal"
+          title="Open your local terminal"
           style={{ 
             display: 'flex',
             alignItems: 'center',

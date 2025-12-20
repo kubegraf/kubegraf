@@ -199,7 +199,7 @@ export const NoResultsEmptyState: Component<{ searchQuery?: string; actions?: JS
 export const NoConnectionEmptyState: Component<{ actions?: JSX.Element }> = (props) => (
   <EmptyState
     title="No Cluster Connection"
-    description="Connect to a Kubernetes cluster to start using KubeGraf."
+    description="Connect to a Kubernetes cluster to start using KubēGraf."
     variant="error"
     actions={props.actions}
     size="lg"

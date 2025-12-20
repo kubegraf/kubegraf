@@ -29,7 +29,7 @@ const Privacy: Component = () => {
               Local-Only Storage
             </h2>
             <p class="mb-4" style={{ color: 'var(--text-text)' }}>
-              KubeGraf is designed with privacy-first principles. <strong>All data is stored exclusively on your local device</strong> - nothing is transmitted to external servers, cloud services, or third-party analytics platforms.
+              KubēGraf is designed with privacy-first principles. <strong>All data is stored exclusively on your local device</strong> - nothing is transmitted to external servers, cloud services, or third-party analytics platforms.
             </p>
             
             <div class="space-y-3">
@@ -57,7 +57,7 @@ const Privacy: Component = () => {
                       Zero External Data Transmission
                     </h3>
                     <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
-                      KubeGraf does not send any data to external servers. All operations, including cluster monitoring, event tracking, and data analysis, happen entirely on your local machine.
+                      KubēGraf does not send any data to external servers. All operations, including cluster monitoring, event tracking, and data analysis, happen entirely on your local machine.
                     </p>
                   </div>
                 </div>
@@ -88,7 +88,7 @@ const Privacy: Component = () => {
           Network Communication
         </h2>
         <p class="mb-4" style={{ color: 'var(--text-text)' }}>
-          KubeGraf only communicates with:
+          KubēGraf only communicates with:
         </p>
         <ul class="list-disc list-inside space-y-2 mb-4" style={{ color: 'var(--text-muted)' }}>
           <li><strong>Your Kubernetes clusters:</strong> Direct API calls to your cluster endpoints (configured by you)</li>
@@ -97,7 +97,7 @@ const Privacy: Component = () => {
         </ul>
         <div class="p-4 rounded-lg" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
           <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
-            <strong>Note:</strong> All network communication is initiated by you and only to endpoints you configure. KubeGraf does not maintain any persistent connections to external services.
+            <strong>Note:</strong> All network communication is initiated by you and only to endpoints you configure. KubēGraf does not maintain any persistent connections to external services.
           </p>
         </div>
       </div>
@@ -124,11 +124,11 @@ const Privacy: Component = () => {
           Third-Party Services
         </h2>
         <p class="mb-4" style={{ color: 'var(--text-text)' }}>
-          KubeGraf does not use any third-party analytics, tracking, or data collection services. The application is completely self-contained and operates independently.
+          KubēGraf does not use any third-party analytics, tracking, or data collection services. The application is completely self-contained and operates independently.
         </p>
         <div class="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
           <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
-            <strong>Open Source:</strong> KubeGraf is open source, allowing you to review the code and verify our privacy claims. Visit our <a href="https://github.com/kubegraf/kubegraf" target="_blank" class="underline" style={{ color: 'var(--accent-primary)' }}>GitHub repository</a> to inspect the source code.
+            <strong>Open Source:</strong> KubēGraf is open source, allowing you to review the code and verify our privacy claims. Visit our <a href="https://github.com/kubegraf/kubegraf" target="_blank" class="underline" style={{ color: 'var(--accent-primary)' }}>GitHub repository</a> to inspect the source code.
           </p>
         </div>
       </div>
@@ -168,7 +168,7 @@ const Privacy: Component = () => {
       {/* Footer Note */}
       <div class="mt-8 p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
         <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
-          This privacy policy applies to the KubeGraf application. By using KubeGraf, you acknowledge that all data is stored locally on your device.
+          This privacy policy applies to the KubēGraf application. By using KubēGraf, you acknowledge that all data is stored locally on your device.
         </p>
       </div>
     </div>
