@@ -459,7 +459,7 @@ const Services: Component = () => {
   };
 
   return (
-    <div class="space-y-4">
+    <div class="space-y-2 max-w-full -mt-4">
       {/* Bulk Actions */}
       <BulkActions
         selectedCount={bulk.selectedCount()}
@@ -470,11 +470,11 @@ const Services: Component = () => {
         resourceType="services"
       />
 
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Services</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Network services and load balancers</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Services</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Network services and load balancers</p>
         </div>
         
         {/* Tabs */}
@@ -532,51 +532,55 @@ const Services: Component = () => {
         </div>
       </div>
 
-      {/* Status summary with clickable filters */}
-      <div class="flex flex-wrap items-center gap-3">
+      {/* Status summary with clickable filters - compact */}
+      <div class="flex flex-wrap items-center gap-2">
         <div
-          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
           style={{
-            'border-left': typeFilter() === 'all' ? '3px solid var(--accent-primary)' : '3px solid transparent',
+            'border-left': typeFilter() === 'all' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+            'border-color': 'var(--border-color)',
             opacity: typeFilter() === 'all' ? 1 : 0.7
           }}
           onClick={() => { setTypeFilter('all'); setCurrentPage(1); }}
         >
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Total</span>
+          <span class="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
         <div
-          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
           style={{
-            'border-left': typeFilter() === 'ClusterIP' ? '3px solid var(--success-color)' : '3px solid transparent',
+            'border-left': typeFilter() === 'ClusterIP' ? '2px solid var(--success-color)' : '2px solid transparent',
+            'border-color': 'var(--border-color)',
             opacity: typeFilter() === 'ClusterIP' ? 1 : 0.7
           }}
           onClick={() => { setTypeFilter('ClusterIP'); setCurrentPage(1); }}
         >
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">ClusterIP</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().clusterIP}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">ClusterIP</span>
+          <span class="text-sm font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().clusterIP}</span>
         </div>
         <div
-          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
           style={{
-            'border-left': typeFilter() === 'NodePort' ? '3px solid var(--warning-color)' : '3px solid transparent',
+            'border-left': typeFilter() === 'NodePort' ? '2px solid var(--warning-color)' : '2px solid transparent',
+            'border-color': 'var(--border-color)',
             opacity: typeFilter() === 'NodePort' ? 1 : 0.7
           }}
           onClick={() => { setTypeFilter('NodePort'); setCurrentPage(1); }}
         >
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">NodePort</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().nodePort}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">NodePort</span>
+          <span class="text-sm font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().nodePort}</span>
         </div>
         <div
-          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
+          class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2 transition-all"
           style={{
-            'border-left': typeFilter() === 'LoadBalancer' ? '3px solid #3b82f6' : '3px solid transparent',
+            'border-left': typeFilter() === 'LoadBalancer' ? '2px solid #3b82f6' : '2px solid transparent',
+            'border-color': 'var(--border-color)',
             opacity: typeFilter() === 'LoadBalancer' ? 1 : 0.7
           }}
           onClick={() => { setTypeFilter('LoadBalancer'); setCurrentPage(1); }}
         >
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">LoadBalancer</span>
-          <span class="text-xl font-bold" style={{ color: '#3b82f6' }}>{statusCounts().loadBalancer}</span>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">LoadBalancer</span>
+          <span class="text-sm font-bold" style={{ color: '#3b82f6' }}>{statusCounts().loadBalancer}</span>
         </div>
 
         <div class="flex-1" />

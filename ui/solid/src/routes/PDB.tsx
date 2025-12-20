@@ -260,13 +260,13 @@ const PDB: Component = () => {
   });
 
   return (
-    <div class="space-y-4 p-6">
-      <div class="flex items-center justify-between mb-6">
+    <div class="space-y-2 max-w-full -mt-4 p-6">
+      <div class="flex items-center justify-between mb-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Pod Disruption Budgets
           </h1>
-          <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+          <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Manage pod availability during voluntary disruptions
           </p>
         </div>

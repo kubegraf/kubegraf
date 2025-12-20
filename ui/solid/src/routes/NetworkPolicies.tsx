@@ -319,12 +319,12 @@ const NetworkPolicies: Component = () => {
 
 
   return (
-    <div class="space-y-4">
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+    <div class="space-y-2 max-w-full -mt-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Network Policies</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>View and manage Kubernetes Network Policies for controlling pod-to-pod communication</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Network Policies</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>View and manage Kubernetes Network Policies for controlling pod-to-pod communication</p>
         </div>
         <div class="flex items-center gap-3">
           <select

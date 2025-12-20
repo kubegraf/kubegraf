@@ -358,7 +358,7 @@ const Secrets: Component = () => {
   };
 
   return (
-    <div class="space-y-4" style={{ background: 'var(--bg-primary)', minHeight: '100%' }}>
+    <div class="space-y-2 max-w-full -mt-4" style={{ background: 'var(--bg-primary)', minHeight: '100%' }}>
       {/* Bulk Actions */}
       <BulkActions
         selectedCount={bulk.selectedCount()}
@@ -369,9 +369,12 @@ const Secrets: Component = () => {
         resourceType="secrets"
       />
 
-      {/* Header */}
+      {/* Header - reduced size */}
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Secrets</h1>
+        <div>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Secrets</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Sensitive data storage</p>
+        </div>
         <div class="flex items-center gap-3">
           <input
             type="text"

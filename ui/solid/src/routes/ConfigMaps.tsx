@@ -313,7 +313,7 @@ const ConfigMaps: Component = () => {
   };
 
   return (
-    <div class="space-y-4">
+    <div class="space-y-2 max-w-full -mt-4">
       {/* Bulk Actions */}
       <BulkActions
         selectedCount={bulk.selectedCount()}
@@ -324,11 +324,11 @@ const ConfigMaps: Component = () => {
         resourceType="ConfigMaps"
       />
 
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>ConfigMaps</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Configuration data storage</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>ConfigMaps</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Configuration data storage</p>
         </div>
         <div class="flex items-center gap-3">
           <button
@@ -349,19 +349,19 @@ const ConfigMaps: Component = () => {
         </div>
       </div>
 
-      {/* Status summary */}
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{(configmaps() || []).length}</span>
+      {/* Status summary - compact */}
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '2px solid var(--accent-primary)', 'border-color': 'var(--border-color)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Total</span>
+          <span class="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{(configmaps() || []).length}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #8b5cf6' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Filtered</span>
-          <span class="text-xl font-bold" style={{ color: '#8b5cf6' }}>{filteredAndSorted().length}</span>
+        <div class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '2px solid #8b5cf6', 'border-color': 'var(--border-color)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Filtered</span>
+          <span class="text-sm font-bold" style={{ color: '#8b5cf6' }}>{filteredAndSorted().length}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid #22c55e' }}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Namespaces</span>
-          <span class="text-xl font-bold" style={{ color: '#22c55e' }}>
+        <div class="card px-3 py-1.5 rounded border cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '2px solid #22c55e', 'border-color': 'var(--border-color)' }}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Namespaces</span>
+          <span class="text-sm font-bold" style={{ color: '#22c55e' }}>
             {new Set((configmaps() || []).map((c: ConfigMap) => c.namespace)).size}
           </span>
         </div>
@@ -691,7 +691,7 @@ const ConfigMaps: Component = () => {
                 <div>
                   <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
                   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Data Keys</div>
                       <div style={{ color: 'var(--text-primary)' }}>
                         <Show when={!cmDetails.loading && cmDetails()}>
@@ -704,17 +704,17 @@ const ConfigMaps: Component = () => {
                         <Show when={cmDetails.loading}>
                           <div class="spinner" style={{ width: '16px', height: '16px' }} />
                         </Show>
-                      </div>
-                    </div>
-                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+              </div>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
                       <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
-                    </div>
-                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+              </div>
+              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
                       <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
-                    </div>
-                  </div>
+              </div>
+            </div>
                 </div>
 
                 {/* Related Resources Section */}
@@ -752,8 +752,8 @@ const ConfigMaps: Component = () => {
                           </For>
                         </tbody>
                       </table>
-                    </div>
-                  </div>
+            </div>
+          </div>
                 </Show>
 
                 {/* Binary Data */}

@@ -292,7 +292,7 @@ const DaemonSets: Component = () => {
   };
 
   return (
-    <div class="space-y-4">
+    <div class="space-y-2 max-w-full -mt-4">
       <BulkActions
         selectedCount={bulk.selectedCount()}
         totalCount={filteredAndSorted().length}
@@ -302,11 +302,11 @@ const DaemonSets: Component = () => {
         resourceType="DaemonSets"
       />
 
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>DaemonSets</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Node-level workloads running on all or selected nodes</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>DaemonSets</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Node-level workloads running on all or selected nodes</p>
         </div>
         <div class="flex items-center gap-3">
           <select

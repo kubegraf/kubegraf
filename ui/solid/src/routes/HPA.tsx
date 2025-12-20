@@ -263,13 +263,13 @@ const HPA: Component = () => {
   });
 
   return (
-    <div class="space-y-4 p-6">
-      <div class="flex items-center justify-between mb-6">
+    <div class="space-y-2 max-w-full -mt-4 p-6">
+      <div class="flex items-center justify-between mb-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Horizontal Pod Autoscalers
           </h1>
-          <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+          <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Automatically scale workloads based on CPU, memory, or custom metrics
           </p>
         </div>
@@ -287,23 +287,23 @@ const HPA: Component = () => {
       {/* Security Recommendations */}
       <SecurityRecommendations resourceType="HPA" />
 
-      {/* Status Summary */}
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--accent-primary)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Total</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--accent-primary)' }}>
+      {/* Status Summary - compact */}
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div class="card px-3 py-1.5 rounded border" style={{ 'border-left': '2px solid var(--accent-primary)', 'border-color': 'var(--border-color)' }}>
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Total</div>
+          <div class="text-sm font-bold mt-0.5" style={{ color: 'var(--accent-primary)' }}>
             {statusSummary().total}
           </div>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--success-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Active</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--success-color)' }}>
+        <div class="card px-3 py-1.5 rounded border" style={{ 'border-left': '2px solid var(--success-color)', 'border-color': 'var(--border-color)' }}>
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Active</div>
+          <div class="text-sm font-bold mt-0.5" style={{ color: 'var(--success-color)' }}>
             {statusSummary().active}
           </div>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--warning-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Scaling</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--warning-color)' }}>
+        <div class="card px-3 py-1.5 rounded border" style={{ 'border-left': '2px solid var(--warning-color)', 'border-color': 'var(--border-color)' }}>
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Scaling</div>
+          <div class="text-sm font-bold mt-0.5" style={{ color: 'var(--warning-color)' }}>
             {statusSummary().scaling}
           </div>
         </div>
@@ -824,7 +824,7 @@ const HPA: Component = () => {
                         )}
                       </For>
                     </div>
-                  </div>
+            </div>
                 </Show>
 
                 {/* Actions */}

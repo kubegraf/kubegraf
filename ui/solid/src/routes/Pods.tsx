@@ -1021,12 +1021,12 @@ const Pods: Component = () => {
 
 
   return (
-    <div class="space-y-4 max-w-full">
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+    <div class="space-y-2 max-w-full -mt-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Pods</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Manage and monitor your Kubernetes pods</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Pods</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Manage and monitor your Kubernetes pods</p>
         </div>
         <div class="flex items-center gap-3">
           <button
@@ -1086,23 +1086,23 @@ const Pods: Component = () => {
         </div>
       </div>
 
-      {/* Status summary */}
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }} onClick={() => setStatusFilter('all')}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
+      {/* Status summary - compact */}
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--accent-primary)' }} onClick={() => setStatusFilter('all')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Total</span>
+          <span class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }} onClick={() => setStatusFilter('running')}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Running</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().running}</span>
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--success-color)' }} onClick={() => setStatusFilter('running')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Running</span>
+          <span class="text-sm font-semibold" style={{ color: 'var(--success-color)' }}>{statusCounts().running}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }} onClick={() => setStatusFilter('pending')}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Pending</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</span>
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--warning-color)' }} onClick={() => setStatusFilter('pending')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Pending</span>
+          <span class="text-sm font-semibold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--error-color)' }} onClick={() => setStatusFilter('failed')}>
-          <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Failed</span>
-          <span class="text-xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--error-color)' }} onClick={() => setStatusFilter('failed')}>
+          <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Failed</span>
+          <span class="text-sm font-semibold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
         </div>
 
         {/* Bulk Actions */}

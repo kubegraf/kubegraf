@@ -333,7 +333,7 @@ const Storage: Component = () => {
     try {
       await api.deletePV(pv.name);
       addNotification(`✅ PersistentVolume ${pv.name} deleted successfully`, 'success');
-      refetchPVs();
+        refetchPVs();
       setSelectedPV(null);
       setShowDeleteConfirmPV(false);
       setShowDetailsPV(false);
@@ -352,7 +352,7 @@ const Storage: Component = () => {
     try {
       await api.deletePersistentVolumeClaim(pvc.namespace || 'default', pvc.name);
       addNotification(`✅ PersistentVolumeClaim ${pvc.name} deleted successfully`, 'success');
-      refetchPVCs();
+        refetchPVCs();
       setSelectedPVC(null);
       setShowDeleteConfirmPVC(false);
       setShowDetailsPVC(false);
@@ -376,13 +376,13 @@ const Storage: Component = () => {
         setSelectedPVC(pvc);
         setShowDeleteConfirmPVC(true);
       }
-    } else if (type === 'sc') {
+      } else if (type === 'sc') {
       if (!confirm(`Are you sure you want to delete StorageClass ${name}?`)) return;
       api.deleteStorageClass(name).then(() => {
         addNotification(`✅ StorageClass ${name} deleted successfully`, 'success');
         refetchSC();
       }).catch((err) => {
-        addNotification(`❌ Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+      addNotification(`❌ Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
       });
     }
   };
@@ -403,12 +403,12 @@ const Storage: Component = () => {
   };
 
   return (
-    <div class="space-y-6 p-6" style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+    <div class="space-y-2 max-w-full -mt-4 p-6" style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>Storage</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Manage PersistentVolumes, PersistentVolumeClaims, and StorageClasses</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Storage</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Manage PersistentVolumes, PersistentVolumeClaims, and StorageClasses</p>
         </div>
         <div class="flex items-center gap-2">
           {/* Font Size Selector */}
@@ -1053,7 +1053,7 @@ const Storage: Component = () => {
                         </Show>
                         <Show when={pvDetails.loading}>
                           <div class="spinner" style={{ width: '16px', height: '16px' }} />
-                        </Show>
+      </Show>
                       </div>
                     </div>
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>

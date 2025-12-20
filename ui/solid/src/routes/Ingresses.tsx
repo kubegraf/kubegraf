@@ -331,7 +331,7 @@ const Ingresses: Component = () => {
   };
 
   return (
-    <div class="space-y-4">
+    <div class="space-y-2 max-w-full -mt-4">
       {/* Bulk Actions */}
       <BulkActions
         selectedCount={bulk.selectedCount()}
@@ -342,11 +342,11 @@ const Ingresses: Component = () => {
         resourceType="ingresses"
       />
 
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Ingresses</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>External access to services</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Ingresses</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>External access to services</p>
         </div>
         <div class="flex items-center gap-3">
           <select
