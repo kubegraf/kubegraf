@@ -19,6 +19,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // handleKeyPress handles keyboard input (k9s style)
@@ -209,24 +210,87 @@ func (a *App) refreshCurrentTab() {
 	a.table.SetTitle(fmt.Sprintf(" %s ", a.tabs[a.currentTab]))
 }
 
-// changeNamespace prompts for namespace change
+// changeNamespace shows a list of available namespaces to choose from
 func (a *App) changeNamespace() {
-	inputField := tview.NewInputField().
-		SetLabel("Enter namespace: ").
-		SetText(a.namespace).
-		SetFieldWidth(30)
+	// Get list of all namespaces
+	namespaces, err := a.clientset.CoreV1().Namespaces().List(a.ctx, metav1.ListOptions{})
+	if err != nil {
+		a.showError(fmt.Sprintf("Failed to get namespaces: %v", err))
+		return
+	}
 
-	inputField.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEnter {
-			a.namespace = inputField.GetText()
-			a.pages.HidePage("input")
-			a.updateStatusBar()
-			a.refreshCurrentTab()
-		} else if key == tcell.KeyEscape {
-			a.pages.HidePage("input")
+	if len(namespaces.Items) == 0 {
+		a.showError("No namespaces found")
+		return
+	}
+
+	// Create a list view
+	list := tview.NewList().
+		ShowSecondaryText(false).
+		SetHighlightFullLine(true)
+
+	// Store all namespace names for selection
+	allNamespaces := []string{""}
+	for _, ns := range namespaces.Items {
+		allNamespaces = append(allNamespaces, ns.Name)
+	}
+
+	// Add "All Namespaces" option
+	list.AddItem("All Namespaces", "", '0', nil)
+
+	// Add each namespace to the list
+	for i, ns := range namespaces.Items {
+		nsName := ns.Name
+		shortcut := rune(0)
+		if i < 9 {
+			shortcut = rune('1' + i)
 		}
+		list.AddItem(nsName, "", shortcut, nil)
+	}
+
+	// Handle selection (Enter key)
+	list.SetSelectedFunc(func(index int, mainText string, secondaryText string, shortcut rune) {
+		a.namespace = allNamespaces[index]
+		a.pages.HidePage("namespace-list")
+		a.app.SetFocus(a.table)
+		a.updateStatusBar()
+		a.refreshCurrentTab()
 	})
 
-	a.pages.AddPage("input", inputField, true, true)
-	a.app.SetFocus(inputField)
+	// Highlight current namespace
+	for i, ns := range namespaces.Items {
+		if ns.Name == a.namespace {
+			list.SetCurrentItem(i + 1) // +1 because of "All Namespaces" option
+			break
+		}
+	}
+
+	// Set up the list modal
+	list.SetBorder(true).
+		SetTitle(" Select Namespace (↑/↓ to navigate, Enter to select, Esc to cancel) ").
+		SetTitleColor(tcell.ColorDarkCyan)
+
+	// Handle Escape key
+	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape {
+			a.pages.HidePage("namespace-list")
+			a.app.SetFocus(a.table)
+			return nil
+		}
+		return event
+	})
+
+	// Create a modal-style flex container
+	modal := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().
+			AddItem(nil, 0, 1, false).
+			AddItem(list, 0, 3, false).
+			AddItem(nil, 0, 1, false), 0, 3, false).
+		AddItem(nil, 0, 1, false)
+
+	a.pages.AddPage("namespace-list", modal, true, true)
+	a.app.SetFocus(list)
+	a.app.QueueUpdateDraw(func() {})
 }
