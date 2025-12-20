@@ -120,12 +120,10 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 
 	podList := []map[string]interface{}{}
 	for _, pod := range pods.Items {
-		// Calculate total containers (main + init containers)
+		// Calculate main containers total
 		// Note: Init containers don't have a "ready" status - they either complete or fail
-		// So we count them separately
+		// Ready state only counts main containers, not init containers
 		mainTotal := len(pod.Spec.Containers)
-		initTotal := len(pod.Spec.InitContainers)
-		totalContainers := mainTotal + initTotal
 
 		// Calculate ready count from main container statuses only
 		// Init containers are not included in "ready" count as they run before main containers
@@ -281,8 +279,10 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			containerInfo = append(containerInfo, containerData)
 		}
 
-		// Calculate total ready (main containers ready + init containers completed)
-		totalReady := ready + initReady
+		// Ready state should only count main containers, not init containers
+		// Init containers are one-time setup containers and don't have a "ready" state
+		// Format: "ready main containers / total main containers"
+		readyState := fmt.Sprintf("%d/%d", ready, mainTotal)
 
 		// Resolve workload owner using cached resources
 		var workloadRef map[string]interface{}
@@ -298,7 +298,7 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		podData := map[string]interface{}{
 			"name":       pod.Name,
 			"status":     status,
-			"ready":      fmt.Sprintf("%d/%d", totalReady, totalContainers),
+			"ready":      readyState,
 			"restarts":   restarts,
 			"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
 			"createdAt":  pod.CreationTimestamp.Time.Format(time.RFC3339),
