@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="docs/kubegraf_logo.png" alt="KubeGraf" width="400">
+<img src="docs/kubegraf_logo.png?v=2" alt="KubeGraf" width="400">
 
 **Production-Grade Kubernetes Management Platform**
 
