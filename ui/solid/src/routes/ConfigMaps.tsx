@@ -13,6 +13,8 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
@@ -45,6 +47,8 @@ const ConfigMaps: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('configmaps-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('configmaps-font-family') || 'Monaco');
@@ -283,16 +287,29 @@ const ConfigMaps: Component = () => {
     setShowDetails(true);
   };
 
-  const deleteConfigMap = async (cm: ConfigMap) => {
-    if (!confirm(`Are you sure you want to delete ConfigMap "${cm.name}" in namespace "${cm.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const cm = selected();
+    if (!cm) return;
+    
+    setDeleting(true);
     try {
       await api.deleteConfigMap(cm.name, cm.namespace);
       addNotification(`ConfigMap ${cm.name} deleted successfully`, 'success');
       refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
       console.error('Failed to delete ConfigMap:', error);
       addNotification(`Failed to delete ConfigMap: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteConfigMap = (cm: ConfigMap) => {
+    setSelected(cm);
+    setShowDeleteConfirm(true);
   };
 
   return (
@@ -528,7 +545,7 @@ const ConfigMaps: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(cm); setShowDescribe(true); }}
+                          onClick={() => { setSelected(cm); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -586,7 +603,7 @@ const ConfigMaps: Component = () => {
                               setYamlKey(`${cm.name}|${cm.namespace}`);
                               setShowEdit(true);
                             } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteConfigMap(cm), variant: 'danger', divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(cm); deleteConfigMap(cm); }, variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -658,32 +675,165 @@ const ConfigMaps: Component = () => {
       </div>
 
       {/* Details Modal */}
-      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`ConfigMap: ${selected()?.name}`} size="lg">
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`ConfigMap: ${selected()?.name}`} size="xl">
         <Show when={selected()}>
-          <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Name</div>
-                <div style={{ color: 'var(--text-primary)' }}>{selected()?.name}</div>
+          {(() => {
+            const [cmDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getConfigMapDetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Data Keys</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!cmDetails.loading && cmDetails()}>
+                          {(details) => {
+                            const dataKeys = Object.keys(details().data || {});
+                            const binaryKeys = Object.keys(details().binaryData || {});
+                            return dataKeys.length + binaryKeys.length || selected()?.data || 0;
+                          }}
+                        </Show>
+                        <Show when={cmDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Related Resources Section */}
+                <Show when={cmDetails()}>
+                  <RelatedResources
+                    kind="configmap"
+                    name={cmDetails()!.name}
+                    namespace={cmDetails()!.namespace}
+                    relatedData={cmDetails()}
+                  />
+                </Show>
+
+                {/* Data */}
+                <Show when={!cmDetails.loading && cmDetails()?.data && Object.keys(cmDetails()!.data).length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Data</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Key</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={Object.entries(cmDetails()!.data || {})}>
+                            {([key, value]) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm font-mono" style={{ color: 'var(--text-primary)' }}>{key}</td>
+                                <td class="px-4 py-2 text-sm font-mono break-all" style={{ color: 'var(--text-primary)' }}>
+                                  <pre class="whitespace-pre-wrap" style={{ 'max-width': '500px', overflow: 'auto' }}>{String(value)}</pre>
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Binary Data */}
+                <Show when={!cmDetails.loading && cmDetails()?.binaryData && Object.keys(cmDetails()!.binaryData).length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Binary Data</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Key</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Size</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={Object.keys(cmDetails()!.binaryData || {})}>
+                            {(key) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm font-mono" style={{ color: 'var(--text-primary)' }}>{key}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+                                  {cmDetails()!.binaryData[key] ? `${(cmDetails()!.binaryData[key] as string).length} bytes` : '-'}
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowEdit(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteConfigMap(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
               </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Namespace</div>
-                <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Data Keys</div>
-                <div style={{ color: 'var(--accent-primary)' }} class="font-semibold">{selected()?.data}</div>
-              </div>
-              <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                <div class="text-sm" style={{ color: 'var(--text-muted)' }}>Age</div>
-                <div style={{ color: 'var(--text-primary)' }}>{selected()?.age}</div>
-              </div>
-            </div>
-            <div class="flex gap-2 pt-4">
-              <button onClick={() => { setShowDetails(false); setShowYaml(true); }} class="btn-primary flex-1">View YAML</button>
-              <button onClick={() => { setShowDetails(false); setShowDescribe(true); }} class="btn-secondary flex-1">Describe</button>
-            </div>
-          </div>
+            );
+          })()}
         </Show>
       </Modal>
 
@@ -742,6 +892,29 @@ const ConfigMaps: Component = () => {
         resourceType="configmap"
         name={selected()?.name || ''}
         namespace={selected()?.namespace}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete ConfigMap"
+        message={selected() ? `Are you sure you want to delete the ConfigMap "${selected()!.name}"?` : 'Are you sure you want to delete this ConfigMap?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
       />
 
       {/* Bulk Delete Modal */}

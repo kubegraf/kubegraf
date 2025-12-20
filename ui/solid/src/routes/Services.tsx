@@ -17,6 +17,8 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { LoadingSpinner } from '../components/Loading';
 import ServicePortForwardModal, { ServicePort } from '../components/ServicePortForwardModal';
@@ -66,6 +68,8 @@ const Services: Component = () => {
   const [showDetails, setShowDetails] = createSignal(false);
   const [selectedPort, setSelectedPort] = createSignal<ServicePort | null>(null);
   const [activeTab, setActiveTab] = createSignal<'services' | 'portforward'>('services');
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const bulk = useBulkSelection<Service>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
@@ -429,16 +433,29 @@ const Services: Component = () => {
     }
   };
 
-  const deleteService = async (svc: Service) => {
-    if (!confirm(`Are you sure you want to delete service "${svc.name}" in namespace "${svc.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const svc = selected();
+    if (!svc) return;
+    
+    setDeleting(true);
     try {
       await api.deleteService(svc.name, svc.namespace);
       addNotification(`Service ${svc.name} deleted successfully`, 'success');
       servicesCache.refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
       console.error('Failed to delete service:', error);
       addNotification(`Failed to delete service: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteService = (svc: Service) => {
+    setSelected(svc);
+    setShowDeleteConfirm(true);
   };
 
   return (
@@ -806,7 +823,7 @@ const Services: Component = () => {
                               setYamlKey(`${svc.name}|${svc.namespace}`);
                               setShowEdit(true);
                             } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteService(svc), variant: 'danger', divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(svc); deleteService(svc); }, variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -936,6 +953,29 @@ const Services: Component = () => {
         serviceName={selected()?.name || ''}
         serviceNamespace={selected()?.namespace || ''}
         onPortForwardChange={() => refetchPF()}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete Service"
+        message={selected() ? `Are you sure you want to delete the Service "${selected()!.name}"?` : 'Are you sure you want to delete this Service?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
       />
 
       {/* Port Forward Modal - Show ports list */}

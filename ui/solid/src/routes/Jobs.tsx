@@ -13,6 +13,8 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
@@ -41,7 +43,10 @@ const Jobs: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('jobs-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('jobs-font-family') || 'Monaco');
 
@@ -277,16 +282,29 @@ const Jobs: Component = () => {
     </span>
   );
 
-  const deleteJob = async (job: Job) => {
-    if (!confirm(`Are you sure you want to delete job "${job.name}" in namespace "${job.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const job = selected();
+    if (!job) return;
+    
+    setDeleting(true);
     try {
       await api.deleteJob(job.name, job.namespace);
       addNotification(`Job ${job.name} deleted successfully`, 'success');
       refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
-      console.error('Failed to delete job:', error);
-      addNotification(`Failed to delete job: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      console.error('Failed to delete Job:', error);
+      addNotification(`Failed to delete Job: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteJob = (job: Job) => {
+    setSelected(job);
+    setShowDeleteConfirm(true);
   };
 
   return (
@@ -489,7 +507,7 @@ const Jobs: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(job); setShowDescribe(true); }}
+                          onClick={() => { setSelected(job); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -569,7 +587,7 @@ const Jobs: Component = () => {
                               setYamlKey(`${job.name}|${job.namespace}`);
                               setShowEdit(true);
                             } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteJob(job), variant: 'danger', divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(job); deleteJob(job); }, variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -678,8 +696,290 @@ const Jobs: Component = () => {
         </Show>
       </Modal>
 
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`Job: ${selected()?.name}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [jobDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getJobDetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Status</div>
+                      <div>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => (
+                            <span class={`badge ${
+                              details().status === 'Complete' ? 'badge-success' :
+                              details().status === 'Failed' ? 'badge-error' :
+                              'badge-warning'
+                            }`}>
+                              {details().status || selected()?.status || '-'}
+                            </span>
+                          )}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Completions</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().completions || selected()?.completions || '-'}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Parallelism</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().parallelism || '-'}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Duration</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().duration || selected()?.duration || '-'}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Active</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().active || 0}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Succeeded</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().succeeded || 0}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Failed</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().failed || 0}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                    <div class="p-3 rounded-lg col-span-2" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Selector</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-sm break-all">
+                        <Show when={!jobDetails.loading && jobDetails()}>
+                          {(details) => details().selector || '-'}
+                        </Show>
+                        <Show when={jobDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Related Resources Section */}
+                <Show when={jobDetails()}>
+                  <RelatedResources
+                    kind="job"
+                    name={jobDetails()!.name}
+                    namespace={jobDetails()!.namespace}
+                    relatedData={jobDetails()}
+                  />
+                </Show>
+
+                {/* Pods */}
+                <Show when={!jobDetails.loading && jobDetails()?.pods && jobDetails()!.pods.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Pods ({jobDetails()!.pods.length})</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Name</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Status</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Ready</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Restarts</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>IP</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Node</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Age</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={jobDetails()!.pods}>
+                            {(pod: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.name}</td>
+                                <td class="px-4 py-2 text-sm">
+                                  <span class={`badge ${
+                                    pod.status === 'Running' ? 'badge-success' :
+                                    pod.status === 'Pending' ? 'badge-warning' :
+                                    'badge-error'
+                                  }`}>{pod.status}</span>
+                                </td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.ready}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.restarts}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.ip || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.node || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.age}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Conditions */}
+                <Show when={!jobDetails.loading && jobDetails()?.conditions && jobDetails()!.conditions.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Conditions</h3>
+                    <div class="space-y-2">
+                      <For each={jobDetails()!.conditions}>
+                        {(condition: any) => (
+                          <div class="p-3 rounded-lg border" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{condition.type}</span>
+                              <span class={`badge ${condition.status === 'True' ? 'badge-success' : 'badge-warning'}`}>
+                                {condition.status}
+                              </span>
+                            </div>
+                            <Show when={condition.reason}>
+                              <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Reason: {condition.reason}</div>
+                            </Show>
+                            <Show when={condition.message}>
+                              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{condition.message}</div>
+                            </Show>
+                            <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                              Last transition: {new Date(condition.lastTransitionTime).toLocaleString()}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowEdit(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteJob(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
+      </Modal>
+
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="job" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete Job"
+        message={selected() ? `Are you sure you want to delete the Job "${selected()!.name}"?` : 'Are you sure you want to delete this Job?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
+      />
 
       {/* Bulk Delete Modal */}
       <BulkDeleteModal

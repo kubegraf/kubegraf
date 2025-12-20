@@ -13,6 +13,8 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
@@ -42,7 +44,10 @@ const CronJobs: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('cronjobs-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('cronjobs-font-family') || 'Monaco');
 
@@ -296,16 +301,29 @@ const CronJobs: Component = () => {
     }
   };
 
-  const deleteCronJob = async (cj: CronJob) => {
-    if (!confirm(`Are you sure you want to delete CronJob "${cj.name}" in namespace "${cj.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const cj = selected();
+    if (!cj) return;
+    
+    setDeleting(true);
     try {
-      await api.deleteCronJob(cj.namespace, cj.name);
+      await api.deleteCronJob(cj.name, cj.namespace);
       addNotification(`CronJob ${cj.name} deleted successfully`, 'success');
       refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
       console.error('Failed to delete CronJob:', error);
       addNotification(`Failed to delete CronJob: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteCronJob = (cj: CronJob) => {
+    setSelected(cj);
+    setShowDeleteConfirm(true);
   };
 
   const handleBulkDelete = async () => {
@@ -509,7 +527,7 @@ const CronJobs: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(cj); setShowDescribe(true); }}
+                          onClick={() => { setSelected(cj); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -605,7 +623,7 @@ const CronJobs: Component = () => {
                               setYamlKey(`${cj.name}|${cj.namespace}`);
                               setShowEdit(true);
                             } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteCronJob(cj), variant: 'danger', divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(cj); deleteCronJob(cj); }, variant: 'danger', divider: true },
                           ]}
                         />
                       </td>

@@ -752,12 +752,17 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 	http.HandleFunc("/api/rbac/clusterroles", ws.handleClusterRoles)
 	http.HandleFunc("/api/rbac/clusterrolebindings", ws.handleClusterRoleBindings)
 
+	// Storage Details
+	http.HandleFunc("/api/storage/pv/details", ws.handlePVDetails)
+	http.HandleFunc("/api/storage/pvc/details", ws.handlePVCDetails)
 	// Storage YAML/Update/Delete
 	http.HandleFunc("/api/storage/pv/yaml", ws.handlePVYAML)
 	http.HandleFunc("/api/storage/pv/update", ws.handlePVUpdate)
+	http.HandleFunc("/api/storage/pv/describe", ws.handlePVDescribe)
 	http.HandleFunc("/api/storage/pv/delete", ws.handlePVDelete)
 	http.HandleFunc("/api/storage/pvc/yaml", ws.handlePVCYAML)
 	http.HandleFunc("/api/storage/pvc/update", ws.handlePVCUpdate)
+	http.HandleFunc("/api/storage/pvc/describe", ws.handlePVCDescribe)
 	http.HandleFunc("/api/storage/pvc/delete", ws.handlePVCDelete)
 	http.HandleFunc("/api/storage/storageclass/yaml", ws.handleStorageClassYAML)
 	http.HandleFunc("/api/storage/storageclass/update", ws.handleStorageClassUpdate)
@@ -1360,6 +1365,142 @@ func (ws *WebServer) handleClusterRoleBindings(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(crbList)
 }
 
+// Storage Details handlers
+
+func (ws *WebServer) handlePVDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PV name is required",
+		})
+		return
+	}
+
+	pv, err := ws.app.clientset.CoreV1().PersistentVolumes().Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	accessModes := []string{}
+	for _, mode := range pv.Spec.AccessModes {
+		accessModes = append(accessModes, string(mode))
+	}
+
+	claim := ""
+	claimNamespace := ""
+	if pv.Spec.ClaimRef != nil {
+		claim = pv.Spec.ClaimRef.Name
+		claimNamespace = pv.Spec.ClaimRef.Namespace
+	}
+
+	capacity := ""
+	if pv.Spec.Capacity != nil {
+		if storage, ok := pv.Spec.Capacity[corev1.ResourceStorage]; ok {
+			capacity = storage.String()
+		}
+	}
+
+	// Get node affinity if present
+	nodeAffinity := map[string]interface{}{}
+	if pv.Spec.NodeAffinity != nil && pv.Spec.NodeAffinity.Required != nil {
+		nodeAffinity["required"] = "present"
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":          true,
+		"name":             pv.Name,
+		"capacity":         capacity,
+		"accessModes":      accessModes,
+		"reclaimPolicy":    string(pv.Spec.PersistentVolumeReclaimPolicy),
+		"status":           string(pv.Status.Phase),
+		"storageClass":     pv.Spec.StorageClassName,
+		"claim":            claim,
+		"claimNamespace":   claimNamespace,
+		"volumeMode":       string(*pv.Spec.VolumeMode),
+		"nodeAffinity":     nodeAffinity,
+		"labels":           pv.Labels,
+		"annotations":      pv.Annotations,
+		"age":              formatAge(time.Since(pv.CreationTimestamp.Time)),
+		"createdAt":        pv.CreationTimestamp.Format(time.RFC3339),
+	})
+}
+
+func (ws *WebServer) handlePVCDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PVC name and namespace are required",
+		})
+		return
+	}
+
+	pvc, err := ws.app.clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	accessModes := []string{}
+	for _, mode := range pvc.Spec.AccessModes {
+		accessModes = append(accessModes, string(mode))
+	}
+
+	volumeName := ""
+	if pvc.Spec.VolumeName != "" {
+		volumeName = pvc.Spec.VolumeName
+	}
+
+	capacity := ""
+	if pvc.Status.Capacity != nil {
+		if storage, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
+			capacity = storage.String()
+		}
+	}
+
+	requestedCapacity := ""
+	if pvc.Spec.Resources.Requests != nil {
+		if storage, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+			requestedCapacity = storage.String()
+		}
+	}
+
+	volumeMode := ""
+	if pvc.Spec.VolumeMode != nil {
+		volumeMode = string(*pvc.Spec.VolumeMode)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"name":              pvc.Name,
+		"namespace":         pvc.Namespace,
+		"status":            string(pvc.Status.Phase),
+		"volume":            volumeName,
+		"capacity":          capacity,
+		"requestedCapacity": requestedCapacity,
+		"accessModes":       accessModes,
+		"storageClass":      pvc.Spec.StorageClassName,
+		"volumeMode":       volumeMode,
+		"labels":           pvc.Labels,
+		"annotations":      pvc.Annotations,
+		"age":               formatAge(time.Since(pvc.CreationTimestamp.Time)),
+		"createdAt":         pvc.CreationTimestamp.Format(time.RFC3339),
+	})
+}
+
 // Storage YAML/Update/Delete handlers
 
 func (ws *WebServer) handlePVYAML(w http.ResponseWriter, r *http.Request) {
@@ -1432,6 +1573,33 @@ func (ws *WebServer) handlePVUpdate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handlePVDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PV name is required",
+		})
+		return
+	}
+
+	output, err := runKubectlDescribe("persistentvolume", name, "")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": output,
+	})
 }
 
 func (ws *WebServer) handlePVDelete(w http.ResponseWriter, r *http.Request) {
@@ -1527,6 +1695,34 @@ func (ws *WebServer) handlePVCUpdate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (ws *WebServer) handlePVCDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PVC name and namespace are required",
+		})
+		return
+	}
+
+	output, err := runKubectlDescribe("persistentvolumeclaim", name, namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": output,
+	})
 }
 
 func (ws *WebServer) handlePVCDelete(w http.ResponseWriter, r *http.Request) {

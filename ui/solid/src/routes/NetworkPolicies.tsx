@@ -12,6 +12,8 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
@@ -41,7 +43,10 @@ const NetworkPolicies: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('networkpolicies-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('networkpolicies-font-family') || 'Monaco');
 
@@ -274,16 +279,29 @@ const NetworkPolicies: Component = () => {
     </span>
   );
 
-  const deleteNetworkPolicy = async (np: NetworkPolicy) => {
-    if (!confirm(`Are you sure you want to delete network policy "${np.name}" in namespace "${np.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const np = selected();
+    if (!np) return;
+    
+    setDeleting(true);
     try {
-      await api.deleteNetworkPolicy(np.namespace, np.name);
+      await api.deleteNetworkPolicy(np.name, np.namespace);
       addNotification(`Network policy ${np.name} deleted successfully`, 'success');
       policiesCache.refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
       console.error('Failed to delete network policy:', error);
       addNotification(`Failed to delete network policy: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteNetworkPolicy = (np: NetworkPolicy) => {
+    setSelected(np);
+    setShowDeleteConfirm(true);
   };
 
   const handleBulkDelete = async () => {
@@ -469,7 +487,7 @@ const NetworkPolicies: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(np); setShowDescribe(true); }}
+                          onClick={() => { setSelected(np); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -554,7 +572,7 @@ const NetworkPolicies: Component = () => {
                             } },
                             { label: 'Edit YAML', icon: 'edit', onClick: () => handleEdit(np) },
                             { label: 'Describe', icon: 'info', onClick: () => { setSelected(np); setShowDescribe(true); } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteNetworkPolicy(np), variant: 'danger', divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(np); deleteNetworkPolicy(np); }, variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -652,8 +670,266 @@ const NetworkPolicies: Component = () => {
         </Show>
       </Modal>
 
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`NetworkPolicy: ${selected()?.name}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [npDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getNetworkPolicyDetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Policy Types</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-sm">
+                        <Show when={!npDetails.loading && npDetails()}>
+                          {(details) => (details().policyTypes || selected()?.policyTypes || []).join(', ') || '-'}
+                        </Show>
+                        <Show when={npDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Ingress Rules</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!npDetails.loading && npDetails()}>
+                          {(details) => (details().ingressRules || []).length || selected()?.ingress || 0}
+                        </Show>
+                        <Show when={npDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Egress Rules</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!npDetails.loading && npDetails()}>
+                          {(details) => (details().egressRules || []).length || selected()?.egress || 0}
+                        </Show>
+                        <Show when={npDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg col-span-2" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Pod Selector</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-sm break-all">
+                        <Show when={!npDetails.loading && npDetails()}>
+                          {(details) => {
+                            const selector = details().podSelector || {};
+                            return Object.keys(selector).length > 0 
+                              ? Object.entries(selector).map(([k, v]) => `${k}=${v}`).join(', ')
+                              : selected()?.selector || '-';
+                          }}
+                        </Show>
+                        <Show when={npDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Related Resources Section */}
+                <Show when={npDetails()}>
+                  <RelatedResources
+                    kind="networkpolicy"
+                    name={npDetails()!.name}
+                    namespace={npDetails()!.namespace}
+                    relatedData={npDetails()}
+                  />
+                </Show>
+
+                {/* Ingress Rules */}
+                <Show when={!npDetails.loading && npDetails()?.ingressRules && Array.isArray(npDetails()!.ingressRules) && npDetails()!.ingressRules.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Ingress Rules</h3>
+                    <div class="space-y-4">
+                      <For each={npDetails()!.ingressRules}>
+                        {(rule: any, index) => (
+                          <div class="rounded-lg border p-4" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                            <div class="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Rule {index() + 1}</div>
+                            <Show when={rule.ports && rule.ports.length > 0}>
+                              <div class="mb-2">
+                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Ports:</div>
+                                <For each={rule.ports}>
+                                  {(port: any) => (
+                                    <div class="text-sm ml-2" style={{ color: 'var(--text-primary)' }}>
+                                      {port.protocol || 'TCP'}/{port.port || '*'}
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                            <Show when={rule.from && rule.from.length > 0}>
+                              <div>
+                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>From:</div>
+                                <For each={rule.from}>
+                                  {(from: any) => (
+                                    <div class="text-sm ml-2" style={{ color: 'var(--text-primary)' }}>
+                                      <Show when={from.podSelector}>
+                                        Pod: {Object.entries(from.podSelector || {}).map(([k, v]) => `${k}=${v}`).join(', ')}
+                                      </Show>
+                                      <Show when={from.namespaceSelector}>
+                                        Namespace: {Object.entries(from.namespaceSelector || {}).map(([k, v]) => `${k}=${v}`).join(', ')}
+                                      </Show>
+                                      <Show when={from.ipBlock}>
+                                        IP Block: {from.ipBlock.cidr} {from.ipBlock.except && from.ipBlock.except.length > 0 && `(except: ${from.ipBlock.except.join(', ')})`}
+                                      </Show>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Egress Rules */}
+                <Show when={!npDetails.loading && npDetails()?.egressRules && Array.isArray(npDetails()!.egressRules) && npDetails()!.egressRules.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Egress Rules</h3>
+                    <div class="space-y-4">
+                      <For each={npDetails()!.egressRules}>
+                        {(rule: any, index) => (
+                          <div class="rounded-lg border p-4" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                            <div class="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Rule {index() + 1}</div>
+                            <Show when={rule.ports && rule.ports.length > 0}>
+                              <div class="mb-2">
+                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Ports:</div>
+                                <For each={rule.ports}>
+                                  {(port: any) => (
+                                    <div class="text-sm ml-2" style={{ color: 'var(--text-primary)' }}>
+                                      {port.protocol || 'TCP'}/{port.port || '*'}
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                            <Show when={rule.to && rule.to.length > 0}>
+                              <div>
+                                <div class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>To:</div>
+                                <For each={rule.to}>
+                                  {(to: any) => (
+                                    <div class="text-sm ml-2" style={{ color: 'var(--text-primary)' }}>
+                                      <Show when={to.podSelector}>
+                                        Pod: {Object.entries(to.podSelector || {}).map(([k, v]) => `${k}=${v}`).join(', ')}
+                                      </Show>
+                                      <Show when={to.namespaceSelector}>
+                                        Namespace: {Object.entries(to.namespaceSelector || {}).map(([k, v]) => `${k}=${v}`).join(', ')}
+                                      </Show>
+                                      <Show when={to.ipBlock}>
+                                        IP Block: {to.ipBlock.cidr} {to.ipBlock.except && to.ipBlock.except.length > 0 && `(except: ${to.ipBlock.except.join(', ')})`}
+                                      </Show>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowEdit(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteNetworkPolicy(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
+      </Modal>
+
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="networkpolicy" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete NetworkPolicy"
+        message={selected() ? `Are you sure you want to delete the NetworkPolicy "${selected()!.name}"?` : 'Are you sure you want to delete this NetworkPolicy?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
+      />
 
       {/* Bulk Actions Bar */}
       <BulkActions

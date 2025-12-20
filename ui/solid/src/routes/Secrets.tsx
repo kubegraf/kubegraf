@@ -13,6 +13,8 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
@@ -51,6 +53,8 @@ const Secrets: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDetails, setShowDetails] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('secrets-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('secrets-font-family') || 'Monaco');
@@ -321,16 +325,29 @@ const Secrets: Component = () => {
     </span>
   );
 
-  const deleteSecret = async (secret: Secret) => {
-    if (!confirm(`Are you sure you want to delete secret "${secret.name}" in namespace "${secret.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const secret = selected();
+    if (!secret) return;
+    
+    setDeleting(true);
     try {
       await api.deleteSecret(secret.name, secret.namespace);
       addNotification(`Secret ${secret.name} deleted successfully`, 'success');
       refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
       console.error('Failed to delete secret:', error);
       addNotification(`Failed to delete secret: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteSecret = (secret: Secret) => {
+    setSelected(secret);
+    setShowDeleteConfirm(true);
   };
 
   const getTypeBadgeClass = (type: string) => {
@@ -606,7 +623,7 @@ const Secrets: Component = () => {
                                   setShowEdit(true);
                                 } },
                                 { label: 'Describe', icon: 'describe', onClick: () => { setSelected(secret); setShowDescribe(true); } },
-                                { label: 'Delete', icon: 'delete', onClick: () => deleteSecret(secret), variant: 'danger', divider: true },
+                                { label: 'Delete', icon: 'delete', onClick: () => { setSelected(secret); deleteSecret(secret); }, variant: 'danger', divider: true },
                               ]}
                             />
                           </td>
@@ -733,6 +750,30 @@ const Secrets: Component = () => {
         resourceType="secret"
         name={selected()?.name || ''}
         namespace={selected()?.namespace || ''}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete Secret"
+        message={selected() ? `Are you sure you want to delete the Secret "${selected()!.name}"?` : 'Are you sure you want to delete this Secret?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+          { label: 'Type', value: selected()!.type },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
       />
 
       {/* Details Modal - Shows secret data with eye icons and decrypt/copy */}
