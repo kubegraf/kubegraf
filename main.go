@@ -26,6 +26,7 @@ import (
 
 	"github.com/fatih/color"
 
+	cli "github.com/kubegraf/kubegraf/cmd/cli"
 	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/pkg/telemetry"
 )
@@ -46,6 +47,17 @@ func main() {
 	// Check for telemetry CLI commands first
 	if telemetry.RunCLI(os.Args, GetVersion()) {
 		return
+	}
+
+	// Check for CLI commands (logs, shell, pf, restart, apply)
+	if len(os.Args) > 1 {
+		cmd := os.Args[1]
+		switch cmd {
+		case "logs", "shell", "pf", "restart", "apply":
+			// Route to Cobra CLI
+			cli.Execute()
+			return
+		}
 	}
 
 	// Check for flags first (before splash)
