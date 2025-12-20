@@ -3,7 +3,7 @@
  * Centralized configuration for easy maintenance
  */
 
-export const DOCS_URL = 'https://kubegraf.io/getting-started.html';
+export const DOCS_URL = 'https://kubegraf.io/docs/';
 export const ISSUES_URL = 'https://github.com/kubegraf/kubegraf/issues';
 export const BUG_URL = 'https://github.com/kubegraf/kubegraf/issues/new?template=bug_report.yml';
 export const FEATURE_URL = 'https://github.com/kubegraf/kubegraf/issues/new?template=feature_request.yml';

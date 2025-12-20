@@ -14,13 +14,13 @@
 [![GitHub Stars](https://img.shields.io/github/stars/kubegraf/kubegraf?style=flat&color=yellow)](https://github.com/kubegraf/kubegraf/stargazers)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**[Website](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/getting-started.html)** · **[Releases](https://github.com/kubegraf/kubegraf/releases)**
+**[Website](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/docs/)** · **[Releases](https://github.com/kubegraf/kubegraf/releases)**
 
 </div>
 
 ## 📞 Support
 
-- **Documentation**: [kubegraf.io/getting-started.html](https://kubegraf.io/getting-started.html)
+- **Documentation**: [kubegraf.io/docs/](https://kubegraf.io/docs/)
 - **Report a Bug**: [GitHub Issues](https://github.com/kubegraf/kubegraf/issues/new?template=bug_report.yml)
 - **Request a Feature**: [GitHub Issues](https://github.com/kubegraf/kubegraf/issues/new?template=feature_request.yml)
 - **Email Support**: [contact@kubegraf.io](mailto:contact@kubegraf.io)
