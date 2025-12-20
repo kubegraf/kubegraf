@@ -18,6 +18,30 @@
 
 </div>
 
+## 📞 Support
+
+- **Documentation**: [kubegraf.io/getting-started.html](https://kubegraf.io/getting-started.html)
+- **Report a Bug**: [GitHub Issues](https://github.com/kubegraf/kubegraf/issues/new?template=bug_report.yml)
+- **Request a Feature**: [GitHub Issues](https://github.com/kubegraf/kubegraf/issues/new?template=feature_request.yml)
+- **Email Support**: [contact@kubegraf.io](mailto:contact@kubegraf.io)
+- **Discussions**: [GitHub Discussions](https://github.com/kubegraf/kubegraf/discussions)
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup instructions
+- Code style guidelines
+- Pull request process
+- Areas where you can help
+
+**Note**: We use GitHub Issues for all discussions. No Slack/Discord required.
+
+## 🔒 Security
+
+To report a security vulnerability, please email **contact@kubegraf.io** with the subject "Security: <short title>". See [SECURITY.md](SECURITY.md) for our responsible disclosure policy.
+
+---
+
 ---
 
 ## 🎉 What's New
@@ -529,15 +553,17 @@ kubegraf/
 
 ## 🤝 Contributing
 
-Contributions welcome! Please:
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup instructions
+- Code style guidelines
+- Pull request process
+- Areas where you can help
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open Pull Request
+**Note**: We use GitHub Issues for all discussions. No Slack/Discord required.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+## 🔒 Security
+
+To report a security vulnerability, please email **contact@kubegraf.io** with the subject "Security: <short title>". See [SECURITY.md](SECURITY.md) for our responsible disclosure policy.
 
 ## 📝 License
 
