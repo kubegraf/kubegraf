@@ -63,16 +63,40 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for proper version detection
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'  # Update to your Go version
 
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        id: go-cache
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+        continue-on-error: true  # Cache failures are non-critical and won't show warnings
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: ui/solid/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('ui/solid/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+        continue-on-error: true  # Cache failures are non-critical and won't show warnings
 
       - name: Get version
         id: version
