@@ -204,6 +204,161 @@ func (ws *WebServer) handleHPAs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(hpaList)
 }
 
+// handlePDBDetails returns detailed information about a PDB
+func (ws *WebServer) handlePDBDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "PDB name is required",
+		})
+		return
+	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Try v1 first
+	pdb, err := ws.app.clientset.PolicyV1().PodDisruptionBudgets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		// Try v1beta1
+		pdbV1Beta1, errV1Beta1 := ws.app.clientset.PolicyV1beta1().PodDisruptionBudgets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+		if errV1Beta1 != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		// Handle v1beta1
+		minAvailable := ""
+		maxUnavailable := ""
+		if pdbV1Beta1.Spec.MinAvailable != nil {
+			minAvailable = pdbV1Beta1.Spec.MinAvailable.String()
+		}
+		if pdbV1Beta1.Spec.MaxUnavailable != nil {
+			maxUnavailable = pdbV1Beta1.Spec.MaxUnavailable.String()
+		}
+
+		// Format selector
+		selector := ""
+		if pdbV1Beta1.Spec.Selector != nil {
+			selector = metav1.FormatLabelSelector(pdbV1Beta1.Spec.Selector)
+		}
+
+		// Get Pods matching this PDB
+		pods := []map[string]interface{}{}
+		if selector != "" {
+			if podList, err := ws.app.clientset.CoreV1().Pods(pdbV1Beta1.Namespace).List(ws.app.ctx, metav1.ListOptions{
+				LabelSelector: selector,
+			}); err == nil {
+				for _, pod := range podList.Items {
+					restarts := int32(0)
+					for _, cs := range pod.Status.ContainerStatuses {
+						restarts += cs.RestartCount
+					}
+					for _, ics := range pod.Status.InitContainerStatuses {
+						restarts += ics.RestartCount
+					}
+					
+					pods = append(pods, map[string]interface{}{
+						"name":      pod.Name,
+						"status":    string(pod.Status.Phase),
+						"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+						"restarts":  restarts,
+						"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+						"ip":        pod.Status.PodIP,
+						"node":      pod.Spec.NodeName,
+					})
+				}
+			}
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":           true,
+			"name":              pdbV1Beta1.Name,
+			"namespace":         pdbV1Beta1.Namespace,
+			"minAvailable":      minAvailable,
+			"maxUnavailable":    maxUnavailable,
+			"allowedDisruptions": pdbV1Beta1.Status.DisruptionsAllowed,
+			"currentHealthy":    pdbV1Beta1.Status.CurrentHealthy,
+			"desiredHealthy":     pdbV1Beta1.Status.DesiredHealthy,
+			"selector":          selector,
+			"labels":            pdbV1Beta1.Labels,
+			"annotations":       pdbV1Beta1.Annotations,
+			"age":               formatAge(time.Since(pdbV1Beta1.CreationTimestamp.Time)),
+			"createdAt":         pdbV1Beta1.CreationTimestamp.Format(time.RFC3339),
+			"pods":               pods,
+		})
+		return
+	}
+
+	// Handle v1
+	minAvailable := ""
+	maxUnavailable := ""
+	if pdb.Spec.MinAvailable != nil {
+		minAvailable = pdb.Spec.MinAvailable.String()
+	}
+	if pdb.Spec.MaxUnavailable != nil {
+		maxUnavailable = pdb.Spec.MaxUnavailable.String()
+	}
+
+	// Format selector
+	selector := ""
+	if pdb.Spec.Selector != nil {
+		selector = metav1.FormatLabelSelector(pdb.Spec.Selector)
+	}
+
+	// Get Pods matching this PDB
+	pods := []map[string]interface{}{}
+	if selector != "" {
+		if podList, err := ws.app.clientset.CoreV1().Pods(pdb.Namespace).List(ws.app.ctx, metav1.ListOptions{
+			LabelSelector: selector,
+		}); err == nil {
+			for _, pod := range podList.Items {
+				restarts := int32(0)
+				for _, cs := range pod.Status.ContainerStatuses {
+					restarts += cs.RestartCount
+				}
+				for _, ics := range pod.Status.InitContainerStatuses {
+					restarts += ics.RestartCount
+				}
+				
+				pods = append(pods, map[string]interface{}{
+					"name":      pod.Name,
+					"status":    string(pod.Status.Phase),
+					"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+					"restarts":  restarts,
+					"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+					"ip":        pod.Status.PodIP,
+					"node":      pod.Spec.NodeName,
+				})
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"name":              pdb.Name,
+		"namespace":         pdb.Namespace,
+		"minAvailable":      minAvailable,
+		"maxUnavailable":    maxUnavailable,
+		"allowedDisruptions": pdb.Status.DisruptionsAllowed,
+		"currentHealthy":    pdb.Status.CurrentHealthy,
+		"desiredHealthy":     pdb.Status.DesiredHealthy,
+		"selector":          selector,
+		"labels":            pdb.Labels,
+		"annotations":       pdb.Annotations,
+		"age":               formatAge(time.Since(pdb.CreationTimestamp.Time)),
+		"createdAt":         pdb.CreationTimestamp.Format(time.RFC3339),
+		"pods":               pods,
+	})
+}
+
 // handlePDBYAML returns PDB YAML
 func (ws *WebServer) handlePDBYAML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -258,6 +413,141 @@ func (ws *WebServer) handlePDBYAML(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"yaml":    string(yamlData),
+	})
+}
+
+// handleHPADetails returns detailed information about an HPA
+func (ws *WebServer) handleHPADetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "HPA name is required",
+		})
+		return
+	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	// Try v2 first
+	hpa, err := ws.app.clientset.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		// Try v1
+		hpaV1, errV1 := ws.app.clientset.AutoscalingV1().HorizontalPodAutoscalers(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+		if errV1 != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		// Handle v1
+		targetRef := fmt.Sprintf("%s/%s", hpaV1.Spec.ScaleTargetRef.Kind, hpaV1.Spec.ScaleTargetRef.Name)
+		minReplicas := int32(1)
+		if hpaV1.Spec.MinReplicas != nil {
+			minReplicas = *hpaV1.Spec.MinReplicas
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":          true,
+			"name":             hpaV1.Name,
+			"namespace":        hpaV1.Namespace,
+			"targetRef":         targetRef,
+			"targetKind":       hpaV1.Spec.ScaleTargetRef.Kind,
+			"targetName":       hpaV1.Spec.ScaleTargetRef.Name,
+			"minReplicas":      minReplicas,
+			"maxReplicas":      hpaV1.Spec.MaxReplicas,
+			"currentReplicas":  hpaV1.Status.CurrentReplicas,
+			"desiredReplicas":  hpaV1.Status.DesiredReplicas,
+			"labels":           hpaV1.Labels,
+			"annotations":      hpaV1.Annotations,
+			"age":              formatAge(time.Since(hpaV1.CreationTimestamp.Time)),
+			"createdAt":        hpaV1.CreationTimestamp.Format(time.RFC3339),
+		})
+		return
+	}
+
+	// Handle v2
+	targetRef := fmt.Sprintf("%s/%s", hpa.Spec.ScaleTargetRef.Kind, hpa.Spec.ScaleTargetRef.Name)
+	minReplicas := int32(1)
+	if hpa.Spec.MinReplicas != nil {
+		minReplicas = *hpa.Spec.MinReplicas
+	}
+
+	// Extract metrics
+	metrics := []map[string]interface{}{}
+	for _, metric := range hpa.Spec.Metrics {
+		metricData := map[string]interface{}{
+			"type": string(metric.Type),
+		}
+		if metric.Resource != nil {
+			metricData["resource"] = map[string]interface{}{
+				"name": metric.Resource.Name,
+			}
+			if metric.Resource.Target.Type == autoscalingv2.UtilizationMetricType {
+				if metric.Resource.Target.AverageUtilization != nil {
+					metricData["targetUtilization"] = *metric.Resource.Target.AverageUtilization
+				}
+			}
+		}
+		metrics = append(metrics, metricData)
+	}
+
+	// Extract current metrics
+	currentMetrics := []map[string]interface{}{}
+	for _, metric := range hpa.Status.CurrentMetrics {
+		metricData := map[string]interface{}{
+			"type": string(metric.Type),
+		}
+		if metric.Resource != nil {
+			metricData["resource"] = map[string]interface{}{
+				"name": metric.Resource.Name,
+			}
+			if metric.Resource.Current.AverageUtilization != nil {
+				metricData["currentUtilization"] = *metric.Resource.Current.AverageUtilization
+			}
+			if metric.Resource.Current.AverageValue != nil {
+				metricData["currentValue"] = metric.Resource.Current.AverageValue.String()
+			}
+		}
+		currentMetrics = append(currentMetrics, metricData)
+	}
+
+	// Format conditions
+	conditions := []map[string]interface{}{}
+	for _, cond := range hpa.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    cond.Type,
+			"status":  string(cond.Status),
+			"reason":  cond.Reason,
+			"message": cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
+		})
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":          true,
+		"name":             hpa.Name,
+		"namespace":        hpa.Namespace,
+		"targetRef":         targetRef,
+		"targetKind":       hpa.Spec.ScaleTargetRef.Kind,
+		"targetName":       hpa.Spec.ScaleTargetRef.Name,
+		"minReplicas":      minReplicas,
+		"maxReplicas":      hpa.Spec.MaxReplicas,
+		"currentReplicas":  hpa.Status.CurrentReplicas,
+		"desiredReplicas":  hpa.Status.DesiredReplicas,
+		"metrics":          metrics,
+		"currentMetrics":   currentMetrics,
+		"conditions":       conditions,
+		"labels":           hpa.Labels,
+		"annotations":      hpa.Annotations,
+		"age":              formatAge(time.Since(hpa.CreationTimestamp.Time)),
+		"createdAt":        hpa.CreationTimestamp.Format(time.RFC3339),
 	})
 }
 

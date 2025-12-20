@@ -334,6 +334,12 @@ export const api = {
   bulkDeleteDeployments: (namespace: string) =>
     fetchAPI<any>(`/deployments/bulk/delete?namespace=${encodeURIComponent(namespace)}`, { method: 'POST' }),
 
+  // Workload cross-navigation
+  getWorkloadDetails: (namespace: string, kind: string, name: string) =>
+    fetchAPI<any>(`/workloads/${namespace}/${kind}/${name}`),
+  getWorkloadRelated: (namespace: string, kind: string, name: string) =>
+    fetchAPI<any>(`/workloads/${namespace}/${kind}/${name}/related`),
+
   // StatefulSets
   getStatefulSets: async (namespace?: string) => {
     const endpoint = namespace && namespace !== '_all' && namespace !== 'All Namespaces'
@@ -342,6 +348,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getStatefulSetDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/statefulset/details?name=${name}&namespace=${namespace}`),
   getStatefulSetYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/statefulset/yaml?name=${name}&namespace=${namespace}`),
   getStatefulSetDescribe: (name: string, namespace: string) =>
@@ -365,6 +373,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getDaemonSetDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/daemonset/details?name=${name}&namespace=${namespace}`),
   getDaemonSetYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/daemonset/yaml?name=${name}&namespace=${namespace}`),
   updateDaemonSet: (name: string, namespace: string, yaml: string) =>
@@ -392,6 +402,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getCronJobDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/cronjob/details?name=${name}&namespace=${namespace}`),
   getCronJobYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/cronjob/yaml?name=${name}&namespace=${namespace}`),
   updateCronJob: (name: string, namespace: string, yaml: string) =>
@@ -411,6 +423,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getJobDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/job/details?name=${name}&namespace=${namespace}`),
   getJobYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/job/yaml?name=${name}&namespace=${namespace}`),
   updateJob: (name: string, namespace: string, yaml: string) =>
@@ -430,6 +444,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getPDBDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/pdb/details?name=${name}&namespace=${namespace}`),
   getPDBYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/pdb/yaml?name=${name}&namespace=${namespace}`),
   getPDBDescribe: (name: string, namespace: string) =>
@@ -451,6 +467,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getHPADetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/hpa/details?name=${name}&namespace=${namespace}`),
   getHPAYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/hpa/yaml?name=${name}&namespace=${namespace}`),
   getHPADescribe: (name: string, namespace: string) =>
@@ -496,6 +514,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getIngressDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/ingress/details?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
   getIngressYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/ingress/yaml?name=${name}&namespace=${namespace}`),
   updateIngress: (name: string, namespace: string, yaml: string) =>
@@ -556,6 +576,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getConfigMapDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/configmap/details?name=${name}&namespace=${namespace}`),
   getConfigMapYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/configmap/yaml?name=${name}&namespace=${namespace}`),
   updateConfigMap: async (name: string, namespace: string, yaml: string) => {
@@ -583,6 +605,8 @@ export const api = {
     const data = await fetchAPI<any[]>(endpoint);
     return Array.isArray(data) ? data : [];
   },
+  getSecretDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/secret/details?name=${name}&namespace=${namespace}`),
   getSecretYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/secret/yaml?name=${name}&namespace=${namespace}`),
   updateSecret: async (name: string, namespace: string, yaml: string) => {
@@ -958,8 +982,12 @@ export const api = {
     fetchAPI<any>(`/ai/analyze/pod-logs?name=${name}&namespace=${namespace}`),
 
   // Storage
+  getPVDetails: (name: string) =>
+    fetchAPI<any>(`/storage/pv/details?name=${encodeURIComponent(name)}`),
   getPVYAML: (name: string) =>
     fetchAPI<{ yaml: string }>(`/storage/pv/yaml?name=${encodeURIComponent(name)}`),
+  getPVDescribe: (name: string) =>
+    fetchAPI<{ describe: string }>(`/storage/pv/describe?name=${encodeURIComponent(name)}`),
   updatePV: async (name: string, yaml: string) => {
     const response = await fetch(`/api/storage/pv/update?name=${encodeURIComponent(name)}`, {
       method: 'POST',
@@ -974,8 +1002,12 @@ export const api = {
   },
   deletePV: (name: string) =>
     deleteAPI(`/storage/pv/delete?name=${name}`),
+  getPVCDetails: (name: string, namespace: string) =>
+    fetchAPI<any>(`/storage/pvc/details?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
   getPVCYAML: (name: string, namespace: string) =>
     fetchAPI<{ yaml: string }>(`/storage/pvc/yaml?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
+  getPVCDescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string }>(`/storage/pvc/describe?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`),
   updatePVC: async (name: string, namespace: string, yaml: string) => {
     const response = await fetch(`/api/storage/pvc/update?name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(namespace)}`, {
       method: 'POST',

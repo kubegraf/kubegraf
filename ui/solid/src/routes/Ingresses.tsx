@@ -12,6 +12,8 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
@@ -41,7 +43,10 @@ const Ingresses: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
   const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('ingresses-font-size') || '14'));
   const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('ingresses-font-family') || 'Monaco');
   const bulk = useBulkSelection<Ingress>();
@@ -300,20 +305,33 @@ const Ingresses: Component = () => {
     </span>
   );
 
-  const deleteIngress = async (ing: Ingress) => {
-    if (!confirm(`Are you sure you want to delete ingress "${ing.name}" in namespace "${ing.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const ing = selected();
+    if (!ing) return;
+    
+    setDeleting(true);
     try {
       await api.deleteIngress(ing.name, ing.namespace);
       addNotification(`Ingress ${ing.name} deleted successfully`, 'success');
       refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error) {
       console.error('Failed to delete ingress:', error);
       addNotification(`Failed to delete ingress: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
   };
 
+  const deleteIngress = (ing: Ingress) => {
+    setSelected(ing);
+    setShowDeleteConfirm(true);
+  };
+
   return (
-    <div class="space-y-4">
+    <div class="space-y-2 max-w-full -mt-4">
       {/* Bulk Actions */}
       <BulkActions
         selectedCount={bulk.selectedCount()}
@@ -324,11 +342,11 @@ const Ingresses: Component = () => {
         resourceType="ingresses"
       />
 
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Ingresses</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>External access to services</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Ingresses</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>External access to services</p>
         </div>
         <div class="flex items-center gap-3">
           <select
@@ -528,7 +546,7 @@ const Ingresses: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(ing); setShowDescribe(true); }}
+                          onClick={() => { setSelected(ing); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -625,7 +643,7 @@ const Ingresses: Component = () => {
                               setYamlKey(`${ing.name}|${ing.namespace}`);
                               setShowEdit(true);
                             } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteIngress(ing), variant: 'danger', divider: true },
+                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(ing); deleteIngress(ing); }, variant: 'danger', divider: true },
                           ]}
                         />
                       </td>
@@ -734,8 +752,223 @@ const Ingresses: Component = () => {
         </Show>
       </Modal>
 
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`Ingress: ${selected()?.name}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [ingressDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getIngressDetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Class</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!ingressDetails.loading && ingressDetails()}>
+                          {(details) => details().class || selected()?.class || '-'}
+                        </Show>
+                        <Show when={ingressDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg col-span-2" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Hosts</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-sm break-all">
+                        <Show when={!ingressDetails.loading && ingressDetails()}>
+                          {(details) => details().hosts || (selected()?.hosts || []).join(', ') || '-'}
+                        </Show>
+                        <Show when={ingressDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Related Resources Section */}
+                <Show when={ingressDetails()}>
+                  <RelatedResources
+                    kind="ingress"
+                    name={ingressDetails()!.name}
+                    namespace={ingressDetails()!.namespace}
+                    relatedData={ingressDetails()}
+                  />
+                </Show>
+
+                {/* Rules */}
+                <Show when={!ingressDetails.loading && ingressDetails()?.rules && Array.isArray(ingressDetails()!.rules) && ingressDetails()!.rules.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Rules</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Host</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Path</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Path Type</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Service</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Port</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={ingressDetails()!.rules}>
+                            {(rule: any) => (
+                              <For each={rule.paths || []}>
+                                {(path: any) => (
+                                  <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                    <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{rule.host || '*'}</td>
+                                    <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{path.path || '/'}</td>
+                                    <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{path.pathType || '-'}</td>
+                                    <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{path.service?.name || '-'}</td>
+                                    <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{path.service?.port || '-'}</td>
+                                  </tr>
+                                )}
+                              </For>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Services */}
+                <Show when={!ingressDetails.loading && ingressDetails()?.services && Array.isArray(ingressDetails()!.services) && ingressDetails()!.services.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Services ({ingressDetails()!.services.length})</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Name</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Namespace</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Port</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={ingressDetails()!.services}>
+                            {(svc: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{svc.name}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{svc.namespace}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{svc.port || '-'}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* TLS */}
+                <Show when={!ingressDetails.loading && ingressDetails()?.tlsHosts && Array.isArray(ingressDetails()!.tlsHosts) && ingressDetails()!.tlsHosts.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>TLS</h3>
+                    <div class="rounded-lg border p-3" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <For each={ingressDetails()!.tlsHosts}>
+                        {(host: string) => (
+                          <div class="text-sm" style={{ color: 'var(--text-primary)' }}>{host}</div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowEdit(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteIngress(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
+      </Modal>
+
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="ingress" name={selected()?.name || ''} namespace={selected()?.namespace} />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete Ingress"
+        message={selected() ? `Are you sure you want to delete the Ingress "${selected()!.name}"?` : 'Are you sure you want to delete this Ingress?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
+      />
 
       {/* Bulk Delete Modal */}
       <BulkDeleteModal

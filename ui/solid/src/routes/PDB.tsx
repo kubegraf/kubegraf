@@ -15,6 +15,8 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import SecurityRecommendations from '../components/SecurityRecommendations';
 import { startExecution } from '../stores/executionPanel';
@@ -42,7 +44,10 @@ const PDB: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
 
   const getInitialFontSize = (): number => {
     const saved = localStorage.getItem('pdb-font-size');
@@ -146,17 +151,28 @@ const PDB: Component = () => {
     setShowDescribe(true);
   };
 
-  const handleDelete = async (pdb: PDB) => {
-    if (!confirm(`Are you sure you want to delete PDB "${pdb.name}" in namespace "${pdb.namespace}"?`)) {
-      return;
-    }
+  const handleDeleteConfirm = async () => {
+    const pdb = selected();
+    if (!pdb) return;
+    
+    setDeleting(true);
     try {
       await api.deletePDB(pdb.name, pdb.namespace);
       addNotification(`PDB "${pdb.name}" deleted successfully`, 'success');
       pdbsResource.refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error: any) {
       addNotification(`Failed to delete PDB: ${error.message}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const handleDelete = (pdb: PDB) => {
+    setSelected(pdb);
+    setShowDeleteConfirm(true);
   };
 
   const handleSaveYAML = async (yaml: string) => {
@@ -244,13 +260,13 @@ const PDB: Component = () => {
   });
 
   return (
-    <div class="space-y-4 p-6">
-      <div class="flex items-center justify-between mb-6">
+    <div class="space-y-2 max-w-full -mt-4 p-6">
+      <div class="flex items-center justify-between mb-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Pod Disruption Budgets
           </h1>
-          <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+          <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Manage pod availability during voluntary disruptions
           </p>
         </div>
@@ -468,7 +484,15 @@ const PDB: Component = () => {
                       height: `${Math.max(24, fontSize() * 1.7)}px`,
                       'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                       border: 'none'
-                    }}>{pdb.name}</td>
+                    }}>
+                      <button
+                        onClick={() => { setSelected(pdb); setShowDetails(true); }}
+                        class="font-medium hover:underline text-left"
+                        style={{ color: 'var(--accent-primary)' }}
+                      >
+                        {pdb.name}
+                      </button>
+                    </td>
                     <td style={{
                       padding: '0 8px',
                       'text-align': 'left',
@@ -525,7 +549,7 @@ const PDB: Component = () => {
                           { label: 'View YAML', icon: 'yaml', onClick: () => handleViewYAML(pdb) },
                           { label: 'Edit YAML', icon: 'edit', onClick: () => handleEdit(pdb) },
                           { label: 'Describe', icon: 'describe', onClick: () => handleDescribe(pdb) },
-                          { label: 'Delete', icon: 'delete', onClick: () => handleDelete(pdb), variant: 'danger', divider: true },
+                          { label: 'Delete', icon: 'delete', onClick: () => { setSelected(pdb); handleDelete(pdb); }, variant: 'danger', divider: true },
                         ]}
                       />
                     </td>
@@ -612,6 +636,194 @@ const PDB: Component = () => {
         </Show>
       </Modal>
 
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`PDB: ${selected()?.name}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [pdbDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getPDBDetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Min Available</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!pdbDetails.loading && pdbDetails()}>
+                          {(details) => details().minAvailable || '-'}
+                        </Show>
+                        <Show when={pdbDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Max Unavailable</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!pdbDetails.loading && pdbDetails()}>
+                          {(details) => details().maxUnavailable || '-'}
+                        </Show>
+                        <Show when={pdbDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Allowed Disruptions</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!pdbDetails.loading && pdbDetails()}>
+                          {(details) => details().allowedDisruptions || selected()?.allowedDisruptions || 0}
+                        </Show>
+                        <Show when={pdbDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Current / Desired</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!pdbDetails.loading && pdbDetails()}>
+                          {(details) => `${details().currentHealthy || selected()?.currentHealthy || 0} / ${details().desiredHealthy || selected()?.desiredHealthy || 0}`}
+                        </Show>
+                        <Show when={pdbDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                    <div class="p-3 rounded-lg col-span-2" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Selector</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-sm break-all">
+                        <Show when={!pdbDetails.loading && pdbDetails()}>
+                          {(details) => details().selector || '-'}
+                        </Show>
+                        <Show when={pdbDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Related Resources Section */}
+                <Show when={pdbDetails()}>
+                  <RelatedResources
+                    kind="pdb"
+                    name={pdbDetails()!.name}
+                    namespace={pdbDetails()!.namespace}
+                    relatedData={pdbDetails()}
+                  />
+                </Show>
+
+                {/* Pods */}
+                <Show when={!pdbDetails.loading && pdbDetails()?.pods && pdbDetails()!.pods.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Pods ({pdbDetails()!.pods.length})</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Name</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Status</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Ready</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Restarts</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>IP</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Node</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Age</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={pdbDetails()!.pods}>
+                            {(pod: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.name}</td>
+                                <td class="px-4 py-2 text-sm">
+                                  <span class={`badge ${
+                                    pod.status === 'Running' ? 'badge-success' :
+                                    pod.status === 'Pending' ? 'badge-warning' :
+                                    'badge-error'
+                                  }`}>{pod.status}</span>
+                                </td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.ready}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.restarts}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.ip || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.node || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.age}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); handleViewYAML(selected()!); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); handleDescribe(selected()!); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); handleEdit(selected()!); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
+      </Modal>
+
       {/* Describe Modal */}
       <Show when={showDescribe() && selected()}>
         <DescribeModal
@@ -621,6 +833,29 @@ const PDB: Component = () => {
           onClose={() => setShowDescribe(false)}
         />
       </Show>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete PDB"
+        message={selected() ? `Are you sure you want to delete the PDB "${selected()!.name}"?` : 'Are you sure you want to delete this PDB?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
+      />
     </div>
   );
 };

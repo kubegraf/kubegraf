@@ -22,12 +22,15 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+
+	"github.com/kubegraf/kubegraf/internal/workload"
 )
 
 // handlePods returns pod list
@@ -76,14 +79,51 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pre-fetch ReplicaSets and Jobs to avoid N+1 queries
+	replicaSetMap := make(map[string]*appsv1.ReplicaSet)
+	jobMap := make(map[string]*batchv1.Job)
+	
+	if namespace != "" {
+		// Fetch all ReplicaSets in namespace
+		if rss, err := ws.app.clientset.AppsV1().ReplicaSets(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for i := range rss.Items {
+				rs := &rss.Items[i]
+				key := rs.Namespace + "/" + rs.Name
+				replicaSetMap[key] = rs
+			}
+		}
+		// Fetch all Jobs in namespace
+		if jobs, err := ws.app.clientset.BatchV1().Jobs(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for i := range jobs.Items {
+				job := &jobs.Items[i]
+				key := job.Namespace + "/" + job.Name
+				jobMap[key] = job
+			}
+		}
+	} else {
+		// All namespaces - fetch from all namespaces (this might be slow, but better than N+1)
+		if rss, err := ws.app.clientset.AppsV1().ReplicaSets("").List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for i := range rss.Items {
+				rs := &rss.Items[i]
+				key := rs.Namespace + "/" + rs.Name
+				replicaSetMap[key] = rs
+			}
+		}
+		if jobs, err := ws.app.clientset.BatchV1().Jobs("").List(ws.app.ctx, metav1.ListOptions{}); err == nil {
+			for i := range jobs.Items {
+				job := &jobs.Items[i]
+				key := job.Namespace + "/" + job.Name
+				jobMap[key] = job
+			}
+		}
+	}
+
 	podList := []map[string]interface{}{}
 	for _, pod := range pods.Items {
-		// Calculate total containers (main + init containers)
+		// Calculate main containers total
 		// Note: Init containers don't have a "ready" status - they either complete or fail
-		// So we count them separately
+		// Ready state only counts main containers, not init containers
 		mainTotal := len(pod.Spec.Containers)
-		initTotal := len(pod.Spec.InitContainers)
-		totalContainers := mainTotal + initTotal
 
 		// Calculate ready count from main container statuses only
 		// Init containers are not included in "ready" count as they run before main containers
@@ -239,13 +279,26 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			containerInfo = append(containerInfo, containerData)
 		}
 
-		// Calculate total ready (main containers ready + init containers completed)
-		totalReady := ready + initReady
+		// Ready state should only count main containers, not init containers
+		// Init containers are one-time setup containers and don't have a "ready" state
+		// Format: "ready main containers / total main containers"
+		readyState := fmt.Sprintf("%d/%d", ready, mainTotal)
 
-		podList = append(podList, map[string]interface{}{
+		// Resolve workload owner using cached resources
+		var workloadRef map[string]interface{}
+		if ref, err := workload.ResolveWorkloadOwnerWithCache(ws.app.ctx, ws.app.clientset, &pod, replicaSetMap, jobMap); err == nil && ref != nil {
+			workloadRef = map[string]interface{}{
+				"kind":      ref.Kind,
+				"name":      ref.Name,
+				"namespace": ref.Namespace,
+				"via":       ref.Via,
+			}
+		}
+
+		podData := map[string]interface{}{
 			"name":       pod.Name,
 			"status":     status,
-			"ready":      fmt.Sprintf("%d/%d", totalReady, totalContainers),
+			"ready":      readyState,
 			"restarts":   restarts,
 			"age":        formatAge(time.Since(pod.CreationTimestamp.Time)),
 			"createdAt":  pod.CreationTimestamp.Time.Format(time.RFC3339),
@@ -255,7 +308,12 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 			"cpu":        cpu,
 			"memory":     memory,
 			"containers": containerInfo,
-		})
+		}
+		if workloadRef != nil {
+			podData["workloadRef"] = workloadRef
+		}
+
+		podList = append(podList, podData)
 	}
 
 	json.NewEncoder(w).Encode(podList)

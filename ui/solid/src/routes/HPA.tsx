@@ -15,6 +15,8 @@ import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import SecurityRecommendations from '../components/SecurityRecommendations';
 import { startExecution } from '../stores/executionPanel';
@@ -44,7 +46,10 @@ const HPA: Component = () => {
   const [showYaml, setShowYaml] = createSignal(false);
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
 
   const getInitialFontSize = (): number => {
     const saved = localStorage.getItem('hpa-font-size');
@@ -149,17 +154,28 @@ const HPA: Component = () => {
     setShowDescribe(true);
   };
 
-  const handleDelete = async (hpa: HPA) => {
-    if (!confirm(`Are you sure you want to delete HPA "${hpa.name}" in namespace "${hpa.namespace}"?`)) {
-      return;
-    }
+  const handleDeleteConfirm = async () => {
+    const hpa = selected();
+    if (!hpa) return;
+    
+    setDeleting(true);
     try {
       await api.deleteHPA(hpa.name, hpa.namespace);
       addNotification(`HPA "${hpa.name}" deleted successfully`, 'success');
       hpasResource.refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
     } catch (error: any) {
       addNotification(`Failed to delete HPA: ${error.message}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const handleDelete = (hpa: HPA) => {
+    setSelected(hpa);
+    setShowDeleteConfirm(true);
   };
 
   const handleSaveYAML = async (yaml: string) => {
@@ -247,13 +263,13 @@ const HPA: Component = () => {
   });
 
   return (
-    <div class="space-y-4 p-6">
-      <div class="flex items-center justify-between mb-6">
+    <div class="space-y-2 max-w-full -mt-4 p-6">
+      <div class="flex items-center justify-between mb-4">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Horizontal Pod Autoscalers
           </h1>
-          <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+          <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Automatically scale workloads based on CPU, memory, or custom metrics
           </p>
         </div>
@@ -271,23 +287,23 @@ const HPA: Component = () => {
       {/* Security Recommendations */}
       <SecurityRecommendations resourceType="HPA" />
 
-      {/* Status Summary */}
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--accent-primary)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Total</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--accent-primary)' }}>
+      {/* Status Summary - compact */}
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div class="card px-3 py-1.5 rounded border" style={{ 'border-left': '2px solid var(--accent-primary)', 'border-color': 'var(--border-color)' }}>
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Total</div>
+          <div class="text-sm font-bold mt-0.5" style={{ color: 'var(--accent-primary)' }}>
             {statusSummary().total}
           </div>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--success-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Active</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--success-color)' }}>
+        <div class="card px-3 py-1.5 rounded border" style={{ 'border-left': '2px solid var(--success-color)', 'border-color': 'var(--border-color)' }}>
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Active</div>
+          <div class="text-sm font-bold mt-0.5" style={{ color: 'var(--success-color)' }}>
             {statusSummary().active}
           </div>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--warning-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Scaling</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--warning-color)' }}>
+        <div class="card px-3 py-1.5 rounded border" style={{ 'border-left': '2px solid var(--warning-color)', 'border-color': 'var(--border-color)' }}>
+          <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Scaling</div>
+          <div class="text-sm font-bold mt-0.5" style={{ color: 'var(--warning-color)' }}>
             {statusSummary().scaling}
           </div>
         </div>
@@ -487,7 +503,15 @@ const HPA: Component = () => {
                       height: `${Math.max(24, fontSize() * 1.7)}px`,
                       'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                       border: 'none'
-                    }}>{hpa.name}</td>
+                    }}>
+                      <button
+                        onClick={() => { setSelected(hpa); setShowDetails(true); }}
+                        class="font-medium hover:underline text-left"
+                        style={{ color: 'var(--accent-primary)' }}
+                      >
+                        {hpa.name}
+                      </button>
+                    </td>
                     <td style={{
                       padding: '0 8px',
                       'text-align': 'left',
@@ -569,7 +593,7 @@ const HPA: Component = () => {
                           { label: 'View YAML', icon: 'yaml', onClick: () => handleViewYAML(hpa) },
                           { label: 'Edit YAML', icon: 'edit', onClick: () => handleEdit(hpa) },
                           { label: 'Describe', icon: 'describe', onClick: () => handleDescribe(hpa) },
-                          { label: 'Delete', icon: 'delete', onClick: () => handleDelete(hpa), variant: 'danger', divider: true },
+                          { label: 'Delete', icon: 'delete', onClick: () => { setSelected(hpa); handleDelete(hpa); }, variant: 'danger', divider: true },
                         ]}
                       />
                     </td>
@@ -618,18 +642,240 @@ const HPA: Component = () => {
         </div>
       </Show>
 
-      {/* YAML Viewer Modal */}
-      <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">
-        <Show 
-          when={!yamlContent.loading && yamlContent()} 
-          fallback={
-            <div class="flex items-center justify-center p-8">
-              <div class="spinner mx-auto" />
-              <span class="ml-3" style={{ color: 'var(--text-secondary)' }}>Loading YAML...</span>
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`HPA: ${selected()?.name}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [hpaDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getHPADetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Target</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-sm">
+                        <Show when={!hpaDetails.loading && hpaDetails()}>
+                          {(details) => details().targetRef || selected()?.targetRef || '-'}
+                        </Show>
+                        <Show when={hpaDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Min Replicas</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!hpaDetails.loading && hpaDetails()}>
+                          {(details) => details().minReplicas || selected()?.minReplicas || '-'}
+                        </Show>
+                        <Show when={hpaDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Max Replicas</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!hpaDetails.loading && hpaDetails()}>
+                          {(details) => details().maxReplicas || selected()?.maxReplicas || '-'}
+                        </Show>
+                        <Show when={hpaDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Current Replicas</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!hpaDetails.loading && hpaDetails()}>
+                          {(details) => details().currentReplicas || selected()?.currentReplicas || '-'}
+                        </Show>
+                        <Show when={hpaDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Desired Replicas</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!hpaDetails.loading && hpaDetails()}>
+                          {(details) => details().desiredReplicas || selected()?.desiredReplicas || '-'}
+                        </Show>
+                        <Show when={hpaDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Related Resources Section */}
+                <Show when={hpaDetails()}>
+                  <RelatedResources
+                    kind="hpa"
+                    name={hpaDetails()!.name}
+                    namespace={hpaDetails()!.namespace}
+                    relatedData={hpaDetails()}
+                  />
+                </Show>
+
+                {/* Metrics */}
+                <Show when={!hpaDetails.loading && hpaDetails()?.metrics && Array.isArray(hpaDetails()!.metrics) && hpaDetails()!.metrics.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Metrics</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Type</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Resource</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Target</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={hpaDetails()!.metrics}>
+                            {(metric: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{metric.type}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{metric.resource?.name || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+                                  {metric.targetUtilization ? `${metric.targetUtilization}%` : '-'}
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Current Metrics */}
+                <Show when={!hpaDetails.loading && hpaDetails()?.currentMetrics && Array.isArray(hpaDetails()!.currentMetrics) && hpaDetails()!.currentMetrics.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Current Metrics</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Type</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Resource</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Current</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={hpaDetails()!.currentMetrics}>
+                            {(metric: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{metric.type}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{metric.resource?.name || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+                                  {metric.currentUtilization ? `${metric.currentUtilization}%` : metric.currentValue || '-'}
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Conditions */}
+                <Show when={!hpaDetails.loading && hpaDetails()?.conditions && Array.isArray(hpaDetails()!.conditions) && hpaDetails()!.conditions.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Conditions</h3>
+                    <div class="space-y-2">
+                      <For each={hpaDetails()!.conditions}>
+                        {(condition: any) => (
+                          <div class="p-3 rounded-lg border" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{condition.type}</span>
+                              <span class={`badge ${condition.status === 'True' ? 'badge-success' : 'badge-warning'}`}>
+                                {condition.status}
+                              </span>
+                            </div>
+                            <Show when={condition.reason}>
+                              <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Reason: {condition.reason}</div>
+                            </Show>
+                            <Show when={condition.message}>
+                              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{condition.message}</div>
+                            </Show>
+                            <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                              Last transition: {new Date(condition.lastTransitionTime).toLocaleString()}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
             </div>
-          }
-        >
-          <YAMLViewer yaml={yamlContent() || ''} title={selected()?.name} />
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); handleViewYAML(selected()!); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); handleDescribe(selected()!); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); handleEdit(selected()!); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </Show>
       </Modal>
 
@@ -680,6 +926,29 @@ const HPA: Component = () => {
           onClose={() => setShowDescribe(false)}
         />
       </Show>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete HPA"
+        message={selected() ? `Are you sure you want to delete the HPA "${selected()!.name}"?` : 'Are you sure you want to delete this HPA?'}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
+      />
     </div>
   );
 };

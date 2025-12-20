@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -9,18 +9,21 @@ import {
   setSearchQuery,
   globalLoading,
   setGlobalLoading,
+  setNamespaces,
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
+import ConfirmationModal from '../components/ConfirmationModal';
 import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
 import CommandPreview from '../components/CommandPreview';
+import RelatedResources from '../components/RelatedResources';
 
 interface Deployment {
   name: string;
@@ -46,13 +49,110 @@ const Deployments: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [showScale, setShowScale] = createSignal(false);
   const [scaleReplicas, setScaleReplicas] = createSignal(1);
   const [restarting, setRestarting] = createSignal<string | null>(null); // Track which deployment is restarting
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
 
   // Bulk selection
   const bulk = useBulkSelection<Deployment>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+
+  // Focus handling from URL params
+  const [focusedDeployment, setFocusedDeployment] = createSignal<string | null>(null);
+  const [focusedRowRef, setFocusedRowRef] = createSignal<HTMLTableRowElement | null>(null);
+  const [previousNamespaces, setPreviousNamespaces] = createSignal<string[] | null>(null); // Store previous selection
+  
+  // Read URL params on mount and when they change
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const focusName = params.get('focus');
+    const focusNamespace = params.get('namespace');
+    
+    // Apply namespace filter if provided (but store previous selection to restore later)
+    if (focusNamespace) {
+      const current = selectedNamespaces();
+      setPreviousNamespaces(current.length > 0 ? [...current] : null);
+      setNamespaces([focusNamespace]);
+      // Mark that namespace was set programmatically
+      sessionStorage.setItem('kubegraf:namespaceSetProgrammatically', 'true');
+    }
+    
+    // Set focus target
+    if (focusName) {
+      setFocusedDeployment(focusName);
+    }
+  });
+
+  // Handle focus after deployments are loaded
+  createEffect(() => {
+    const focusName = focusedDeployment();
+    const allDeps = filteredAndSorted();
+    
+    if (focusName && allDeps.length > 0) {
+      // Find the deployment in filtered list
+      const dep = allDeps.find(d => d.name === focusName);
+      if (dep) {
+        // Navigate to the correct page if needed
+        const depIndex = allDeps.findIndex(d => d.name === focusName);
+        if (depIndex >= 0) {
+          const targetPage = Math.floor(depIndex / pageSize()) + 1;
+          if (targetPage !== currentPage()) {
+            setCurrentPage(targetPage);
+            // Wait for page to update before focusing
+            setTimeout(() => focusDeployment(dep), 200);
+            return;
+          }
+        }
+        
+        focusDeployment(dep);
+      }
+    }
+  });
+
+  const focusDeployment = (dep: Deployment) => {
+    // Set as selected and open details
+    setSelected(dep);
+    setShowDetails(true);
+    
+    // Show notification
+    addNotification(`Viewing Deployment: ${dep.name}`, 'success');
+    
+    // Scroll to row after a short delay to ensure DOM is ready
+    setTimeout(() => {
+      const row = focusedRowRef();
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    
+    // Clear focus after highlighting
+    setTimeout(() => {
+      setFocusedDeployment(null);
+      // Clean up URL params
+      const url = new URL(window.location.href);
+      url.searchParams.delete('focus');
+      const hadNamespaceParam = url.searchParams.has('namespace');
+      url.searchParams.delete('namespace');
+      window.history.replaceState({}, '', url.toString());
+      
+      // Restore previous namespace selection if it was set programmatically
+      if (hadNamespaceParam) {
+        const previous = previousNamespaces();
+        if (previous !== null) {
+          setNamespaces(previous);
+        } else {
+          // If there was no previous selection, clear to show all namespaces
+          setNamespaces([]);
+        }
+        setPreviousNamespaces(null);
+        // Clear the programmatic flag
+        sessionStorage.removeItem('kubegraf:namespaceSetProgrammatically');
+      }
+    }, 2000);
+  };
 
   // Font size selector with localStorage persistence
   const getInitialFontSize = (): number => {
@@ -359,16 +459,32 @@ const Deployments: Component = () => {
     }
   };
 
-  const deleteDeployment = async (dep: Deployment) => {
-    if (!confirm(`Are you sure you want to delete deployment "${dep.name}" in namespace "${dep.namespace}"?`)) return;
+  const handleDeleteConfirm = async () => {
+    const dep = selected();
+    if (!dep) return;
+    
+    setDeleting(true);
     try {
       await api.deleteDeployment(dep.name, dep.namespace);
       addNotification(`Deployment ${dep.name} deleted successfully`, 'success');
-      refetch();
+      deploymentsCache.refetch();
+      setSelected(null);
+      setShowDeleteConfirm(false);
+      setShowDetails(false);
+      setSelected(null);
     } catch (error) {
       console.error('Failed to delete deployment:', error);
       addNotification(`Failed to delete deployment: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const deleteDeployment = (dep: Deployment) => {
+    // Ensure the deployment is selected before showing the modal
+    setSelected(dep);
+    // Show confirmation modal - don't close details modal yet
+    setShowDeleteConfirm(true);
   };
 
   const openScale = (dep: Deployment) => {
@@ -379,7 +495,7 @@ const Deployments: Component = () => {
   };
 
   return (
-    <div class="space-y-4">
+    <div class="space-y-2 max-w-full -mt-4">
       {/* Bulk Actions */}
       <BulkActions
         selectedCount={bulk.selectedCount()}
@@ -390,11 +506,11 @@ const Deployments: Component = () => {
         resourceType="deployments"
       />
 
-      {/* Header */}
-      <div class="flex items-center justify-between flex-wrap gap-4">
+      {/* Header - reduced size */}
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Deployments</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Manage application deployments</p>
+          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Deployments</h1>
+          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Manage application deployments</p>
         </div>
         <div class="flex items-center gap-3">
           <button
@@ -414,6 +530,15 @@ const Deployments: Component = () => {
           </button>
         </div>
       </div>
+
+      {/* Related Resources Section - Show when deployment is selected */}
+      <Show when={selected()}>
+        {(dep) => (
+          <div class="p-4 rounded-lg border mb-4" style={{ background: 'var(--bg-secondary)', 'border-color': 'var(--border-color)' }}>
+            <RelatedResources namespace={dep().namespace} kind="deployment" name={dep().name} />
+          </div>
+        )}
+      </Show>
 
       {/* Status summary */}
       <div class="flex flex-wrap items-center gap-3">
@@ -652,8 +777,23 @@ const Deployments: Component = () => {
                 }>
                   {(dep: Deployment) => {
                     const textColor = '#0ea5e9';
+                    const isFocused = () => focusedDeployment() === dep.name;
+                    
                     return (
-                    <tr>
+                    <tr
+                      ref={(el) => {
+                        if (el && isFocused()) {
+                          setFocusedRowRef(el);
+                        }
+                      }}
+                      style={{
+                        ...(isFocused() ? {
+                          background: 'rgba(14, 165, 233, 0.15)',
+                          'border-left': '3px solid #0ea5e9',
+                          transition: 'background 0.3s ease, border-left 0.3s ease',
+                        } : {}),
+                      }}
+                    >
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'center',
@@ -676,7 +816,7 @@ const Deployments: Component = () => {
                         border: 'none'
                       }}>
                         <button
-                          onClick={() => { setSelected(dep); setShowDescribe(true); }}
+                          onClick={() => { setSelected(dep); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -884,6 +1024,284 @@ const Deployments: Component = () => {
         </Show>
       </Modal>
 
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Deployment: ${selected()?.name || ''}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [deploymentDetails] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
+                return api.getDeploymentDetails(params.name, params.ns);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Status</div>
+                      <div>
+                        <Show when={!deploymentDetails.loading && deploymentDetails()}>
+                          {(details) => {
+                            const readyParts = details().ready?.split('/') || ['0', '0'];
+                            const isReady = readyParts[0] === readyParts[1] && parseInt(readyParts[0]) > 0;
+                            return (
+                              <span class={`badge ${isReady ? 'badge-success' : 'badge-warning'}`}>
+                                {details().ready || selected()?.ready || '-'}
+                              </span>
+                            );
+                          }}
+                        </Show>
+                        <Show when={deploymentDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Available</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!deploymentDetails.loading && deploymentDetails()}>
+                          {(details) => details().available || selected()?.available || '-'}
+                        </Show>
+                        <Show when={deploymentDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Updated</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!deploymentDetails.loading && deploymentDetails()}>
+                          {(details) => details().updated || selected()?.upToDate || '-'}
+                        </Show>
+                        <Show when={deploymentDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Replicas</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!deploymentDetails.loading && deploymentDetails()}>
+                          {(details) => details().replicas || selected()?.replicas || '-'}
+                        </Show>
+                        <Show when={deploymentDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Strategy</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!deploymentDetails.loading && deploymentDetails()}>
+                          {(details) => details().strategy || '-'}
+                        </Show>
+                        <Show when={deploymentDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Selector</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-xs break-all">
+                        <Show when={!deploymentDetails.loading && deploymentDetails()}>
+                          {(details) => details().selector || '-'}
+                        </Show>
+                        <Show when={deploymentDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ReplicaSets */}
+                <Show when={!deploymentDetails.loading && deploymentDetails()?.replicaSets && deploymentDetails()!.replicaSets.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>ReplicaSets</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Name</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Ready</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Replicas</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Age</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={deploymentDetails()!.replicaSets}>
+                            {(rs: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{rs.name}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{rs.ready}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{rs.replicas}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{rs.age}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Pods */}
+                <Show when={!deploymentDetails.loading && deploymentDetails()?.pods && deploymentDetails()!.pods.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Pods ({deploymentDetails()!.pods.length})</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Name</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Status</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Ready</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Restarts</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>IP</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Node</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Age</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={deploymentDetails()!.pods}>
+                            {(pod: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.name}</td>
+                                <td class="px-4 py-2 text-sm">
+                                  <span class={`badge ${
+                                    pod.status === 'Running' ? 'badge-success' :
+                                    pod.status === 'Pending' ? 'badge-warning' :
+                                    'badge-error'
+                                  }`}>{pod.status}</span>
+                                </td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.ready}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.restarts}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.ip || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.node || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{pod.age}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Conditions */}
+                <Show when={!deploymentDetails.loading && deploymentDetails()?.conditions && deploymentDetails()!.conditions.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Conditions</h3>
+                    <div class="space-y-2">
+                      <For each={deploymentDetails()!.conditions}>
+                        {(condition: any) => (
+                          <div class="p-3 rounded-lg border" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{condition.type}</span>
+                              <span class={`badge ${condition.status === 'True' ? 'badge-success' : 'badge-warning'}`}>
+                                {condition.status}
+                              </span>
+                            </div>
+                            <Show when={condition.reason}>
+                              <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Reason: {condition.reason}</div>
+                            </Show>
+                            <Show when={condition.message}>
+                              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{condition.message}</div>
+                            </Show>
+                            <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                              Last transition: {new Date(condition.lastTransitionTime).toLocaleString()}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-3 md:grid-cols-6 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); openScale(selected()!); }}
+                    class="btn-primary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Scale"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Scale</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); restart(selected()!); }}
+                    class="btn-primary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Restart"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Restart</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowEdit(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteDeployment(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
+      </Modal>
+
       {/* Describe Modal */}
       <DescribeModal isOpen={showDescribe()} onClose={() => setShowDescribe(false)} resourceType="deployment" name={selected()?.name || ''} namespace={selected()?.namespace} />
 
@@ -908,6 +1326,29 @@ const Deployments: Component = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm()}
+        onClose={() => {
+          if (!deleting()) {
+            setShowDeleteConfirm(false);
+            setShowDetails(false);
+          }
+        }}
+        title="Delete Deployment"
+        message={`Are you sure you want to delete the deployment "${selected()?.name}"?`}
+        details={selected() ? [
+          { label: 'Name', value: selected()!.name },
+          { label: 'Namespace', value: selected()!.namespace },
+        ] : undefined}
+        variant="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        loading={deleting()}
+        onConfirm={handleDeleteConfirm}
+        size="sm"
+      />
 
       {/* Bulk Delete Modal */}
       <BulkDeleteModal

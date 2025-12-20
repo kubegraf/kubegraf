@@ -426,6 +426,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/daemonset/restart", ws.handleDaemonSetRestart)
 	http.HandleFunc("/api/daemonset/delete", ws.handleDaemonSetDelete)
 
+	// Workload cross-navigation endpoints
+	http.HandleFunc("/api/workloads/", ws.handleWorkloadRoutes)
+
 	// Bulk operations by namespace
 	http.HandleFunc("/api/deployments/bulk/restart", ws.handleBulkDeploymentRestart)
 	http.HandleFunc("/api/deployments/bulk/delete", ws.handleBulkDeploymentDelete)
@@ -450,10 +453,12 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/job/update", ws.handleJobUpdate)
 	http.HandleFunc("/api/job/describe", ws.handleJobDescribe)
 	http.HandleFunc("/api/job/delete", ws.handleJobDelete)
+	http.HandleFunc("/api/pdb/details", ws.handlePDBDetails)
 	http.HandleFunc("/api/pdb/yaml", ws.handlePDBYAML)
 	http.HandleFunc("/api/pdb/update", ws.handlePDBUpdate)
 	http.HandleFunc("/api/pdb/describe", ws.handlePDBDescribe)
 	http.HandleFunc("/api/pdb/delete", ws.handlePDBDelete)
+	http.HandleFunc("/api/hpa/details", ws.handleHPADetails)
 	http.HandleFunc("/api/hpa/yaml", ws.handleHPAYAML)
 	http.HandleFunc("/api/hpa/update", ws.handleHPAUpdate)
 	http.HandleFunc("/api/hpa/describe", ws.handleHPADescribe)
@@ -479,6 +484,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/configmap/update", ws.handleConfigMapUpdate)
 	http.HandleFunc("/api/configmap/describe", ws.handleConfigMapDescribe)
 	http.HandleFunc("/api/configmap/delete", ws.handleConfigMapDelete)
+	http.HandleFunc("/api/secret/details", ws.handleSecretDetails)
 	http.HandleFunc("/api/secret/yaml", ws.handleSecretYAML)
 	http.HandleFunc("/api/secret/update", ws.handleSecretUpdate)
 	http.HandleFunc("/api/secret/describe", ws.handleSecretDescribe)
@@ -3354,6 +3360,7 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3361,8 +3368,11 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	dep, err := ws.app.clientset.AppsV1().Deployments(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	dep, err := ws.app.clientset.AppsV1().Deployments(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3374,14 +3384,92 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 	// Format selector as string
 	selector := metav1.FormatLabelSelector(dep.Spec.Selector)
 
+	// Get ReplicaSets for this deployment
+	replicaSets := []map[string]interface{}{}
+	if rss, err := ws.app.clientset.AppsV1().ReplicaSets(dep.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, rs := range rss.Items {
+			// Check if ReplicaSet is owned by this Deployment
+			for _, ownerRef := range rs.OwnerReferences {
+				if ownerRef.Kind == "Deployment" && ownerRef.Name == dep.Name {
+					replicas := int32(1)
+					if rs.Spec.Replicas != nil {
+						replicas = *rs.Spec.Replicas
+					}
+					replicaSets = append(replicaSets, map[string]interface{}{
+						"name":      rs.Name,
+						"ready":     fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas),
+						"replicas":  replicas,
+						"age":       formatAge(time.Since(rs.CreationTimestamp.Time)),
+					})
+					break
+				}
+			}
+		}
+	}
+
+	// Get Pods for this deployment
+	pods := []map[string]interface{}{}
+	if podList, err := ws.app.clientset.CoreV1().Pods(dep.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, pod := range podList.Items {
+			// Calculate total restarts
+			restarts := int32(0)
+			for _, cs := range pod.Status.ContainerStatuses {
+				restarts += cs.RestartCount
+			}
+			for _, ics := range pod.Status.InitContainerStatuses {
+				restarts += ics.RestartCount
+			}
+			
+			pods = append(pods, map[string]interface{}{
+				"name":      pod.Name,
+				"status":    string(pod.Status.Phase),
+				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts":  restarts,
+				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":        pod.Status.PodIP,
+				"node":      pod.Spec.NodeName,
+			})
+		}
+	}
+
+	// Format conditions
+	conditions := []map[string]interface{}{}
+	for _, cond := range dep.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    cond.Type,
+			"status":  string(cond.Status),
+			"reason":  cond.Reason,
+			"message": cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
+		})
+	}
+
+	replicas := int32(1)
+	if dep.Spec.Replicas != nil {
+		replicas = *dep.Spec.Replicas
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"name":      dep.Name,
-		"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
-		"available": fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, *dep.Spec.Replicas),
-		"strategy":  string(dep.Spec.Strategy.Type),
-		"selector":  selector,
-		"age":       formatAge(time.Since(dep.CreationTimestamp.Time)),
+		"success":     true,
+		"name":        dep.Name,
+		"namespace":   dep.Namespace,
+		"ready":       fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, replicas),
+		"available":  fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, replicas),
+		"updated":     dep.Status.UpdatedReplicas,
+		"replicas":    replicas,
+		"strategy":    string(dep.Spec.Strategy.Type),
+		"selector":    selector,
+		"labels":      dep.Labels,
+		"annotations": dep.Annotations,
+		"age":         formatAge(time.Since(dep.CreationTimestamp.Time)),
+		"createdAt":   dep.CreationTimestamp.Format(time.RFC3339),
+		"conditions":  conditions,
+		"replicaSets": replicaSets,
+		"pods":        pods,
 	})
 }
 
@@ -3529,6 +3617,7 @@ func (ws *WebServer) handleIngressDetails(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3536,8 +3625,11 @@ func (ws *WebServer) handleIngressDetails(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	ing, err := ws.app.clientset.NetworkingV1().Ingresses(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	ing, err := ws.app.clientset.NetworkingV1().Ingresses(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3563,12 +3655,80 @@ func (ws *WebServer) handleIngressDetails(w http.ResponseWriter, r *http.Request
 		className = *ing.Spec.IngressClassName
 	}
 
+	// Format rules with paths and services
+	rules := []map[string]interface{}{}
+	services := []map[string]interface{}{}
+	serviceMap := make(map[string]bool)
+	
+	for _, rule := range ing.Spec.Rules {
+		ruleData := map[string]interface{}{
+			"host":  rule.Host,
+			"paths": []map[string]interface{}{},
+		}
+		
+		if rule.HTTP != nil {
+			for _, path := range rule.HTTP.Paths {
+				pathData := map[string]interface{}{
+					"path":     path.Path,
+					"pathType": string(*path.PathType),
+				}
+				
+				if path.Backend.Service != nil {
+					pathData["service"] = map[string]interface{}{
+						"name": path.Backend.Service.Name,
+						"port": path.Backend.Service.Port.Number,
+					}
+					
+					// Add service to services list if not already added
+					serviceKey := fmt.Sprintf("%s/%s", namespace, path.Backend.Service.Name)
+					if !serviceMap[serviceKey] {
+						services = append(services, map[string]interface{}{
+							"name":      path.Backend.Service.Name,
+							"namespace": namespace,
+							"port":      path.Backend.Service.Port.Number,
+						})
+						serviceMap[serviceKey] = true
+					}
+				}
+				
+				ruleData["paths"] = append(ruleData["paths"].([]map[string]interface{}), pathData)
+			}
+		}
+		
+		rules = append(rules, ruleData)
+	}
+	
+	// Handle default backend
+	if ing.Spec.DefaultBackend != nil && ing.Spec.DefaultBackend.Service != nil {
+		serviceKey := fmt.Sprintf("%s/%s", namespace, ing.Spec.DefaultBackend.Service.Name)
+		if !serviceMap[serviceKey] {
+			services = append(services, map[string]interface{}{
+				"name":      ing.Spec.DefaultBackend.Service.Name,
+				"namespace": namespace,
+				"port":      ing.Spec.DefaultBackend.Service.Port.Number,
+			})
+		}
+	}
+
+	// Format TLS
+	tlsHosts := []string{}
+	for _, tls := range ing.Spec.TLS {
+		tlsHosts = append(tlsHosts, strings.Join(tls.Hosts, ", "))
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"name":    ing.Name,
-		"hosts":   hostsStr,
-		"class":   className,
-		"age":     formatAge(time.Since(ing.CreationTimestamp.Time)),
+		"success":     true,
+		"name":        ing.Name,
+		"namespace":   ing.Namespace,
+		"hosts":       hostsStr,
+		"class":       className,
+		"rules":       rules,
+		"services":    services,
+		"tlsHosts":    tlsHosts,
+		"labels":      ing.Labels,
+		"annotations": ing.Annotations,
+		"age":         formatAge(time.Since(ing.CreationTimestamp.Time)),
+		"createdAt":   ing.CreationTimestamp.Format(time.RFC3339),
 	})
 }
 
@@ -3608,10 +3768,16 @@ func (ws *WebServer) handleConfigMapDetails(w http.ResponseWriter, r *http.Reque
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"name":    cm.Name,
-		"keys":    keysStr,
-		"age":     formatAge(time.Since(cm.CreationTimestamp.Time)),
+		"success":     true,
+		"name":        cm.Name,
+		"namespace":   cm.Namespace,
+		"keys":        keysStr,
+		"data":        cm.Data,
+		"binaryData":  cm.BinaryData,
+		"labels":      cm.Labels,
+		"annotations": cm.Annotations,
+		"age":         formatAge(time.Since(cm.CreationTimestamp.Time)),
+		"createdAt":   cm.CreationTimestamp.Format(time.RFC3339),
 	})
 }
 
@@ -4330,6 +4496,63 @@ func (ws *WebServer) handleConfigMapYAML(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// handleSecretDetails returns detailed information about a secret
+func (ws *WebServer) handleSecretDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Secret name is required",
+		})
+		return
+	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
+
+	secret, err := ws.app.clientset.CoreV1().Secrets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Format keys as string
+	keys := []string{}
+	for key := range secret.Data {
+		keys = append(keys, key)
+	}
+	for key := range secret.StringData {
+		keys = append(keys, key+" (string)")
+	}
+	keysStr := strings.Join(keys, ", ")
+	if keysStr == "" {
+		keysStr = "-"
+	}
+
+	// Note: We don't return the actual secret data for security reasons
+	// The data is base64 encoded and should only be accessed via YAML endpoint with proper auth
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"name":        secret.Name,
+		"namespace":   secret.Namespace,
+		"type":        string(secret.Type),
+		"keys":        keysStr,
+		"dataKeys":    len(secret.Data),
+		"stringKeys":  len(secret.StringData),
+		"labels":      secret.Labels,
+		"annotations": secret.Annotations,
+		"age":         formatAge(time.Since(secret.CreationTimestamp.Time)),
+		"createdAt":   secret.CreationTimestamp.Format(time.RFC3339),
+	})
+}
+
 // handleSecretYAML returns the YAML representation of a secret
 func (ws *WebServer) handleSecretYAML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -4874,6 +5097,7 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4881,8 +5105,11 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	ss, err := ws.app.clientset.AppsV1().StatefulSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	ss, err := ws.app.clientset.AppsV1().StatefulSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4900,14 +5127,65 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 		serviceName = "-"
 	}
 
+	// Get Pods for this statefulset
+	pods := []map[string]interface{}{}
+	if podList, err := ws.app.clientset.CoreV1().Pods(ss.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, pod := range podList.Items {
+			// Calculate total restarts
+			restarts := int32(0)
+			for _, cs := range pod.Status.ContainerStatuses {
+				restarts += cs.RestartCount
+			}
+			for _, ics := range pod.Status.InitContainerStatuses {
+				restarts += ics.RestartCount
+			}
+			
+			pods = append(pods, map[string]interface{}{
+				"name":      pod.Name,
+				"status":    string(pod.Status.Phase),
+				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts":  restarts,
+				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":        pod.Status.PodIP,
+				"node":      pod.Spec.NodeName,
+			})
+		}
+	}
+
+	// Format conditions
+	conditions := []map[string]interface{}{}
+	for _, cond := range ss.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    cond.Type,
+			"status":  string(cond.Status),
+			"reason":  cond.Reason,
+			"message": cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
+		})
+	}
+
+	replicas := int32(1)
+	if ss.Spec.Replicas != nil {
+		replicas = *ss.Spec.Replicas
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
 		"name":        ss.Name,
-		"ready":       fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
-		"available":   fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, *ss.Spec.Replicas),
+		"namespace":   ss.Namespace,
+		"ready":       fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
+		"available":  fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
+		"replicas":   replicas,
 		"serviceName": serviceName,
 		"selector":    selector,
+		"labels":      ss.Labels,
+		"annotations": ss.Annotations,
 		"age":         formatAge(time.Since(ss.CreationTimestamp.Time)),
+		"createdAt":   ss.CreationTimestamp.Format(time.RFC3339),
+		"conditions":  conditions,
+		"pods":        pods,
 	})
 }
 
@@ -5215,6 +5493,7 @@ func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -5222,8 +5501,11 @@ func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	ds, err := ws.app.clientset.AppsV1().DaemonSets(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	ds, err := ws.app.clientset.AppsV1().DaemonSets(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -5235,15 +5517,61 @@ func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Reque
 	// Format selector as string
 	selector := metav1.FormatLabelSelector(ds.Spec.Selector)
 
+	// Get Pods for this daemonset
+	pods := []map[string]interface{}{}
+	if podList, err := ws.app.clientset.CoreV1().Pods(ds.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, pod := range podList.Items {
+			// Calculate total restarts
+			restarts := int32(0)
+			for _, cs := range pod.Status.ContainerStatuses {
+				restarts += cs.RestartCount
+			}
+			for _, ics := range pod.Status.InitContainerStatuses {
+				restarts += ics.RestartCount
+			}
+			
+			pods = append(pods, map[string]interface{}{
+				"name":      pod.Name,
+				"status":    string(pod.Status.Phase),
+				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts":  restarts,
+				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":        pod.Status.PodIP,
+				"node":      pod.Spec.NodeName,
+			})
+		}
+	}
+
+	// Format conditions
+	conditions := []map[string]interface{}{}
+	for _, cond := range ds.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    cond.Type,
+			"status":  string(cond.Status),
+			"reason":  cond.Reason,
+			"message": cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
+		})
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"name":      ds.Name,
-		"desired":   ds.Status.DesiredNumberScheduled,
-		"current":   ds.Status.CurrentNumberScheduled,
-		"ready":     fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled),
-		"available": ds.Status.NumberAvailable,
-		"selector":  selector,
-		"age":       formatAge(time.Since(ds.CreationTimestamp.Time)),
+		"success":     true,
+		"name":        ds.Name,
+		"namespace":   ds.Namespace,
+		"desired":     ds.Status.DesiredNumberScheduled,
+		"current":     ds.Status.CurrentNumberScheduled,
+		"ready":       fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled),
+		"available":   ds.Status.NumberAvailable,
+		"replicas":    ds.Status.DesiredNumberScheduled,
+		"selector":    selector,
+		"labels":      ds.Labels,
+		"annotations": ds.Annotations,
+		"age":         formatAge(time.Since(ds.CreationTimestamp.Time)),
+		"createdAt":   ds.CreationTimestamp.Format(time.RFC3339),
+		"conditions":  conditions,
+		"pods":        pods,
 	})
 }
 
@@ -5435,6 +5763,7 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -5442,14 +5771,23 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	cj, err := ws.app.clientset.BatchV1().CronJobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	cj, err := ws.app.clientset.BatchV1().CronJobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		})
 		return
+	}
+
+	// Format selector as string (from job template)
+	selector := ""
+	if cj.Spec.JobTemplate.Spec.Selector != nil {
+		selector = metav1.FormatLabelSelector(cj.Spec.JobTemplate.Spec.Selector)
 	}
 
 	// Get last schedule time
@@ -5472,22 +5810,69 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get active jobs
-	activeJobs := []string{}
-	for _, job := range cj.Status.Active {
-		activeJobs = append(activeJobs, job.Name)
+	activeJobs := []map[string]interface{}{}
+	for _, jobRef := range cj.Status.Active {
+		activeJobs = append(activeJobs, map[string]interface{}{
+			"name":      jobRef.Name,
+			"namespace": jobRef.Namespace,
+		})
+	}
+
+	// Get Pods for this cronjob (via active jobs)
+	pods := []map[string]interface{}{}
+	if selector != "" {
+		if podList, err := ws.app.clientset.CoreV1().Pods(cj.Namespace).List(ws.app.ctx, metav1.ListOptions{
+			LabelSelector: selector,
+		}); err == nil {
+			for _, pod := range podList.Items {
+				// Check if pod is owned by one of the active jobs
+				for _, ownerRef := range pod.OwnerReferences {
+					if ownerRef.Kind == "Job" {
+						for _, jobRef := range cj.Status.Active {
+							if ownerRef.Name == jobRef.Name {
+								restarts := int32(0)
+								for _, cs := range pod.Status.ContainerStatuses {
+									restarts += cs.RestartCount
+								}
+								for _, ics := range pod.Status.InitContainerStatuses {
+									restarts += ics.RestartCount
+								}
+								
+								pods = append(pods, map[string]interface{}{
+									"name":      pod.Name,
+									"status":    string(pod.Status.Phase),
+									"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+									"restarts":  restarts,
+									"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+									"ip":        pod.Status.PodIP,
+									"node":      pod.Spec.NodeName,
+								})
+								break
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":           true,
 		"name":              cj.Name,
+		"namespace":        cj.Namespace,
 		"schedule":          cj.Spec.Schedule,
 		"suspend":           suspended,
 		"active":            len(cj.Status.Active),
-		"activeJobs":        strings.Join(activeJobs, ", "),
+		"activeJobs":        activeJobs,
 		"lastSchedule":      lastSchedule,
 		"nextSchedule":      nextSchedule,
 		"concurrencyPolicy": string(cj.Spec.ConcurrencyPolicy),
+		"selector":          selector,
+		"labels":            cj.Labels,
+		"annotations":       cj.Annotations,
 		"age":               formatAge(time.Since(cj.CreationTimestamp.Time)),
+		"createdAt":         cj.CreationTimestamp.Format(time.RFC3339),
+		"pods":              pods,
 	})
 }
 
@@ -5622,6 +6007,7 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
 	if name == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -5629,8 +6015,11 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if namespace == "" {
+		namespace = ws.app.namespace
+	}
 
-	job, err := ws.app.clientset.BatchV1().Jobs(ws.app.namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
+	job, err := ws.app.clientset.BatchV1().Jobs(namespace).Get(ws.app.ctx, name, metav1.GetOptions{})
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -5638,6 +6027,9 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Format selector as string
+	selector := metav1.FormatLabelSelector(job.Spec.Selector)
 
 	// Determine status
 	status := "Running"
@@ -5667,9 +6059,49 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 		duration = formatAge(time.Since(job.Status.StartTime.Time))
 	}
 
+	// Get Pods for this job
+	pods := []map[string]interface{}{}
+	if podList, err := ws.app.clientset.CoreV1().Pods(job.Namespace).List(ws.app.ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	}); err == nil {
+		for _, pod := range podList.Items {
+			// Calculate total restarts
+			restarts := int32(0)
+			for _, cs := range pod.Status.ContainerStatuses {
+				restarts += cs.RestartCount
+			}
+			for _, ics := range pod.Status.InitContainerStatuses {
+				restarts += ics.RestartCount
+			}
+			
+			pods = append(pods, map[string]interface{}{
+				"name":      pod.Name,
+				"status":    string(pod.Status.Phase),
+				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts":  restarts,
+				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":        pod.Status.PodIP,
+				"node":      pod.Spec.NodeName,
+			})
+		}
+	}
+
+	// Format conditions
+	conditions := []map[string]interface{}{}
+	for _, cond := range job.Status.Conditions {
+		conditions = append(conditions, map[string]interface{}{
+			"type":    cond.Type,
+			"status":  string(cond.Status),
+			"reason":  cond.Reason,
+			"message": cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
+		})
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
 		"name":        job.Name,
+		"namespace":   job.Namespace,
 		"status":      status,
 		"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
 		"parallelism": parallelism,
@@ -5677,7 +6109,13 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 		"active":      job.Status.Active,
 		"succeeded":   job.Status.Succeeded,
 		"failed":      job.Status.Failed,
+		"selector":    selector,
+		"labels":      job.Labels,
+		"annotations": job.Annotations,
 		"age":         formatAge(time.Since(job.CreationTimestamp.Time)),
+		"createdAt":   job.CreationTimestamp.Format(time.RFC3339),
+		"conditions":  conditions,
+		"pods":        pods,
 	})
 }
 
