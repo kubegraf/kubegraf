@@ -66,7 +66,7 @@ const UpdateApplyButton: Component<UpdateApplyButtonProps> = (props) => {
         
         // Show global success notification
         addNotification(
-          `🎉 Update completed successfully! KubeGraf v${props.updateInfo.latestVersion} is now installed. The application will restart automatically.`,
+          `🎉 Update completed successfully! KubēGraf v${props.updateInfo.latestVersion} is now installed. The application will restart automatically.`,
           'success'
         );
         

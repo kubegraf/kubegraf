@@ -49,7 +49,7 @@ const UpdateModal: Component<UpdateModalProps> = (props) => {
               style={{ 'border-color': 'var(--border-color)' }}
             >
               <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                KubeGraf Update Available
+                KubēGraf Update Available
               </h2>
               <button
                 onClick={props.onClose}
@@ -120,7 +120,7 @@ const UpdateModal: Component<UpdateModalProps> = (props) => {
                     <span>
                       <strong>Safe Update:</strong> The install script works on Windows, macOS, and Linux. 
                       It will automatically detect your OS and architecture, download the correct binary, and install it. 
-                      Your settings and cluster connections are preserved. After installation, restart KubeGraf to use the new version.
+                      Your settings and cluster connections are preserved. After installation, restart KubēGraf to use the new version.
                     </span>
                   </p>
                 </div>
@@ -155,10 +155,10 @@ const UpdateModal: Component<UpdateModalProps> = (props) => {
                     <li>Downloads the latest version from GitHub releases</li>
                     <li>Installs to <code>/usr/local/bin</code> (may require sudo on Linux/macOS)</li>
                     <li>Preserves all your settings and cluster connections</li>
-                    <li>Restart KubeGraf manually to use the new version</li>
+                    <li>Restart KubēGraf manually to use the new version</li>
                   </ul>
                   <p class="text-xs mt-2 italic" style={{ color: 'var(--text-muted)' }}>
-                    💡 <strong>Tip:</strong> If KubeGraf is currently running, stop it first, run the install command, then start it again.
+                    💡 <strong>Tip:</strong> If KubēGraf is currently running, stop it first, run the install command, then start it again.
                   </p>
                 </div>
                 <div class="mt-3 p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
@@ -197,7 +197,7 @@ const UpdateModal: Component<UpdateModalProps> = (props) => {
                     onSuccess={() => {
                       // Show additional success message
                       addNotification(
-                        `✨ KubeGraf is updating to v${props.updateInfo.latestVersion}. The application will restart shortly.`,
+                        `✨ KubēGraf is updating to v${props.updateInfo.latestVersion}. The application will restart shortly.`,
                         'success'
                       );
                       // Update will restart the app, so we can close the modal

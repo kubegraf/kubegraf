@@ -103,11 +103,11 @@ const LoginModal: Component<LoginModalProps> = (props) => {
         {/* Header */}
         <div class="mb-6">
           <h2 class="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-            {isRegister() ? '🔐 Create Account' : '🔑 Login to KubeGraf'}
+            {isRegister() ? '🔐 Create Account' : '🔑 Login to KubēGraf'}
           </h2>
           <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {isRegister()
-              ? 'Create a new account to access KubeGraf'
+              ? 'Create a new account to access KubēGraf'
               : 'Enter your credentials to continue'}
           </p>
         </div>

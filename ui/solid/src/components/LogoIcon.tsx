@@ -28,7 +28,7 @@ const LogoIcon: Component<LogoIconProps> = (props) => {
   return (
     <img
       src={getSrc()}
-      alt="KubeGraf"
+      alt="KubēGraf"
       class={props.class ?? 'w-14 h-auto object-contain'}
       style={{
         filter: 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.3))',

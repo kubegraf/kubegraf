@@ -18,12 +18,12 @@ const SidebarLogo: Component = () => {
       type="button"
       onClick={handleClick}
       class="group flex flex-col items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/60 rounded-md"
-      title="KubeGraf Dashboard"
+      title="KubēGraf Dashboard"
       style={{ width: '100%', 'margin-top': '-8px' }}
     >
       <LogoIcon class="w-24 h-auto object-contain" style={{ 'max-width': 'none' }} />
-      <span class="mt-1 text-[10px] tracking-wide uppercase text-text-muted">
-        KubeGraf
+      <span class="mt-1 text-[10px] tracking-wide text-text-muted" style={{ 'text-transform': 'none' }}>
+        KubēGraf
       </span>
     </button>
   );

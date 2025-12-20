@@ -59,7 +59,7 @@ export const AppContent: Component<AppContentProps> = (props) => {
               Cluster not connected
             </span>
             <span class="text-sm ml-2" style={{ color: 'var(--text-muted)' }}>
-              — Connect to a Kubernetes cluster to use KubeGraf
+              — Connect to a Kubernetes cluster to use KubēGraf
             </span>
           </div>
           <button
