@@ -252,6 +252,7 @@ func (e *AutoRemediationEngine) evaluateRunbook(incident *Incident, runbook *Run
 	if e.isBlockedNamespace(incident.Resource.Namespace) {
 		decision.Decision = "blocked"
 		decision.Reason = fmt.Sprintf("Namespace %s is blocked", incident.Resource.Namespace)
+		log.Printf("[AUTO-REMEDIATION] Incident %s blocked: namespace %s is in blocked list", incident.ID, incident.Resource.Namespace)
 		return decision
 	}
 
@@ -259,6 +260,7 @@ func (e *AutoRemediationEngine) evaluateRunbook(incident *Incident, runbook *Run
 	if e.isBlockedResource(incident.Resource.Kind) {
 		decision.Decision = "blocked"
 		decision.Reason = fmt.Sprintf("Resource type %s is blocked", incident.Resource.Kind)
+		log.Printf("[AUTO-REMEDIATION] Incident %s blocked: resource type %s is in blocked list", incident.ID, incident.Resource.Kind)
 		return decision
 	}
 
@@ -267,6 +269,7 @@ func (e *AutoRemediationEngine) evaluateRunbook(incident *Incident, runbook *Run
 	if e.isInCooldown(resourceKey) {
 		decision.Decision = "cooldown"
 		decision.Reason = "Resource is in cooldown period"
+		log.Printf("[AUTO-REMEDIATION] Incident %s skipped: resource %s is in cooldown", incident.ID, resourceKey)
 		return decision
 	}
 
@@ -277,6 +280,7 @@ func (e *AutoRemediationEngine) evaluateRunbook(incident *Incident, runbook *Run
 	if activeCount >= e.config.MaxConcurrentExecutions {
 		decision.Decision = "skip"
 		decision.Reason = "Maximum concurrent executions reached"
+		log.Printf("[AUTO-REMEDIATION] Incident %s skipped: %d active executions (max: %d)", incident.ID, activeCount, e.config.MaxConcurrentExecutions)
 		return decision
 	}
 
@@ -297,6 +301,7 @@ func (e *AutoRemediationEngine) evaluateRunbook(incident *Incident, runbook *Run
 	if confidence < e.config.MinConfidence {
 		decision.Decision = "skip"
 		decision.Reason = fmt.Sprintf("Confidence %.2f below threshold %.2f", confidence, e.config.MinConfidence)
+		log.Printf("[AUTO-REMEDIATION] Incident %s / Runbook %s skipped: confidence %.2f < threshold %.2f", incident.ID, runbook.ID, confidence, e.config.MinConfidence)
 		return decision
 	}
 
@@ -333,6 +338,8 @@ func (e *AutoRemediationEngine) evaluateRunbook(incident *Incident, runbook *Run
 	// All checks passed
 	decision.Decision = "execute"
 	decision.Reason = "All conditions met for auto-execution"
+	log.Printf("[AUTO-REMEDIATION] Incident %s / Runbook %s approved for auto-execution: confidence=%.2f, success_rate=%.2f, risk=%s", 
+		incident.ID, runbook.ID, confidence, successRate, runbook.Risk)
 	return decision
 }
 
@@ -560,13 +567,21 @@ func (e *AutoRemediationEngine) updateStatus() {
 
 	e.status.Enabled = e.config.Enabled
 	e.status.ActiveExecutions = len(e.activeExecutions)
+	e.status.QueuedIncidents = len(e.incidentQueue)
+	e.status.CooldownResources = len(e.cooldowns)
 }
 
 // GetStatus returns current status
 func (e *AutoRemediationEngine) GetStatus() AutoRemediationStatus {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.status
+	
+	// Update dynamic counts before returning
+	status := e.status
+	status.ActiveExecutions = len(e.activeExecutions)
+	status.QueuedIncidents = len(e.incidentQueue)
+	status.CooldownResources = len(e.cooldowns)
+	return status
 }
 
 // GetRecentDecisions returns recent decisions

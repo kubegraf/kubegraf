@@ -20,7 +20,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 // ShortcutConfig contains configuration for creating shortcuts

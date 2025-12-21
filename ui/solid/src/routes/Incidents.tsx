@@ -299,23 +299,28 @@ const Incidents: Component = () => {
         </div>
       </Show>
 
-      {/* Side Panels Toggle */}
-      <div class="mt-6 mb-4">
+      {/* Side Panels Toggle - Always visible */}
+      <div class="mt-6 mb-4" style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
         <button
           onClick={() => setShowSidePanels(!showSidePanels())}
           style={{
-            padding: '8px 16px',
-            'font-size': '12px',
+            padding: '10px 20px',
+            'font-size': '13px',
             'border-radius': '6px',
             border: '1px solid var(--border-color)',
             background: showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
             color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
             cursor: 'pointer',
-            'font-weight': '500'
+            'font-weight': '600',
+            transition: 'all 0.2s ease',
+            'box-shadow': showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
           }}
         >
           {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
         </button>
+        <span style={{ color: 'var(--text-muted)', 'font-size': '12px' }}>
+          View auto-remediation status and learning insights
+        </span>
       </div>
 
       {/* Intelligence Panels - Only render when toggled */}

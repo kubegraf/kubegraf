@@ -278,7 +278,7 @@ func PerformUpdate(downloadURL string) error {
 	// On Windows, use the Windows updater script pattern
 	if runtime.GOOS == "windows" {
 		return performWindowsUpdate(execPath, tmpFile)
-	}
+		}
 
 	// Unix-like: use updater script pattern (similar to Windows)
 	// This is necessary because you can't replace a running executable
