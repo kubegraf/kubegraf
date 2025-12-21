@@ -1161,6 +1161,31 @@ export const api = {
   getIncidentMetrics: async (id: string) => {
     return fetchAPI<{ metrics: any[] }>(`/v2/incidents/${id}/metrics`);
   },
+  
+  // Learning/Feedback endpoints
+  submitIncidentFeedback: async (id: string, outcome: 'worked' | 'not_worked' | 'unknown', appliedFixId?: string, appliedFixType?: string, notes?: string) => {
+    return fetchAPI<{ status: string; message: string; outcomeId?: number; learningStatus?: any; summary?: string }>(`/v2/incidents/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome, appliedFixId, appliedFixType, notes }),
+    });
+  },
+  
+  getLearningStatus: async () => {
+    return fetchAPI<{
+      featureWeights: Array<{ key: string; weight: number; updatedAt: string }>;
+      causePriors: Array<{ causeKey: string; prior: number; updatedAt: string }>;
+      lastUpdated: string;
+      sampleSize: number;
+      topImprovingSignals: string[];
+    }>('/v2/learning/status');
+  },
+  
+  resetLearning: async () => {
+    return fetchAPI<{ status: string; message: string }>('/v2/learning/reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true }),
+    });
+  },
 
   getIncidentRecommendations: async (incidentId: string) => {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);

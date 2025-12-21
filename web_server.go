@@ -191,6 +191,8 @@ type WebServer struct {
 	incidentCache *IncidentCache
 	// Snapshot cache for instant incident snapshots
 	snapshotCache *incidents.SnapshotCache
+	// Confidence learner for on-device learning
+	confidenceLearner *incidents.ConfidenceLearner
 	// Cluster manager for multi-cluster support
 	clusterManager *cluster.ClusterManager
 	// Security features
@@ -633,6 +635,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/v2/incidents/summary", ws.handleIncidentsV2Summary)
 	http.HandleFunc("/api/v2/incidents/patterns", ws.handleIncidentsV2Patterns)
 	http.HandleFunc("/api/v2/incidents/refresh", ws.handleIncidentsV2Refresh)
+	// Learning endpoints (must be registered before the catch-all /api/v2/incidents/ route)
+	http.HandleFunc("/api/v2/learning/status", ws.handleLearningStatus)
+	http.HandleFunc("/api/v2/learning/reset", ws.handleLearningReset)
 	http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
 	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
 

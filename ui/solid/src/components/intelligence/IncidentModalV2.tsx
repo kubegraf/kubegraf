@@ -19,6 +19,8 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const [activeTab, setActiveTab] = createSignal<string | null>(null);
   const [loadedTabs, setLoadedTabs] = createSignal<Set<string>>(new Set());
   const [resolving, setResolving] = createSignal(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = createSignal<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = createSignal<string | null>(null);
 
   // Fetch snapshot when modal opens
   createEffect(async () => {
@@ -579,56 +581,108 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
             gap: '12px',
             'z-index': 10,
           }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => {
-                  // Feedback buttons
-                  console.log('Feedback: worked');
-                }}
-                style={{
-                  padding: '8px 12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  'border-radius': '6px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  'font-size': '12px'
-                }}
-              >
-                ✅ Worked
-              </button>
-              <button
-                onClick={() => {
-                  console.log('Feedback: didn\'t work');
-                }}
-                style={{
-                  padding: '8px 12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  'border-radius': '6px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  'font-size': '12px'
-                }}
-              >
-                ❌ Didn't Work
-              </button>
-              <button
-                onClick={() => {
-                  console.log('Feedback: incorrect cause');
-                }}
-                style={{
-                  padding: '8px 12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  'border-radius': '6px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  'font-size': '12px'
-                }}
-              >
-                ⚠️ Incorrect Cause
-              </button>
+            <div style={{ display: 'flex', gap: '8px', 'flex-direction': 'column', 'align-items': 'flex-start' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={async () => {
+                    if (!props.incident) return;
+                    setFeedbackSubmitting('worked');
+                    setFeedbackMessage(null);
+                    try {
+                      const result = await api.submitIncidentFeedback(props.incident.id, 'worked');
+                      setFeedbackMessage(result.summary || result.message || 'Learning updated locally');
+                      setTimeout(() => setFeedbackMessage(null), 5000);
+                    } catch (err: any) {
+                      setFeedbackMessage('Failed to submit feedback: ' + (err.message || 'Unknown error'));
+                      setTimeout(() => setFeedbackMessage(null), 5000);
+                    } finally {
+                      setFeedbackSubmitting(null);
+                    }
+                  }}
+                  disabled={feedbackSubmitting() !== null}
+                  style={{
+                    padding: '8px 12px',
+                    background: feedbackSubmitting() === 'worked' ? 'var(--bg-secondary)' : 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    'border-radius': '6px',
+                    color: 'var(--text-primary)',
+                    cursor: feedbackSubmitting() === 'worked' ? 'wait' : 'pointer',
+                    'font-size': '12px',
+                    opacity: feedbackSubmitting() && feedbackSubmitting() !== 'worked' ? 0.5 : 1
+                  }}
+                >
+                  {feedbackSubmitting() === 'worked' ? '⏳' : '✅'} Worked
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!props.incident) return;
+                    setFeedbackSubmitting('not_worked');
+                    setFeedbackMessage(null);
+                    try {
+                      const result = await api.submitIncidentFeedback(props.incident.id, 'not_worked');
+                      setFeedbackMessage(result.summary || result.message || 'Learning updated locally');
+                      setTimeout(() => setFeedbackMessage(null), 5000);
+                    } catch (err: any) {
+                      setFeedbackMessage('Failed to submit feedback: ' + (err.message || 'Unknown error'));
+                      setTimeout(() => setFeedbackMessage(null), 5000);
+                    } finally {
+                      setFeedbackSubmitting(null);
+                    }
+                  }}
+                  disabled={feedbackSubmitting() !== null}
+                  style={{
+                    padding: '8px 12px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    'border-radius': '6px',
+                    color: 'var(--text-primary)',
+                    cursor: feedbackSubmitting() === 'not_worked' ? 'wait' : 'pointer',
+                    'font-size': '12px',
+                    opacity: feedbackSubmitting() && feedbackSubmitting() !== 'not_worked' ? 0.5 : 1
+                  }}
+                >
+                  {feedbackSubmitting() === 'not_worked' ? '⏳' : '❌'} Didn't Work
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!props.incident) return;
+                    setFeedbackSubmitting('incorrect');
+                    setFeedbackMessage(null);
+                    try {
+                      const result = await api.submitIncidentFeedback(props.incident.id, 'unknown', undefined, undefined, 'Root cause was incorrect');
+                      setFeedbackMessage(result.summary || result.message || 'Learning updated locally');
+                      setTimeout(() => setFeedbackMessage(null), 5000);
+                    } catch (err: any) {
+                      setFeedbackMessage('Failed to submit feedback: ' + (err.message || 'Unknown error'));
+                      setTimeout(() => setFeedbackMessage(null), 5000);
+                    } finally {
+                      setFeedbackSubmitting(null);
+                    }
+                  }}
+                  disabled={feedbackSubmitting() !== null}
+                  style={{
+                    padding: '8px 12px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    'border-radius': '6px',
+                    color: 'var(--text-primary)',
+                    cursor: feedbackSubmitting() === 'incorrect' ? 'wait' : 'pointer',
+                    'font-size': '12px',
+                    opacity: feedbackSubmitting() && feedbackSubmitting() !== 'incorrect' ? 0.5 : 1
+                  }}
+                >
+                  {feedbackSubmitting() === 'incorrect' ? '⏳' : '⚠️'} Incorrect Cause
+                </button>
+              </div>
+              <Show when={feedbackMessage()}>
+                <div style={{
+                  'font-size': '11px',
+                  color: 'var(--text-secondary)',
+                  'margin-top': '4px'
+                }}>
+                  {feedbackMessage()}
+                </div>
+              </Show>
             </div>
             <button
               onClick={handleResolve}

@@ -49,6 +49,8 @@ const Settings: Component = () => {
   const [restoring, setRestoring] = createSignal(false);
   const [backupInterval, setBackupInterval] = createSignal<number>(6);
   const [editingInterval, setEditingInterval] = createSignal(false);
+  const [learningStatus, setLearningStatus] = createSignal<any>(null);
+  const [resettingLearning, setResettingLearning] = createSignal(false);
 
   // Load current version from status
   createEffect(async () => {
@@ -75,6 +77,16 @@ const Settings: Component = () => {
       setBackupList(list.backups || []);
     } catch (err) {
       console.error('Failed to get backup status:', err);
+    }
+  });
+
+  // Load learning status
+  createEffect(async () => {
+    try {
+      const status = await api.getLearningStatus();
+      setLearningStatus(status);
+    } catch (err) {
+      console.error('Failed to get learning status:', err);
     }
   });
 
@@ -279,6 +291,13 @@ const Settings: Component = () => {
           badgeColor: 'blue',
         },
       ],
+    },
+    {
+      title: 'Incident Learning',
+      description: 'On-device learning that improves incident confidence and root cause ranking over time',
+      icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+      items: [],
+      isLearningSection: true, // Special flag for custom rendering
     },
     {
       title: 'Monitoring & Analysis',
@@ -1004,11 +1023,101 @@ const Settings: Component = () => {
                   </Show>
                 </div>
               </Show>
-              <Show when={!(section as any).isBackupSection}>
+              <Show when={!(section as any).isBackupSection && !(section as any).isLearningSection}>
                 <div class="space-y-3">
                   <For each={section.items}>
                     {(item) => <SettingItemComponent item={item} />}
                   </For>
+                </div>
+              </Show>
+              <Show when={(section as any).isLearningSection}>
+                {/* Incident Learning Section */}
+                <div class="space-y-4">
+                  <div class="card p-4 mb-4" style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                    <div class="flex items-start gap-3">
+                      <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          How Incident Learning Works
+                        </div>
+                        <div class="text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <p>KubeGraf learns from your feedback to improve incident diagnosis accuracy over time. All learning happens locally on your device - no data is sent to external servers.</p>
+                          <ul class="list-disc list-inside ml-2 space-y-0.5">
+                            <li>When you provide feedback (✅ Worked, ❌ Didn't Work, ⚠️ Incorrect Cause), the system updates feature weights and cause priors</li>
+                            <li>Confidence scores and root cause rankings improve based on your feedback</li>
+                            <li>All learning data is stored in your local SQLite database</li>
+                            <li>You can reset learning at any time to return to default weights</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="card p-6">
+                    <h3 class="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+                      Learning Status
+                    </h3>
+                    <Show when={learningStatus()}>
+                      <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                            Sample Size
+                          </div>
+                          <div class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                            {learningStatus()?.sampleSize ?? 0} outcomes
+                          </div>
+                        </div>
+                        <Show when={learningStatus()?.lastUpdated}>
+                          <div>
+                            <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                              Last Updated
+                            </div>
+                            <div class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                              {new Date(learningStatus()!.lastUpdated).toLocaleString()}
+                            </div>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    <div class="mt-4">
+                      <h4 class="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                        Reset Learning
+                      </h4>
+                      <p class="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+                        Reset all learned weights and priors to their default values. This will clear all learning progress and start fresh.
+                      </p>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Are you sure you want to reset all learning? This will clear all learned weights and priors. This action cannot be undone.')) {
+                            return;
+                          }
+                          setResettingLearning(true);
+                          try {
+                            await api.resetLearning();
+                            addNotification('Learning reset successfully', 'success');
+                            // Reload learning status
+                            const status = await api.getLearningStatus();
+                            setLearningStatus(status);
+                          } catch (err) {
+                            addNotification(`Failed to reset learning: ${err}`, 'error');
+                          } finally {
+                            setResettingLearning(false);
+                          }
+                        }}
+                        disabled={resettingLearning()}
+                        class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                        style={{ background: 'var(--error-color)', color: 'white' }}
+                      >
+                        <Show when={resettingLearning()}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                        {resettingLearning() ? 'Resetting...' : 'Reset Learning'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </Show>
             </Show>
