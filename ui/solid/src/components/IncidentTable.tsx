@@ -4,6 +4,7 @@ import ActionMenu from './ActionMenu';
 
 interface IncidentTableProps {
   incidents: Incident[];
+  isLoading?: boolean;
   onViewPod?: (incident: Incident) => void;
   onViewLogs?: (incident: Incident) => void;
   onViewEvents?: (incident: Incident) => void;
@@ -11,6 +12,9 @@ interface IncidentTableProps {
 }
 
 // Inline FixPreviewModal with proper confirmation modal
+import { setExecutionStateFromResult } from '../stores/executionPanel';
+import { api } from '../services/api';
+
 const FixPreviewModalInline: Component<{
   isOpen: boolean;
   incidentId: string;
@@ -101,14 +105,126 @@ const FixPreviewModalInline: Component<{
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           dryRun: false, 
-          incidentId: props.incidentId,
-          recommendationId: props.recommendationId 
+          recommendationId: props.recommendationId,
+          confirmed: true
         })
       });
-      const data = await response.json();
-      setApplyResult(data);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `HTTP ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      // Show execution summary in bottom right panel
+      const startedAt = new Date().toISOString();
+      const completedAt = new Date().toISOString();
+      
+      setExecutionStateFromResult({
+        executionId: result.executionId || `fix-apply-${Date.now()}`,
+        label: props.title || 'Fix Application',
+        status: result.status === 'applied' || result.status === 'ok' ? 'succeeded' : 'failed',
+        message: result.message || 'Fix applied successfully',
+        error: result.status === 'failed' ? (result.error || result.message) : undefined,
+        startedAt: startedAt,
+        completedAt: completedAt,
+        exitCode: result.status === 'applied' || result.status === 'ok' ? 0 : 1,
+        resourcesChanged: result.changes ? {
+          configured: result.changes.length,
+          created: 0,
+          updated: result.changes.length,
+          deleted: 0,
+        } : null,
+        lines: [
+          {
+            id: `fix-apply-${Date.now()}-msg`,
+            executionId: result.executionId || `fix-apply-${Date.now()}`,
+            timestamp: startedAt,
+            stream: 'stdout',
+            text: `Applying fix: ${props.title}`,
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+          {
+            id: `fix-apply-${Date.now()}-result`,
+            executionId: result.executionId || `fix-apply-${Date.now()}`,
+            timestamp: completedAt,
+            stream: result.status === 'applied' || result.status === 'ok' ? 'stdout' : 'stderr',
+            text: result.message || (result.status === 'applied' ? 'Fix applied successfully' : 'Fix application failed'),
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+          {
+            id: `fix-apply-${Date.now()}-final`,
+            executionId: result.executionId || `fix-apply-${Date.now()}`,
+            timestamp: completedAt,
+            stream: 'stdout',
+            text: 'Execution completed successfully',
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+        ],
+      });
+      
+      setApplyResult({ 
+        success: result.status === 'applied' || result.status === 'ok',
+        message: result.message,
+        dryRun: false 
+      });
+      
+      // Optionally run post-check after a delay
+      if (result.executionId && result.postCheckPlan) {
+        setTimeout(async () => {
+          try {
+            console.log('[FixApply] Running post-check for execution:', result.executionId, 'incidentId:', props.incidentId);
+            const postCheck = await api.postCheck(props.incidentId, result.executionId);
+            console.log('[FixApply] Post-check completed:', postCheck);
+            // Post-check results are already handled by the execution panel
+          } catch (err: any) {
+            console.error('[FixApply] Error running post-check:', err);
+            // Don't show error to user - post-check is optional
+          }
+        }, 15000); // Wait 15 seconds for pod to be recreated
+      }
     } catch (err: any) {
-      setApplyResult({ success: false, error: err.message, dryRun: false });
+      const errorMessage = err?.message || err?.toString() || 'Unknown error';
+      const executionId = `fix-apply-error-${Date.now()}`;
+      const timestamp = new Date().toISOString();
+      
+      // Show error in execution panel
+      setExecutionStateFromResult({
+        executionId: executionId,
+        label: props.title || 'Fix Application',
+        status: 'failed',
+        message: `Failed to apply fix: ${errorMessage}`,
+        error: errorMessage,
+        startedAt: timestamp,
+        completedAt: timestamp,
+        exitCode: 1,
+        lines: [
+          {
+            id: `${executionId}-msg`,
+            executionId: executionId,
+            timestamp: timestamp,
+            stream: 'stdout',
+            text: `Applying fix: ${props.title}`,
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+          {
+            id: `${executionId}-err`,
+            executionId: executionId,
+            timestamp: timestamp,
+            stream: 'stderr',
+            text: `Failed to apply fix: ${errorMessage}`,
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+        ],
+      });
+      
+      setApplyResult({ success: false, error: errorMessage, dryRun: false });
     } finally {
       setApplying(false);
     }
@@ -730,13 +846,26 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
             </tr>
           </thead>
           <tbody>
-            <For each={props.incidents} fallback={
+            <Show when={props.isLoading}>
               <tr>
-                <td colspan="8" style={{ padding: '24px', 'text-align': 'center', color: 'var(--text-muted)' }}>
-                  No incidents found
+                <td colspan="8" style={{ padding: '40px', 'text-align': 'center' }}>
+                  <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', gap: '16px' }}>
+                    <div class="spinner" style={{ width: '32px', height: '32px' }} />
+                    <div style={{ color: 'var(--text-secondary)', 'font-size': '14px' }}>
+                      Loading incidents...
+                    </div>
+                  </div>
                 </td>
               </tr>
-            }>
+            </Show>
+            <Show when={!props.isLoading}>
+              <For each={props.incidents} fallback={
+                <tr>
+                  <td colspan="8" style={{ padding: '24px', 'text-align': 'center', color: 'var(--text-muted)' }}>
+                    No incidents found
+                  </td>
+                </tr>
+              }>
               {(incident) => (
                 <>
                   <tr 
@@ -1102,7 +1231,8 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                   </Show>
                 </>
               )}
-            </For>
+              </For>
+            </Show>
           </tbody>
         </table>
       </div>

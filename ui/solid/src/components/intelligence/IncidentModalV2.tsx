@@ -1,6 +1,7 @@
 import { Component, Show, createSignal, createEffect, For, onMount, onCleanup } from 'solid-js';
 import { Incident, IncidentSnapshot, api, type RemediationPlan, type FixPlan, type FixPreviewResponseV2 } from '../../services/api';
 import { trackModalOpen, trackSnapshotFetch, trackTabLoad } from '../../stores/performance';
+import { setExecutionStateFromResult, executionLines, setLines } from '../../stores/executionPanel';
 import EvidencePanel from './EvidencePanel';
 import CitationsPanel from './CitationsPanel';
 import RunbookSelector from './RunbookSelector';
@@ -22,6 +23,8 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const [resolving, setResolving] = createSignal(false);
   const [feedbackSubmitting, setFeedbackSubmitting] = createSignal<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = createSignal<string | null>(null);
+  // Store the fixId that was clicked for apply (to preserve it across dialog)
+  const [fixIdToApply, setFixIdToApply] = createSignal<string | null>(null);
 
   // Track modal open to paint
   let modalOpenTracker: (() => void) | null = null;
@@ -96,6 +99,8 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const [applyingFix, setApplyingFix] = createSignal<string | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = createSignal(false);
   const [confirmCheckbox, setConfirmCheckbox] = createSignal(false);
+  // Store incident data when dialog opens to preserve it
+  const [storedIncident, setStoredIncident] = createSignal<Incident | null>(null);
 
   // Load remediation plan with timeout
   const loadRemediationPlan = async (incidentId: string) => {
@@ -176,6 +181,16 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
       console.log('[FixApply] Allowing apply despite ID mismatch - backend will validate');
     }
 
+    // Store the fixId that was clicked (use the original fixId, not the preview's fixId)
+    setFixIdToApply(fixId);
+    console.log('[FixApply] Stored fixId for apply:', fixId);
+
+    // Store incident data before showing dialog to preserve it
+    if (props.incident) {
+      setStoredIncident(props.incident);
+      console.log('[FixApply] Stored incident data:', props.incident.id);
+    }
+    
     // Show confirmation dialog
     console.log('[FixApply] Setting showConfirmDialog to true');
     setShowConfirmDialog(true);
@@ -186,10 +201,46 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   // Confirm and apply fix
   const confirmApplyFix = async (confirmed?: boolean) => {
     console.log('[FixApply] confirmApplyFix called, confirmed:', confirmed, 'checkbox:', confirmCheckbox());
-    if (!props.incident || !fixPreview()) {
-      console.error('[FixApply] Missing incident or preview');
-      alert('Error: Missing incident or preview data');
+    console.log('[FixApply] props.incident:', props.incident ? props.incident.id : 'null');
+    console.log('[FixApply] storedIncident:', storedIncident() ? storedIncident()!.id : 'null');
+    console.log('[FixApply] fixPreview():', fixPreview() ? fixPreview()!.fixId : 'null');
+    
+    // Use stored incident if props.incident is null
+    const incidentToUse = props.incident || storedIncident();
+    if (!incidentToUse) {
+      console.error('[FixApply] Missing incident (both props and stored)');
+      alert('Error: Missing incident data. Please refresh the page and try again.');
       return;
+    }
+    
+    if (!fixPreview()) {
+      console.error('[FixApply] Missing preview data');
+      console.log('[FixApply] Attempting to reload preview...');
+      // Try to reload the preview if it's missing
+      const currentFixId = remediationPlan()?.fixPlans?.find(fp => 
+        fp.id === applyingFix() || 
+        (applyingFix() && fp.id.includes(applyingFix()!))
+      )?.id;
+      
+      if (currentFixId) {
+        console.log('[FixApply] Found fix plan ID, reloading preview:', currentFixId);
+        try {
+          await handlePreviewFix(currentFixId);
+          // Wait a moment for the preview to load
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (!fixPreview()) {
+            alert('Error: Failed to reload preview data. Please preview the fix again.');
+            return;
+          }
+        } catch (err) {
+          console.error('[FixApply] Failed to reload preview:', err);
+          alert('Error: Failed to reload preview data. Please preview the fix again.');
+          return;
+        }
+      } else {
+        alert('Error: Missing preview data. Please preview the fix first before applying.');
+        return;
+      }
     }
     // If confirmed parameter is true, proceed. Otherwise check checkbox state.
     if (confirmed !== true && !confirmCheckbox()) {
@@ -199,19 +250,54 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
     }
     console.log('[FixApply] Confirmation passed, proceeding with fix application');
 
+    // Use the stored fixId (from when user clicked Apply), fallback to preview's fixId
+    const fixId = fixIdToApply() || fixPreview()?.fixId;
+    console.log('[FixApply] Using fixId for apply:', fixId, '(stored:', fixIdToApply(), ', preview:', fixPreview()?.fixId, ')');
+    
+    if (!fixId) {
+      throw new Error('Fix ID is missing. Please preview the fix again.');
+    }
+    
     setShowConfirmDialog(false);
-    setApplyingFix(fixPreview()!.fixId);
+    setApplyingFix(fixId);
     try {
-      const fixId = fixPreview()!.fixId;
+      if (!fixId) {
+        throw new Error('Fix ID is missing. Please preview the fix again.');
+      }
+      
+      if (!incidentToUse || !incidentToUse.id) {
+        console.error('[FixApply] incidentToUse is null or missing id:', { incidentToUse, propsIncident: props.incident, storedIncident: storedIncident() });
+        throw new Error('Incident data is missing. Please refresh the page and try again.');
+      }
+      
+      // Include resource info for fallback lookup
+      // Try multiple ways to get resource info (v1 vs v2 format)
+      const resourceInfo = {
+        resourceNamespace: incidentToUse.resource?.namespace || incidentToUse.namespace || '',
+        resourceKind: incidentToUse.resource?.kind || incidentToUse.resourceKind || 'Pod',
+        resourceName: incidentToUse.resource?.name || incidentToUse.resourceName || '',
+      };
+      
+      console.log('[FixApply] Extracted resource info:', {
+        fromResource: incidentToUse.resource,
+        fromLegacy: { namespace: incidentToUse.namespace, resourceKind: incidentToUse.resourceKind, resourceName: incidentToUse.resourceName },
+        final: resourceInfo
+      });
+      
       console.log('[FixApply] Calling api.applyFix with:', {
-        incidentId: props.incident.id,
+        incidentId: incidentToUse.id,
         fixId: fixId,
-        confirmed: true
+        confirmed: true,
+        resourceInfo: resourceInfo,
+        incidentToUse: incidentToUse,
+        propsIncident: props.incident,
+        storedIncident: storedIncident()
       });
       
       let result;
       try {
-        result = await api.applyFix(props.incident.id, fixId, true);
+        // Include resource info in the request body for fallback lookup
+        result = await api.applyFix(incidentToUse.id, fixId, true, resourceInfo);
         console.log('[FixApply] API call completed, response:', result);
       } catch (apiError: any) {
         console.error('[FixApply] API call failed:', apiError);
@@ -222,17 +308,94 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
       console.log('[FixApply] Fix applied successfully:', result);
       
       if (result && result.executionId) {
-        alert(`Fix applied successfully! Execution ID: ${result.executionId}`);
+        // Get the fix preview to show details in execution summary
+        const preview = fixPreview();
+        const fixTitle = preview?.title || fixId || 'Fix Applied';
         
-        // Optionally run post-check after a delay
+        // Show execution summary in bottom right panel
+        const startedAt = new Date().toISOString();
+        const completedAt = new Date().toISOString();
+        
+        // Parse changes from result if available
+        let resourcesChanged = null;
+        if (result.changes && Array.isArray(result.changes)) {
+          // Try to parse resource changes from the message/changes
+          const configured = result.changes.length;
+          resourcesChanged = {
+            created: 0,
+            configured: configured,
+            unchanged: 0,
+            deleted: 0,
+          };
+        }
+        
+        setExecutionStateFromResult({
+          executionId: result.executionId,
+          label: fixTitle,
+          status: result.status === 'applied' ? 'succeeded' : 'failed',
+          message: result.message || 'Fix applied successfully',
+          startedAt: startedAt,
+          completedAt: completedAt,
+          exitCode: result.status === 'applied' ? 0 : 1,
+          resourcesChanged: resourcesChanged,
+          lines: [
+            {
+              id: `${result.executionId}-0`,
+              timestamp: startedAt,
+              stream: 'stdout',
+              text: `Applying fix: ${fixTitle}`,
+            },
+            {
+              id: `${result.executionId}-1`,
+              timestamp: completedAt,
+              stream: 'stdout',
+              text: result.message || 'Fix applied successfully',
+            },
+            ...(result.changes && Array.isArray(result.changes) ? result.changes.map((change: string, idx: number) => ({
+              id: `${result.executionId}-${idx + 2}`,
+              timestamp: completedAt,
+              stream: 'stdout',
+              text: typeof change === 'string' ? change : JSON.stringify(change),
+            })) : []),
+            {
+              id: `${result.executionId}-final`,
+              timestamp: completedAt,
+              stream: 'stdout',
+              text: 'Execution completed successfully',
+            },
+          ],
+        });
+        
+        // Optionally run post-check after a delay (wait longer for pod to be recreated)
+        // For pod restarts, wait 15 seconds to allow pod recreation
+        const postCheckDelay = fixPreview()?.title?.toLowerCase().includes('restart') ? 15000 : 5000;
         setTimeout(async () => {
           try {
             console.log('[FixApply] Running post-check for execution:', result.executionId);
-            const postCheck = await api.postCheck(props.incident!.id, result.executionId);
+            const postCheck = await api.postCheck(incidentToUse.id, result.executionId);
+            const currentLines = executionLines();
+            const timestamp = new Date().toISOString();
             if (postCheck.improved) {
-              alert('Post-check passed: Incident appears to be resolved!');
+              // Add post-check result to execution panel
+              setLines([
+                ...currentLines,
+                {
+                  id: `${result.executionId}-postcheck-${currentLines.length}`,
+                  timestamp: timestamp,
+                  stream: 'stdout',
+                  text: 'Post-check: Incident appears to be resolved!',
+                },
+              ]);
             } else {
-              alert('Post-check warning: Some checks indicate the fix may not have fully resolved the issue.');
+              setLines([
+                ...currentLines,
+                {
+                  id: `${result.executionId}-postcheck-${currentLines.length}`,
+                  timestamp: timestamp,
+                  stream: 'stderr',
+                  text: 'Post-check warning: Some checks indicate the fix may not have fully resolved the issue.',
+                },
+              ]);
             }
           } catch (err) {
             console.error('[FixApply] Error running post-check:', err);
@@ -240,21 +403,74 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
         }, 5000);
       } else {
         console.warn('[FixApply] Fix result missing executionId:', result);
-        alert('Fix applied but no execution ID returned. Please check the server logs.');
+        // Show error in execution panel
+        setExecutionStateFromResult({
+          executionId: `fix-${Date.now()}`,
+          label: 'Fix Apply',
+          status: 'failed',
+          message: 'Fix applied but no execution ID returned. Please check the server logs.',
+          error: 'No execution ID in response',
+        });
       }
       
-      // Reload snapshot and fixes
-      console.log('[FixApply] Reloading snapshot and remediation plan');
-      const snap = await api.getIncidentSnapshot(props.incident.id);
-      setSnapshot(snap);
-      loadRemediationPlan(props.incident.id);
+      // Reload snapshot and fixes (only if incident is still available)
+      if (incidentToUse && incidentToUse.id) {
+        console.log('[FixApply] Reloading snapshot and remediation plan');
+        try {
+          const snap = await api.getIncidentSnapshot(incidentToUse.id);
+          setSnapshot(snap);
+          loadRemediationPlan(incidentToUse.id);
+        } catch (err) {
+          console.warn('[FixApply] Failed to reload snapshot after fix apply:', err);
+          // Don't show error - this is just a refresh attempt
+        }
+      } else {
+        console.log('[FixApply] Skipping snapshot reload - incident not available');
+      }
       setFixPreview(null);
     } catch (err: any) {
       console.error('[FixApply] Error applying fix:', err);
       const errorMessage = err?.message || err?.toString() || 'Unknown error';
-      alert(`Failed to apply fix: ${errorMessage}`);
+      
+      // Show error in execution panel
+      const preview = fixPreview();
+      const fixTitle = preview?.title || fixIdToApply || 'Fix Apply';
+      const startedAt = new Date().toISOString();
+      const completedAt = new Date().toISOString();
+      
+      setExecutionStateFromResult({
+        executionId: `fix-error-${Date.now()}`,
+        label: fixTitle,
+        status: 'failed',
+        message: 'Fix application failed',
+        startedAt: startedAt,
+        completedAt: completedAt,
+        exitCode: 1,
+        error: errorMessage,
+        lines: [
+          {
+            id: `fix-error-${Date.now()}-0`,
+            timestamp: startedAt,
+            stream: 'stdout',
+            text: `Applying fix: ${fixTitle}`,
+          },
+          {
+            id: `fix-error-${Date.now()}-1`,
+            timestamp: completedAt,
+            stream: 'stderr',
+            text: errorMessage,
+          },
+          {
+            id: `fix-error-${Date.now()}-2`,
+            timestamp: completedAt,
+            stream: 'stdout',
+            text: 'Execution failed',
+          },
+        ],
+      });
     } finally {
       setApplyingFix(null);
+      setStoredIncident(null); // Clear stored incident after apply completes
     }
   };
 
@@ -342,25 +558,26 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   // Use snapshot() directly in JSX for reactivity
 
   return (
-    <Show when={props.isOpen && props.incident}>
-      {/* Backdrop */}
-      <div 
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          'z-index': 9998,
-          transition: 'opacity 0.2s ease',
-        }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            props.onClose();
-          }
-        }}
-      >
+    <>
+      <Show when={props.isOpen && props.incident}>
+        {/* Backdrop */}
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            'z-index': 9998,
+            transition: 'opacity 0.2s ease',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              props.onClose();
+            }
+          }}
+        >
         {/* Modal - Right-side slide-in */}
         <div 
           style={{
@@ -1113,27 +1330,25 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
           </div>
         </div>
       </div>
-
-      {/* Confirmation Dialog */}
-      <Show when={showConfirmDialog()}>
-        {(() => {
-          console.log('[ConfirmDialog] Rendering in JSX - isOpen:', showConfirmDialog(), 'fix:', fixPreview() ? fixPreview()!.fixId : 'null');
-          return null;
-        })()}
       </Show>
-      <ConfirmDialog
-        isOpen={showConfirmDialog()}
-        fix={fixPreview()}
-        confirmed={confirmCheckbox()}
-        onConfirm={confirmApplyFix}
-        onCancel={() => {
-          console.log('[ConfirmDialog] Cancel clicked');
-          setShowConfirmDialog(false);
-          setConfirmCheckbox(false);
-        }}
-        onCheckboxChange={setConfirmCheckbox}
-      />
-    </Show>
+
+      {/* Confirmation Dialog - Rendered outside modal Show block to ensure visibility */}
+      {showConfirmDialog() && fixPreview() && (
+        <ConfirmDialog
+          isOpen={showConfirmDialog()}
+          fix={fixPreview()}
+          confirmed={confirmCheckbox()}
+          onConfirm={confirmApplyFix}
+          onCancel={() => {
+            console.log('[ConfirmDialog] Cancel clicked');
+            setShowConfirmDialog(false);
+            setConfirmCheckbox(false);
+            setStoredIncident(null); // Clear stored incident when canceling
+          }}
+          onCheckboxChange={setConfirmCheckbox}
+        />
+      )}
+    </>
   );
 };
 
@@ -1401,6 +1616,7 @@ const ConfirmDialog: Component<{
     return null;
   }
   console.log('[ConfirmDialog] Rendering dialog for fix:', props.fix.fixId);
+  console.log('[ConfirmDialog] Dialog will render with z-index 99999');
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
@@ -1427,11 +1643,13 @@ const ConfirmDialog: Component<{
       left: 0,
       right: 0,
       bottom: 0,
-      background: 'rgba(0, 0, 0, 0.5)',
+      background: 'rgba(0, 0, 0, 0.7)',
       display: 'flex',
       'align-items': 'center',
       'justify-content': 'center',
-      zIndex: 10000
+      zIndex: 999999,
+      pointerEvents: 'auto',
+      overflow: 'auto'
     }}
     onClick={props.onCancel}
     >
@@ -1441,8 +1659,11 @@ const ConfirmDialog: Component<{
         padding: '24px',
         'max-width': '500px',
         width: '90%',
-        border: '1px solid var(--border-color)',
-        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+        border: '2px solid var(--accent-primary)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+        position: 'relative',
+        zIndex: 1000000,
+        margin: '20px'
       }}
       onClick={(e) => e.stopPropagation()}
       >

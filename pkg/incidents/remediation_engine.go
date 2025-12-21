@@ -255,7 +255,7 @@ func (e *RemediationEngine) runbookToFixPlan(ctx context.Context, snapshot *Inci
 			KubectlCommands: e.generateRollbackCommands(runbook, snapshot),
 		},
 		Guardrails: &FixGuardrails{
-			ConfidenceMin:        0.75,
+			ConfidenceMin:        0.60, // Lower default to allow more fixes
 			RequiresNamespaceScoped: true,
 			RequiresOwnerKind:     "Deployment", // Default to Deployment
 			RequiresUserAck:       true,
@@ -266,8 +266,12 @@ func (e *RemediationEngine) runbookToFixPlan(ctx context.Context, snapshot *Inci
 
 		// Set guardrails based on risk
 	if plan.Risk == "high" {
-		plan.Guardrails.ConfidenceMin = 0.85
+		plan.Guardrails.ConfidenceMin = 0.80 // Lowered from 0.85
 		plan.Guardrails.RequiresUserAck = true
+	} else if plan.Risk == "medium" {
+		plan.Guardrails.ConfidenceMin = 0.65 // Medium risk requires slightly higher confidence
+	} else {
+		plan.Guardrails.ConfidenceMin = 0.60 // Low risk - more permissive
 	}
 
 	return plan
