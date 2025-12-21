@@ -1149,6 +1149,18 @@ export const api = {
   getIncident: async (id: string) => {
     return fetchAPI<Incident>(`/v2/incidents/${id}`);
   },
+  getIncidentSnapshot: async (id: string) => {
+    return fetchAPI<IncidentSnapshot>(`/v2/incidents/${id}/snapshot`);
+  },
+  getIncidentLogs: async (id: string, tail?: number) => {
+    const params = new URLSearchParams();
+    if (tail) params.append('tail', tail.toString());
+    const query = params.toString();
+    return fetchAPI<{ logs: any[] }>(`/v2/incidents/${id}/logs${query ? `?${query}` : ''}`);
+  },
+  getIncidentMetrics: async (id: string) => {
+    return fetchAPI<{ metrics: any[] }>(`/v2/incidents/${id}/metrics`);
+  },
 
   getIncidentRecommendations: async (incidentId: string) => {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);

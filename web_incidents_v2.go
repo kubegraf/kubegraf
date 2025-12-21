@@ -4,15 +4,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/kubegraf/kubegraf/pkg/incidents"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -28,14 +31,14 @@ type IncidentIntelligence struct {
 // NewIncidentIntelligence creates a new incident intelligence system.
 func NewIncidentIntelligence(app *App) *IncidentIntelligence {
 	config := incidents.DefaultManagerConfig()
-	
+
 	// Set cluster context if available
 	if app.contextManager != nil && app.contextManager.CurrentContext != "" {
 		config.ClusterContext = app.contextManager.CurrentContext
 	}
 
 	manager := incidents.NewManager(config)
-	
+
 	ii := &IncidentIntelligence{
 		app:          app,
 		manager:      manager,
@@ -55,7 +58,7 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 			if ii.app.clientset == nil {
 				return nil, fmt.Errorf("no kubernetes client")
 			}
-			
+
 			switch ref.Kind {
 			case "Deployment":
 				deploy, err := ii.app.clientset.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
@@ -90,17 +93,17 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 				return nil, fmt.Errorf("unsupported resource kind: %s", ref.Kind)
 			}
 		},
-		
+
 		PatchResourceFunc: func(ctx context.Context, ref incidents.KubeResourceRef, patchData []byte, dryRun bool) (map[string]interface{}, error) {
 			if ii.app.clientset == nil {
 				return nil, fmt.Errorf("no kubernetes client")
 			}
-			
+
 			opts := metav1.PatchOptions{}
 			if dryRun {
 				opts.DryRun = []string{"All"}
 			}
-			
+
 			switch ref.Kind {
 			case "Deployment":
 				result, err := ii.app.clientset.AppsV1().Deployments(ref.Namespace).Patch(
@@ -117,55 +120,55 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 				return nil, fmt.Errorf("unsupported resource kind for patch: %s", ref.Kind)
 			}
 		},
-		
+
 		ScaleResourceFunc: func(ctx context.Context, ref incidents.KubeResourceRef, replicas int32, dryRun bool) error {
 			if ii.app.clientset == nil {
 				return fmt.Errorf("no kubernetes client")
 			}
-			
+
 			switch ref.Kind {
 			case "Deployment":
 				scale, err := ii.app.clientset.AppsV1().Deployments(ref.Namespace).GetScale(ctx, ref.Name, metav1.GetOptions{})
 				if err != nil {
 					return err
 				}
-				
+
 				scale.Spec.Replicas = replicas
-				
+
 				opts := metav1.UpdateOptions{}
 				if dryRun {
 					opts.DryRun = []string{"All"}
 				}
-				
+
 				_, err = ii.app.clientset.AppsV1().Deployments(ref.Namespace).UpdateScale(ctx, ref.Name, scale, opts)
 				return err
 			default:
 				return fmt.Errorf("unsupported resource kind for scale: %s", ref.Kind)
 			}
 		},
-		
+
 		RestartResourceFunc: func(ctx context.Context, ref incidents.KubeResourceRef, dryRun bool) error {
 			if ii.app.clientset == nil {
 				return fmt.Errorf("no kubernetes client")
 			}
-			
+
 			switch ref.Kind {
 			case "Deployment":
 				deploy, err := ii.app.clientset.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 				if err != nil {
 					return err
 				}
-				
+
 				if deploy.Spec.Template.Annotations == nil {
 					deploy.Spec.Template.Annotations = make(map[string]string)
 				}
 				deploy.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
-				
+
 				opts := metav1.UpdateOptions{}
 				if dryRun {
 					opts.DryRun = []string{"All"}
 				}
-				
+
 				_, err = ii.app.clientset.AppsV1().Deployments(ref.Namespace).Update(ctx, deploy, opts)
 				return err
 			case "Pod":
@@ -177,26 +180,26 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 				return fmt.Errorf("unsupported resource kind for restart: %s", ref.Kind)
 			}
 		},
-		
+
 		RollbackResourceFunc: func(ctx context.Context, ref incidents.KubeResourceRef, revision int64, dryRun bool) error {
 			if ii.app.clientset == nil {
 				return fmt.Errorf("no kubernetes client")
 			}
-			
+
 			// Rollback is complex - for now just return that it's not implemented
 			// In a full implementation, this would use the apps/v1 API to rollback
 			return fmt.Errorf("rollback not yet implemented")
 		},
-		
+
 		DeleteResourceFunc: func(ctx context.Context, ref incidents.KubeResourceRef, dryRun bool) error {
 			if ii.app.clientset == nil {
 				return fmt.Errorf("no kubernetes client")
 			}
-			
+
 			if dryRun {
 				return nil // Dry run validation
 			}
-			
+
 			switch ref.Kind {
 			case "Pod":
 				return ii.app.clientset.CoreV1().Pods(ref.Namespace).Delete(ctx, ref.Name, metav1.DeleteOptions{})
@@ -284,7 +287,7 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 	// Try to get incidents from the v2 incident intelligence system
 	if ws.app.incidentIntelligence != nil {
 		manager := ws.app.incidentIntelligence.GetManager()
-		
+
 		filter := incidents.IncidentFilter{
 			Namespace: namespace,
 		}
@@ -315,7 +318,7 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		v1Incidents := ws.getV1Incidents(namespace)
 		for _, v1 := range v1Incidents {
 			v2Inc := ws.convertV1ToV2Incident(v1)
-			
+
 			// Apply filters
 			if patternStr != "" && string(v2Inc.Pattern) != patternStr {
 				continue
@@ -323,7 +326,7 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 			if severityStr != "" && string(v2Inc.Severity) != severityStr {
 				continue
 			}
-			
+
 			incidentList = append(incidentList, v2Inc)
 		}
 	}
@@ -341,13 +344,13 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		sev := string(inc.Severity)
 		pat := string(inc.Pattern)
 		stat := string(inc.Status)
-		
+
 		sevMap := summary["bySeverity"].(map[string]int)
 		sevMap[sev]++
-		
+
 		patMap := summary["byPattern"].(map[string]int)
 		patMap[pat]++
-		
+
 		statMap := summary["byStatus"].(map[string]int)
 		statMap[stat]++
 	}
@@ -359,6 +362,22 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		"total":     len(incidentList),
 		"summary":   summary,
 	})
+}
+
+// getV1IncidentByID fetches a specific v1 incident by ID
+func (ws *WebServer) getV1IncidentByID(incidentID string) *incidents.Incident {
+	if ws.app.clientset == nil || !ws.app.connected {
+		return nil
+	}
+	
+	// Get all v1 incidents and find the one with matching ID
+	v1Incidents := ws.getV1Incidents("")
+	for _, v1 := range v1Incidents {
+		if v1.ID == incidentID {
+			return ws.convertV1ToV2Incident(v1)
+		}
+	}
+	return nil
 }
 
 // getV1Incidents fetches incidents from the v1 system using the incident scanner
@@ -682,10 +701,10 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 	patternStr := string(pattern)
 
 	incident := &incidents.Incident{
-		ID:          v1.ID,
-		Pattern:     pattern,
-		Severity:    severity,
-		Status:      incidents.StatusOpen,
+		ID:       v1.ID,
+		Pattern:  pattern,
+		Severity: severity,
+		Status:   incidents.StatusOpen,
 		Resource: incidents.KubeResourceRef{
 			Kind:      v1.ResourceKind,
 			Name:      v1.ResourceName,
@@ -698,6 +717,8 @@ func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Inc
 		LastSeen:        v1.LastSeen,
 		Diagnosis:       diagnosis,
 		Recommendations: recommendations,
+		// Initialize empty Signals - will be populated by fallback logic in handlers
+		Signals: incidents.IncidentSignals{},
 	}
 
 	// Enhance recommendations with fix actions
@@ -725,11 +746,22 @@ func (ws *WebServer) handleIncidentV2ByID(w http.ResponseWriter, r *http.Request
 
 	manager := ws.app.incidentIntelligence.GetManager()
 
-	// Handle sub-paths
+	// Handle sub-paths (snapshot, evidence, logs, etc.)
 	subPath := getSubPath(id)
 	if subPath != "" {
-		ws.handleIncidentV2Action(w, r, manager, getBaseID(id), subPath)
-		return
+		baseID := getBaseID(id)
+		switch subPath {
+		case "snapshot":
+			ws.handleIncidentSnapshot(w, r, baseID)
+			return
+		case "evidence", "logs", "metrics", "changes", "runbooks", "similar", "citations":
+			// These are handled by existing action handlers
+			ws.handleIncidentV2Action(w, r, manager, baseID, subPath)
+			return
+		default:
+			ws.handleIncidentV2Action(w, r, manager, baseID, subPath)
+			return
+		}
 	}
 
 	switch r.Method {
@@ -849,6 +881,18 @@ func (ws *WebServer) handleIncidentV2Action(w http.ResponseWriter, r *http.Reque
 	case "evidence":
 		// Return evidence for this incident
 		ws.handleIncidentEvidence(w, r, incidentID)
+
+	case "logs":
+		// Return logs for this incident
+		ws.handleIncidentLogs(w, r, incidentID)
+
+	case "metrics":
+		// Return metrics for this incident
+		ws.handleIncidentMetrics(w, r, incidentID)
+
+	case "changes":
+		// Return changes for this incident
+		ws.handleIncidentChanges(w, r, incidentID)
 
 	case "citations":
 		// Return citations for this incident
@@ -1057,7 +1101,7 @@ func (ws *WebServer) handleFixPreview(w http.ResponseWriter, r *http.Request) {
 
 	// Get the incident from manager first
 	incident := manager.GetIncident(req.IncidentID)
-	
+
 	// If not found in manager, try to find in v1 incidents and convert
 	if incident == nil {
 		v1Incidents := ws.getV1Incidents("")
@@ -1161,7 +1205,7 @@ func (ws *WebServer) handleFixApply(w http.ResponseWriter, r *http.Request) {
 
 	// Get the incident from manager first
 	incident := manager.GetIncident(req.IncidentID)
-	
+
 	// If not found in manager, try to find in v1 incidents and convert
 	if incident == nil {
 		v1Incidents := ws.getV1Incidents("")
@@ -1483,11 +1527,11 @@ func (ws *WebServer) handleFixPreviewForIncident(w http.ResponseWriter, r *http.
 
 	// Find the incident
 	var incident *incidents.Incident
-	
+
 	if ws.app.incidentIntelligence != nil {
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
 	}
-	
+
 	// Fallback to v1 incidents
 	if incident == nil {
 		v1Incidents := ws.getV1Incidents("")
@@ -1539,7 +1583,7 @@ func (ws *WebServer) handleFixPreviewForIncident(w http.ResponseWriter, r *http.
 
 	// Generate preview response
 	response := incidents.CreateFixPreviewResponse(fix)
-	
+
 	// Validate safety
 	if err := incidents.ValidateFixAction(nil, fix.TargetResource); err != nil {
 		response.Valid = false
@@ -1560,17 +1604,17 @@ func (ws *WebServer) handleFixApplyForIncident(w http.ResponseWriter, r *http.Re
 	// Parse request body
 	var req struct {
 		RecommendationID string `json:"recommendationId"`
-		DryRun          bool   `json:"dryRun"`
+		DryRun           bool   `json:"dryRun"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
 	// Find the incident
 	var incident *incidents.Incident
-	
+
 	if ws.app.incidentIntelligence != nil {
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
 	}
-	
+
 	// Fallback to v1 incidents
 	if incident == nil {
 		v1Incidents := ws.getV1Incidents("")
@@ -1642,7 +1686,7 @@ func (ws *WebServer) handleFixApplyForIncident(w http.ResponseWriter, r *http.Re
 	if ws.app.incidentIntelligence != nil {
 		ctx := r.Context()
 		manager := ws.app.incidentIntelligence.GetManager()
-		
+
 		// Only try manager if the incident exists there
 		if manager.GetIncident(incidentID) != nil {
 			var result *incidents.FixResult
@@ -1669,7 +1713,7 @@ func (ws *WebServer) handleFixApplyForIncident(w http.ResponseWriter, r *http.Re
 			executed = true
 		}
 	}
-	
+
 	if !executed {
 		// Return command info for v1 incidents or when no manager
 		response.Success = true
@@ -1692,22 +1736,49 @@ func (ws *WebServer) handleIncidentRunbooks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Find the incident to get its pattern
+	// Find the incident - try cache first, then v2 manager, then v1 fallback
 	var incident *incidents.Incident
-	
-	if ws.app.incidentIntelligence != nil {
+
+	// Check cache first
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+
+	// If not in cache, try v2 manager (fast path)
+	if incident == nil && ws.app.incidentIntelligence != nil {
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			// Cache it
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
 	}
-	
+
+	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
+	// Use cache to avoid repeated expensive lookups
 	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
+		// Check cache for v1 incidents
+		v1Incidents := ws.incidentCache.GetV1Incidents("")
+		if v1Incidents == nil {
+			// Not in cache, fetch and cache
+			v1Incidents = ws.getV1Incidents("")
+			ws.incidentCache.SetV1Incidents("", v1Incidents)
+		}
+
+		// Search for the incident
 		for _, v1 := range v1Incidents {
 			v2Inc := ws.convertV1ToV2Incident(v1)
 			if v2Inc.ID == incidentID {
 				incident = v2Inc
+				// Cache the converted incident
+				ws.incidentCache.SetV2Incident(incidentID, incident)
 				break
 			}
 		}
+	}
+
+	if incident == nil {
+		// Return empty runbooks if incident not found
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
 	}
 
 	var runbooks []map[string]interface{}
@@ -1715,7 +1786,16 @@ func (ws *WebServer) handleIncidentRunbooks(w http.ResponseWriter, r *http.Reque
 	if incident != nil {
 		// Return runbooks matching this pattern
 		pattern := string(incident.Pattern)
-		
+		patternUpper := strings.ToUpper(pattern)
+
+		// Check cache first
+		runbooks = ws.incidentCache.GetRunbooks(patternUpper)
+		if runbooks != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(runbooks)
+			return
+		}
+
 		allRunbooks := []map[string]interface{}{
 			{
 				"id":             "rb-restart-pod",
@@ -1768,14 +1848,295 @@ func (ws *WebServer) handleIncidentRunbooks(w http.ResponseWriter, r *http.Reque
 		}
 
 		for _, rb := range allRunbooks {
-			if rb["pattern"] == pattern || rb["pattern"] == "ALL" {
+			rbPattern := rb["pattern"].(string)
+			rbPatternUpper := strings.ToUpper(rbPattern)
+			// Match if patterns match, or if RESTART_STORM/CRASHLOOP (they're similar)
+			matches := rbPatternUpper == patternUpper ||
+				(patternUpper == "CRASHLOOP" && rbPatternUpper == "RESTART_STORM") ||
+				rbPatternUpper == "ALL"
+			if matches {
+				log.Printf("[Runbooks] Matched runbook %s (pattern: %s) for incident pattern: %s", rb["id"], rbPatternUpper, patternUpper)
 				runbooks = append(runbooks, rb)
 			}
 		}
+
+		// Log if no runbooks matched
+		if len(runbooks) == 0 {
+			log.Printf("[Runbooks] No runbooks matched for pattern: %s (incident ID: %s)", patternUpper, incidentID)
+		}
+
+		// Cache the runbooks for this pattern
+		ws.incidentCache.SetRunbooks(patternUpper, runbooks)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(runbooks)
+}
+
+// handleIncidentSnapshot handles GET /api/v2/incidents/{id}/snapshot
+// This is the fast, hot-path endpoint that returns precomputed snapshot data
+func (ws *WebServer) handleIncidentSnapshot(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	startTime := time.Now()
+
+	// Find the incident - try cache first, then v2 manager, then v1 fallback
+	var incident *incidents.Incident
+
+	// Check cache first
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+
+	// If not in cache, try v2 manager (fast path)
+	if incident == nil && ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			// Cache it
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+
+	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
+	if incident == nil {
+		// Check cache for v1 incidents
+		v1Incidents := ws.incidentCache.GetV1Incidents("")
+		if v1Incidents == nil {
+			// Not in cache, fetch and cache
+			v1Incidents = ws.getV1Incidents("")
+			ws.incidentCache.SetV1Incidents("", v1Incidents)
+		}
+
+		// Search for the incident
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				// Cache the converted incident
+				ws.incidentCache.SetV2Incident(incidentID, incident)
+				break
+			}
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Check snapshot cache
+	fingerprint := incident.Fingerprint
+	if fingerprint == "" {
+		// Compute fingerprint if not set
+		containerName := ""
+		if incident.Resource.Kind == "Pod" {
+			// Try to get container name from metadata or signals
+			if len(incident.Signals.Status) > 0 {
+				if container, ok := incident.Signals.Status[0].Attributes["container"]; ok {
+					containerName = container
+				}
+			}
+		}
+		fingerprint = incidents.ComputeIncidentFingerprint(incident, containerName)
+	}
+
+	snapshot, cached := ws.snapshotCache.Get(fingerprint)
+	if !cached {
+		// Build snapshot
+		hotEvidenceBuilder := incidents.NewHotEvidenceBuilder()
+		hotEvidence := hotEvidenceBuilder.BuildHotEvidence(incident)
+
+		snapshotBuilder := incidents.NewSnapshotBuilder()
+		snapshot = snapshotBuilder.BuildSnapshot(incident, hotEvidence)
+
+		// Cache the snapshot
+		ws.snapshotCache.Put(fingerprint, snapshot)
+	}
+
+	// Check performance contract (< 100ms)
+	elapsed := time.Since(startTime)
+	if elapsed > 100*time.Millisecond {
+		log.Printf("[Snapshot] Slow snapshot generation for %s: %v", incidentID, elapsed)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(snapshot)
+}
+
+// handleIncidentLogs handles GET /api/v2/incidents/{id}/logs (cold evidence)
+func (ws *WebServer) handleIncidentLogs(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get query parameters
+	query := r.URL.Query()
+	tailLines := 20 // Default to 20 lines
+	if tailStr := query.Get("tail"); tailStr != "" {
+		if tail, err := parseInt(tailStr); err == nil && tail > 0 && tail <= 1000 {
+			tailLines = tail
+		}
+	}
+
+	// Find the incident
+	var incident *incidents.Incident
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+	if incident == nil && ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+
+	// Fallback to v1 incidents if not found
+	if incident == nil {
+		v1Incident := ws.getV1IncidentByID(incidentID)
+		if v1Incident != nil {
+			incident = v1Incident
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Only fetch logs for Pod incidents
+	if incident.Resource.Kind != "Pod" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs": []map[string]interface{}{},
+		})
+		return
+	}
+
+	// Fetch pod logs
+	logItems := ws.fetchPodLogsForIncident(incident)
+	if len(logItems) > tailLines {
+		logItems = logItems[:tailLines]
+	}
+
+	// Convert to frontend format
+	logs := make([]map[string]interface{}, 0, len(logItems))
+	for _, item := range logItems {
+		logs = append(logs, map[string]interface{}{
+			"type":     item.Type,
+			"key":      item.ID,
+			"value":    item.Content,
+			"message":  item.Summary,
+			"reason":   item.Summary,
+			"time":     item.Timestamp.Format(time.RFC3339),
+			"severity": item.Severity,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"logs": logs,
+	})
+}
+
+// handleIncidentMetrics handles GET /api/v2/incidents/{id}/metrics (cold evidence)
+func (ws *WebServer) handleIncidentMetrics(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Find the incident
+	var incident *incidents.Incident
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+	if incident == nil && ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+
+	// Fallback to v1 incidents if not found
+	if incident == nil {
+		v1Incident := ws.getV1IncidentByID(incidentID)
+		if v1Incident != nil {
+			incident = v1Incident
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+		// Extract metrics from signals
+		metricsFacts := make([]map[string]interface{}, 0)
+		for _, signal := range incident.Signals.Metrics {
+			metricsFacts = append(metricsFacts, map[string]interface{}{
+				"type":    string(signal.Source),
+				"key":     signal.ID,
+				"value":   signal.Message, // Use message as value
+				"message": signal.Message,
+				"time":    signal.Timestamp.Format(time.RFC3339),
+			})
+		}
+
+		// If no metrics from signals, provide basic incident metrics for v1 incidents
+		if len(metricsFacts) == 0 && incident.Occurrences > 0 {
+			metricsFacts = append(metricsFacts, map[string]interface{}{
+				"type":    "incident",
+				"key":     "occurrences",
+				"value":   fmt.Sprintf("%d", incident.Occurrences),
+				"message": fmt.Sprintf("Incident occurred %d times", incident.Occurrences),
+				"time":    incident.LastSeen.Format(time.RFC3339),
+			})
+			if incident.Resource.Kind == "Pod" {
+				// Try to get pod resource usage if available
+				if ws.app.clientset != nil {
+					pod, err := ws.app.clientset.CoreV1().Pods(incident.Resource.Namespace).Get(r.Context(), incident.Resource.Name, metav1.GetOptions{})
+					if err == nil {
+						// Add restart count as a metric
+						restartCount := 0
+						for _, status := range pod.Status.ContainerStatuses {
+							restartCount += int(status.RestartCount)
+						}
+						if restartCount > 0 {
+							metricsFacts = append(metricsFacts, map[string]interface{}{
+								"type":    "pod",
+								"key":     "restart_count",
+								"value":   fmt.Sprintf("%d", restartCount),
+								"message": fmt.Sprintf("Pod has restarted %d times", restartCount),
+								"time":    incident.LastSeen.Format(time.RFC3339),
+							})
+						}
+					}
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"metrics": metricsFacts,
+		})
+}
+
+// handleIncidentChanges handles GET /api/v2/incidents/{id}/changes (cold evidence)
+func (ws *WebServer) handleIncidentChanges(w http.ResponseWriter, r *http.Request, incidentID string) {
+	// Use the existing changes handler (it extracts ID from path)
+	// We need to set the path to match what handleIncidentChangesRoute expects
+	originalPath := r.URL.Path
+	r.URL.Path = fmt.Sprintf("/api/incidents/%s/changes", incidentID)
+	defer func() { r.URL.Path = originalPath }()
+
+	ws.handleIncidentChangesRoute(w, r)
+}
+
+// parseInt parses a string to int
+func parseInt(s string) (int, error) {
+	var result int
+	_, err := fmt.Sscanf(s, "%d", &result)
+	return result, err
 }
 
 // handleIncidentEvidence handles GET /api/v2/incidents/{id}/evidence
@@ -1785,19 +2146,39 @@ func (ws *WebServer) handleIncidentEvidence(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Find the incident
+	// Find the incident - try cache first, then v2 manager, then v1 fallback
 	var incident *incidents.Incident
-	
-	if ws.app.incidentIntelligence != nil {
+
+	// Check cache first
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+
+	// If not in cache, try v2 manager (fast path)
+	if incident == nil && ws.app.incidentIntelligence != nil {
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			// Cache it
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
 	}
-	
+
+	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
+	// Use cache to avoid repeated expensive lookups
 	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
+		// Check cache for v1 incidents
+		v1Incidents := ws.incidentCache.GetV1Incidents("")
+		if v1Incidents == nil {
+			// Not in cache, fetch and cache
+			v1Incidents = ws.getV1Incidents("")
+			ws.incidentCache.SetV1Incidents("", v1Incidents)
+		}
+
+		// Search for the incident
 		for _, v1 := range v1Incidents {
 			v2Inc := ws.convertV1ToV2Incident(v1)
 			if v2Inc.ID == incidentID {
 				incident = v2Inc
+				// Cache the converted incident
+				ws.incidentCache.SetV2Incident(incidentID, incident)
 				break
 			}
 		}
@@ -1808,45 +2189,196 @@ func (ws *WebServer) handleIncidentEvidence(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Build evidence from incident data
-	evidence := map[string]interface{}{
-		"events": []map[string]interface{}{
-			{
-				"type":    "Warning",
-				"reason":  incident.Pattern,
-				"message": incident.Description,
-				"time":    incident.LastSeen,
-			},
-		},
-		"logs": []map[string]interface{}{},
-		"statusFacts": []map[string]interface{}{
-			{
-				"type":  "Severity",
-				"key":   "severity",
-				"value": string(incident.Severity),
-			},
-			{
-				"type":  "Occurrences",
-				"key":   "occurrences",
-				"value": fmt.Sprintf("%d", incident.Occurrences),
-			},
-		},
-		"changeHistory": []map[string]interface{}{},
+	// Check cache for evidence pack
+	evidencePack := ws.incidentCache.GetEvidencePack(incidentID)
+	if evidencePack == nil {
+		// Build evidence pack
+		evidenceBuilder := incidents.NewEvidencePackBuilder()
+		evidencePack = evidenceBuilder.BuildFromIncident(incident)
+
+		// If EvidencePack is empty (no signals), create basic evidence from incident data
+		if len(evidencePack.Events) == 0 && len(evidencePack.Logs) == 0 && len(evidencePack.StatusFacts) == 0 {
+			// Create basic evidence from incident metadata
+			evidencePack.Events = []incidents.EvidenceItem{
+				{
+					ID:        fmt.Sprintf("incident-%s-event", incident.ID),
+					Source:    incidents.EvidenceSourceEvent,
+					Type:      string(incident.Pattern),
+					Timestamp: incident.LastSeen,
+					Content:   incident.Description,
+					Summary:   fmt.Sprintf("%s detected on %s", incident.Pattern, incident.Resource.Name),
+					Resource:  &incident.Resource,
+					Relevance: 1.0,
+				},
+			}
+
+			// For Pod incidents, try to fetch actual logs
+			if incident.Resource.Kind == "Pod" && ws.app.clientset != nil {
+				podLogs := ws.fetchPodLogsForIncident(incident)
+				if len(podLogs) > 0 {
+					evidencePack.Logs = podLogs
+				}
+			}
+			evidencePack.StatusFacts = []incidents.EvidenceItem{
+				{
+					ID:        fmt.Sprintf("incident-%s-severity", incident.ID),
+					Source:    incidents.EvidenceSourceStatus,
+					Type:      "Severity",
+					Timestamp: incident.LastSeen,
+					Content:   string(incident.Severity),
+					Summary:   fmt.Sprintf("Severity: %s", incident.Severity),
+					Relevance: 1.0,
+				},
+				{
+					ID:        fmt.Sprintf("incident-%s-occurrences", incident.ID),
+					Source:    incidents.EvidenceSourceStatus,
+					Type:      "Occurrences",
+					Timestamp: incident.LastSeen,
+					Content:   fmt.Sprintf("%d", incident.Occurrences),
+					Summary:   fmt.Sprintf("Occurrences: %d", incident.Occurrences),
+					Relevance: 1.0,
+				},
+			}
+			if incident.Diagnosis != nil {
+				evidencePack.StatusFacts = append(evidencePack.StatusFacts, incidents.EvidenceItem{
+					ID:        fmt.Sprintf("incident-%s-diagnosis", incident.ID),
+					Source:    incidents.EvidenceSourceStatus,
+					Type:      "Diagnosis",
+					Timestamp: incident.Diagnosis.GeneratedAt,
+					Content:   incident.Diagnosis.Summary,
+					Summary:   incident.Diagnosis.Summary,
+					Relevance: incident.Diagnosis.Confidence,
+				})
+			}
+		}
+		// Cache it (after fallback logic)
+		ws.incidentCache.SetEvidencePack(incidentID, evidencePack)
 	}
 
-	// Add evidence from diagnosis
-	if incident.Diagnosis != nil && len(incident.Diagnosis.Evidence) > 0 {
-		for _, ev := range incident.Diagnosis.Evidence {
-			evidence["statusFacts"] = append(evidence["statusFacts"].([]map[string]interface{}), map[string]interface{}{
-				"type":  "Evidence",
-				"key":   "diagnosis",
-				"value": ev,
-			})
-		}
+	// Convert EvidencePack to the format expected by frontend
+	evidence := map[string]interface{}{
+		"events":        convertEvidenceItems(evidencePack.Events),
+		"logs":          convertEvidenceItems(evidencePack.Logs),
+		"statusFacts":   convertEvidenceItems(evidencePack.StatusFacts),
+		"metricsFacts":  convertEvidenceItems(evidencePack.MetricsFacts),
+		"changeHistory": convertEvidenceItems(evidencePack.ChangeHistory),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(evidence)
+}
+
+// fetchPodLogsForIncident fetches recent pod logs for a pod incident
+func (ws *WebServer) fetchPodLogsForIncident(incident *incidents.Incident) []incidents.EvidenceItem {
+	if ws.app.clientset == nil || incident.Resource.Kind != "Pod" {
+		return nil
+	}
+
+	ctx := ws.app.ctx
+	namespace := incident.Resource.Namespace
+	podName := incident.Resource.Name
+	
+	// Clean pod name - remove any container suffix (e.g., "pod-name/container" -> "pod-name")
+	if idx := strings.LastIndex(podName, "/"); idx != -1 {
+		podName = podName[:idx]
+	}
+
+	// Get the pod to find container names
+	pod, err := ws.app.clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("[Evidence] Failed to get pod %s/%s: %v", namespace, podName, err)
+		return nil
+	}
+
+	var logItems []incidents.EvidenceItem
+
+	// Fetch logs from each container
+	for _, container := range pod.Spec.Containers {
+		containerName := container.Name
+		tailLines := int64(50) // Get last 50 lines
+
+		opts := &corev1.PodLogOptions{
+			Container:  containerName,
+			TailLines:  &tailLines,
+			Timestamps: true,
+		}
+
+		req := ws.app.clientset.CoreV1().Pods(namespace).GetLogs(podName, opts)
+		logStream, err := req.Stream(ctx)
+		if err != nil {
+			log.Printf("[Evidence] Failed to get logs for pod %s/%s container %s: %v", namespace, podName, containerName, err)
+			continue
+		}
+
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, logStream)
+		logStream.Close()
+		if err != nil {
+			log.Printf("[Evidence] Failed to read logs for pod %s/%s container %s: %v", namespace, podName, containerName, err)
+			continue
+		}
+
+		logContent := buf.String()
+		if logContent != "" {
+			// Split into lines and create evidence items
+			lines := strings.Split(logContent, "\n")
+			for i, line := range lines {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				if i >= 20 { // Limit to 20 log lines per container
+					break
+				}
+
+				// Try to parse timestamp from log line (format: "2024-01-01T12:00:00.000000000Z message")
+				timestamp := incident.LastSeen
+				parts := strings.SplitN(line, " ", 2)
+				if len(parts) == 2 {
+					if parsedTime, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
+						timestamp = parsedTime
+					}
+				}
+
+				logItems = append(logItems, incidents.EvidenceItem{
+					ID:        fmt.Sprintf("log-%s-%s-%d", podName, containerName, i),
+					Source:    incidents.EvidenceSourceLog,
+					Type:      "PodLog",
+					Timestamp: timestamp,
+					Content:   line,
+					Summary:   fmt.Sprintf("Log from %s: %s", containerName, truncateString(line, 100)),
+					Resource:  &incident.Resource,
+					Relevance: 0.8,
+					Severity:  "info",
+				})
+			}
+		}
+	}
+
+	return logItems
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// convertEvidenceItems converts EvidenceItem slice to frontend format
+func convertEvidenceItems(items []incidents.EvidenceItem) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		result = append(result, map[string]interface{}{
+			"type":    item.Type,
+			"key":     item.ID,
+			"value":   item.Content,
+			"message": item.Summary,
+			"reason":  item.Summary,
+			"time":    item.Timestamp.Format(time.RFC3339),
+		})
+	}
+	return result
 }
 
 // handleIncidentCitations handles GET /api/v2/incidents/{id}/citations
@@ -1856,19 +2388,39 @@ func (ws *WebServer) handleIncidentCitations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Find the incident
+	// Find the incident - try cache first, then v2 manager, then v1 fallback
 	var incident *incidents.Incident
-	
-	if ws.app.incidentIntelligence != nil {
+
+	// Check cache first
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+
+	// If not in cache, try v2 manager (fast path)
+	if incident == nil && ws.app.incidentIntelligence != nil {
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			// Cache it
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
 	}
-	
+
+	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
+	// Use cache to avoid repeated expensive lookups
 	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
+		// Check cache for v1 incidents
+		v1Incidents := ws.incidentCache.GetV1Incidents("")
+		if v1Incidents == nil {
+			// Not in cache, fetch and cache
+			v1Incidents = ws.getV1Incidents("")
+			ws.incidentCache.SetV1Incidents("", v1Incidents)
+		}
+
+		// Search for the incident
 		for _, v1 := range v1Incidents {
 			v2Inc := ws.convertV1ToV2Incident(v1)
 			if v2Inc.ID == incidentID {
 				incident = v2Inc
+				// Cache the converted incident
+				ws.incidentCache.SetV2Incident(incidentID, incident)
 				break
 			}
 		}
@@ -1879,57 +2431,53 @@ func (ws *WebServer) handleIncidentCitations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Generate citations based on pattern
-	citations := []map[string]interface{}{}
-	
-	pattern := string(incident.Pattern)
-	
-	switch pattern {
-	case "RESTART_STORM", "CRASHLOOP":
-		citations = append(citations, map[string]interface{}{
-			"source": "kubernetes-docs",
-			"ref":    "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy",
-			"title":  "Pod Restart Policy",
-			"quote":  "A Pod's restartPolicy determines how the kubelet handles Container crashes within the Pod.",
-		})
-		citations = append(citations, map[string]interface{}{
-			"source": "kubernetes-docs",
-			"ref":    "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/",
-			"title":  "Debug Pods",
-			"quote":  "This page shows how to debug Pods that are stuck in a pending state.",
-		})
-	case "OOM_PRESSURE":
-		citations = append(citations, map[string]interface{}{
-			"source": "kubernetes-docs",
-			"ref":    "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
-			"title":  "Resource Management for Pods and Containers",
-			"quote":  "When you specify the resource request for containers in a Pod, the kube-scheduler uses this information to decide which node to place the Pod on.",
-		})
-		citations = append(citations, map[string]interface{}{
-			"source": "kubernetes-docs",
-			"ref":    "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/",
-			"title":  "Assign Memory Resources to Containers",
-			"quote":  "This page shows how to assign a memory request and a memory limit to a Container.",
-		})
-	case "APP_CRASH":
-		citations = append(citations, map[string]interface{}{
-			"source": "kubernetes-docs",
-			"ref":    "https://kubernetes.io/docs/concepts/workloads/controllers/job/",
-			"title":  "Jobs",
-			"quote":  "A Job creates one or more Pods and will continue to retry execution of the Pods until a specified number of them successfully terminate.",
-		})
+	// Check cache for citations
+	result := ws.incidentCache.GetCitations(incidentID)
+	if result == nil {
+		// Build citations
+		evidenceBuilder := incidents.NewEvidencePackBuilder()
+		evidencePack := evidenceBuilder.BuildFromIncident(incident)
+
+		// If evidence pack is empty, create basic one for citations
+		if len(evidencePack.Events) == 0 && len(evidencePack.Logs) == 0 && len(evidencePack.StatusFacts) == 0 {
+			evidencePack.Events = []incidents.EvidenceItem{
+				{
+					ID:        fmt.Sprintf("incident-%s-event", incident.ID),
+					Source:    incidents.EvidenceSourceEvent,
+					Type:      string(incident.Pattern),
+					Timestamp: incident.LastSeen,
+					Content:   incident.Description,
+					Summary:   fmt.Sprintf("%s detected on %s", incident.Pattern, incident.Resource.Name),
+					Resource:  &incident.Resource,
+					Relevance: 1.0,
+				},
+			}
+		}
+
+		citationBuilder := incidents.NewCitationBuilder()
+		citations := citationBuilder.BuildFromEvidencePack(evidencePack, 20)
+
+		// Add documentation citations for the pattern (always add these)
+		docCitations := incidents.GetDocCitationsForPattern(incident.Pattern)
+		citations = append(citations, docCitations...)
+
+		// Convert to frontend format
+		result = make([]map[string]interface{}, 0, len(citations))
+		for _, cit := range citations {
+			result = append(result, map[string]interface{}{
+				"source": string(cit.Source),
+				"ref":    cit.Ref,
+				"title":  cit.Title,
+				"quote":  cit.Excerpt,
+			})
+		}
+
+		// Cache it
+		ws.incidentCache.SetCitations(incidentID, result)
 	}
 
-	// Add generic citation
-	citations = append(citations, map[string]interface{}{
-		"source": "incident",
-		"ref":    incidentID,
-		"title":  "Incident Evidence",
-		"quote":  incident.Description,
-	})
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(citations)
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleIncidentSimilar handles GET /api/v2/incidents/{id}/similar
@@ -1939,9 +2487,64 @@ func (ws *WebServer) handleIncidentSimilar(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// For now, return empty array - learning engine would provide this
-	// In a full implementation, this would query the knowledge bank for similar incidents
-	similar := []map[string]interface{}{}
+	// Find the incident
+	var incident *incidents.Incident
+	incident = ws.incidentCache.GetV2Incident(incidentID)
+	if incident == nil && ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil {
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+	
+	// Fallback to v1 incidents if not found
+	if incident == nil {
+		v1Incident := ws.getV1IncidentByID(incidentID)
+		if v1Incident != nil {
+			incident = v1Incident
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+	
+	if incident == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+
+	// Find similar incidents by pattern and namespace
+	similar := make([]map[string]interface{}, 0)
+	
+	// Get v1 incidents (cached)
+	v1Incidents := ws.incidentCache.GetV1Incidents("")
+	if v1Incidents == nil {
+		v1Incidents = ws.getV1Incidents("")
+		ws.incidentCache.SetV1Incidents("", v1Incidents)
+	}
+	
+	// Find similar incidents (same pattern, same namespace, different resource)
+	for _, v1 := range v1Incidents {
+		if v1.ID == incidentID {
+			continue
+		}
+		v2Inc := ws.convertV1ToV2Incident(v1)
+		if v2Inc.Pattern == incident.Pattern && v2Inc.Resource.Namespace == incident.Resource.Namespace {
+			similar = append(similar, map[string]interface{}{
+				"id":          v2Inc.ID,
+				"pattern":     string(v2Inc.Pattern),
+				"severity":    string(v2Inc.Severity),
+				"resource":    v2Inc.Resource,
+				"occurrences": v2Inc.Occurrences,
+				"firstSeen":   v2Inc.FirstSeen.Format(time.RFC3339),
+				"lastSeen":    v2Inc.LastSeen.Format(time.RFC3339),
+				"title":       v2Inc.Title,
+			})
+			// Limit to 10 similar incidents
+			if len(similar) >= 10 {
+				break
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(similar)
@@ -1965,7 +2568,7 @@ func (ws *WebServer) handleIncidentFeedback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	log.Printf("Incident feedback received: incident=%s, type=%s, content=%s, fixId=%s", 
+	log.Printf("Incident feedback received: incident=%s, type=%s, content=%s, fixId=%s",
 		incidentID, req.Type, req.Content, req.FixID)
 
 	// Handle special feedback types
@@ -1986,4 +2589,3 @@ func (ws *WebServer) handleIncidentFeedback(w http.ResponseWriter, r *http.Reque
 		"message": "Feedback recorded successfully",
 	})
 }
-

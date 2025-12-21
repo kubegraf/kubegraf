@@ -57,6 +57,7 @@ import (
 	"github.com/kubegraf/kubegraf/internal/database"
 	"github.com/kubegraf/kubegraf/internal/security"
 	"github.com/kubegraf/kubegraf/mcp/server"
+	"github.com/kubegraf/kubegraf/pkg/incidents"
 )
 
 var (
@@ -186,6 +187,10 @@ type WebServer struct {
 	clusterService *ClusterService
 	// State management for continuity tracking
 	stateManager *StateManager
+	// Incident cache for faster incident detail responses
+	incidentCache *IncidentCache
+	// Snapshot cache for instant incident snapshots
+	snapshotCache *incidents.SnapshotCache
 	// Cluster manager for multi-cluster support
 	clusterManager *cluster.ClusterManager
 	// Security features
@@ -207,6 +212,8 @@ func NewWebServer(app *App) *WebServer {
 		executions:    make(map[string]*ExecutionRecord),
 		execLogs:      make(map[string][]ExecutionLogLine),
 		execLogLimit:  500,
+		incidentCache: NewIncidentCache(),
+		snapshotCache: incidents.NewSnapshotCache(1000, 5*time.Minute), // Cache 1000 snapshots for 5 minutes
 	}
 	// Initialize MCP server for AI agents
 	ws.mcpServer = server.NewMCPServer(app)

@@ -4,7 +4,8 @@
 
 <img src="docs/kubegraf_logo.png?v=3" alt="KubeGraf" width="400">
 
-**Production-Grade Kubernetes Management Platform**
+**KubēGraf**
+**Intelligent Insight for Kubernetes Incidents**
 
 [![Release](https://img.shields.io/badge/version-1.3.0--rc2-blue.svg)](https://github.com/kubegraf/kubegraf/releases/tag/v1.3.0-rc2)
 [![CI](https://github.com/kubegraf/kubegraf/actions/workflows/ci.yml/badge.svg)](https://github.com/kubegraf/kubegraf/actions/workflows/ci.yml)
