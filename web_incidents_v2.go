@@ -11,6 +11,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -289,6 +291,148 @@ func (ii *IncidentIntelligence) Start(ctx context.Context) {
 	if ii.app.eventMonitor != nil {
 		ii.app.eventMonitor.RegisterCallback(ii.handleMonitoredEvent)
 	}
+
+	// Start periodic scanning to feed incidents into v2 manager
+	go ii.periodicScanAndIngest(ctx)
+}
+
+// periodicScanAndIngest periodically scans Kubernetes resources and feeds findings into v2 manager
+func (ii *IncidentIntelligence) periodicScanAndIngest(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second) // Scan every 30 seconds
+	defer ticker.Stop()
+
+	// Do an initial scan
+	ii.scanAndIngestIncidents(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ii.scanAndIngestIncidents(ctx)
+		}
+	}
+}
+
+// scanAndIngestIncidents scans Kubernetes resources and ingests findings as signals into v2 manager
+func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
+	if ii.app.clientset == nil || !ii.app.connected {
+		log.Printf("[scanAndIngestIncidents] Skipping scan - clientset or connection not available")
+		return
+	}
+
+	// Scan pods and ingest as signals
+	pods, err := ii.app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{Limit: 2000})
+	if err != nil {
+		log.Printf("[scanAndIngestIncidents] Error listing pods: %v", err)
+		return
+	}
+	
+	log.Printf("[scanAndIngestIncidents] Scanning %d pods for incidents", len(pods.Items))
+	signalCount := 0
+
+	for _, pod := range pods.Items {
+		// Skip system namespaces
+		if pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease" {
+			continue
+		}
+
+		// Check each container status and ingest signals
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			// Ingest pod status signals
+			var exitCode int
+			var terminatedAt *time.Time
+			containerState := "unknown"
+			containerReason := ""
+			
+			if containerStatus.State.Terminated != nil {
+				containerState = "terminated"
+				containerReason = containerStatus.State.Terminated.Reason
+				exitCode = int(containerStatus.State.Terminated.ExitCode)
+				termTime := containerStatus.State.Terminated.FinishedAt.Time
+				terminatedAt = &termTime
+			} else if containerStatus.State.Waiting != nil {
+				containerState = "waiting"
+				containerReason = containerStatus.State.Waiting.Reason
+			} else if containerStatus.State.Running != nil {
+				containerState = "running"
+			}
+
+			ii.manager.IngestPodStatus(
+				pod.Name,
+				pod.Namespace,
+				string(pod.Status.Phase),
+				containerStatus.Name,
+				containerState,
+				containerReason,
+				exitCode,
+				containerStatus.RestartCount,
+				terminatedAt,
+			)
+			signalCount++
+			
+			// Log potential incidents
+			if containerReason == "OOMKilled" || containerReason == "CrashLoopBackOff" || 
+			   exitCode == 137 || containerStatus.RestartCount > 5 {
+				log.Printf("[scanAndIngestIncidents] Potential incident detected: pod=%s/%s, reason=%s, exitCode=%d, restarts=%d",
+					pod.Namespace, pod.Name, containerReason, exitCode, containerStatus.RestartCount)
+			}
+		}
+	}
+	
+	log.Printf("[scanAndIngestIncidents] Ingested %d signals from pods", signalCount)
+
+	// Scan nodes for pressure conditions
+	nodes, err := ii.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, node := range nodes.Items {
+			for _, condition := range node.Status.Conditions {
+				if (condition.Type == corev1.NodeDiskPressure || 
+					condition.Type == corev1.NodeMemoryPressure || 
+					condition.Type == corev1.NodePIDPressure) && 
+					condition.Status == corev1.ConditionTrue {
+					
+					// Create a signal for node pressure
+					resource := incidents.KubeResourceRef{
+						Kind:      "Node",
+						Name:      node.Name,
+						Namespace: "",
+					}
+					
+					message := fmt.Sprintf("Node %s has %s condition", node.Name, condition.Type)
+					signal := incidents.NewNormalizedSignal(incidents.SourcePodStatus, resource, message)
+					signal.Timestamp = condition.LastTransitionTime.Time
+					signal.SetAttribute(incidents.AttrSeverity, "critical")
+					signal.SetAttribute("condition_type", string(condition.Type))
+					signal.SetAttribute("condition_status", string(condition.Status))
+					
+					ii.manager.IngestSignal(signal)
+				}
+			}
+		}
+	}
+
+	// Scan jobs for failures
+	jobs, err := ii.app.clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, job := range jobs.Items {
+			if job.Status.Failed > 0 {
+				resource := incidents.KubeResourceRef{
+					Kind:      "Job",
+					Name:      job.Name,
+					Namespace: job.Namespace,
+				}
+				
+				message := fmt.Sprintf("Job %s has %d failed pods", job.Name, job.Status.Failed)
+				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+				signal.Timestamp = time.Now()
+				signal.SetAttribute(incidents.AttrSeverity, "high")
+				signal.SetAttribute("failed_pods", fmt.Sprintf("%d", job.Status.Failed))
+				
+				ii.manager.IngestSignal(signal)
+			}
+		}
+	}
 }
 
 // Stop stops the incident intelligence system.
@@ -327,6 +471,26 @@ func (ii *IncidentIntelligence) GetManager() *incidents.Manager {
 	return ii.manager
 }
 
+// getKnowledgeBank gets or creates a KnowledgeBank instance for storing incidents
+func (ws *WebServer) getKnowledgeBank() *incidents.KnowledgeBank {
+	// Try to get from IntelligenceSystem if available
+	// For now, create a new instance (it's fast - SQLite is efficient)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+	kubegrafDir := filepath.Join(homeDir, ".kubegraf")
+	dataDir := filepath.Join(kubegrafDir, "incidents")
+	
+	kb, err := incidents.NewKnowledgeBank(dataDir)
+	if err != nil {
+		log.Printf("[KnowledgeBank] Failed to initialize: %v", err)
+		return nil
+	}
+	
+	return kb
+}
+
 // RegisterIncidentIntelligenceRoutes registers incident intelligence API routes.
 func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 	// Create incident intelligence if not exists
@@ -352,6 +516,8 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 	severityStr := query.Get("severity")
 
 	var incidentList []*incidents.Incident
+	
+	log.Printf("[handleIncidentsV2] Fetching incidents - namespace: %s, pattern: %s, severity: %s", namespace, patternStr, severityStr)
 
 	// Try to get incidents from the v2 incident intelligence system
 	if ws.app.incidentIntelligence != nil {
@@ -382,21 +548,42 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback: If no v2 incidents, convert v1 incidents to v2 format
-	if len(incidentList) == 0 {
-		v1Incidents := ws.getV1Incidents(namespace)
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-
-			// Apply filters
-			if patternStr != "" && string(v2Inc.Pattern) != patternStr {
-				continue
+	// Add resolved incidents from database if filtering by resolved status
+	if status := query.Get("status"); status == "resolved" {
+		kb := ws.getKnowledgeBank()
+		if kb != nil {
+			records, err := kb.GetResolvedIncidents(1000, namespace, patternStr, severityStr)
+			if err != nil {
+				log.Printf("[handleIncidentsV2] Error fetching resolved incidents from database: %v", err)
+			} else {
+				log.Printf("[handleIncidentsV2] Found %d resolved incidents in database", len(records))
+				// Convert IncidentRecord to Incident
+				for _, record := range records {
+					var diagnosis *incidents.Diagnosis
+					if record.Diagnosis != nil {
+						// CitedDiagnosis embeds Diagnosis, so we can use it directly
+						diagnosis = &record.Diagnosis.Diagnosis
+					}
+					incident := &incidents.Incident{
+						ID:             record.ID,
+						Fingerprint:    record.Fingerprint,
+						Pattern:        record.Pattern,
+						Severity:       record.Severity,
+						Status:         incidents.StatusResolved,
+						Resource:       record.Resource,
+						Title:          record.Title,
+						Description:    record.Description,
+						Occurrences:    record.Occurrences,
+						FirstSeen:      record.FirstSeen,
+						LastSeen:       record.LastSeen,
+						ResolvedAt:     record.ResolvedAt,
+						Resolution:     record.Resolution,
+						Diagnosis:      diagnosis,
+						ClusterContext: record.ClusterContext,
+					}
+					incidentList = append(incidentList, incident)
+				}
 			}
-			if severityStr != "" && string(v2Inc.Severity) != severityStr {
-				continue
-			}
-
-			incidentList = append(incidentList, v2Inc)
 		}
 	}
 
@@ -433,373 +620,33 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getV1IncidentByID fetches a specific v1 incident by ID
-func (ws *WebServer) getV1IncidentByID(incidentID string) *incidents.Incident {
-	if ws.app.clientset == nil || !ws.app.connected {
+// getIncidentByID retrieves an incident by ID from v2 manager only (production-ready, no fallbacks)
+func (ws *WebServer) getIncidentByID(incidentID string) *incidents.Incident {
+	if ws.app.incidentIntelligence == nil {
 		return nil
 	}
 	
-	// Get all v1 incidents and find the one with matching ID
-	v1Incidents := ws.getV1Incidents("")
-	for _, v1 := range v1Incidents {
-		if v1.ID == incidentID {
-			return ws.convertV1ToV2Incident(v1)
-		}
-	}
-	return nil
-}
-
-// getV1Incidents fetches incidents from the v1 system using the incident scanner
-func (ws *WebServer) getV1Incidents(namespace string) []KubernetesIncident {
-	if ws.app.clientset == nil || !ws.app.connected {
-		return []KubernetesIncident{}
-	}
-
-	scanner := NewIncidentScanner(ws.app)
-	return scanner.ScanAllIncidents(namespace)
-}
-
-// convertV1ToV2Incident converts a v1 incident to v2 format with diagnosis and recommendations
-func (ws *WebServer) convertV1ToV2Incident(v1 KubernetesIncident) *incidents.Incident {
-	// Map v1 type to v2 pattern
-	pattern := incidents.PatternUnknown
-	var diagnosis *incidents.Diagnosis
-	var recommendations []incidents.Recommendation
-
-	switch v1.Type {
-	case "high_restarts":
-		pattern = incidents.PatternRestartStorm
-		diagnosis = &incidents.Diagnosis{
-			Summary:        fmt.Sprintf("%s is experiencing frequent restarts (%d times)", v1.ResourceName, v1.Count),
-			ProbableCauses: []string{"Application crash", "Resource limits too low", "Liveness probe failing"},
-			Confidence:     0.75,
-			Evidence:       []string{fmt.Sprintf("Restart count: %d", v1.Count)},
-			GeneratedAt:    time.Now(),
-		}
-		recommendations = []incidents.Recommendation{
-			{
-				ID:          "restart-pod",
-				Title:       "Restart Pod",
-				Explanation: "Delete the pod to trigger recreation by its controller and get a fresh start",
-				Risk:        incidents.RiskLow,
-				Priority:    1,
-				ProposedFix: &incidents.ProposedFix{
-					Type:        incidents.FixTypeRestart,
-					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
-					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
-					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
-					TargetResource: incidents.KubeResourceRef{
-						Kind:      "Pod",
-						Name:      v1.ResourceName,
-						Namespace: v1.Namespace,
-					},
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-				Action: &incidents.FixAction{
-					Label:                "Restart Pod",
-					Type:                 incidents.ActionTypeRestart,
-					Description:          "Delete the pod to trigger recreation",
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-			},
-			{
-				ID:          "check-logs",
-				Title:       "Check container logs",
-				Explanation: "Review the container logs to identify the root cause of restarts",
-				Risk:        incidents.RiskLow,
-				Priority:    2,
-				ManualSteps: []string{"kubectl logs " + v1.ResourceName + " -n " + v1.Namespace + " --previous"},
-				Action: &incidents.FixAction{
-					Label:       "Check container logs",
-					Type:        incidents.ActionTypeViewLogs,
-					Description: "Open the logs viewer for this pod",
-					Safe:        true,
-				},
-			},
-			{
-				ID:          "increase-resources",
-				Title:       "Increase resource limits",
-				Explanation: "If the container is being OOM killed, increase memory limits",
-				Risk:        incidents.RiskMedium,
-				Priority:    3,
-				Action: &incidents.FixAction{
-					Label:       "Increase resource limits",
-					Type:        incidents.ActionTypePreviewPatch,
-					Description: "Propose memory limit increase",
-					Safe:        false,
-				},
-			},
-		}
-
-	case "oom", "oom_killed":
-		pattern = incidents.PatternOOMPressure
-		diagnosis = &incidents.Diagnosis{
-			Summary:        fmt.Sprintf("%s was killed due to Out Of Memory (OOM)", v1.ResourceName),
-			ProbableCauses: []string{"Memory limit too low", "Memory leak in application", "Unexpected load spike"},
-			Confidence:     0.95,
-			Evidence:       []string{"Container terminated with OOMKilled reason", "Exit code: 137"},
-			GeneratedAt:    time.Now(),
-		}
-		recommendations = []incidents.Recommendation{
-			{
-				ID:          "increase-memory",
-				Title:       "Increase memory limit",
-				Explanation: "The container exceeded its memory limit. Consider increasing the limit by 50%.",
-				Risk:        incidents.RiskMedium,
-				Priority:    1,
-				ProposedFix: &incidents.ProposedFix{
-					Type:        incidents.FixTypePatch,
-					Description: "Increase container memory limit by 50%",
-					PreviewDiff: "--- current\n+++ proposed\n@@ resources.limits @@\n-  memory: 256Mi\n+  memory: 384Mi",
-					DryRunCmd:   fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"384Mi\"}]' --dry-run=client", v1.ResourceName, v1.Namespace),
-					ApplyCmd:    fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"384Mi\"}]'", v1.ResourceName, v1.Namespace),
-					TargetResource: incidents.KubeResourceRef{
-						Kind:      "Deployment",
-						Name:      v1.ResourceName,
-						Namespace: v1.Namespace,
-					},
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-				Action: &incidents.FixAction{
-					Label:                "Propose Memory Increase",
-					Type:                 incidents.ActionTypePreviewPatch,
-					Description:          "Increase container memory limit by 50%",
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-			},
-			{
-				ID:          "restart-pod",
-				Title:       "Restart Pod",
-				Explanation: "Restart the pod to get a fresh start with current limits",
-				Risk:        incidents.RiskLow,
-				Priority:    2,
-				ProposedFix: &incidents.ProposedFix{
-					Type:        incidents.FixTypeRestart,
-					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
-					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
-					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
-					TargetResource: incidents.KubeResourceRef{
-						Kind:      "Pod",
-						Name:      v1.ResourceName,
-						Namespace: v1.Namespace,
-					},
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-				Action: &incidents.FixAction{
-					Label:                "Restart Pod",
-					Type:                 incidents.ActionTypeRestart,
-					Description:          "Delete the pod to trigger recreation",
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-			},
-			{
-				ID:          "check-memory-usage",
-				Title:       "Analyze memory usage patterns",
-				Explanation: "Review memory metrics to understand usage patterns",
-				Risk:        incidents.RiskLow,
-				Priority:    3,
-				ManualSteps: []string{fmt.Sprintf("kubectl top pod %s -n %s", v1.ResourceName, v1.Namespace)},
-			},
-		}
-
-	case "crashloop":
-		pattern = incidents.PatternCrashLoop
-		diagnosis = &incidents.Diagnosis{
-			Summary:        fmt.Sprintf("%s is stuck in CrashLoopBackOff after %d restarts", v1.ResourceName, v1.Count),
-			ProbableCauses: []string{"Application startup failure", "Missing dependencies", "Configuration error", "Resource exhaustion"},
-			Confidence:     0.90,
-			Evidence:       []string{"Container state: CrashLoopBackOff", fmt.Sprintf("Restart count: %d", v1.Count)},
-			GeneratedAt:    time.Now(),
-		}
-		recommendations = []incidents.Recommendation{
-			{
-				ID:          "restart-pod",
-				Title:       "Restart Pod",
-				Explanation: "Delete and recreate pod - sometimes a fresh start can resolve transient issues",
-				Risk:        incidents.RiskLow,
-				Priority:    1,
-				ProposedFix: &incidents.ProposedFix{
-					Type:        incidents.FixTypeRestart,
-					Description: fmt.Sprintf("Delete pod %s to trigger recreation", v1.ResourceName),
-					DryRunCmd:   fmt.Sprintf("kubectl delete pod %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
-					ApplyCmd:    fmt.Sprintf("kubectl delete pod %s -n %s", v1.ResourceName, v1.Namespace),
-					TargetResource: incidents.KubeResourceRef{
-						Kind:      "Pod",
-						Name:      v1.ResourceName,
-						Namespace: v1.Namespace,
-					},
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-				Action: &incidents.FixAction{
-					Label:                "Restart Pod",
-					Type:                 incidents.ActionTypeRestart,
-					Description:          "Delete the pod to trigger recreation",
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-			},
-			{
-				ID:          "check-logs",
-				Title:       "Check container logs",
-				Explanation: "Review logs to identify why the container is crashing",
-				Risk:        incidents.RiskLow,
-				Priority:    2,
-				ManualSteps: []string{fmt.Sprintf("kubectl logs %s -n %s --previous", v1.ResourceName, v1.Namespace)},
-				Action: &incidents.FixAction{
-					Label:       "Check container logs",
-					Type:        incidents.ActionTypeViewLogs,
-					Description: "Open the logs viewer for this pod",
-					Safe:        true,
-				},
-			},
-			{
-				ID:          "check-config",
-				Title:       "Verify ConfigMaps and Secrets",
-				Explanation: "Ensure all required configuration is present and valid",
-				Risk:        incidents.RiskLow,
-				Priority:    3,
-				ManualSteps: []string{
-					fmt.Sprintf("kubectl describe pod %s -n %s", v1.ResourceName, v1.Namespace),
-					fmt.Sprintf("kubectl get events -n %s --field-selector involvedObject.name=%s", v1.Namespace, v1.ResourceName),
-				},
-			},
-		}
-
-	case "job_failure", "cronjob_failure":
-		pattern = incidents.PatternAppCrash
-		diagnosis = &incidents.Diagnosis{
-			Summary:        fmt.Sprintf("Job %s has %d failed pod(s)", v1.ResourceName, v1.Count),
-			ProbableCauses: []string{"Job logic error", "Dependency unavailable", "Timeout exceeded"},
-			Confidence:     0.80,
-			Evidence:       []string{fmt.Sprintf("Failed pods: %d", v1.Count)},
-			GeneratedAt:    time.Now(),
-		}
-		recommendations = []incidents.Recommendation{
-			{
-				ID:          "retry-job",
-				Title:       "Retry failed job",
-				Explanation: "Delete the failed job to allow it to be retried",
-				Risk:        incidents.RiskLow,
-				Priority:    1,
-				ProposedFix: &incidents.ProposedFix{
-					Type:        incidents.FixTypeDelete,
-					Description: fmt.Sprintf("Delete job %s to allow retry", v1.ResourceName),
-					DryRunCmd:   fmt.Sprintf("kubectl delete job %s -n %s --dry-run=client", v1.ResourceName, v1.Namespace),
-					ApplyCmd:    fmt.Sprintf("kubectl delete job %s -n %s", v1.ResourceName, v1.Namespace),
-					TargetResource: incidents.KubeResourceRef{
-						Kind:      "Job",
-						Name:      v1.ResourceName,
-						Namespace: v1.Namespace,
-					},
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-				Action: &incidents.FixAction{
-					Label:                "Retry Job",
-					Type:                 incidents.ActionTypeDeletePod,
-					Description:          "Delete the job to trigger a retry",
-					Safe:                 true,
-					RequiresConfirmation: true,
-				},
-			},
-			{
-				ID:          "check-job-logs",
-				Title:       "Check job pod logs",
-				Explanation: "Review the logs from the failed job pods",
-				Risk:        incidents.RiskLow,
-				Priority:    2,
-				ManualSteps: []string{fmt.Sprintf("kubectl logs job/%s -n %s", v1.ResourceName, v1.Namespace)},
-			},
-		}
-
-	case "node_pressure", "node_memory_pressure", "node_disk_pressure":
-		pattern = incidents.PatternNodePressure
-		diagnosis = &incidents.Diagnosis{
-			Summary:        fmt.Sprintf("Node %s is experiencing resource pressure", v1.ResourceName),
-			ProbableCauses: []string{"High memory usage", "Disk space low", "Too many pods scheduled"},
-			Confidence:     0.85,
-			Evidence:       []string{v1.Message},
-			GeneratedAt:    time.Now(),
-		}
-		recommendations = []incidents.Recommendation{
-			{
-				ID:          "check-node-resources",
-				Title:       "Check node resource usage",
-				Explanation: "Review node metrics to identify which resources are under pressure",
-				Risk:        incidents.RiskLow,
-				Priority:    1,
-			},
-			{
-				ID:          "drain-node",
-				Title:       "Consider draining the node",
-				Explanation: "Move pods to other nodes to relieve pressure",
-				Risk:        incidents.RiskHigh,
-				Priority:    2,
-			},
-		}
-
-	default:
-		pattern = incidents.PatternUnknown
-		diagnosis = &incidents.Diagnosis{
-			Summary:        v1.Message,
-			ProbableCauses: []string{"Unknown cause - requires investigation"},
-			Confidence:     0.50,
-			Evidence:       []string{v1.Message},
-			GeneratedAt:    time.Now(),
+	// Check cache first for performance
+	if ws.incidentCache != nil {
+		if incident := ws.incidentCache.GetV2Incident(incidentID); incident != nil {
+			return incident
 		}
 	}
 
-	// Map severity
-	severity := incidents.SeverityMedium
-	switch v1.Severity {
-	case "critical":
-		severity = incidents.SeverityCritical
-	case "warning":
-		severity = incidents.SeverityMedium
-	case "info":
-		severity = incidents.SeverityLow
+	// Get from v2 manager
+	manager := ws.app.incidentIntelligence.GetManager()
+	incident := manager.GetIncident(incidentID)
+
+	// Cache it for future lookups
+	if incident != nil && ws.incidentCache != nil {
+		ws.incidentCache.SetV2Incident(incidentID, incident)
 	}
-
-	patternStr := string(pattern)
-
-	incident := &incidents.Incident{
-		ID:       v1.ID,
-		Pattern:  pattern,
-		Severity: severity,
-		Status:   incidents.StatusOpen,
-		Resource: incidents.KubeResourceRef{
-			Kind:      v1.ResourceKind,
-			Name:      v1.ResourceName,
-			Namespace: v1.Namespace,
-		},
-		Title:           fmt.Sprintf("%s: %s", patternStr, v1.ResourceName),
-		Description:     v1.Message,
-		Occurrences:     v1.Count,
-		FirstSeen:       v1.FirstSeen,
-		LastSeen:        v1.LastSeen,
-		Diagnosis:       diagnosis,
-		Recommendations: recommendations,
-		// Initialize empty Signals - will be populated by fallback logic in handlers
-		Signals: incidents.IncidentSignals{},
-	}
-
-	// Enhance recommendations with fix actions
-	registry := incidents.NewFixGeneratorRegistry()
-	incidents.EnhanceRecommendationsWithActions(incident, registry)
 
 	return incident
 }
 
 // handleIncidentV2ByID handles GET/PUT /api/v2/incidents/{id}
 func (ws *WebServer) handleIncidentV2ByID(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[handleIncidentV2ByID] ===== HANDLER CALLED ===== Method: %s, Path: %s", r.Method, r.URL.Path)
 	if ws.app.incidentIntelligence == nil {
 		log.Printf("[handleIncidentV2ByID] Incident intelligence not initialized")
 		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
@@ -901,33 +748,29 @@ func (ws *WebServer) handleIncidentV2Action(w http.ResponseWriter, r *http.Reque
 
 		log.Printf("[ResolveIncident] Attempting to resolve incident: %s", incidentID)
 		
-		// Check if incident exists in v2 manager
-		incident := manager.GetIncident(incidentID)
-		
-		// If not found in v2 manager, try v1 incidents (same pattern as fix-apply)
-		if incident == nil {
-			log.Printf("[ResolveIncident] Incident not in v2 manager, trying v1 lookup: %s", incidentID)
-			v1Incidents := ws.getV1Incidents("")
-			for _, v1 := range v1Incidents {
-				if v1.ID == incidentID {
-					log.Printf("[ResolveIncident] Found v1 incident: %s", v1.ID)
-					// Convert to v2 and add to manager temporarily for resolution
-					incident = ws.convertV1ToV2Incident(v1)
-					// Note: v1 incidents are read-only, so we can't actually resolve them in the manager
-					// But we can return success to the user since the incident will naturally disappear
-					// when the underlying issue is resolved
-					log.Printf("[ResolveIncident] v1 incident found - returning success (v1 incidents are ephemeral)")
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]string{"status": "resolved"})
-					return
-				}
-			}
-		}
+		// Get incident from v2 manager only (production-ready, no fallbacks)
+		incident := ws.getIncidentByID(incidentID)
 		
 		if incident == nil {
 			log.Printf("[ResolveIncident] Incident not found: %s", incidentID)
 			http.Error(w, "Incident not found", http.StatusNotFound)
 			return
+		}
+
+		// Mark as resolved
+		incident.UpdateStatus(incidents.StatusResolved, req.Resolution)
+		incident.Resolution = req.Resolution
+		now := time.Now()
+		incident.ResolvedAt = &now
+		
+		// Store in database via KnowledgeBank so it persists permanently
+		kb := ws.getKnowledgeBank()
+		if kb != nil {
+			if err := kb.StoreIncident(incident, nil, nil); err != nil {
+				log.Printf("[ResolveIncident] Warning: Failed to store in database: %v", err)
+			} else {
+				log.Printf("[ResolveIncident] Successfully stored resolved incident in database")
+			}
 		}
 
 		if err := manager.ResolveIncident(incidentID, req.Resolution); err != nil {
@@ -1241,22 +1084,8 @@ func (ws *WebServer) handleFixPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	manager := ws.app.incidentIntelligence.GetManager()
-
-	// Get the incident from manager first
-	incident := manager.GetIncident(req.IncidentID)
-
-	// If not found in manager, try to find in v1 incidents and convert
-	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == req.IncidentID {
-				incident = v2Inc
-				break
-			}
-		}
-	}
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(req.IncidentID)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -1347,20 +1176,8 @@ func (ws *WebServer) handleFixApply(w http.ResponseWriter, r *http.Request) {
 	manager := ws.app.incidentIntelligence.GetManager()
 	ctx := r.Context()
 
-	// Get the incident from manager first
-	incident := manager.GetIncident(req.IncidentID)
-
-	// If not found in manager, try to find in v1 incidents and convert
-	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == req.IncidentID {
-				incident = v2Inc
-				break
-			}
-		}
-	}
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(req.IncidentID)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -1676,17 +1493,7 @@ func (ws *WebServer) handleFixPreviewForIncident(w http.ResponseWriter, r *http.
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
 	}
 
-	// Fallback to v1 incidents
-	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				break
-			}
-		}
-	}
+	// No fallback - v2 manager only (production-ready)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -1759,17 +1566,7 @@ func (ws *WebServer) handleFixApplyForIncident(w http.ResponseWriter, r *http.Re
 		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
 	}
 
-	// Fallback to v1 incidents
-	if incident == nil {
-		v1Incidents := ws.getV1Incidents("")
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				break
-			}
-		}
-	}
+	// No fallback - v2 manager only (production-ready)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -1880,43 +1677,8 @@ func (ws *WebServer) handleIncidentRunbooks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Find the incident - try cache first, then v2 manager, then v1 fallback
-	var incident *incidents.Incident
-
-	// Check cache first
-	incident = ws.incidentCache.GetV2Incident(incidentID)
-
-	// If not in cache, try v2 manager (fast path)
-	if incident == nil && ws.app.incidentIntelligence != nil {
-		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
-		if incident != nil {
-			// Cache it
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
-
-	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
-	// Use cache to avoid repeated expensive lookups
-	if incident == nil {
-		// Check cache for v1 incidents
-		v1Incidents := ws.incidentCache.GetV1Incidents("")
-		if v1Incidents == nil {
-			// Not in cache, fetch and cache
-			v1Incidents = ws.getV1Incidents("")
-			ws.incidentCache.SetV1Incidents("", v1Incidents)
-		}
-
-		// Search for the incident
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				// Cache the converted incident
-				ws.incidentCache.SetV2Incident(incidentID, incident)
-				break
-			}
-		}
-	}
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(incidentID)
 
 	if incident == nil {
 		// Return empty runbooks if incident not found
@@ -2027,42 +1789,8 @@ func (ws *WebServer) handleIncidentSnapshot(w http.ResponseWriter, r *http.Reque
 
 	startTime := time.Now()
 
-	// Find the incident - try cache first, then v2 manager, then v1 fallback
-	var incident *incidents.Incident
-
-	// Check cache first
-	incident = ws.incidentCache.GetV2Incident(incidentID)
-
-	// If not in cache, try v2 manager (fast path)
-	if incident == nil && ws.app.incidentIntelligence != nil {
-		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
-		if incident != nil {
-			// Cache it
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
-
-	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
-	if incident == nil {
-		// Check cache for v1 incidents
-		v1Incidents := ws.incidentCache.GetV1Incidents("")
-		if v1Incidents == nil {
-			// Not in cache, fetch and cache
-			v1Incidents = ws.getV1Incidents("")
-			ws.incidentCache.SetV1Incidents("", v1Incidents)
-		}
-
-		// Search for the incident
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				// Cache the converted incident
-				ws.incidentCache.SetV2Incident(incidentID, incident)
-				break
-			}
-		}
-	}
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(incidentID)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -2151,14 +1879,7 @@ func (ws *WebServer) handleIncidentLogs(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	// Fallback to v1 incidents if not found
-	if incident == nil {
-		v1Incident := ws.getV1IncidentByID(incidentID)
-		if v1Incident != nil {
-			incident = v1Incident
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
+	// No fallback - v2 manager only (production-ready)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -2217,14 +1938,7 @@ func (ws *WebServer) handleIncidentMetrics(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// Fallback to v1 incidents if not found
-	if incident == nil {
-		v1Incident := ws.getV1IncidentByID(incidentID)
-		if v1Incident != nil {
-			incident = v1Incident
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
+	// No fallback - v2 manager only (production-ready)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -2307,43 +2021,8 @@ func (ws *WebServer) handleIncidentEvidence(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Find the incident - try cache first, then v2 manager, then v1 fallback
-	var incident *incidents.Incident
-
-	// Check cache first
-	incident = ws.incidentCache.GetV2Incident(incidentID)
-
-	// If not in cache, try v2 manager (fast path)
-	if incident == nil && ws.app.incidentIntelligence != nil {
-		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
-		if incident != nil {
-			// Cache it
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
-
-	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
-	// Use cache to avoid repeated expensive lookups
-	if incident == nil {
-		// Check cache for v1 incidents
-		v1Incidents := ws.incidentCache.GetV1Incidents("")
-		if v1Incidents == nil {
-			// Not in cache, fetch and cache
-			v1Incidents = ws.getV1Incidents("")
-			ws.incidentCache.SetV1Incidents("", v1Incidents)
-		}
-
-		// Search for the incident
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				// Cache the converted incident
-				ws.incidentCache.SetV2Incident(incidentID, incident)
-				break
-			}
-		}
-	}
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(incidentID)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -2549,43 +2228,8 @@ func (ws *WebServer) handleIncidentCitations(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Find the incident - try cache first, then v2 manager, then v1 fallback
-	var incident *incidents.Incident
-
-	// Check cache first
-	incident = ws.incidentCache.GetV2Incident(incidentID)
-
-	// If not in cache, try v2 manager (fast path)
-	if incident == nil && ws.app.incidentIntelligence != nil {
-		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
-		if incident != nil {
-			// Cache it
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
-
-	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
-	// Use cache to avoid repeated expensive lookups
-	if incident == nil {
-		// Check cache for v1 incidents
-		v1Incidents := ws.incidentCache.GetV1Incidents("")
-		if v1Incidents == nil {
-			// Not in cache, fetch and cache
-			v1Incidents = ws.getV1Incidents("")
-			ws.incidentCache.SetV1Incidents("", v1Incidents)
-		}
-
-		// Search for the incident
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				// Cache the converted incident
-				ws.incidentCache.SetV2Incident(incidentID, incident)
-				break
-			}
-		}
-	}
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(incidentID)
 
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
@@ -2658,14 +2302,7 @@ func (ws *WebServer) handleIncidentSimilar(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	
-	// Fallback to v1 incidents if not found
-	if incident == nil {
-		v1Incident := ws.getV1IncidentByID(incidentID)
-		if v1Incident != nil {
-			incident = v1Incident
-			ws.incidentCache.SetV2Incident(incidentID, incident)
-		}
-	}
+	// No fallback - v2 manager only (production-ready)
 	
 	if incident == nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -2673,32 +2310,31 @@ func (ws *WebServer) handleIncidentSimilar(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Find similar incidents by pattern and namespace
+	// Find similar incidents by pattern and namespace from v2 manager only
 	similar := make([]map[string]interface{}, 0)
 	
-	// Get v1 incidents (cached)
-	v1Incidents := ws.incidentCache.GetV1Incidents("")
-	if v1Incidents == nil {
-		v1Incidents = ws.getV1Incidents("")
-		ws.incidentCache.SetV1Incidents("", v1Incidents)
-	}
-	
-	// Find similar incidents (same pattern, same namespace, different resource)
-	for _, v1 := range v1Incidents {
-		if v1.ID == incidentID {
+	if ws.app.incidentIntelligence != nil {
+		manager := ws.app.incidentIntelligence.GetManager()
+		// Get all incidents filtered by same pattern and namespace
+		filter := incidents.IncidentFilter{
+			Pattern:  incident.Pattern,
+			Namespace: incident.Resource.Namespace,
+		}
+		allIncidents := manager.FilterIncidents(filter)
+		
+		for _, otherInc := range allIncidents {
+			if otherInc.ID == incidentID {
 			continue
 		}
-		v2Inc := ws.convertV1ToV2Incident(v1)
-		if v2Inc.Pattern == incident.Pattern && v2Inc.Resource.Namespace == incident.Resource.Namespace {
 			similar = append(similar, map[string]interface{}{
-				"id":          v2Inc.ID,
-				"pattern":     string(v2Inc.Pattern),
-				"severity":    string(v2Inc.Severity),
-				"resource":    v2Inc.Resource,
-				"occurrences": v2Inc.Occurrences,
-				"firstSeen":   v2Inc.FirstSeen.Format(time.RFC3339),
-				"lastSeen":    v2Inc.LastSeen.Format(time.RFC3339),
-				"title":       v2Inc.Title,
+				"id":          otherInc.ID,
+				"pattern":     string(otherInc.Pattern),
+				"severity":    string(otherInc.Severity),
+				"resource":    otherInc.Resource,
+				"occurrences": otherInc.Occurrences,
+				"firstSeen":   otherInc.FirstSeen.Format(time.RFC3339),
+				"lastSeen":    otherInc.LastSeen.Format(time.RFC3339),
+				"title":       otherInc.Title,
 			})
 			// Limit to 10 similar incidents
 			if len(similar) >= 10 {

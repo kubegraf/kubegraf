@@ -63,28 +63,7 @@ func (ws *WebServer) handleIncidentChangesRoute(w http.ResponseWriter, r *http.R
 
 	incident := manager.GetIncident(incidentID)
 	
-	// Fallback to v1 incidents if not found in v2 (needed for v1 incident compatibility)
-	// Use cache to avoid repeated expensive lookups
-	if incident == nil {
-		// Check cache for v1 incidents
-		v1Incidents := ws.incidentCache.GetV1Incidents("")
-		if v1Incidents == nil {
-			// Not in cache, fetch and cache
-			v1Incidents = ws.getV1Incidents("")
-			ws.incidentCache.SetV1Incidents("", v1Incidents)
-		}
-		
-		// Search for the incident
-		for _, v1 := range v1Incidents {
-			v2Inc := ws.convertV1ToV2Incident(v1)
-			if v2Inc.ID == incidentID {
-				incident = v2Inc
-				// Cache the converted incident
-				ws.incidentCache.SetV2Incident(incidentID, incident)
-				break
-			}
-		}
-	}
+	// No v1 fallback - v2 manager only (production-ready)
 	
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)

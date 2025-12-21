@@ -29,6 +29,7 @@ const Incidents: Component = () => {
   const [patternFilter, setPatternFilter] = createSignal('');
   const [severityFilter, setSeverityFilter] = createSignal('');
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
+  const [statusFilter, setStatusFilter] = createSignal('');
   const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
   const [showSidePanels, setShowSidePanels] = createSignal(false);
@@ -50,7 +51,12 @@ const Incidents: Component = () => {
     const endListLoad = trackIncidentListLoad();
     
     try {
-      const data = await api.getIncidents();
+      const data = await api.getIncidents(
+        namespaceFilter() || undefined,
+        patternFilter() || undefined,
+        severityFilter() || undefined,
+        statusFilter() || undefined
+      );
       const incidents = data || [];
       setLocalIncidents(incidents);
       // Save with current cluster context for cache validation
@@ -129,6 +135,7 @@ const Incidents: Component = () => {
       if (patternFilter() && pattern.toUpperCase() !== patternFilter().toUpperCase()) return false;
       if (severityFilter() && inc.severity !== severityFilter()) return false;
       if (namespaceFilter() && namespace !== namespaceFilter()) return false;
+      if (statusFilter() && inc.status !== statusFilter()) return false;
       return true;
     });
   });
@@ -235,15 +242,29 @@ const Incidents: Component = () => {
       </div>
 
       {/* Filters - Always visible */}
-      <IncidentFilters
-        patternFilter={patternFilter()}
-        severityFilter={severityFilter()}
-        namespaceFilter={namespaceFilter()}
-        namespaces={namespaces()}
-        onPatternFilterChange={setPatternFilter}
-        onSeverityFilterChange={setSeverityFilter}
-        onNamespaceFilterChange={setNamespaceFilter}
-      />
+        <IncidentFilters
+          patternFilter={patternFilter()}
+          severityFilter={severityFilter()}
+          namespaceFilter={namespaceFilter()}
+          statusFilter={statusFilter()}
+          namespaces={namespaces()}
+          onPatternFilterChange={(val) => {
+            setPatternFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onSeverityFilterChange={(val) => {
+            setSeverityFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onNamespaceFilterChange={(val) => {
+            setNamespaceFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onStatusFilterChange={(val) => {
+            setStatusFilter(val);
+            fetchIncidentsBackground();
+          }}
+        />
 
       {/* Incidents Table - Always rendered, shows empty state or data */}
       <IncidentTable

@@ -25,9 +25,19 @@ export interface SecurityEvent {
 export function filterSecurityEvents(incidents: Incident[]): SecurityEvent[] {
   return incidents
     .filter(inc => {
+      // Check v2 pattern field first
+      if (inc.pattern) {
+        const pattern = inc.pattern.toUpperCase();
+        if (pattern === 'SECRET_MISSING' || pattern === 'RBAC_DENIED' || 
+            pattern === 'POLICY_VIOLATION' || pattern.includes('SECURITY')) {
+          return true;
+        }
+      }
+      
+      // Fallback to legacy type field
       const type = inc.type?.toLowerCase() || '';
-      const message = inc.message?.toLowerCase() || '';
-      const resourceKind = inc.resourceKind?.toLowerCase() || '';
+      const message = (inc.message || inc.description || '').toLowerCase();
+      const resourceKind = inc.resource?.kind?.toLowerCase() || inc.resourceKind?.toLowerCase() || '';
 
       // Check for security-related types
       return type === 'security' ||
@@ -44,7 +54,7 @@ export function filterSecurityEvents(incidents: Incident[]): SecurityEvent[] {
              resourceKind === 'securitypolicy';
     })
     .map(inc => {
-      const message = inc.message?.toLowerCase() || '';
+      const message = (inc.message || inc.description || '').toLowerCase();
       let securityType: SecurityEvent['securityType'] = 'other';
 
       if (message.includes('policy violation') || message.includes('security policy')) {
@@ -57,17 +67,22 @@ export function filterSecurityEvents(incidents: Incident[]): SecurityEvent[] {
         securityType = 'pod_security';
       }
 
+      // Use v2 resource structure if available, otherwise fallback to legacy fields
+      const resourceName = inc.resource?.name || inc.resourceName || '';
+      const namespace = inc.resource?.namespace || inc.namespace || 'default';
+      const resourceKind = inc.resource?.kind || inc.resourceKind || 'Unknown';
+
       return {
-        id: inc.id || `${inc.namespace}-${inc.resourceName}`,
+        id: inc.id || `${namespace}-${resourceName}`,
         type: 'security' as const,
-        resource: inc.resourceName,
-        namespace: inc.namespace || 'default',
-        resourceName: inc.resourceName,
-        resourceKind: inc.resourceKind || 'Unknown',
+        resource: resourceName,
+        namespace,
+        resourceName,
+        resourceKind,
         severity: (inc.severity === 'critical' ? 'critical' : 'warning') as 'critical' | 'warning',
         timestamp: inc.lastSeen || inc.firstSeen,
-        message: inc.message || `Security issue detected for ${inc.resourceName}`,
-        count: inc.count || 1,
+        message: inc.message || inc.description || `Security issue detected for ${resourceName}`,
+        count: inc.occurrences || inc.count || 1,
         firstSeen: inc.firstSeen,
         lastSeen: inc.lastSeen,
         securityType,

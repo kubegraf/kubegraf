@@ -337,76 +337,13 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	} else {
 		log.Printf("[FixApplyV2] Direct lookup failed: %v", err)
 
-		// Strategy 2: Try to find v1 incident by ID directly (before conversion)
-		// v1 incident IDs are like "restarts-{namespace}-{podName}-{containerName}"
-		if strings.HasPrefix(incidentID, "restarts-") || !strings.HasPrefix(incidentID, "INC-") {
-			log.Printf("[FixApplyV2] Incident ID looks like v1 format, trying v1 lookup")
-			v1Incidents := ws.getV1Incidents("")
-			log.Printf("[FixApplyV2] Checking %d v1 incidents for ID match: '%s'", len(v1Incidents), incidentID)
-			// Log first few v1 incident IDs for debugging
-			for i, v1 := range v1Incidents {
-				if i < 5 {
-					log.Printf("[FixApplyV2] v1[%d] ID: '%s', Resource: %s/%s/%s", i, v1.ID, v1.Namespace, v1.ResourceKind, v1.ResourceName)
-				}
-				if v1.ID == incidentID {
-					log.Printf("[FixApplyV2] ✓ Found v1 incident with matching ID: %s", v1.ID)
-					v2Inc := ws.convertV1ToV2Incident(v1)
-					// Build snapshot directly from the incident (don't call getIncidentSnapshot again)
-					log.Printf("[FixApplyV2] Building snapshot directly from v1 incident")
-					hotEvidenceBuilder := incidents.NewHotEvidenceBuilder()
-					hotEvidence := hotEvidenceBuilder.BuildHotEvidence(v2Inc)
-					snapshotBuilder := incidents.NewSnapshotBuilder()
-					if learner := ws.getConfidenceLearner(); learner != nil {
-						snapshotBuilder.SetLearner(learner)
-					}
-					snapshot = snapshotBuilder.BuildSnapshot(v2Inc, hotEvidence)
-					// Ensure IncidentID is set correctly
-					if snapshot.IncidentID == "" {
-						snapshot.IncidentID = incidentID
-					}
-					err = nil
-					log.Printf("[FixApplyV2] ✓ Built snapshot directly from v1 incident, snapshot.IncidentID: %s", snapshot.IncidentID)
-					break
-				}
-			}
-			if err != nil && snapshot == nil {
-				log.Printf("[FixApplyV2] ✗ v1 incident with ID '%s' not found in %d v1 incidents", incidentID, len(v1Incidents))
-			}
-		}
-
-		// Strategy 3: Try resource-based fallback
+		// Strategy 2: Try resource-based fallback
 		if err != nil && req.ResourceNamespace != "" && req.ResourceKind != "" && req.ResourceName != "" {
 			log.Printf("[FixApplyV2] Attempting fallback lookup by resource: %s/%s/%s",
 				req.ResourceNamespace, req.ResourceKind, req.ResourceName)
 
-			// Try v1 incidents first (they're more likely to match the resource)
-			v1Incidents := ws.getV1Incidents("")
-			for _, v1 := range v1Incidents {
-				if v1.Namespace == req.ResourceNamespace &&
-					v1.ResourceKind == req.ResourceKind &&
-					(v1.ResourceName == req.ResourceName ||
-						strings.Contains(v1.ResourceName, req.ResourceName) ||
-						strings.Contains(req.ResourceName, v1.ResourceName)) {
-					log.Printf("[FixApplyV2] Found v1 incident by resource: ID '%s', resource %s/%s/%s",
-						v1.ID, v1.Namespace, v1.ResourceKind, v1.ResourceName)
-					v2Inc := ws.convertV1ToV2Incident(v1)
-					hotEvidenceBuilder := incidents.NewHotEvidenceBuilder()
-					hotEvidence := hotEvidenceBuilder.BuildHotEvidence(v2Inc)
-					snapshotBuilder := incidents.NewSnapshotBuilder()
-					// Try to get learner if available (same pattern as handleIncidentSnapshot)
-					if learner := ws.getConfidenceLearner(); learner != nil {
-						snapshotBuilder.SetLearner(learner)
-					}
-					snapshot = snapshotBuilder.BuildSnapshot(v2Inc, hotEvidence)
-					incidentID = v2Inc.ID
-					err = nil
-					log.Printf("[FixApplyV2] Built snapshot from v1 incident found by resource")
-					break
-				}
-			}
-
-			// Try v2 manager incidents if v1 didn't work
-			if err != nil {
+			// Try v2 manager incidents only (production-ready, no v1 fallback)
+			if ws.app.incidentIntelligence != nil {
 				manager := ws.app.incidentIntelligence.GetManager()
 				if manager != nil {
 					allIncidents := manager.GetAllIncidents()
@@ -434,14 +371,6 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 
 		if err != nil {
 			log.Printf("[FixApplyV2] ✗ All lookup strategies failed for incidentID: %s", incidentID)
-			// Log available v1 incident IDs for debugging
-			v1Incidents := ws.getV1Incidents("")
-			log.Printf("[FixApplyV2] Available v1 incidents (%d total):", len(v1Incidents))
-			for i, v1 := range v1Incidents {
-				if i < 10 {
-					log.Printf("[FixApplyV2]   v1[%d]: ID='%s', Resource=%s/%s/%s", i, v1.ID, v1.Namespace, v1.ResourceKind, v1.ResourceName)
-				}
-			}
 			// Log v2 incident IDs if available
 			if ws.app.incidentIntelligence != nil {
 				manager := ws.app.incidentIntelligence.GetManager()
@@ -550,18 +479,7 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	manager := ws.app.incidentIntelligence.GetManager()
 	incident := manager.GetIncident(incidentID)
 	
-	// If not found in v2 manager, try to get from v1 incidents (same as we did for snapshot)
-	if incident == nil {
-		log.Printf("[FixApplyV2] Incident not in v2 manager, trying v1 lookup for: %s", incidentID)
-		v1Incidents := ws.getV1Incidents("")
-		for _, v1 := range v1Incidents {
-			if v1.ID == incidentID {
-				log.Printf("[FixApplyV2] Found v1 incident for fix application: %s", v1.ID)
-				incident = ws.convertV1ToV2Incident(v1)
-				break
-			}
-		}
-	}
+	// No v1 fallback - v2 manager only (production-ready)
 	
 	// If still not found, we can build it from the snapshot we already have
 	if incident == nil && snapshot != nil {
@@ -612,18 +530,30 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	executionID := fmt.Sprintf("exec-%s-%d", incidentID, time.Now().Unix())
 	log.Printf("[FixApplyV2] Generated execution ID: %s", executionID)
 
-	// Apply the fix
+	// Apply the fix or perform dry-run
 	var applyResult *incidents.FixResult
 	var applyErr error
 	if fixExecutor != nil {
-		log.Printf("[FixApplyV2] Executing fix...")
-		applyResult, applyErr = fixExecutor.Apply(r.Context(), proposedFix)
-		if applyErr != nil {
-			log.Printf("[FixApplyV2] Fix execution error: %v", applyErr)
-		} else if applyResult != nil {
-			log.Printf("[FixApplyV2] Fix execution result - Success: %v, Message: %s", applyResult.Success, applyResult.Message)
+		if req.DryRun {
+			log.Printf("[FixApplyV2] Performing dry-run...")
+			applyResult, applyErr = fixExecutor.DryRun(r.Context(), proposedFix)
+			if applyErr != nil {
+				log.Printf("[FixApplyV2] Dry-run error: %v", applyErr)
+			} else if applyResult != nil {
+				log.Printf("[FixApplyV2] Dry-run result - Success: %v, Message: %s", applyResult.Success, applyResult.Message)
+			} else {
+				log.Printf("[FixApplyV2] WARNING: Dry-run returned nil result")
+			}
 		} else {
-			log.Printf("[FixApplyV2] WARNING: Fix execution returned nil result")
+			log.Printf("[FixApplyV2] Executing fix...")
+			applyResult, applyErr = fixExecutor.Apply(r.Context(), proposedFix)
+			if applyErr != nil {
+				log.Printf("[FixApplyV2] Fix execution error: %v", applyErr)
+			} else if applyResult != nil {
+				log.Printf("[FixApplyV2] Fix execution result - Success: %v, Message: %s", applyResult.Success, applyResult.Message)
+			} else {
+				log.Printf("[FixApplyV2] WARNING: Fix execution returned nil result")
+			}
 		}
 	} else {
 		// No executor available - return error
@@ -633,7 +563,18 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	}
 
 	if applyErr != nil {
-		http.Error(w, fmt.Sprintf("Failed to apply fix: %v", applyErr), http.StatusInternalServerError)
+		// Return error response with proper format for frontend
+		response := map[string]interface{}{
+			"executionId": executionID,
+			"status":      "failed",
+			"success":     false,
+			"dryRun":      req.DryRun,
+			"message":     fmt.Sprintf("Failed to %s fix: %v", map[bool]string{true: "dry-run", false: "apply"}[req.DryRun], applyErr),
+			"error":       applyErr.Error(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
 		return
 	}
 
@@ -641,6 +582,8 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 		response := map[string]interface{}{
 			"executionId": executionID,
 			"status":      "failed",
+			"success":     false,
+			"dryRun":      req.DryRun,
 			"message":     applyResult.Message,
 			"error":       applyResult.Error,
 		}
@@ -652,7 +595,9 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	// Success - return execution ID and post-check plan
 	response := map[string]interface{}{
 		"executionId": executionID,
-		"status":      "applied",
+		"status":      map[bool]string{true: "dry-run-success", false: "applied"}[req.DryRun],
+		"success":     true,
+		"dryRun":      req.DryRun,
 		"message":     applyResult.Message,
 		"changes":     applyResult.Changes,
 		"postCheckPlan": map[string]interface{}{
@@ -693,18 +638,7 @@ func (ws *WebServer) handlePostCheck(w http.ResponseWriter, r *http.Request, inc
 	manager := ws.app.incidentIntelligence.GetManager()
 	incident := manager.GetIncident(incidentID)
 	
-	// If not found in v2 manager, try v1 incidents
-	if incident == nil {
-		log.Printf("[PostCheck] Incident not in v2 manager, trying v1 lookup: %s", incidentID)
-		v1Incidents := ws.getV1Incidents("")
-		for _, v1 := range v1Incidents {
-			if v1.ID == incidentID {
-				log.Printf("[PostCheck] Found v1 incident: %s", v1.ID)
-				incident = ws.convertV1ToV2Incident(v1)
-				break
-			}
-		}
-	}
+	// No v1 fallback - v2 manager only (production-ready)
 	
 	if incident == nil {
 		log.Printf("[PostCheck] Incident not found: %s", incidentID)
@@ -832,38 +766,7 @@ func (ws *WebServer) getIncidentSnapshot(incidentID string) (*incidents.Incident
 		}
 	}
 
-	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
-	// Use the same approach as handleIncidentSnapshot
-	if incident == nil {
-		// Check cache for v1 incidents
-		var v1Incidents []KubernetesIncident
-		if ws.incidentCache != nil {
-			v1Incidents = ws.incidentCache.GetV1Incidents("")
-		}
-		if v1Incidents == nil {
-			// Not in cache, fetch and cache
-			v1Incidents = ws.getV1Incidents("")
-			if ws.incidentCache != nil {
-				ws.incidentCache.SetV1Incidents("", v1Incidents)
-			}
-		}
-
-		// Search for the incident - check v1.ID directly first (faster, no conversion needed)
-		log.Printf("[getIncidentSnapshot] Searching %d v1 incidents for ID: '%s'", len(v1Incidents), incidentID)
-		for _, v1 := range v1Incidents {
-			// Check v1.ID directly first (no conversion needed for ID check)
-			if v1.ID == incidentID {
-				log.Printf("[getIncidentSnapshot] ✓ Found v1 incident by direct ID match: %s", v1.ID)
-				v2Inc := ws.convertV1ToV2Incident(v1)
-				incident = v2Inc
-				// Cache the converted incident
-				if ws.incidentCache != nil {
-					ws.incidentCache.SetV2Incident(incidentID, incident)
-				}
-				break
-			}
-		}
-	}
+	// No v1 fallback - v2 manager only (production-ready)
 
 	if incident == nil {
 		log.Printf("[getIncidentSnapshot] Incident '%s' not found in cache, manager, or v1 incidents", incidentID)

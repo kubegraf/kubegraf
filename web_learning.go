@@ -63,17 +63,11 @@ func (ws *WebServer) handleIncidentFeedbackLearning(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Get incident
-	manager := ws.app.incidentIntelligence.GetManager()
-	incident := manager.GetIncident(incidentID)
+	// Get incident from v2 manager only (production-ready, no fallbacks)
+	incident := ws.getIncidentByID(incidentID)
 	if incident == nil {
-		// Try v1 fallback
-		v1Incident := ws.getV1IncidentByID(incidentID)
-		if v1Incident == nil {
-			http.Error(w, "Incident not found", http.StatusNotFound)
-			return
-		}
-		incident = v1Incident
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
 	}
 
 	// Get snapshot to extract proposed primary cause and confidence

@@ -1135,11 +1135,12 @@ export const api = {
     }),
 
   // ============ Incidents ============
-  getIncidents: async (namespace?: string, pattern?: string, severity?: string) => {
+  getIncidents: async (namespace?: string, pattern?: string, severity?: string, status?: string) => {
     const params = new URLSearchParams();
     if (namespace) params.append('namespace', namespace);
     if (pattern) params.append('pattern', pattern);
     if (severity) params.append('severity', severity);
+    if (status) params.append('status', status);
     const query = params.toString();
     const endpoint = query ? `/v2/incidents?${query}` : '/v2/incidents';
     const data = await fetchAPI<{ incidents: Incident[]; total: number; summary?: any }>(endpoint);

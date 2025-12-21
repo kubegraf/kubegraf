@@ -872,7 +872,8 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                     style={{ 
                       'border-bottom': expandedRow() === incident.id ? 'none' : '1px solid var(--border-color)',
                       height: '56px',
-                      background: 'var(--bg-card)',
+                      background: incident.status === 'resolved' ? 'var(--bg-secondary)' : 'var(--bg-card)',
+                      opacity: incident.status === 'resolved' ? 0.7 : 1,
                       cursor: 'pointer'
                     }}
                     onClick={(e) => {
@@ -908,8 +909,23 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                       <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
                         <span style={{ 'font-size': '18px' }}>{getPatternIcon(getPattern(incident))}</span>
                         <div>
-                          <div style={{ 'font-weight': '600', 'font-size': '13px' }}>
-                            {getPattern(incident).replace(/_/g, ' ')}
+                          <div style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                            <div style={{ 'font-weight': '600', 'font-size': '13px' }}>
+                              {getPattern(incident).replace(/_/g, ' ')}
+                            </div>
+                            <Show when={incident.status === 'resolved'}>
+                              <span style={{ 
+                                padding: '2px 6px',
+                                'border-radius': '3px',
+                                'font-size': '10px',
+                                'font-weight': '700',
+                                background: '#51cf6620',
+                                color: '#51cf66',
+                                'text-transform': 'uppercase'
+                              }}>
+                                ✅ Resolved
+                              </span>
+                            </Show>
                           </div>
                           <div style={{ 'font-size': '11px', color: 'var(--text-secondary)' }}>
                             ×{getOccurrences(incident)}

@@ -55,7 +55,16 @@ const AutoFix: Component = () => {
   // Fetch incidents for event display
   const [incidents, { refetch: refetchIncidents }] = createResource(async () => {
     try {
-      return await api.getIncidents();
+      const data = await api.getIncidents();
+      console.log('[AutoFix] Fetched incidents:', data?.length || 0);
+      // Log OOM incidents for debugging
+      const oomIncidents = data?.filter(inc => {
+        const pattern = (inc.pattern || '').toUpperCase();
+        const type = (inc.type || '').toLowerCase();
+        return pattern.includes('OOM') || type.includes('oom');
+      }) || [];
+      console.log('[AutoFix] OOM incidents found:', oomIncidents.length, oomIncidents.map(i => ({ id: i.id, pattern: i.pattern, type: i.type, status: i.status })));
+      return data || [];
     } catch (error) {
       console.error('Failed to fetch incidents:', error);
       return [];
@@ -63,7 +72,12 @@ const AutoFix: Component = () => {
   });
 
   // Filter events by type
-  const oomEvents = createMemo(() => filterOOMEvents(incidents() || []));
+  const oomEvents = createMemo(() => {
+    const allIncidents = incidents() || [];
+    const filtered = filterOOMEvents(allIncidents);
+    console.log('[AutoFix] Filtered OOM events:', filtered.length, 'from', allIncidents.length, 'incidents');
+    return filtered;
+  });
   const hpaMaxEvents = createMemo(() => filterHPAMaxEvents(incidents() || []));
   const securityEvents = createMemo(() => filterSecurityEvents(incidents() || []));
   const driftEvents = createMemo(() => filterDriftEvents(incidents() || []));
