@@ -746,7 +746,20 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                       background: 'var(--bg-card)',
                       cursor: 'pointer'
                     }}
-                    onClick={() => toggleRow(incident.id)}
+                    onClick={(e) => {
+                      // If clicking on a button or link, don't toggle
+                      const target = e.target as HTMLElement;
+                      if (target.tagName === 'BUTTON' || target.closest('button') || target.tagName === 'A' || target.closest('a')) {
+                        return;
+                      }
+                      toggleRow(incident.id);
+                    }}
+                    onDoubleClick={() => {
+                      // Double-click opens the modal
+                      if (props.onViewDetails) {
+                        props.onViewDetails(incident);
+                      }
+                    }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'var(--bg-secondary)';
                     }}
@@ -936,9 +949,31 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
 
                           {/* Right Column - Recommendations */}
                           <div>
-                            <h4 style={{ color: 'var(--accent-primary)', 'font-size': '13px', 'font-weight': '700', 'margin-bottom': '12px' }}>
-                              💡 Recommendations
-                            </h4>
+                            <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '12px' }}>
+                              <h4 style={{ color: 'var(--accent-primary)', 'font-size': '13px', 'font-weight': '700', margin: 0 }}>
+                                💡 Recommendations
+                              </h4>
+                              <Show when={props.onViewDetails}>
+                                <button
+                                  onClick={() => props.onViewDetails!(incident)}
+                                  style={{
+                                    padding: '6px 12px',
+                                    background: 'var(--accent-primary)',
+                                    color: 'white',
+                                    border: 'none',
+                                    'border-radius': '6px',
+                                    cursor: 'pointer',
+                                    'font-weight': '500',
+                                    'font-size': '12px',
+                                    display: 'flex',
+                                    'align-items': 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  🚀 View Full Remediation
+                                </button>
+                              </Show>
+                            </div>
                             <Show when={incident.recommendations && incident.recommendations.length > 0} fallback={
                               <p style={{ color: 'var(--text-muted)', 'font-size': '13px' }}>No recommendations available</p>
                             }>

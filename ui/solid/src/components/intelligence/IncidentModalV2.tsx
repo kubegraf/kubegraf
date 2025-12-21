@@ -1,5 +1,6 @@
 import { Component, Show, createSignal, createEffect, For, onMount, onCleanup } from 'solid-js';
-import { Incident, IncidentSnapshot, api } from '../../services/api';
+import { Incident, IncidentSnapshot, api, type RemediationPlan, type FixPlan, type FixPreviewResponseV2 } from '../../services/api';
+import { trackModalOpen, trackSnapshotFetch, trackTabLoad } from '../../stores/performance';
 import EvidencePanel from './EvidencePanel';
 import CitationsPanel from './CitationsPanel';
 import RunbookSelector from './RunbookSelector';
@@ -22,6 +23,22 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const [feedbackSubmitting, setFeedbackSubmitting] = createSignal<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = createSignal<string | null>(null);
 
+  // Track modal open to paint
+  let modalOpenTracker: (() => void) | null = null;
+  createEffect(() => {
+    if (props.isOpen && props.incident) {
+      // Start tracking modal open
+      modalOpenTracker = trackModalOpen(props.incident.id);
+      // End tracking when modal is painted (next frame)
+      requestAnimationFrame(() => {
+        if (modalOpenTracker) {
+          modalOpenTracker();
+          modalOpenTracker = null;
+        }
+      });
+    }
+  });
+
   // Fetch snapshot when modal opens
   createEffect(async () => {
     if (props.isOpen && props.incident) {
@@ -29,6 +46,10 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
       setError(null);
       setActiveTab(null);
       setLoadedTabs(new Set());
+      
+      // Track snapshot fetch
+      const requestId = crypto.randomUUID();
+      const endSnapshotFetch = trackSnapshotFetch(props.incident.id, requestId);
       
       try {
         const snap = await api.getIncidentSnapshot(props.incident.id);
@@ -38,14 +59,112 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
         if (snap.recommendedAction) {
           setActiveTab(snap.recommendedAction.tab);
         }
+        
+        // Load remediation plan (fixes)
+        loadRemediationPlan(props.incident.id);
       } catch (err: any) {
         setError(err.message || 'Failed to load incident snapshot');
         console.error('Error loading snapshot:', err);
       } finally {
         setLoading(false);
+        endSnapshotFetch();
       }
     }
   });
+
+  // Remediation engine state
+  const [remediationPlan, setRemediationPlan] = createSignal<RemediationPlan | null>(null);
+  const [loadingFixes, setLoadingFixes] = createSignal(false);
+  const [previewingFix, setPreviewingFix] = createSignal<string | null>(null);
+  const [fixPreview, setFixPreview] = createSignal<FixPreviewResponseV2 | null>(null);
+  const [applyingFix, setApplyingFix] = createSignal<string | null>(null);
+  const [showConfirmDialog, setShowConfirmDialog] = createSignal(false);
+  const [confirmCheckbox, setConfirmCheckbox] = createSignal(false);
+
+  // Load remediation plan
+  const loadRemediationPlan = async (incidentId: string) => {
+    setLoadingFixes(true);
+    try {
+      const plan = await api.getIncidentFixes(incidentId);
+      setRemediationPlan(plan);
+    } catch (err: any) {
+      console.error('Error loading remediation plan:', err);
+      // Don't show error to user, just log it
+    } finally {
+      setLoadingFixes(false);
+    }
+  };
+
+  // Preview a fix
+  const handlePreviewFix = async (fixId: string) => {
+    if (!props.incident) return;
+    setPreviewingFix(fixId);
+    setFixPreview(null);
+    try {
+      const preview = await api.previewFix(props.incident.id, fixId);
+      setFixPreview(preview);
+    } catch (err: any) {
+      console.error('Error previewing fix:', err);
+      alert(`Failed to preview fix: ${err.message}`);
+    } finally {
+      setPreviewingFix(null);
+    }
+  };
+
+  // Apply a fix
+  const handleApplyFix = async (fixId: string) => {
+    if (!props.incident) return;
+    
+    // Check if preview is available
+    if (!fixPreview() || fixPreview()!.fixId !== fixId) {
+      alert('Please preview the fix first before applying.');
+      return;
+    }
+
+    // Show confirmation dialog
+    setShowConfirmDialog(true);
+    setConfirmCheckbox(false);
+  };
+
+  // Confirm and apply fix
+  const confirmApplyFix = async () => {
+    if (!props.incident || !fixPreview()) return;
+    if (!confirmCheckbox()) {
+      alert('Please confirm that you understand this will change cluster state.');
+      return;
+    }
+
+    setShowConfirmDialog(false);
+    setApplyingFix(fixPreview()!.fixId);
+    try {
+      const result = await api.applyFix(props.incident.id, fixPreview()!.fixId, true);
+      alert(`Fix applied successfully! Execution ID: ${result.executionId}`);
+      
+      // Optionally run post-check after a delay
+      setTimeout(async () => {
+        try {
+          const postCheck = await api.postCheck(props.incident!.id, result.executionId);
+          if (postCheck.improved) {
+            alert('Post-check passed: Incident appears to be resolved!');
+          } else {
+            alert('Post-check warning: Some checks indicate the fix may not have fully resolved the issue.');
+          }
+        } catch (err) {
+          console.error('Error running post-check:', err);
+        }
+      }, 5000);
+      
+      // Reload snapshot and fixes
+      const snap = await api.getIncidentSnapshot(props.incident.id);
+      setSnapshot(snap);
+      loadRemediationPlan(props.incident.id);
+      setFixPreview(null);
+    } catch (err: any) {
+      alert(`Failed to apply fix: ${err.message}`);
+    } finally {
+      setApplyingFix(null);
+    }
+  };
 
   // Handle ESC key
   onMount(() => {
@@ -59,9 +178,20 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   });
 
   const handleTabClick = (tabId: string) => {
+    const wasCached = loadedTabs().has(tabId);
     setActiveTab(tabId);
-    if (!loadedTabs().has(tabId)) {
+    if (!wasCached) {
       setLoadedTabs(new Set([...loadedTabs(), tabId]));
+      // Track tab first load
+      const requestId = crypto.randomUUID();
+      const endTabLoad = trackTabLoad(tabId, props.incident?.id, requestId, false);
+      // End tracking after a short delay to allow tab content to load
+      setTimeout(() => endTabLoad(), 100);
+    } else {
+      // Track cached tab load
+      const requestId = crypto.randomUUID();
+      const endTabLoad = trackTabLoad(tabId, props.incident?.id, requestId, true);
+      setTimeout(() => endTabLoad(), 50);
     }
   };
 
@@ -440,8 +570,50 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
                 </div>
               </Show>
 
-              {/* Recommended First Action */}
-              <Show when={snapshot()?.recommendedAction}>
+              {/* Recommended First Action (from Remediation Engine) */}
+              <Show when={remediationPlan()?.recommendedAction}>
+                <div style={{
+                  background: 'var(--accent-primary)10',
+                  'border-radius': '8px',
+                  padding: '16px',
+                  'margin-bottom': '20px',
+                  border: '2px solid var(--accent-primary)'
+                }}>
+                  <h3 style={{ 
+                    margin: '0 0 8px', 
+                    'font-size': '14px', 
+                    'font-weight': '600',
+                    color: 'var(--text-primary)'
+                  }}>
+                    Recommended First Action
+                  </h3>
+                  <p style={{ 
+                    margin: '0 0 12px', 
+                    color: 'var(--text-secondary)',
+                    'font-size': '13px'
+                  }}>
+                    {remediationPlan()!.recommendedAction!.description}
+                  </p>
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}>
+                    <For each={remediationPlan()!.recommendedAction!.actions}>
+                      {(action) => (
+                        <div style={{ 
+                          padding: '8px 12px',
+                          background: 'var(--bg-secondary)',
+                          'border-radius': '4px',
+                          'font-size': '12px',
+                          color: 'var(--text-secondary)'
+                        }}>
+                          • {action}
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+
+              {/* Fallback to snapshot recommended action if remediation plan not loaded */}
+              <Show when={!remediationPlan()?.recommendedAction && snapshot()?.recommendedAction}>
                 <div style={{
                   background: 'var(--accent-primary)10',
                   'border-radius': '8px',
@@ -479,6 +651,40 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
                   >
                     {snapshot()!.recommendedAction!.title}
                   </button>
+                </div>
+              </Show>
+
+              {/* Suggested Fixes Section */}
+              <Show when={remediationPlan()?.fixPlans && remediationPlan()!.fixPlans.length > 0}>
+                <div style={{
+                  background: 'var(--bg-card)',
+                  'border-radius': '8px',
+                  border: '1px solid var(--border-color)',
+                  padding: '16px',
+                  'margin-bottom': '20px'
+                }}>
+                  <h3 style={{ 
+                    margin: '0 0 16px', 
+                    'font-size': '16px', 
+                    'font-weight': '600',
+                    color: 'var(--text-primary)'
+                  }}>
+                    Suggested Fixes
+                  </h3>
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+                    <For each={remediationPlan()!.fixPlans}>
+                      {(fix) => (
+                        <FixCard 
+                          fix={fix}
+                          onPreview={() => handlePreviewFix(fix.id)}
+                          onApply={() => handleApplyFix(fix.id)}
+                          previewing={previewingFix() === fix.id}
+                          applying={applyingFix() === fix.id}
+                          preview={fixPreview()?.fixId === fix.id ? fixPreview() : null}
+                        />
+                      )}
+                    </For>
+                  </div>
                 </div>
               </Show>
 
@@ -704,7 +910,417 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showConfirmDialog()}
+        fix={fixPreview()}
+        confirmed={confirmCheckbox()}
+        onConfirm={confirmApplyFix}
+        onCancel={() => {
+          setShowConfirmDialog(false);
+          setConfirmCheckbox(false);
+        }}
+        onCheckboxChange={setConfirmCheckbox}
+      />
     </Show>
+  );
+};
+
+// Fix Card Component
+const FixCard: Component<{
+  fix: FixPlan;
+  onPreview: () => void;
+  onApply: () => void;
+  previewing: boolean;
+  applying: boolean;
+  preview: FixPreviewResponseV2 | null;
+}> = (props) => {
+  const getRiskColor = (risk: string) => {
+    switch (risk) {
+      case 'high': return '#dc3545';
+      case 'medium': return '#ffc107';
+      case 'low': return '#28a745';
+      default: return 'var(--text-secondary)';
+    }
+  };
+
+  const getRiskBg = (risk: string) => {
+    switch (risk) {
+      case 'high': return '#dc354520';
+      case 'medium': return '#ffc10720';
+      case 'low': return '#28a74520';
+      default: return 'var(--bg-secondary)';
+    }
+  };
+
+  return (
+    <div style={{
+      background: 'var(--bg-secondary)',
+      'border-radius': '6px',
+      border: '1px solid var(--border-color)',
+      padding: '16px',
+      display: 'flex',
+      'flex-direction': 'column',
+      gap: '12px'
+    }}>
+      <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'start' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', 'margin-bottom': '8px' }}>
+            <h4 style={{ 
+              margin: 0, 
+              'font-size': '14px', 
+              'font-weight': '600',
+              color: 'var(--text-primary)'
+            }}>
+              {props.fix.title}
+            </h4>
+            <span style={{
+              padding: '2px 8px',
+              'border-radius': '4px',
+              'font-size': '11px',
+              'font-weight': '600',
+              background: getRiskBg(props.fix.risk),
+              color: getRiskColor(props.fix.risk)
+            }}>
+              {props.fix.risk.toUpperCase()}
+            </span>
+            <span style={{
+              padding: '2px 8px',
+              'border-radius': '4px',
+              'font-size': '11px',
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-secondary)'
+            }}>
+              {Math.round(props.fix.confidence * 100)}% confidence
+            </span>
+          </div>
+          <p style={{ 
+            margin: '0 0 8px', 
+            color: 'var(--text-secondary)',
+            'font-size': '13px'
+          }}>
+            {props.fix.description}
+          </p>
+          <Show when={props.fix.evidenceRefs.length > 0}>
+            <div style={{ display: 'flex', 'flex-wrap': 'wrap', gap: '6px', 'margin-bottom': '8px' }}>
+              <For each={props.fix.evidenceRefs}>
+                {(evidence) => (
+                  <span 
+                    style={{
+                      padding: '4px 8px',
+                      'border-radius': '4px',
+                      'font-size': '11px',
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    title={evidence.snippet}
+                    onClick={() => {
+                      // Scroll to evidence section
+                      const evidenceTab = document.querySelector('[data-tab-id="evidence"]');
+                      if (evidenceTab) {
+                        evidenceTab.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        // Also trigger click to open evidence tab if not already active
+                        (evidenceTab as HTMLElement).click();
+                        // Small delay to ensure tab is open, then scroll to specific evidence
+                        setTimeout(() => {
+                          const evidenceElement = document.querySelector(`[data-evidence-id="${evidence.refId}"]`);
+                          if (evidenceElement) {
+                            evidenceElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            // Highlight the evidence element briefly
+                            (evidenceElement as HTMLElement).style.transition = 'background-color 0.3s';
+                            (evidenceElement as HTMLElement).style.backgroundColor = 'var(--accent-primary)20';
+                            setTimeout(() => {
+                              (evidenceElement as HTMLElement).style.backgroundColor = '';
+                            }, 2000);
+                          }
+                        }, 300);
+                      }
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--accent-primary)30';
+                      e.currentTarget.style.color = 'var(--accent-primary)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'var(--bg-tertiary)';
+                      e.currentTarget.style.color = 'var(--text-secondary)';
+                    }}
+                  >
+                    {evidence.kind}: {evidence.refId.substring(0, 8)}...
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      </div>
+      
+      <Show when={props.preview}>
+        <div style={{
+          background: 'var(--bg-tertiary)',
+          'border-radius': '4px',
+          padding: '12px',
+          'margin-top': '8px'
+        }}>
+          <h5 style={{ margin: '0 0 8px', 'font-size': '12px', 'font-weight': '600', color: 'var(--text-primary)' }}>
+            Preview
+          </h5>
+          <pre style={{
+            margin: '0 0 8px',
+            padding: '8px',
+            background: 'var(--bg-primary)',
+            'border-radius': '4px',
+            'font-size': '11px',
+            overflow: 'auto',
+            'max-height': '200px',
+            color: 'var(--text-primary)'
+          }}>
+            {props.preview!.diff}
+          </pre>
+          <Show when={props.preview!.kubectlCommands.length > 0}>
+            <div style={{ 'margin-top': '8px' }}>
+              <strong style={{ 'font-size': '11px', color: 'var(--text-primary)' }}>Commands:</strong>
+              <For each={props.preview!.kubectlCommands}>
+                {(cmd) => (
+                  <code style={{
+                    display: 'block',
+                    padding: '4px 8px',
+                    'margin-top': '4px',
+                    background: 'var(--bg-primary)',
+                    'border-radius': '4px',
+                    'font-size': '11px',
+                    color: 'var(--text-primary)'
+                  }}>
+                    {cmd}
+                  </code>
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={props.preview!.dryRunOutput}>
+            <div style={{ 'margin-top': '8px', padding: '8px', background: 'rgba(34, 197, 94, 0.1)', 'border-radius': '4px', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+              <strong style={{ 'font-size': '11px', color: '#22c55e' }}>✓ Dry-Run Result:</strong>
+              <pre style={{
+                margin: '4px 0 0',
+                padding: '4px',
+                background: 'var(--bg-primary)',
+                'border-radius': '4px',
+                'font-size': '11px',
+                color: 'var(--text-primary)',
+                'white-space': 'pre-wrap'
+              }}>
+                {props.preview!.dryRunOutput}
+              </pre>
+            </div>
+          </Show>
+          <Show when={props.preview!.dryRunError}>
+            <div style={{ 'margin-top': '8px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', 'border-radius': '4px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+              <strong style={{ 'font-size': '11px', color: '#dc3545' }}>✗ Dry-Run Error:</strong>
+              <pre style={{
+                margin: '4px 0 0',
+                padding: '4px',
+                background: 'var(--bg-primary)',
+                'border-radius': '4px',
+                'font-size': '11px',
+                color: '#dc3545',
+                'white-space': 'pre-wrap'
+              }}>
+                {props.preview!.dryRunError}
+              </pre>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          onClick={props.onPreview}
+          disabled={props.previewing}
+          style={{
+            padding: '8px 16px',
+            background: props.preview ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
+            color: props.preview ? 'var(--text-secondary)' : 'white',
+            border: 'none',
+            'border-radius': '6px',
+            cursor: props.previewing ? 'not-allowed' : 'pointer',
+            'font-weight': '500',
+            'font-size': '13px',
+            opacity: props.previewing ? 0.6 : 1
+          }}
+        >
+          {props.previewing ? 'Previewing...' : props.preview ? 'Previewed' : 'Preview Fix'}
+        </button>
+        <button
+          onClick={props.onApply}
+          disabled={!props.preview || props.applying}
+          style={{
+            padding: '8px 16px',
+            background: props.preview && !props.applying ? 'var(--error-color)' : 'var(--bg-tertiary)',
+            color: props.preview && !props.applying ? 'white' : 'var(--text-secondary)',
+            border: 'none',
+            'border-radius': '6px',
+            cursor: (!props.preview || props.applying) ? 'not-allowed' : 'pointer',
+            'font-weight': '500',
+            'font-size': '13px',
+            opacity: (!props.preview || props.applying) ? 0.6 : 1
+          }}
+        >
+          {props.applying ? 'Applying...' : 'Apply Fix'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Confirmation Dialog Component
+const ConfirmDialog: Component<{
+  isOpen: boolean;
+  fix: FixPreviewResponseV2 | null;
+  confirmed: boolean;
+  onConfirm: (confirmed: boolean) => void;
+  onCancel: () => void;
+  onCheckboxChange: (checked: boolean) => void;
+}> = (props) => {
+  if (!props.isOpen || !props.fix) return null;
+
+  const getRiskColor = (risk: string) => {
+    switch (risk) {
+      case 'high': return '#dc3545';
+      case 'medium': return '#ffc107';
+      case 'low': return '#28a745';
+      default: return 'var(--text-secondary)';
+    }
+  };
+
+  const getRiskBg = (risk: string) => {
+    switch (risk) {
+      case 'high': return '#dc354520';
+      case 'medium': return '#ffc10720';
+      case 'low': return '#28a74520';
+      default: return 'var(--bg-secondary)';
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      'align-items': 'center',
+      'justify-content': 'center',
+      zIndex: 10000
+    }}
+    onClick={props.onCancel}
+    >
+      <div style={{
+        background: 'var(--bg-card)',
+        'border-radius': '8px',
+        padding: '24px',
+        'max-width': '500px',
+        width: '90%',
+        border: '1px solid var(--border-color)',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+      }}
+      onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 16px', 'font-size': '18px', 'font-weight': '600', color: 'var(--text-primary)' }}>
+          Confirm Fix Application
+        </h3>
+        <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', 'font-size': '14px' }}>
+          You are about to apply: <strong>{props.fix.title}</strong>
+        </p>
+        <div style={{
+          padding: '12px',
+          background: getRiskBg(props.fix.risk),
+          'border-radius': '4px',
+          'margin-bottom': '16px'
+        }}>
+          <p style={{ margin: '0 0 8px', 'font-size': '13px', color: 'var(--text-primary)' }}>
+            <strong>Risk Level:</strong> <span style={{ color: getRiskColor(props.fix.risk) }}>{props.fix.risk.toUpperCase()}</span>
+          </p>
+          <p style={{ margin: '0 0 8px', 'font-size': '13px', color: 'var(--text-primary)' }}>
+            <strong>Confidence:</strong> {Math.round(props.fix.confidence * 100)}%
+          </p>
+          <p style={{ margin: 0, 'font-size': '12px', color: 'var(--text-secondary)' }}>
+            {props.fix.whyThisFix}
+          </p>
+        </div>
+        <label style={{
+          display: 'flex',
+          'align-items': 'center',
+          gap: '8px',
+          'margin-bottom': '16px',
+          cursor: 'pointer'
+        }}>
+          <input
+            type="checkbox"
+            checked={props.confirmed}
+            onChange={(e) => props.onCheckboxChange(e.currentTarget.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          <span style={{ 'font-size': '13px', color: 'var(--text-primary)' }}>
+            I understand this will change cluster state
+          </span>
+        </label>
+        <Show when={props.fix.risk === 'high'}>
+          <label style={{
+            display: 'flex',
+            'align-items': 'center',
+            gap: '8px',
+            'margin-bottom': '16px',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={props.confirmed}
+              onChange={(e) => props.onCheckboxChange(e.currentTarget.checked)}
+              style={{ cursor: 'pointer' }}
+            />
+            <span style={{ 'font-size': '13px', color: 'var(--text-primary)' }}>
+              I acknowledge this is a high-risk operation
+            </span>
+          </label>
+        </Show>
+        <div style={{ display: 'flex', gap: '8px', 'justify-content': 'flex-end' }}>
+          <button
+            onClick={props.onCancel}
+            style={{
+              padding: '8px 16px',
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              'border-radius': '6px',
+              cursor: 'pointer',
+              'font-size': '13px'
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => props.onConfirm(props.confirmed)}
+            disabled={!props.confirmed}
+            style={{
+              padding: '8px 16px',
+              background: props.confirmed ? 'var(--error-color)' : 'var(--bg-tertiary)',
+              color: props.confirmed ? 'white' : 'var(--text-secondary)',
+              border: 'none',
+              'border-radius': '6px',
+              cursor: props.confirmed ? 'pointer' : 'not-allowed',
+              'font-size': '13px',
+              opacity: props.confirmed ? 1 : 0.6
+            }}
+          >
+            Apply Fix
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 

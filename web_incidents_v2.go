@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kubegraf/kubegraf/pkg/incidents"
+	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -762,6 +763,22 @@ func (ws *WebServer) handleIncidentV2ByID(w http.ResponseWriter, r *http.Request
 			ws.handleIncidentFeedbackLearning(w, r)
 			r.URL.Path = originalPath // Restore original path
 			return
+		case "fixes":
+			// New remediation engine API
+			ws.handleIncidentFixes(w, r, baseID)
+			return
+		case "fix-preview":
+			// New remediation engine API (v2)
+			ws.handleFixPreviewV2(w, r, baseID)
+			return
+		case "fix-apply":
+			// New remediation engine API (v2)
+			ws.handleFixApplyV2(w, r, baseID)
+			return
+		case "post-check":
+			// New remediation engine API
+			ws.handlePostCheck(w, r, baseID)
+			return
 		case "evidence", "logs", "metrics", "changes", "runbooks", "similar", "citations":
 			// These are handled by existing action handlers
 			ws.handleIncidentV2Action(w, r, manager, baseID, subPath)
@@ -874,13 +891,13 @@ func (ws *WebServer) handleIncidentV2Action(w http.ResponseWriter, r *http.Reque
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(incident.Signals)
 
-	case "fix-preview":
-		// Delegate to handleFixPreview with the incidentID in path
-		ws.handleFixPreviewForIncident(w, r, incidentID)
+		case "fix-preview-old":
+			// Legacy: Delegate to handleFixPreview with the incidentID in path
+			ws.handleFixPreviewForIncident(w, r, incidentID)
 
-	case "fix-apply":
-		// Delegate to handleFixApply with the incidentID in path
-		ws.handleFixApplyForIncident(w, r, incidentID)
+		case "fix-apply-old":
+			// Legacy: Delegate to handleFixApply with the incidentID in path
+			ws.handleFixApplyForIncident(w, r, incidentID)
 
 	case "runbooks":
 		// Return runbooks for this incident
@@ -1949,7 +1966,20 @@ func (ws *WebServer) handleIncidentSnapshot(w http.ResponseWriter, r *http.Reque
 		fingerprint = incidents.ComputeIncidentFingerprint(incident, containerName)
 	}
 
+	// Track performance context
+	perfCtx := instrumentation.GetRequestContext(r)
+	if perfCtx != nil {
+		perfCtx.SetTag("incident_id", incidentID)
+		if incident.Pattern != "" {
+			perfCtx.IncidentPattern = string(incident.Pattern)
+		}
+	}
+
 	snapshot, cached := ws.snapshotCache.Get(fingerprint)
+	if perfCtx != nil {
+		perfCtx.SetCacheHit(cached)
+	}
+	
 	if !cached {
 		// Build snapshot
 		hotEvidenceBuilder := incidents.NewHotEvidenceBuilder()
