@@ -6,6 +6,7 @@ package incidents
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -56,7 +57,14 @@ func (e *RemediationEngine) GenerateRemediation(ctx context.Context, snapshot *I
 	plan.RecommendedAction = recommendedAction
 
 	// Generate up to 3 suggested fixes
-	fixPlans := e.generateFixPlans(ctx, snapshot, coldEvidence, runbooks)
+	// Sort runbooks by ID to ensure consistent ordering and fix IDs
+	sortedRunbooks := make([]*Runbook, len(runbooks))
+	copy(sortedRunbooks, runbooks)
+	sort.Slice(sortedRunbooks, func(i, j int) bool {
+		return sortedRunbooks[i].ID < sortedRunbooks[j].ID
+	})
+	
+	fixPlans := e.generateFixPlans(ctx, snapshot, coldEvidence, sortedRunbooks)
 	if len(fixPlans) > 3 {
 		fixPlans = fixPlans[:3] // Limit to 3
 	}
@@ -226,8 +234,11 @@ func containsSubstring(s, substr string) bool {
 
 // runbookToFixPlan converts a runbook to a FixPlan
 func (e *RemediationEngine) runbookToFixPlan(ctx context.Context, snapshot *IncidentSnapshot, coldEvidence *ColdEvidence, runbook *Runbook) *FixPlan {
+	// Generate deterministic fix ID based on runbook ID and incident ID
+	// This ensures the same fix always has the same ID across multiple calls
+	fixID := fmt.Sprintf("fix-%s-%s", snapshot.IncidentID, runbook.ID)
 	plan := &FixPlan{
-		ID:          fmt.Sprintf("fix-%s-%d", snapshot.IncidentID, time.Now().Unix()),
+		ID:          fixID,
 		Title:       runbook.Name,
 		Description: runbook.Description,
 		Type:        string(e.mapRunbookActionToFixType(runbook.Action)),

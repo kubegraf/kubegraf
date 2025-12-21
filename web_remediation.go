@@ -6,7 +6,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
@@ -57,36 +59,46 @@ func (ws *WebServer) handleIncidentFixes(w http.ResponseWriter, r *http.Request,
 // Input: { fixId }
 // Output: diff + dry-run output + rollback plan + risk
 func (ws *WebServer) handleFixPreviewV2(w http.ResponseWriter, r *http.Request, incidentID string) {
+	log.Printf("[FixPreviewV2] Handler called for incidentID: %s, method: %s, path: %s", incidentID, r.Method, r.URL.Path)
+	
 	if r.Method != http.MethodPost {
+		log.Printf("[FixPreviewV2] Method not allowed: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if ws.app.incidentIntelligence == nil {
+		log.Printf("[FixPreviewV2] Incident intelligence not initialized")
 		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Parse request body
+	// Parse request body - support both fixId and runbookId
 	var req struct {
-		FixID string `json:"fixId"`
+		FixID     string `json:"fixId"`
+		RunbookID string `json:"runbookId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("[FixPreviewV2] Error decoding request body: %v", err)
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
-
-	if req.FixID == "" {
-		http.Error(w, "Missing fixId", http.StatusBadRequest)
+	log.Printf("[FixPreviewV2] Request parsed - fixId: '%s', runbookId: '%s'", req.FixID, req.RunbookID)
+	
+	if req.FixID == "" && req.RunbookID == "" {
+		log.Printf("[FixPreviewV2] Both fixId and runbookId are empty")
+		http.Error(w, "Missing fixId or runbookId", http.StatusBadRequest)
 		return
 	}
 
 	// Get incident snapshot
 	snapshot, err := ws.getIncidentSnapshot(incidentID)
 	if err != nil {
+		log.Printf("[FixPreviewV2] Failed to get snapshot for incident %s: %v", incidentID, err)
 		http.Error(w, fmt.Sprintf("Failed to get snapshot: %v", err), http.StatusNotFound)
 		return
 	}
+	log.Printf("[FixPreviewV2] Snapshot retrieved successfully, pattern: %s", snapshot.Pattern)
 
 	// Create remediation engine
 	engine := incidents.NewRemediationEngine()
@@ -98,17 +110,93 @@ func (ws *WebServer) handleFixPreviewV2(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Find the fix plan
+	// Find the fix plan - support both fixId and runbookId
 	var fixPlan *incidents.FixPlan
-	for _, fp := range plan.FixPlans {
-		if fp.ID == req.FixID {
-			fixPlan = fp
-			break
+	if req.FixID != "" {
+		// Look up by fixId
+		for _, fp := range plan.FixPlans {
+			if fp.ID == req.FixID {
+				fixPlan = fp
+				break
+			}
 		}
+	} else if req.RunbookID != "" {
+		// Look up by runbookId - fixId format is "fix-{incidentID}-{runbookID}"
+		expectedFixID := fmt.Sprintf("fix-%s-%s", incidentID, req.RunbookID)
+		log.Printf("[FixPreview] Looking for fix plan with runbookId: %s, expected fixId: %s", req.RunbookID, expectedFixID)
+		log.Printf("[FixPreview] Available fix plans: %d", len(plan.FixPlans))
+		for i, fp := range plan.FixPlans {
+			log.Printf("[FixPreview] Fix plan %d: ID=%s, Title=%s", i, fp.ID, fp.Title)
+			if fp.ID == expectedFixID {
+				fixPlan = fp
+				log.Printf("[FixPreview] Found fix plan by exact fixId match")
+				break
+			}
+		}
+		// If still not found, try matching by finding the runbook and matching its name/description
+		if fixPlan == nil && len(plan.FixPlans) > 0 {
+			log.Printf("[FixPreview] Exact match failed, trying fallback matching")
+			// Try to match by finding a runbook with the given ID and matching fix plan
+			// We'll search through all fix plans and see if any match the runbook
+			// This is a fallback - the fixId should normally match
+			for _, fp := range plan.FixPlans {
+				// Extract runbook ID from fix ID (format: "fix-{incidentID}-{runbookID}")
+				prefix := fmt.Sprintf("fix-%s-", incidentID)
+				if strings.HasPrefix(fp.ID, prefix) {
+					extractedRunbookID := fp.ID[len(prefix):]
+					log.Printf("[FixPreview] Extracted runbookId from fixId %s: %s (looking for: %s)", fp.ID, extractedRunbookID, req.RunbookID)
+					if extractedRunbookID == req.RunbookID {
+						fixPlan = fp
+						log.Printf("[FixPreview] Found fix plan by extracted runbookId match")
+						break
+					}
+				}
+			}
+			// If still not found, try matching by runbook name (last resort)
+			if fixPlan == nil {
+				log.Printf("[FixPreview] Trying to match by runbook name")
+				// Get runbook by ID to find its name - create a new registry to access runbooks
+				runbookReg := incidents.NewRunbookRegistry()
+				runbooks := runbookReg.GetByPattern(snapshot.Pattern)
+				var targetRunbook *incidents.Runbook
+				for _, rb := range runbooks {
+					if rb.ID == req.RunbookID {
+						targetRunbook = rb
+						break
+					}
+				}
+				if targetRunbook != nil {
+					log.Printf("[FixPreview] Found runbook: %s (name: %s), matching by name", targetRunbook.ID, targetRunbook.Name)
+					for _, fp := range plan.FixPlans {
+						if fp.Title == targetRunbook.Name || fp.Description == targetRunbook.Description {
+							fixPlan = fp
+							log.Printf("[FixPreview] Found fix plan by name/description match: %s", fp.ID)
+							break
+						}
+					}
+				} else {
+					log.Printf("[FixPreview] Runbook %s not found in registry for pattern %s", req.RunbookID, snapshot.Pattern)
+				}
+			}
+		}
+	} else {
+		http.Error(w, "Missing fixId or runbookId", http.StatusBadRequest)
+		return
 	}
 
 	if fixPlan == nil {
-		http.Error(w, "Fix plan not found", http.StatusNotFound)
+		errorMsg := fmt.Sprintf("Fix plan not found for runbook %s. Available fix plans: %d", req.RunbookID, len(plan.FixPlans))
+		if len(plan.FixPlans) > 0 {
+			errorMsg += ". Fix plan IDs: "
+			for i, fp := range plan.FixPlans {
+				if i > 0 {
+					errorMsg += ", "
+				}
+				errorMsg += fp.ID
+			}
+		}
+		log.Printf("[FixPreview] ERROR: %s", errorMsg)
+		http.Error(w, errorMsg, http.StatusNotFound)
 		return
 	}
 
@@ -173,12 +261,16 @@ func (ws *WebServer) handleFixPreviewV2(w http.ResponseWriter, r *http.Request, 
 // Input: { fixId, confirmed: true }
 // Output: executionId + post-check plan
 func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, incidentID string) {
+	log.Printf("[FixApplyV2] Handler called for incidentID: %s, method: %s, path: %s", incidentID, r.Method, r.URL.Path)
+	
 	if r.Method != http.MethodPost {
+		log.Printf("[FixApplyV2] Method not allowed: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if ws.app.incidentIntelligence == nil {
+		log.Printf("[FixApplyV2] Incident intelligence not initialized")
 		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
 		return
 	}
@@ -189,16 +281,20 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 		Confirmed bool   `json:"confirmed"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("[FixApplyV2] Error decoding request body: %v", err)
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
+	log.Printf("[FixApplyV2] Request parsed - fixId: '%s', confirmed: %v", req.FixID, req.Confirmed)
 
 	if req.FixID == "" {
+		log.Printf("[FixApplyV2] Missing fixId in request")
 		http.Error(w, "Missing fixId", http.StatusBadRequest)
 		return
 	}
 
 	if !req.Confirmed {
+		log.Printf("[FixApplyV2] Fix not confirmed")
 		http.Error(w, "Fix must be confirmed before applying", http.StatusBadRequest)
 		return
 	}
@@ -206,9 +302,11 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	// Get incident snapshot
 	snapshot, err := ws.getIncidentSnapshot(incidentID)
 	if err != nil {
+		log.Printf("[FixApplyV2] Failed to get snapshot for incident %s: %v", incidentID, err)
 		http.Error(w, fmt.Sprintf("Failed to get snapshot: %v", err), http.StatusNotFound)
 		return
 	}
+	log.Printf("[FixApplyV2] Snapshot retrieved successfully, pattern: %s", snapshot.Pattern)
 
 	// Create remediation engine
 	engine := incidents.NewRemediationEngine()
@@ -216,21 +314,36 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	// Generate remediation plan
 	plan, err := engine.GenerateRemediation(r.Context(), snapshot, nil)
 	if err != nil {
+		log.Printf("[FixApplyV2] Failed to generate remediation: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to generate remediation: %v", err), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("[FixApplyV2] Remediation plan generated, fix plans: %d", len(plan.FixPlans))
 
 	// Find the fix plan
 	var fixPlan *incidents.FixPlan
 	for _, fp := range plan.FixPlans {
+		log.Printf("[FixApplyV2] Checking fix plan: ID=%s, Title=%s", fp.ID, fp.Title)
 		if fp.ID == req.FixID {
 			fixPlan = fp
+			log.Printf("[FixApplyV2] Found matching fix plan")
 			break
 		}
 	}
 
 	if fixPlan == nil {
-		http.Error(w, "Fix plan not found", http.StatusNotFound)
+		errorMsg := fmt.Sprintf("Fix plan not found for fixId: %s. Available fix plans: %d", req.FixID, len(plan.FixPlans))
+		if len(plan.FixPlans) > 0 {
+			errorMsg += ". Fix plan IDs: "
+			for i, fp := range plan.FixPlans {
+				if i > 0 {
+					errorMsg += ", "
+				}
+				errorMsg += fp.ID
+			}
+		}
+		log.Printf("[FixApplyV2] ERROR: %s", errorMsg)
+		http.Error(w, errorMsg, http.StatusNotFound)
 		return
 	}
 
@@ -246,34 +359,57 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 	manager := ws.app.incidentIntelligence.GetManager()
 	incident := manager.GetIncident(incidentID)
 	if incident == nil {
+		log.Printf("[FixApplyV2] Incident not found: %s", incidentID)
 		http.Error(w, "Incident not found", http.StatusNotFound)
 		return
 	}
+	log.Printf("[FixApplyV2] Incident found: %s", incidentID)
 
 	// Convert FixPlan to ProposedFix
+	log.Printf("[FixApplyV2] Converting fix plan to proposed fix...")
 	proposedFix := fixPlanToProposedFix(fixPlan, snapshot)
+	log.Printf("[FixApplyV2] Proposed fix created - Type: %s, Target: %s/%s/%s", 
+		proposedFix.Type, proposedFix.TargetResource.Kind, proposedFix.TargetResource.Namespace, proposedFix.TargetResource.Name)
 
 	// Create fix executor using the kube adapter from incident intelligence
 	var fixExecutor *incidents.FixExecutor
+	log.Printf("[FixApplyV2] Checking for fix executor...")
 	if ws.app.incidentIntelligence != nil && ws.app.incidentIntelligence.GetManager() != nil {
+		log.Printf("[FixApplyV2] Incident intelligence available, getting kube adapter...")
 		// Get the kube adapter from the incident intelligence system
 		// The kube adapter implements KubeFixExecutor interface
 		kubeAdapter := ws.getKubeFixExecutor()
 		if kubeAdapter != nil {
+			log.Printf("[FixApplyV2] Kube adapter found, creating fix executor...")
 			fixExecutor = incidents.NewFixExecutor(kubeAdapter)
+			log.Printf("[FixApplyV2] Fix executor created successfully")
+		} else {
+			log.Printf("[FixApplyV2] WARNING: Kube adapter is nil")
 		}
+	} else {
+		log.Printf("[FixApplyV2] WARNING: Incident intelligence or manager is nil")
 	}
 
 	executionID := fmt.Sprintf("exec-%s-%d", incidentID, time.Now().Unix())
+	log.Printf("[FixApplyV2] Generated execution ID: %s", executionID)
 
 	// Apply the fix
 	var applyResult *incidents.FixResult
 	var applyErr error
 	if fixExecutor != nil {
+		log.Printf("[FixApplyV2] Executing fix...")
 		applyResult, applyErr = fixExecutor.Apply(r.Context(), proposedFix)
+		if applyErr != nil {
+			log.Printf("[FixApplyV2] Fix execution error: %v", applyErr)
+		} else if applyResult != nil {
+			log.Printf("[FixApplyV2] Fix execution result - Success: %v, Message: %s", applyResult.Success, applyResult.Message)
+		} else {
+			log.Printf("[FixApplyV2] WARNING: Fix execution returned nil result")
+		}
 	} else {
 		// No executor available - return error
-		http.Error(w, "Fix executor not available - cannot apply fix", http.StatusServiceUnavailable)
+		log.Printf("[FixApplyV2] ERROR: Fix executor not available - cannot apply fix")
+		http.Error(w, "Fix executor not available - cannot apply fix. Check server logs for details.", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -413,14 +549,90 @@ func (ws *WebServer) handlePostCheck(w http.ResponseWriter, r *http.Request, inc
 
 // getIncidentSnapshot gets the incident snapshot (helper function)
 func (ws *WebServer) getIncidentSnapshot(incidentID string) (*incidents.IncidentSnapshot, error) {
-	// Try to get from cache first
-	manager := ws.app.incidentIntelligence.GetManager()
-	incident := manager.GetIncident(incidentID)
+	// Find the incident - try cache first, then v2 manager, then v1 fallback
+	var incident *incidents.Incident
+
+	// Check cache first
+	if ws.incidentCache != nil {
+		incident = ws.incidentCache.GetV2Incident(incidentID)
+	}
+
+	// If not in cache, try v2 manager (fast path)
+	if incident == nil && ws.app.incidentIntelligence != nil {
+		incident = ws.app.incidentIntelligence.GetManager().GetIncident(incidentID)
+		if incident != nil && ws.incidentCache != nil {
+			// Cache it
+			ws.incidentCache.SetV2Incident(incidentID, incident)
+		}
+	}
+
+	// Fallback to v1 incidents if not found (needed for v1 incident compatibility)
+	// Use the same approach as handleIncidentSnapshot
+	if incident == nil {
+		// Check cache for v1 incidents
+		var v1Incidents []KubernetesIncident
+		if ws.incidentCache != nil {
+			v1Incidents = ws.incidentCache.GetV1Incidents("")
+		}
+		if v1Incidents == nil {
+			// Not in cache, fetch and cache
+			v1Incidents = ws.getV1Incidents("")
+			if ws.incidentCache != nil {
+				ws.incidentCache.SetV1Incidents("", v1Incidents)
+			}
+		}
+
+		// Search for the incident
+		for _, v1 := range v1Incidents {
+			v2Inc := ws.convertV1ToV2Incident(v1)
+			if v2Inc.ID == incidentID {
+				incident = v2Inc
+				// Cache the converted incident
+				if ws.incidentCache != nil {
+					ws.incidentCache.SetV2Incident(incidentID, incident)
+				}
+				break
+			}
+		}
+	}
+
 	if incident == nil {
 		return nil, fmt.Errorf("incident not found")
 	}
 
-	// Build snapshot from incident
+	// Check snapshot cache first (same logic as handleIncidentSnapshot)
+	fingerprint := incident.Fingerprint
+	if fingerprint == "" {
+		// Compute fingerprint if not set
+		containerName := ""
+		if incident.Resource.Kind == "Pod" {
+			// Try to get container name from metadata or signals
+			if len(incident.Signals.Status) > 0 {
+				if container, ok := incident.Signals.Status[0].Attributes["container"]; ok {
+					containerName = container
+				}
+			}
+		}
+		fingerprint = incidents.ComputeIncidentFingerprint(incident, containerName)
+	}
+
+	// Try to get from cache first
+	if ws.snapshotCache != nil {
+		snapshot, cached := ws.snapshotCache.Get(fingerprint)
+		if cached {
+			// Ensure IncidentID is set (required for remediation engine)
+			if snapshot.IncidentID == "" {
+				snapshot.IncidentID = incidentID
+			}
+			// Ensure Pattern is set from incident
+			if snapshot.Pattern == "" && incident.Pattern != "" {
+				snapshot.Pattern = incident.Pattern
+			}
+			return snapshot, nil
+		}
+	}
+
+	// Build snapshot from incident (cache miss)
 	hotEvidenceBuilder := incidents.NewHotEvidenceBuilder()
 	hotEvidence := hotEvidenceBuilder.BuildHotEvidence(incident)
 
@@ -429,6 +641,21 @@ func (ws *WebServer) getIncidentSnapshot(incidentID string) (*incidents.Incident
 		snapshotBuilder.SetLearner(learner)
 	}
 	snapshot := snapshotBuilder.BuildSnapshot(incident, hotEvidence)
+	
+	// Ensure IncidentID is set (required for remediation engine)
+	if snapshot.IncidentID == "" {
+		snapshot.IncidentID = incidentID
+	}
+	
+	// Ensure Pattern is set from incident
+	if snapshot.Pattern == "" && incident.Pattern != "" {
+		snapshot.Pattern = incident.Pattern
+	}
+
+	// Cache the snapshot for future use
+	if ws.snapshotCache != nil {
+		ws.snapshotCache.Put(fingerprint, snapshot)
+	}
 
 	return snapshot, nil
 }

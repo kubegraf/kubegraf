@@ -42,17 +42,21 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   // Fetch snapshot when modal opens
   createEffect(async () => {
     if (props.isOpen && props.incident) {
+      console.log('[IncidentModalV2] Modal opened for incident:', props.incident.id);
       setLoading(true);
       setError(null);
       setActiveTab(null);
       setLoadedTabs(new Set());
+      setRemediationPlan(null); // Reset remediation plan
       
       // Track snapshot fetch
       const requestId = crypto.randomUUID();
       const endSnapshotFetch = trackSnapshotFetch(props.incident.id, requestId);
       
       try {
+        console.log('[IncidentModalV2] Loading snapshot for:', props.incident.id);
         const snap = await api.getIncidentSnapshot(props.incident.id);
+        console.log('[IncidentModalV2] Snapshot loaded:', snap);
         setSnapshot(snap);
         
         // Auto-open recommended action tab if available
@@ -60,15 +64,27 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
           setActiveTab(snap.recommendedAction.tab);
         }
         
-        // Load remediation plan (fixes)
-        loadRemediationPlan(props.incident.id);
+        // Load remediation plan (fixes) - do this in parallel, don't wait
+        if (props.incident && props.incident.id) {
+          console.log('[IncidentModalV2] Loading remediation plan for:', props.incident.id);
+          loadRemediationPlan(props.incident.id).catch(err => {
+            console.error('[IncidentModalV2] Failed to load remediation plan:', err);
+          });
+        } else {
+          console.warn('[IncidentModalV2] Cannot load remediation plan - incident or incident.id is null');
+        }
       } catch (err: any) {
+        console.error('[IncidentModalV2] Error loading snapshot:', err);
         setError(err.message || 'Failed to load incident snapshot');
-        console.error('Error loading snapshot:', err);
       } finally {
         setLoading(false);
         endSnapshotFetch();
       }
+    } else {
+      // Reset when modal closes
+      console.log('[IncidentModalV2] Modal closed, resetting state');
+      setRemediationPlan(null);
+      setSnapshot(null);
     }
   });
 
@@ -81,17 +97,40 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const [showConfirmDialog, setShowConfirmDialog] = createSignal(false);
   const [confirmCheckbox, setConfirmCheckbox] = createSignal(false);
 
-  // Load remediation plan
+  // Load remediation plan with timeout
   const loadRemediationPlan = async (incidentId: string) => {
+    console.log('[Remediation] Starting loadRemediationPlan for:', incidentId);
     setLoadingFixes(true);
-    try {
-      const plan = await api.getIncidentFixes(incidentId);
-      setRemediationPlan(plan);
-    } catch (err: any) {
-      console.error('Error loading remediation plan:', err);
-      // Don't show error to user, just log it
-    } finally {
+    
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      console.error('[Remediation] TIMEOUT - API call took too long, clearing loading state');
       setLoadingFixes(false);
+      setRemediationPlan(null);
+    }, 30000); // 30 second timeout
+    
+    try {
+      console.log('[Remediation] Calling API getIncidentFixes for:', incidentId);
+      const plan = await api.getIncidentFixes(incidentId);
+      clearTimeout(timeoutId);
+      console.log('[Remediation] API returned plan:', plan);
+      console.log('[Remediation] Plan has recommendedAction:', !!plan?.recommendedAction);
+      console.log('[Remediation] Plan has fixPlans:', plan?.fixPlans?.length || 0);
+      setRemediationPlan(plan);
+      console.log('[Remediation] State updated - remediationPlan signal:', remediationPlan());
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.error('[Remediation] ERROR loading remediation plan:', err);
+      console.error('[Remediation] Error message:', err.message);
+      console.error('[Remediation] Error stack:', err.stack);
+      console.error('[Remediation] Error name:', err.name);
+      // Set plan to null on error so UI doesn't show stale data
+      setRemediationPlan(null);
+    } finally {
+      clearTimeout(timeoutId);
+      console.log('[Remediation] Finally block - setting loadingFixes to false');
+      setLoadingFixes(false);
+      console.log('[Remediation] Loading complete - loadingFixes signal:', loadingFixes());
     }
   };
 
@@ -101,7 +140,10 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
     setPreviewingFix(fixId);
     setFixPreview(null);
     try {
+      console.log('[FixPreview] Previewing fix:', fixId, 'for incident:', props.incident.id);
       const preview = await api.previewFix(props.incident.id, fixId);
+      console.log('[FixPreview] Preview response:', preview);
+      console.log('[FixPreview] Preview fixId:', preview?.fixId, 'Expected fixId:', fixId);
       setFixPreview(preview);
     } catch (err: any) {
       console.error('Error previewing fix:', err);
@@ -115,52 +157,102 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const handleApplyFix = async (fixId: string) => {
     if (!props.incident) return;
     
+    console.log('[FixApply] Attempting to apply fix:', fixId);
+    console.log('[FixApply] Current preview:', fixPreview());
+    console.log('[FixApply] Preview fixId:', fixPreview()?.fixId, 'Expected fixId:', fixId);
+    
     // Check if preview is available
-    if (!fixPreview() || fixPreview()!.fixId !== fixId) {
+    if (!fixPreview()) {
+      console.warn('[FixApply] No preview available, requesting preview first');
       alert('Please preview the fix first before applying.');
       return;
     }
+    
+    // Check if fixId matches (with some flexibility for ID format differences)
+    const previewFixId = fixPreview()!.fixId;
+    if (previewFixId !== fixId && !previewFixId.includes(fixId) && !fixId.includes(previewFixId)) {
+      console.warn('[FixApply] FixId mismatch. Preview fixId:', previewFixId, 'Expected:', fixId);
+      // Still allow if preview exists - the backend will validate
+      console.log('[FixApply] Allowing apply despite ID mismatch - backend will validate');
+    }
 
     // Show confirmation dialog
+    console.log('[FixApply] Setting showConfirmDialog to true');
     setShowConfirmDialog(true);
     setConfirmCheckbox(false);
+    console.log('[FixApply] Dialog state set, showConfirmDialog should be:', true);
   };
 
   // Confirm and apply fix
-  const confirmApplyFix = async () => {
-    if (!props.incident || !fixPreview()) return;
-    if (!confirmCheckbox()) {
+  const confirmApplyFix = async (confirmed?: boolean) => {
+    console.log('[FixApply] confirmApplyFix called, confirmed:', confirmed, 'checkbox:', confirmCheckbox());
+    if (!props.incident || !fixPreview()) {
+      console.error('[FixApply] Missing incident or preview');
+      alert('Error: Missing incident or preview data');
+      return;
+    }
+    // If confirmed parameter is true, proceed. Otherwise check checkbox state.
+    if (confirmed !== true && !confirmCheckbox()) {
+      console.warn('[FixApply] Confirmation not provided and checkbox not checked');
       alert('Please confirm that you understand this will change cluster state.');
       return;
     }
+    console.log('[FixApply] Confirmation passed, proceeding with fix application');
 
     setShowConfirmDialog(false);
     setApplyingFix(fixPreview()!.fixId);
     try {
-      const result = await api.applyFix(props.incident.id, fixPreview()!.fixId, true);
-      alert(`Fix applied successfully! Execution ID: ${result.executionId}`);
+      const fixId = fixPreview()!.fixId;
+      console.log('[FixApply] Calling api.applyFix with:', {
+        incidentId: props.incident.id,
+        fixId: fixId,
+        confirmed: true
+      });
       
-      // Optionally run post-check after a delay
-      setTimeout(async () => {
-        try {
-          const postCheck = await api.postCheck(props.incident!.id, result.executionId);
-          if (postCheck.improved) {
-            alert('Post-check passed: Incident appears to be resolved!');
-          } else {
-            alert('Post-check warning: Some checks indicate the fix may not have fully resolved the issue.');
+      let result;
+      try {
+        result = await api.applyFix(props.incident.id, fixId, true);
+        console.log('[FixApply] API call completed, response:', result);
+      } catch (apiError: any) {
+        console.error('[FixApply] API call failed:', apiError);
+        const errorMessage = apiError?.message || apiError?.toString() || 'Unknown error';
+        throw new Error(`Failed to call apply fix API: ${errorMessage}`);
+      }
+      
+      console.log('[FixApply] Fix applied successfully:', result);
+      
+      if (result && result.executionId) {
+        alert(`Fix applied successfully! Execution ID: ${result.executionId}`);
+        
+        // Optionally run post-check after a delay
+        setTimeout(async () => {
+          try {
+            console.log('[FixApply] Running post-check for execution:', result.executionId);
+            const postCheck = await api.postCheck(props.incident!.id, result.executionId);
+            if (postCheck.improved) {
+              alert('Post-check passed: Incident appears to be resolved!');
+            } else {
+              alert('Post-check warning: Some checks indicate the fix may not have fully resolved the issue.');
+            }
+          } catch (err) {
+            console.error('[FixApply] Error running post-check:', err);
           }
-        } catch (err) {
-          console.error('Error running post-check:', err);
-        }
-      }, 5000);
+        }, 5000);
+      } else {
+        console.warn('[FixApply] Fix result missing executionId:', result);
+        alert('Fix applied but no execution ID returned. Please check the server logs.');
+      }
       
       // Reload snapshot and fixes
+      console.log('[FixApply] Reloading snapshot and remediation plan');
       const snap = await api.getIncidentSnapshot(props.incident.id);
       setSnapshot(snap);
       loadRemediationPlan(props.incident.id);
       setFixPreview(null);
     } catch (err: any) {
-      alert(`Failed to apply fix: ${err.message}`);
+      console.error('[FixApply] Error applying fix:', err);
+      const errorMessage = err?.message || err?.toString() || 'Unknown error';
+      alert(`Failed to apply fix: ${errorMessage}`);
     } finally {
       setApplyingFix(null);
     }
@@ -348,6 +440,70 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
             overflow: 'auto',
             padding: '24px',
           }}>
+            {/* Debug box - ALWAYS VISIBLE (outside all Show conditions) */}
+            <div style={{
+              background: 'rgba(255, 193, 7, 0.3)',
+              'border-radius': '8px',
+              padding: '16px',
+              'margin-bottom': '20px',
+              border: '3px solid rgba(255, 193, 7, 0.8)',
+              'font-size': '13px',
+              color: 'var(--text-primary)',
+              'font-weight': '600',
+              position: 'relative',
+              'z-index': 1000
+            }}>
+              🔍 DEBUG STATE (Always Visible):
+              <div style={{ 'margin-top': '12px', 'font-size': '12px', 'font-weight': '400' }}>
+                loading = {loading() ? 'YES ⏳' : 'NO ✅'}<br/>
+                error = {error() ? error() : 'NONE ✅'}<br/>
+                snapshot = {snapshot() ? 'LOADED ✅' : 'NULL ❌'}<br/>
+                remediationPlan = {remediationPlan() ? 'LOADED ✅' : 'NULL ❌'}<br/>
+                loadingFixes = {loadingFixes() ? 'YES ⏳' : 'NO ✅'}<br/>
+                hasRecommendedAction = {remediationPlan()?.recommendedAction ? 'YES ✅' : 'NO ❌'}<br/>
+                fixPlansCount = {remediationPlan()?.fixPlans?.length || 0}<br/>
+                incidentId = {props.incident?.id || 'N/A'}
+              </div>
+              <button
+                onClick={() => {
+                  console.log('[DEBUG] Manual trigger - reloading remediation plan');
+                  if (props.incident && props.incident.id) {
+                    // Clear previous preview when reloading
+                    setFixPreview(null);
+                    setPreviewingFix(null);
+                    loadRemediationPlan(props.incident.id);
+                  } else {
+                    console.error('[DEBUG] Cannot reload - incident or id is null');
+                  }
+                }}
+                disabled={loadingFixes()}
+                style={{
+                  'margin-top': '12px',
+                  padding: '8px 16px',
+                  background: loadingFixes() ? 'var(--bg-secondary)' : 'var(--accent-primary)',
+                  color: loadingFixes() ? 'var(--text-secondary)' : 'white',
+                  border: 'none',
+                  'border-radius': '6px',
+                  cursor: loadingFixes() ? 'not-allowed' : 'pointer',
+                  'font-size': '12px',
+                  'font-weight': '600',
+                  opacity: loadingFixes() ? 0.6 : 1,
+                  display: 'flex',
+                  'align-items': 'center',
+                  gap: '8px'
+                }}
+              >
+                {loadingFixes() ? (
+                  <>
+                    <div class="spinner" style={{ width: '12px', height: '12px' }} />
+                    Reloading...
+                  </>
+                ) : (
+                  '🔄 Reload Fixes'
+                )}
+              </button>
+            </div>
+
             <Show when={loading()}>
               <div style={{ 
                 display: 'flex', 
@@ -570,8 +726,39 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
                 </div>
               </Show>
 
+              {/* Loading state for fixes */}
+              <Show when={loadingFixes()}>
+                <div style={{
+                  background: 'var(--bg-card)',
+                  'border-radius': '8px',
+                  padding: '16px',
+                  'margin-bottom': '20px',
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  'align-items': 'center',
+                  gap: '12px',
+                  color: 'var(--text-secondary)',
+                  'font-size': '13px'
+                }}>
+                  <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                  Loading remediation plan...
+                </div>
+              </Show>
+
               {/* Recommended First Action (from Remediation Engine) */}
-              <Show when={remediationPlan()?.recommendedAction}>
+              <Show when={!loadingFixes() && remediationPlan()?.recommendedAction} fallback={
+                <div style={{
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  'border-radius': '4px',
+                  padding: '8px',
+                  'margin-bottom': '12px',
+                  'font-size': '11px',
+                  color: '#dc3545',
+                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                }}>
+                  ⚠️ Recommended Action NOT showing: loadingFixes={loadingFixes() ? 'true' : 'false'}, hasPlan={remediationPlan() ? 'yes' : 'no'}, hasAction={remediationPlan()?.recommendedAction ? 'yes' : 'no'}
+                </div>
+              }>
                 <div style={{
                   background: 'var(--accent-primary)10',
                   'border-radius': '8px',
@@ -595,7 +782,7 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
                     {remediationPlan()!.recommendedAction!.description}
                   </p>
                   <div style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}>
-                    <For each={remediationPlan()!.recommendedAction!.actions}>
+                    <For each={remediationPlan()!.recommendedAction!.actions || []}>
                       {(action) => (
                         <div style={{ 
                           padding: '8px 12px',
@@ -655,7 +842,7 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
               </Show>
 
               {/* Suggested Fixes Section */}
-              <Show when={remediationPlan()?.fixPlans && remediationPlan()!.fixPlans.length > 0}>
+              <Show when={!loadingFixes() && remediationPlan()?.fixPlans && remediationPlan()!.fixPlans.length > 0}>
                 <div style={{
                   background: 'var(--bg-card)',
                   'border-radius': '8px',
@@ -680,11 +867,27 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
                           onApply={() => handleApplyFix(fix.id)}
                           previewing={previewingFix() === fix.id}
                           applying={applyingFix() === fix.id}
-                          preview={fixPreview()?.fixId === fix.id ? fixPreview() : null}
+                          preview={fixPreview() && (fixPreview()!.fixId === fix.id || fixPreview()!.fixId.includes(fix.id) || fix.id.includes(fixPreview()!.fixId)) ? fixPreview() : null}
                         />
                       )}
                     </For>
                   </div>
+                </div>
+              </Show>
+
+              {/* Show message if no fixes available */}
+              <Show when={!loadingFixes() && remediationPlan() && (!remediationPlan()!.fixPlans || remediationPlan()!.fixPlans.length === 0)}>
+                <div style={{
+                  background: 'var(--bg-card)',
+                  'border-radius': '8px',
+                  border: '1px solid var(--border-color)',
+                  padding: '16px',
+                  'margin-bottom': '20px',
+                  color: 'var(--text-secondary)',
+                  'font-size': '13px',
+                  'text-align': 'center'
+                }}>
+                  No suggested fixes available for this incident pattern.
                 </div>
               </Show>
 
@@ -912,12 +1115,19 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
       </div>
 
       {/* Confirmation Dialog */}
+      <Show when={showConfirmDialog()}>
+        {(() => {
+          console.log('[ConfirmDialog] Rendering in JSX - isOpen:', showConfirmDialog(), 'fix:', fixPreview() ? fixPreview()!.fixId : 'null');
+          return null;
+        })()}
+      </Show>
       <ConfirmDialog
         isOpen={showConfirmDialog()}
         fix={fixPreview()}
         confirmed={confirmCheckbox()}
         onConfirm={confirmApplyFix}
         onCancel={() => {
+          console.log('[ConfirmDialog] Cancel clicked');
           setShowConfirmDialog(false);
           setConfirmCheckbox(false);
         }}
@@ -1002,9 +1212,9 @@ const FixCard: Component<{
           }}>
             {props.fix.description}
           </p>
-          <Show when={props.fix.evidenceRefs.length > 0}>
+          <Show when={props.fix.evidenceRefs != null && Array.isArray(props.fix.evidenceRefs) && props.fix.evidenceRefs.length > 0}>
             <div style={{ display: 'flex', 'flex-wrap': 'wrap', gap: '6px', 'margin-bottom': '8px' }}>
-              <For each={props.fix.evidenceRefs}>
+              <For each={props.fix.evidenceRefs || []}>
                 {(evidence) => (
                   <span 
                     style={{
@@ -1153,7 +1363,10 @@ const FixCard: Component<{
           {props.previewing ? 'Previewing...' : props.preview ? 'Previewed' : 'Preview Fix'}
         </button>
         <button
-          onClick={props.onApply}
+          onClick={() => {
+            console.log('[FixCard] Apply button clicked, preview:', props.preview ? 'exists' : 'null', 'applying:', props.applying);
+            props.onApply();
+          }}
           disabled={!props.preview || props.applying}
           style={{
             padding: '8px 16px',
@@ -1183,7 +1396,11 @@ const ConfirmDialog: Component<{
   onCancel: () => void;
   onCheckboxChange: (checked: boolean) => void;
 }> = (props) => {
-  if (!props.isOpen || !props.fix) return null;
+  if (!props.isOpen || !props.fix) {
+    console.log('[ConfirmDialog] Not rendering - isOpen:', props.isOpen, 'fix:', props.fix ? 'exists' : 'null');
+    return null;
+  }
+  console.log('[ConfirmDialog] Rendering dialog for fix:', props.fix.fixId);
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
@@ -1289,7 +1506,11 @@ const ConfirmDialog: Component<{
         </Show>
         <div style={{ display: 'flex', gap: '8px', 'justify-content': 'flex-end' }}>
           <button
-            onClick={props.onCancel}
+            onClick={(e) => {
+              e.stopPropagation();
+              console.log('[ConfirmDialog] Cancel button clicked');
+              props.onCancel();
+            }}
             style={{
               padding: '8px 16px',
               background: 'var(--bg-tertiary)',
@@ -1303,7 +1524,15 @@ const ConfirmDialog: Component<{
             Cancel
           </button>
           <button
-            onClick={() => props.onConfirm(props.confirmed)}
+            onClick={(e) => {
+              e.stopPropagation();
+              console.log('[ConfirmDialog] Apply Fix button clicked, confirmed:', props.confirmed);
+              if (props.confirmed) {
+                props.onConfirm(true);
+              } else {
+                console.warn('[ConfirmDialog] Button clicked but checkbox not confirmed');
+              }
+            }}
             disabled={!props.confirmed}
             style={{
               padding: '8px 16px',

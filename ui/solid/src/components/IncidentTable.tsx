@@ -955,7 +955,12 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                               </h4>
                               <Show when={props.onViewDetails}>
                                 <button
-                                  onClick={() => props.onViewDetails!(incident)}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('[IncidentTable] View Full Remediation clicked for:', incident.id);
+                                    props.onViewDetails!(incident);
+                                  }}
                                   style={{
                                     padding: '6px 12px',
                                     background: 'var(--accent-primary)',
