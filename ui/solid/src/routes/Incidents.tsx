@@ -4,7 +4,7 @@ import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
 import { Incident } from '../services/api';
 import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
-import IncidentDetailModal from '../components/intelligence/IncidentDetailModal';
+import IncidentModalV2 from '../components/intelligence/IncidentModalV2';
 import { AutoRemediationPanel, LearningDashboard } from '../components/intelligence';
 import { 
   getCachedIncidents, 
@@ -299,8 +299,8 @@ const Incidents: Component = () => {
         </div>
       </div>
 
-      {/* Modal */}
-      <IncidentDetailModal
+      {/* Modal v2 */}
+      <IncidentModalV2
         incident={selectedIncident()}
         isOpen={detailModalOpen()}
         onClose={closeDetailModal}

@@ -31,12 +31,63 @@ const ChangeTimeline: Component<ChangeTimelineProps> = (props) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/incidents/${incidentId}/changes?window=1h`);
+      // Use lookback parameter (in minutes) instead of window
+      const response = await fetch(`/api/v2/incidents/${incidentId}/changes?lookback=60`);
       if (!response.ok) {
         throw new Error(`Failed to fetch: ${response.statusText}`);
       }
       const data = await response.json();
-      setChanges(data || []);
+      // Handle both array format and object with changes array
+      const changesArray = Array.isArray(data) ? data : (data.changes || []);
+      // Convert to expected format if needed
+      const formattedChanges = changesArray.map((change: any) => {
+        if (change.Change) {
+          // Backend returns {Change: {...}, RelevanceScore: ...}
+          const ch = change.Change;
+          // Parse timestamp - handle both string and Date formats
+          let timestamp = ch.Timestamp || ch.Time || new Date().toISOString();
+          if (typeof timestamp === 'string') {
+            // Ensure it's a valid ISO string
+            const parsed = new Date(timestamp);
+            if (isNaN(parsed.getTime())) {
+              timestamp = new Date().toISOString();
+            } else {
+              timestamp = parsed.toISOString();
+            }
+          } else if (timestamp instanceof Date) {
+            timestamp = timestamp.toISOString();
+          }
+          
+          return {
+            Type: ch.Type || ch.ChangeType || 'Change',
+            Timestamp: timestamp,
+            Namespace: ch.Namespace || '',
+            ResourceKind: ch.ResourceKind || ch.Kind || '',
+            ResourceName: ch.ResourceName || ch.Name || '',
+            ChangeType: ch.ChangeType || ch.Type || 'update',
+            Severity: ch.Severity || (change.RelevanceScore > 0.7 ? 'warning' : 'info'),
+            Reason: ch.Reason || '',
+            Message: ch.Message || ch.Description || '',
+          };
+        }
+        // Handle direct ChangeEvent format
+        let timestamp = change.Timestamp || change.Time || new Date().toISOString();
+        if (typeof timestamp === 'string') {
+          const parsed = new Date(timestamp);
+          if (isNaN(parsed.getTime())) {
+            timestamp = new Date().toISOString();
+          } else {
+            timestamp = parsed.toISOString();
+          }
+        } else if (timestamp instanceof Date) {
+          timestamp = timestamp.toISOString();
+        }
+        return {
+          ...change,
+          Timestamp: timestamp,
+        };
+      });
+      setChanges(formattedChanges);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch changes');
       console.error('Error fetching changes:', err);
@@ -203,7 +254,17 @@ const ChangeTimeline: Component<ChangeTimelineProps> = (props) => {
                       'font-size': '11px',
                       color: 'var(--text-muted)'
                     }}>
-                      🕐 {new Date(change.Timestamp).toLocaleString()}
+                      🕐 {(() => {
+                        try {
+                          const date = new Date(change.Timestamp);
+                          if (isNaN(date.getTime())) {
+                            return 'Invalid Date';
+                          }
+                          return date.toLocaleString();
+                        } catch (e) {
+                          return 'Invalid Date';
+                        }
+                      })()}
                     </span>
                   </div>
 
