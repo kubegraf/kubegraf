@@ -5,6 +5,7 @@ package incidents
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -142,19 +143,23 @@ func (g *RestartStormFixGenerator) generateMemoryIncreaseFix(incident *Incident)
 	newLimit := CalculateMemoryIncrease(currentLimit)
 	diff := GenerateMemoryPatchDiff(containerName, currentLimit, newLimit)
 
+	// Get the parent workload (Deployment, StatefulSet, DaemonSet, Job, CronJob)
+	workload := getWorkloadRef(incident)
+	
+	// Generate patch command based on workload type
+	resourceType := strings.ToLower(workload.Kind)
+	dryRunCmd := fmt.Sprintf("kubectl patch %s %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]' --dry-run=client",
+		resourceType, workload.Name, workload.Namespace, newLimit)
+	applyCmd := fmt.Sprintf("kubectl patch %s %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]'",
+		resourceType, workload.Name, workload.Namespace, newLimit)
+
 	return &ProposedFix{
 		Type:        FixTypePatch,
-		Description: fmt.Sprintf("Increase memory limit from %s to %s (50%% increase)", currentLimit, newLimit),
+		Description: fmt.Sprintf("Increase memory limit from %s to %s (50%% increase) on %s", currentLimit, newLimit, workload.Kind),
 		PreviewDiff: diff,
-		DryRunCmd: fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]' --dry-run=client",
-			getDeploymentName(incident), incident.Resource.Namespace, newLimit),
-		ApplyCmd: fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]'",
-			getDeploymentName(incident), incident.Resource.Namespace, newLimit),
-		TargetResource: KubeResourceRef{
-			Kind:      "Deployment",
-			Name:      getDeploymentName(incident),
-			Namespace: incident.Resource.Namespace,
-		},
+		DryRunCmd:   dryRunCmd,
+		ApplyCmd:    applyCmd,
+		TargetResource: workload,
 		Changes: []FixChange{
 			{
 				Path:     "spec.template.spec.containers[0].resources.limits.memory",
@@ -196,20 +201,24 @@ func (g *OOMPressureFixGenerator) GenerateFixes(incident *Incident) []*ProposedF
 	newLimit := CalculateMemoryIncrease(currentLimit)
 	diff := GenerateMemoryPatchDiff(containerName, currentLimit, newLimit)
 
+	// Get the parent workload (Deployment, StatefulSet, DaemonSet, Job, CronJob)
+	workload := getWorkloadRef(incident)
+	
+	// Generate patch command based on workload type
+	resourceType := strings.ToLower(workload.Kind)
+	dryRunCmd := fmt.Sprintf("kubectl patch %s %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]' --dry-run=client",
+		resourceType, workload.Name, workload.Namespace, newLimit)
+	applyCmd := fmt.Sprintf("kubectl patch %s %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]'",
+		resourceType, workload.Name, workload.Namespace, newLimit)
+
 	// Primary fix: Increase memory limit
 	fixes = append(fixes, &ProposedFix{
 		Type:        FixTypePatch,
-		Description: fmt.Sprintf("Increase memory limit from %s to %s (50%% increase) to prevent OOM kills", currentLimit, newLimit),
+		Description: fmt.Sprintf("Increase memory limit from %s to %s (50%% increase) to prevent OOM kills on %s", currentLimit, newLimit, workload.Kind),
 		PreviewDiff: diff,
-		DryRunCmd: fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]' --dry-run=client",
-			getDeploymentName(incident), incident.Resource.Namespace, newLimit),
-		ApplyCmd: fmt.Sprintf("kubectl patch deployment %s -n %s --type=json -p='[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/limits/memory\", \"value\": \"%s\"}]'",
-			getDeploymentName(incident), incident.Resource.Namespace, newLimit),
-		TargetResource: KubeResourceRef{
-			Kind:      "Deployment",
-			Name:      getDeploymentName(incident),
-			Namespace: incident.Resource.Namespace,
-		},
+		DryRunCmd:   dryRunCmd,
+		ApplyCmd:    applyCmd,
+		TargetResource: workload,
 		Changes: []FixChange{
 			{
 				Path:     "spec.template.spec.containers[0].resources.limits.memory",
@@ -389,42 +398,93 @@ func (g *ImagePullFixGenerator) GenerateFixes(incident *Incident) []*ProposedFix
 // Helper Functions
 // ========================================
 
-// getDeploymentName extracts the deployment name from an incident
-func getDeploymentName(incident *Incident) string {
-	// If it's already a deployment
-	if incident.Resource.Kind == "Deployment" {
-		return incident.Resource.Name
+// getWorkloadRef extracts the parent workload (Deployment, StatefulSet, DaemonSet, Job, CronJob) from an incident
+func getWorkloadRef(incident *Incident) KubeResourceRef {
+	// If it's already a workload resource, return it
+	workloadKinds := map[string]bool{
+		"Deployment":  true,
+		"StatefulSet": true,
+		"DaemonSet":   true,
+		"Job":         true,
+		"CronJob":     true,
+	}
+	if workloadKinds[incident.Resource.Kind] {
+		return incident.Resource
 	}
 
-	// Try to extract from metadata
+	// Try to extract from metadata (owner information)
 	if incident.Metadata != nil {
-		if name, ok := incident.Metadata["deploymentName"].(string); ok {
-			return name
+		var ownerKind, ownerName string
+		
+		// Try ownerKind and ownerName first
+		if kind, ok := incident.Metadata["ownerKind"].(string); ok {
+			ownerKind = kind
 		}
 		if name, ok := incident.Metadata["ownerName"].(string); ok {
-			return name
+			ownerName = name
 		}
-	}
-
-	// For pods, try to derive from pod name (remove hash suffix)
-	podName := incident.Resource.Name
-	// Common patterns: app-name-hash-hash, app-name-replicaset-hash
-	// Try to extract base name
-	if len(podName) > 10 {
-		// Find last two dashes and remove suffix
-		dashCount := 0
-		for i := len(podName) - 1; i >= 0; i-- {
-			if podName[i] == '-' {
-				dashCount++
-				if dashCount == 2 {
-					return podName[:i]
+		
+		// Fallback to deploymentName for backwards compatibility
+		if ownerName == "" {
+			if name, ok := incident.Metadata["deploymentName"].(string); ok {
+				ownerName = name
+				if ownerKind == "" {
+					ownerKind = "Deployment" // Default assumption
+				}
+			}
+		}
+		
+		// If we found owner info, return it
+		if ownerKind != "" && ownerName != "" {
+			// Only return if it's a workload type
+			if workloadKinds[ownerKind] {
+				return KubeResourceRef{
+					Kind:      ownerKind,
+					Name:      ownerName,
+					Namespace: incident.Resource.Namespace,
 				}
 			}
 		}
 	}
 
-	// Fallback: assume same name
-	return podName
+	// For pods, try to derive from pod name (remove hash suffix)
+	// This is a fallback and assumes Deployment
+	if incident.Resource.Kind == "Pod" {
+		podName := incident.Resource.Name
+		// Common patterns: app-name-hash-hash, app-name-replicaset-hash
+		if len(podName) > 10 {
+			// Find last two dashes and remove suffix
+			dashCount := 0
+			for i := len(podName) - 1; i >= 0; i-- {
+				if podName[i] == '-' {
+					dashCount++
+					if dashCount == 2 {
+						return KubeResourceRef{
+							Kind:      "Deployment", // Default assumption
+							Name:      podName[:i],
+							Namespace: incident.Resource.Namespace,
+						}
+					}
+				}
+			}
+		}
+		
+		// Last fallback: assume same name as Deployment
+		return KubeResourceRef{
+			Kind:      "Deployment", // Default assumption
+			Name:      podName,
+			Namespace: incident.Resource.Namespace,
+		}
+	}
+
+	// Final fallback: return the resource as-is
+	return incident.Resource
+}
+
+// getDeploymentName extracts the deployment name from an incident (kept for backwards compatibility)
+func getDeploymentName(incident *Incident) string {
+	workload := getWorkloadRef(incident)
+	return workload.Name
 }
 
 // EnhanceRecommendationsWithActions adds FixAction to recommendations based on pattern
@@ -550,6 +610,7 @@ func CreateFixPreviewResponse(fix *ProposedFix) *FixPreviewResponse {
 		ApplyCmd:       fix.ApplyCmd,
 		Risks:          risks,
 		TargetResource: fix.TargetResource,
+		Changes:        fix.Changes,
 		GeneratedAt:    time.Now(),
 	}
 }
