@@ -754,6 +754,14 @@ func (ws *WebServer) handleIncidentV2ByID(w http.ResponseWriter, r *http.Request
 		case "snapshot":
 			ws.handleIncidentSnapshot(w, r, baseID)
 			return
+		case "feedback":
+			// Handle feedback endpoint - call the learning handler directly
+			// Temporarily modify path so handler can extract ID
+			originalPath := r.URL.Path
+			r.URL.Path = fmt.Sprintf("/api/v2/incidents/%s/feedback", baseID)
+			ws.handleIncidentFeedbackLearning(w, r)
+			r.URL.Path = originalPath // Restore original path
+			return
 		case "evidence", "logs", "metrics", "changes", "runbooks", "similar", "citations":
 			// These are handled by existing action handlers
 			ws.handleIncidentV2Action(w, r, manager, baseID, subPath)
@@ -1948,6 +1956,10 @@ func (ws *WebServer) handleIncidentSnapshot(w http.ResponseWriter, r *http.Reque
 		hotEvidence := hotEvidenceBuilder.BuildHotEvidence(incident)
 
 		snapshotBuilder := incidents.NewSnapshotBuilder()
+		// Set learner if available to use learned weights/priors
+		if learner := ws.getConfidenceLearner(); learner != nil {
+			snapshotBuilder.SetLearner(learner)
+		}
 		snapshot = snapshotBuilder.BuildSnapshot(incident, hotEvidence)
 
 		// Cache the snapshot

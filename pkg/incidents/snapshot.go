@@ -208,7 +208,10 @@ func ComputeUserFacingLabel(likelihood float64) string {
 
 // SnapshotBuilder builds incident snapshots from incidents
 type SnapshotBuilder struct {
-	// Weights for confidence calculation
+	// ConfidenceLearner for using learned weights/priors (optional)
+	learner *ConfidenceLearner
+	
+	// Weights for confidence calculation (fallback if learner not available)
 	LogWeight     float64
 	EventWeight   float64
 	MetricWeight  float64
@@ -232,6 +235,11 @@ func NewSnapshotBuilder() *SnapshotBuilder {
 			"default":         "medium",
 		},
 	}
+}
+
+// SetLearner sets the confidence learner for using learned weights/priors
+func (b *SnapshotBuilder) SetLearner(learner *ConfidenceLearner) {
+	b.learner = learner
 }
 
 // BuildSnapshot creates a snapshot from an incident
@@ -260,20 +268,81 @@ func (b *SnapshotBuilder) BuildSnapshot(incident *Incident, hotEvidence *HotEvid
 	// Build diagnosis
 	if incident.Diagnosis != nil {
 		snapshot.DiagnosisSummary = incident.Diagnosis.Summary
-		snapshot.Confidence = incident.Diagnosis.Confidence
 		
-		// Convert probable causes to root causes
-		snapshot.RootCauses = make([]RootCause, 0, len(incident.Diagnosis.ProbableCauses))
-		for i, cause := range incident.Diagnosis.ProbableCauses {
-			likelihood := 1.0 - (float64(i) * 0.2) // Primary cause gets 1.0, others decrease
-			if likelihood < 0.3 {
-				likelihood = 0.3
+		// Use learned confidence if learner is available, otherwise use diagnosis confidence
+		if b.learner != nil {
+			// Build evidence pack from incident signals for confidence computation
+			evidencePack := &EvidencePack{
+				Logs:         []EvidenceItem{},
+				Events:       []EvidenceItem{},
+				MetricsFacts: []EvidenceItem{},
+				ChangeHistory: []EvidenceItem{},
 			}
-			snapshot.RootCauses = append(snapshot.RootCauses, RootCause{
-				Cause:         cause,
-				Likelihood:    likelihood,
-				EvidenceCount: len(incident.Diagnosis.Evidence),
-			})
+			// Convert log signals to evidence items
+			for _, signal := range incident.Signals.Logs {
+				evidencePack.Logs = append(evidencePack.Logs, EvidenceItem{
+					ID:        signal.ID,
+					Source:    EvidenceSourceLog,
+					Type:      string(signal.Source),
+					Timestamp: signal.Timestamp,
+					Content:   signal.Message,
+				})
+			}
+			// Convert event signals to evidence items
+			for _, signal := range incident.Signals.Events {
+				evidencePack.Events = append(evidencePack.Events, EvidenceItem{
+					ID:        signal.ID,
+					Source:    EvidenceSourceEvent,
+					Type:      string(signal.Source),
+					Timestamp: signal.Timestamp,
+					Content:   signal.Message,
+				})
+			}
+			// Convert metrics signals to evidence items
+			for _, signal := range incident.Signals.Metrics {
+				evidencePack.MetricsFacts = append(evidencePack.MetricsFacts, EvidenceItem{
+					ID:        signal.ID,
+					Source:    EvidenceSourceMetric,
+					Type:      string(signal.Source),
+					Timestamp: signal.Timestamp,
+					Content:   signal.Message,
+				})
+			}
+			
+			// Compute confidence using learned weights (formula: score = Σ(weight_i * signal_i) + prior(cause))
+			learnedConfidence := b.learner.ComputeConfidence(incident, evidencePack)
+			// Use learned confidence directly (it already includes prior)
+			snapshot.Confidence = learnedConfidence
+		} else {
+			snapshot.Confidence = incident.Diagnosis.Confidence
+		}
+		
+		// Use learned root cause ranking if learner is available
+		if b.learner != nil && len(incident.Diagnosis.ProbableCauses) > 0 {
+			// Rank causes using learned priors
+			rankedCauses := b.learner.RankRootCauses(incident.Diagnosis.ProbableCauses)
+			snapshot.RootCauses = make([]RootCause, 0, len(rankedCauses))
+			for _, rc := range rankedCauses {
+				snapshot.RootCauses = append(snapshot.RootCauses, RootCause{
+					Cause:         rc.Cause,
+					Likelihood:    rc.Likelihood,
+					EvidenceCount: len(incident.Diagnosis.Evidence),
+				})
+			}
+		} else {
+			// Fallback: Convert probable causes to root causes with hardcoded likelihood
+			snapshot.RootCauses = make([]RootCause, 0, len(incident.Diagnosis.ProbableCauses))
+			for i, cause := range incident.Diagnosis.ProbableCauses {
+				likelihood := 1.0 - (float64(i) * 0.2) // Primary cause gets 1.0, others decrease
+				if likelihood < 0.3 {
+					likelihood = 0.3
+				}
+				snapshot.RootCauses = append(snapshot.RootCauses, RootCause{
+					Cause:         cause,
+					Likelihood:    likelihood,
+					EvidenceCount: len(incident.Diagnosis.Evidence),
+				})
+			}
 		}
 	} else {
 		// Fallback diagnosis from pattern
