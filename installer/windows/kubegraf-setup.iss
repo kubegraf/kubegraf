@@ -23,7 +23,7 @@ DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 OutputDir=..\..\dist\windows
 OutputBaseFilename=kubegraf-{#AppVersion}-setup
-SetupIconFile=kubegraf.ico
+SetupIconFile=kubegraf_color_icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -44,14 +44,16 @@ Name: "addtopath"; Description: "Add KubeGraf to PATH (required for 'kubegraf' c
 [Files]
 ; Main executable (you'll need to download this from GitHub releases)
 Source: "kubegraf.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Icon file for shortcuts
+Source: "kubegraf_color_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; Optional: Include README or other docs
 ; Source: "README.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "web"; Comment: "Launch {#AppName} Web Dashboard"
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "web"; IconFilename: "{app}\kubegraf_color_icon.ico"; Comment: "Launch {#AppName} Web Dashboard"
 Name: "{group}\{#AppName} Terminal"; Filename: "cmd.exe"; Parameters: "/k ""{app}\{#AppExeName}"""; Comment: "Launch {#AppName} in Terminal"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "web"; Tasks: desktopicon; Comment: "Launch {#AppName} Web Dashboard"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "web"; IconFilename: "{app}\kubegraf_color_icon.ico"; Tasks: desktopicon; Comment: "Launch {#AppName} Web Dashboard"
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent; Parameters: "web"
@@ -59,6 +61,20 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 [Code]
 const
     EnvironmentKey = 'Environment';
+
+// Show information about SmartScreen warning
+procedure InitializeWizard();
+begin
+  // Optional: Show info about SmartScreen (uncomment if desired)
+  // This message appears before the warning, so users know what to expect
+  // MsgBox('Note: Windows SmartScreen may show a security warning.' + #13#10 +
+  //        'This is normal for unsigned installers.' + #13#10 + #13#10 +
+  //        'To proceed:' + #13#10 +
+  //        '1. Click "More info" on the warning' + #13#10 +
+  //        '2. Click "Run anyway"' + #13#10 + #13#10 +
+  //        'KubeGraf is open source and completely safe.',
+  //        mbInformation, MB_OK);
+end;
 
 procedure EnvAddPath(InstallPath: string);
 var

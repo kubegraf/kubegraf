@@ -183,7 +183,21 @@ Before releasing new installer:
 
 ### Users See SmartScreen Warning
 **Normal**: Unsigned executables trigger warnings
-**Solution**: Get code signing certificate or instruct users to click "More info" → "Run anyway"
+
+**Solutions**:
+1. **Immediate (User Instructions)**: 
+   - See `docs/windows-smartscreen.md` for user guide
+   - Add instructions to installation page
+   - Users click "More info" → "Run anyway"
+
+2. **Short-term (Code Signing)**:
+   - Get code signing certificate ($200-500/year)
+   - See `WINDOWS_CODE_SIGNING.md` for complete guide
+   - Use `scripts/sign-windows-installer.ps1` to sign installers
+
+3. **Alternative (Scoop)**:
+   - Recommend Scoop installation (no warnings)
+   - `scoop install kubegraf`
 
 ### PATH Not Updated After Install
 **Check**: Did user select "Add to PATH" during install?

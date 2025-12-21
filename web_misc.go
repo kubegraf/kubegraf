@@ -20,10 +20,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"time"
 
 	"github.com/kubegraf/kubegraf/internal/update"
+	"github.com/kubegraf/kubegraf/pkg/update/unix"
+	"github.com/kubegraf/kubegraf/pkg/update/windows"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -150,7 +154,39 @@ func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	json.NewEncoder(w).Encode(info)
+	// Check if this is a Scoop installation (Windows only)
+	response := map[string]interface{}{
+		"currentVersion":  info.CurrentVersion,
+		"latestVersion":   info.LatestVersion,
+		"updateAvailable": info.UpdateAvailable,
+		"releaseNotes":    info.ReleaseNotes,
+		"htmlUrl":          info.HTMLURL,
+		"downloadUrl":      info.DownloadURL,
+	}
+
+	// Check installation method and add appropriate warnings
+	execPath, err := os.Executable()
+	if err == nil {
+		if runtime.GOOS == "windows" {
+			// Check for Scoop installation
+			scoopInfo, _ := windows.DetectScoopInstallation(execPath)
+			if scoopInfo != nil && scoopInfo.IsScoopInstall {
+				response["isScoopInstall"] = true
+				response["scoopUpdateCommand"] = windows.GetScoopUpdateCommand()
+				response["scoopWarning"] = "KubeGraf is installed via Scoop. For best compatibility, use 'scoop update kubegraf' instead of in-app updates."
+			}
+		} else if runtime.GOOS == "darwin" {
+			// Check for Homebrew installation
+			homebrewInfo, _ := unix.DetectHomebrewInstallation(execPath)
+			if homebrewInfo != nil && homebrewInfo.IsHomebrewInstall {
+				response["isHomebrewInstall"] = true
+				response["homebrewUpdateCommand"] = unix.GetHomebrewUpdateCommand()
+				response["homebrewWarning"] = "KubeGraf is installed via Homebrew. For best compatibility, use 'brew upgrade kubegraf' instead of in-app updates."
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleInstallUpdate downloads and installs the latest version
@@ -189,15 +225,9 @@ func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		fmt.Printf("✓ Update installed successfully. Restarting...\n")
-
-		// Give the HTTP response time to be sent
-		time.Sleep(1 * time.Second)
-
-		// Restart the application
-		if err := RestartApplication(); err != nil {
-			fmt.Printf("❌ Failed to restart: %v\n", err)
-		}
+		// PerformUpdate will exit the application on all platforms
+		// The updater script (Windows PowerShell or Unix shell) handles the restart
+		// We never reach here because PerformUpdate calls os.Exit(0)
 	}()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
