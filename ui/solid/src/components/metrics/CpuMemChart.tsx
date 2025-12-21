@@ -104,16 +104,16 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
         <div class="flex items-center justify-between mb-2 px-2">
           <div class="flex items-center gap-4">
             <div class="flex items-center gap-2">
-              <div class="w-3 h-3 rounded-full" style={{ background: '#06b6d4' }} />
+              <div class="w-3 h-3 rounded-full" style={{ background: '#f59e0b' }} />
               <span class="text-xs" style={{ color: 'var(--text-muted)' }}>CPU</span>
-              <span class="text-sm font-semibold" style={{ color: '#06b6d4' }}>
+              <span class="text-sm font-semibold" style={{ color: '#f59e0b' }}>
                 {latestCpu().toFixed(1)}%
               </span>
             </div>
             <div class="flex items-center gap-2">
-              <div class="w-3 h-3 rounded-full" style={{ background: '#8b5cf6' }} />
+              <div class="w-3 h-3 rounded-full" style={{ background: '#3b82f6' }} />
               <span class="text-xs" style={{ color: 'var(--text-muted)' }}>Memory</span>
-              <span class="text-sm font-semibold" style={{ color: '#8b5cf6' }}>
+              <span class="text-sm font-semibold" style={{ color: '#3b82f6' }}>
                 {latestMem().toFixed(1)}%
               </span>
             </div>
@@ -137,13 +137,13 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
         <defs>
           {/* CPU gradient */}
           <linearGradient id="cpu-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.3" />
-            <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.05" />
+            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.3" />
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.05" />
           </linearGradient>
           {/* Memory gradient */}
           <linearGradient id="mem-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.3" />
-            <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.05" />
+            <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3" />
+            <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.05" />
           </linearGradient>
           {/* Glow filters */}
           <filter id="cpu-glow">
@@ -192,7 +192,7 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
         <path
           d={memPath()}
           fill="none"
-          stroke="#8b5cf6"
+          stroke="#3b82f6"
           stroke-width="0.5"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -204,7 +204,7 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
         <path
           d={cpuPath()}
           fill="none"
-          stroke="#06b6d4"
+          stroke="#f59e0b"
           stroke-width="0.5"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -218,14 +218,14 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
             cx="95"
             cy={(height - 40) - (Math.min(latestCpu(), 100) / 100) * (height - 40 - 10)}
             r="1.5"
-            fill="#06b6d4"
+            fill="#f59e0b"
             class="animate-pulse"
           />
           <circle
             cx="95"
             cy={(height - 40) - (Math.min(latestMem(), 100) / 100) * (height - 40 - 10)}
             r="1.5"
-            fill="#8b5cf6"
+            fill="#3b82f6"
             class="animate-pulse"
           />
         </Show>

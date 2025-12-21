@@ -4,10 +4,12 @@ interface IncidentFiltersProps {
   patternFilter: string;
   severityFilter: string;
   namespaceFilter: string;
+  statusFilter: string;
   namespaces: string[];
   onPatternFilterChange: (pattern: string) => void;
   onSeverityFilterChange: (severity: string) => void;
   onNamespaceFilterChange: (namespace: string) => void;
+  onStatusFilterChange: (status: string) => void;
 }
 
 const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
@@ -35,6 +37,15 @@ const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
     { value: 'medium', label: '🟡 Medium' },
     { value: 'low', label: '🔵 Low' },
     { value: 'info', label: '⚪ Info' },
+  ];
+
+  const statuses = [
+    { value: '', label: 'All Status' },
+    { value: 'open', label: '🟢 Active' },
+    { value: 'resolved', label: '✅ Resolved' },
+    { value: 'investigating', label: '🔍 Investigating' },
+    { value: 'remediating', label: '🔧 Remediating' },
+    { value: 'suppressed', label: '🔇 Suppressed' },
   ];
 
   return (
@@ -90,6 +101,24 @@ const IncidentFilters: Component<IncidentFiltersProps> = (props) => {
         <For each={props.namespaces}>
           {(ns) => (
             <option value={ns}>{ns}</option>
+          )}
+        </For>
+      </select>
+
+      <select
+        value={props.statusFilter}
+        onChange={(e) => props.onStatusFilterChange(e.currentTarget.value)}
+        class="px-3 py-2 rounded-lg text-sm"
+        style={{ 
+          background: 'var(--bg-secondary)', 
+          color: 'var(--text-primary)', 
+          border: '1px solid var(--border-color)',
+          'min-width': '150px'
+        }}
+      >
+        <For each={statuses}>
+          {(status) => (
+            <option value={status.value}>{status.label}</option>
           )}
         </For>
       </select>

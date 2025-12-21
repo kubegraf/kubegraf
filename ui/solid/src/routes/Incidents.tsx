@@ -29,6 +29,7 @@ const Incidents: Component = () => {
   const [patternFilter, setPatternFilter] = createSignal('');
   const [severityFilter, setSeverityFilter] = createSignal('');
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
+  const [statusFilter, setStatusFilter] = createSignal('');
   const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
   const [showSidePanels, setShowSidePanels] = createSignal(false);
@@ -36,6 +37,7 @@ const Incidents: Component = () => {
   // Initialize with cached data immediately - NO loading state blocking UI
   const [localIncidents, setLocalIncidents] = createSignal<Incident[]>(getCachedIncidents());
   const [isRefreshing, setIsRefreshing] = createSignal(false); // Subtle indicator, doesn't block UI
+  const [isInitialLoad, setIsInitialLoad] = createSignal(true); // Track if this is the first load
   const [namespaces, setNamespaces] = createSignal<string[]>([]);
 
   // Fast background fetch - never blocks UI
@@ -49,7 +51,12 @@ const Incidents: Component = () => {
     const endListLoad = trackIncidentListLoad();
     
     try {
-      const data = await api.getIncidents();
+      const data = await api.getIncidents(
+        namespaceFilter() || undefined,
+        patternFilter() || undefined,
+        severityFilter() || undefined,
+        statusFilter() || undefined
+      );
       const incidents = data || [];
       setLocalIncidents(incidents);
       // Save with current cluster context for cache validation
@@ -59,6 +66,7 @@ const Incidents: Component = () => {
     } finally {
       setIsRefreshing(false);
       setFetching(false);
+      setIsInitialLoad(false); // Mark initial load as complete
       endListLoad();
     }
   };
@@ -81,6 +89,10 @@ const Incidents: Component = () => {
     const cached = getCachedIncidents();
     if (cached.length > 0 && isCacheValid(ctx)) {
       setLocalIncidents(cached);
+      setIsInitialLoad(false); // If we have cached data, we're not in initial load
+    } else {
+      // No cache or invalid cache - we're in initial load
+      setIsInitialLoad(true);
     }
     
     // Fetch fresh data in background (non-blocking)
@@ -100,6 +112,7 @@ const Incidents: Component = () => {
       // Invalidate cache and clear local data
       invalidateIncidentsCache();
       setLocalIncidents([]);
+      setIsInitialLoad(true); // Reset to initial load state on cluster switch
       // Refetch data for new cluster
       fetchIncidentsBackground();
       fetchNamespacesBackground();
@@ -122,6 +135,7 @@ const Incidents: Component = () => {
       if (patternFilter() && pattern.toUpperCase() !== patternFilter().toUpperCase()) return false;
       if (severityFilter() && inc.severity !== severityFilter()) return false;
       if (namespaceFilter() && namespace !== namespaceFilter()) return false;
+      if (statusFilter() && inc.status !== statusFilter()) return false;
       return true;
     });
   });
@@ -228,19 +242,34 @@ const Incidents: Component = () => {
       </div>
 
       {/* Filters - Always visible */}
-      <IncidentFilters
-        patternFilter={patternFilter()}
-        severityFilter={severityFilter()}
-        namespaceFilter={namespaceFilter()}
-        namespaces={namespaces()}
-        onPatternFilterChange={setPatternFilter}
-        onSeverityFilterChange={setSeverityFilter}
-        onNamespaceFilterChange={setNamespaceFilter}
-      />
+        <IncidentFilters
+          patternFilter={patternFilter()}
+          severityFilter={severityFilter()}
+          namespaceFilter={namespaceFilter()}
+          statusFilter={statusFilter()}
+          namespaces={namespaces()}
+          onPatternFilterChange={(val) => {
+            setPatternFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onSeverityFilterChange={(val) => {
+            setSeverityFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onNamespaceFilterChange={(val) => {
+            setNamespaceFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onStatusFilterChange={(val) => {
+            setStatusFilter(val);
+            fetchIncidentsBackground();
+          }}
+        />
 
       {/* Incidents Table - Always rendered, shows empty state or data */}
       <IncidentTable
         incidents={filteredIncidents()}
+        isLoading={isInitialLoad() || (isRefreshing() && localIncidents().length === 0)}
         onViewPod={handleViewPod}
         onViewLogs={handleViewLogs}
         onViewEvents={handleViewEvents}

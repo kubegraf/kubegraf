@@ -663,8 +663,11 @@ func (ws *WebServer) Start(port int) error {
 	}
 
 	// Fix action endpoints (safe remediation actions)
+	// NOTE: These routes are now handled via /api/v2/incidents/{id}/fix-preview and /api/v2/incidents/{id}/fix-apply
+	// Keeping fix-preview for backward compatibility, but fix-apply is handled by handleIncidentV2ByID
 	http.HandleFunc("/api/v2/incidents/fix-preview", ws.handleFixPreview)
-	http.HandleFunc("/api/v2/incidents/fix-apply", ws.handleFixApply)
+	// Removed: http.HandleFunc("/api/v2/incidents/fix-apply", ws.handleFixApply)
+	// This route is now handled by handleIncidentV2ByID -> handleFixApplyV2
 
 	// Auto-remediation endpoints
 	http.HandleFunc("/api/v2/auto-remediation/status", ws.handleAutoRemediationStatus)

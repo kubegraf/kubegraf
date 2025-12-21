@@ -20,26 +20,42 @@ export interface OOMEvent {
 
 /**
  * Filter incidents for OOM events
+ * Supports both v2 incidents (pattern-based) and legacy incidents (type-based)
  */
 export function filterOOMEvents(incidents: Incident[]): OOMEvent[] {
   return incidents
-    .filter(inc => inc.type === 'oom' || inc.type === 'oomkilled')
+    .filter(inc => {
+      // Check v2 pattern field first (case-insensitive)
+      if (inc.pattern) {
+        const patternUpper = inc.pattern.toUpperCase();
+        return patternUpper === 'OOM_PRESSURE' || 
+               patternUpper === 'OOM' ||
+               patternUpper.includes('OOM');
+      }
+      // Fallback to legacy type field
+      const type = (inc.type || '').toLowerCase();
+      return type === 'oom' || type === 'oomkilled' || type.includes('oom');
+    })
     .map(inc => {
-      const parts = inc.resourceName.split('/');
-      const podName = parts[0] || inc.resourceName;
+      // Use v2 resource structure if available, otherwise fallback to legacy fields
+      const resourceName = inc.resource?.name || inc.resourceName || '';
+      const namespace = inc.resource?.namespace || inc.namespace || 'default';
+      
+      const parts = resourceName.split('/');
+      const podName = parts[0] || resourceName;
       const containerName = parts.length > 1 ? parts[1] : undefined;
 
       return {
-        id: inc.id || `${inc.namespace}-${podName}`,
+        id: inc.id || `${namespace}-${podName}`,
         type: 'oom' as const,
-        resource: inc.resourceName,
-        namespace: inc.namespace || 'default',
+        resource: resourceName,
+        namespace,
         podName,
         containerName,
         severity: (inc.severity === 'critical' ? 'critical' : 'warning') as 'critical' | 'warning',
         timestamp: inc.lastSeen || inc.firstSeen,
-        message: inc.message || `Pod ${podName} was OOM killed`,
-        count: inc.count || 1,
+        message: inc.message || inc.description || `Pod ${podName} was OOM killed`,
+        count: inc.occurrences || inc.count || 1,
         firstSeen: inc.firstSeen,
         lastSeen: inc.lastSeen,
       };

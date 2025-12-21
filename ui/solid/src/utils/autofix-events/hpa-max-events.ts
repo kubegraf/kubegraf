@@ -29,11 +29,19 @@ export function filterHPAMaxEvents(incidents: Incident[]): HPAMaxEvent[] {
 
   return incidents
     .filter(inc => {
-      // Check if it's an HPA-related incident
-      const isHPA = inc.type === 'hpa_max' || 
-                   inc.type === 'hpa_scaled' ||
-                   inc.message?.toLowerCase().includes('hpa') ||
-                   inc.message?.toLowerCase().includes('horizontal pod autoscaler');
+      // Check v2 pattern field first
+      let isHPA = false;
+      if (inc.pattern) {
+        // HPA-related patterns (if any exist in v2)
+        isHPA = inc.pattern.includes('HPA') || inc.pattern.includes('AUTOSCALER');
+      } else {
+        // Fallback to legacy type field
+        isHPA = inc.type === 'hpa_max' || inc.type === 'hpa_scaled';
+      }
+      
+      // Also check message/description
+      const message = (inc.message || inc.description || '').toLowerCase();
+      isHPA = isHPA || message.includes('hpa') || message.includes('horizontal pod autoscaler');
 
       if (!isHPA) return false;
 
@@ -46,27 +54,32 @@ export function filterHPAMaxEvents(incidents: Incident[]): HPAMaxEvent[] {
       return durationMinutes >= 5;
     })
     .map(inc => {
-      const parts = inc.resourceName.split('/');
-      const deploymentName = parts[0] || inc.resourceName;
+      // Use v2 resource structure if available, otherwise fallback to legacy fields
+      const resourceName = inc.resource?.name || inc.resourceName || '';
+      const namespace = inc.resource?.namespace || inc.namespace || 'default';
+      
+      const parts = resourceName.split('/');
+      const deploymentName = parts[0] || resourceName;
 
       const lastSeen = new Date(inc.lastSeen || inc.firstSeen).getTime();
       const firstSeen = new Date(inc.firstSeen).getTime();
       const durationMinutes = (lastSeen - firstSeen) / (60 * 1000);
 
       // Extract replica info from message if available
-      const replicaMatch = inc.message?.match(/(\d+)\s*(?:replicas|pods)/i);
+      const message = inc.message || inc.description || '';
+      const replicaMatch = message.match(/(\d+)\s*(?:replicas|pods)/i);
       const maxReplicas = replicaMatch ? parseInt(replicaMatch[1]) : 0;
 
       return {
-        id: inc.id || `${inc.namespace}-${deploymentName}`,
+        id: inc.id || `${namespace}-${deploymentName}`,
         type: 'hpa_max' as const,
-        resource: inc.resourceName,
-        namespace: inc.namespace || 'default',
+        resource: resourceName,
+        namespace,
         deploymentName,
         severity: (inc.severity === 'critical' ? 'critical' : 'warning') as 'critical' | 'warning',
         timestamp: inc.lastSeen || inc.firstSeen,
-        message: inc.message || `HPA for ${deploymentName} is at maximum replicas`,
-        count: inc.count || 1,
+        message: message || `HPA for ${deploymentName} is at maximum replicas`,
+        count: inc.occurrences || inc.count || 1,
         firstSeen: inc.firstSeen,
         lastSeen: inc.lastSeen,
         durationMinutes: Math.round(durationMinutes * 10) / 10,

@@ -1135,11 +1135,12 @@ export const api = {
     }),
 
   // ============ Incidents ============
-  getIncidents: async (namespace?: string, pattern?: string, severity?: string) => {
+  getIncidents: async (namespace?: string, pattern?: string, severity?: string, status?: string) => {
     const params = new URLSearchParams();
     if (namespace) params.append('namespace', namespace);
     if (pattern) params.append('pattern', pattern);
     if (severity) params.append('severity', severity);
+    if (status) params.append('status', status);
     const query = params.toString();
     const endpoint = query ? `/v2/incidents?${query}` : '/v2/incidents';
     const data = await fetchAPI<{ incidents: Incident[]; total: number; summary?: any }>(endpoint);
@@ -1203,10 +1204,16 @@ export const api = {
     });
   },
 
-  applyFix: async (incidentId: string, fixId: string, confirmed: boolean) => {
+  applyFix: async (incidentId: string, fixId: string, confirmed: boolean, resourceInfo?: { resourceNamespace?: string; resourceKind?: string; resourceName?: string }) => {
+    const body: any = { fixId, confirmed };
+    if (resourceInfo) {
+      body.resourceNamespace = resourceInfo.resourceNamespace;
+      body.resourceKind = resourceInfo.resourceKind;
+      body.resourceName = resourceInfo.resourceName;
+    }
     return fetchAPI<FixApplyResponseV2>(`/v2/incidents/${incidentId}/fix-apply`, {
       method: 'POST',
-      body: JSON.stringify({ fixId, confirmed }),
+      body: JSON.stringify(body),
     });
   },
 
@@ -1647,6 +1654,7 @@ export interface FixApplyResponseV2 {
   executionId: string;
   status: string;
   message: string;
+  changes?: string[] | Array<{ type: string; resource: string; action: string }>;
   postCheckPlan: {
     checks: string[];
     timeoutSeconds: number;

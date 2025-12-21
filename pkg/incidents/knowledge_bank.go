@@ -820,3 +820,43 @@ func (kb *KnowledgeBank) GetUnresolvedIncidents(limit int) ([]*IncidentRecord, e
 	return kb.scanIncidentRows(rows)
 }
 
+// GetResolvedIncidents retrieves resolved incidents
+func (kb *KnowledgeBank) GetResolvedIncidents(limit int, namespace string, pattern string, severity string) ([]*IncidentRecord, error) {
+	kb.mu.RLock()
+	defer kb.mu.RUnlock()
+
+	query := `
+	SELECT id, fingerprint, pattern, severity, resource_json, cluster_context,
+		title, description, occurrences, first_seen, last_seen,
+		resolved_at, resolution, evidence_pack_json, diagnosis_json, metadata_json,
+		created_at, updated_at
+	FROM incidents
+	WHERE resolved_at IS NOT NULL
+	`
+	args := []interface{}{}
+	
+	if namespace != "" {
+		query += " AND json_extract(resource_json, '$.namespace') = ?"
+		args = append(args, namespace)
+	}
+	if pattern != "" {
+		query += " AND pattern = ?"
+		args = append(args, pattern)
+	}
+	if severity != "" {
+		query += " AND severity = ?"
+		args = append(args, severity)
+	}
+	
+	query += " ORDER BY resolved_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := kb.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return kb.scanIncidentRows(rows)
+}
+
