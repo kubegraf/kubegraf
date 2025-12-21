@@ -545,14 +545,14 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 				log.Printf("[FixApplyV2] WARNING: Dry-run returned nil result")
 			}
 		} else {
-			log.Printf("[FixApplyV2] Executing fix...")
-			applyResult, applyErr = fixExecutor.Apply(r.Context(), proposedFix)
-			if applyErr != nil {
-				log.Printf("[FixApplyV2] Fix execution error: %v", applyErr)
-			} else if applyResult != nil {
-				log.Printf("[FixApplyV2] Fix execution result - Success: %v, Message: %s", applyResult.Success, applyResult.Message)
-			} else {
-				log.Printf("[FixApplyV2] WARNING: Fix execution returned nil result")
+		log.Printf("[FixApplyV2] Executing fix...")
+		applyResult, applyErr = fixExecutor.Apply(r.Context(), proposedFix)
+		if applyErr != nil {
+			log.Printf("[FixApplyV2] Fix execution error: %v", applyErr)
+		} else if applyResult != nil {
+			log.Printf("[FixApplyV2] Fix execution result - Success: %v, Message: %s", applyResult.Success, applyResult.Message)
+		} else {
+			log.Printf("[FixApplyV2] WARNING: Fix execution returned nil result")
 			}
 		}
 	} else {

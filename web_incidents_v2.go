@@ -26,10 +26,11 @@ import (
 
 // IncidentIntelligence manages the incident intelligence system.
 type IncidentIntelligence struct {
-	app          *App
-	manager      *incidents.Manager
-	eventAdapter *incidents.EventAdapter
-	kubeAdapter  *incidents.KubeClientAdapter
+	app             *App
+	manager         *incidents.Manager
+	eventAdapter    *incidents.EventAdapter
+	kubeAdapter     *incidents.KubeClientAdapter
+	intelligenceSys *incidents.IntelligenceSystem
 }
 
 // NewIncidentIntelligence creates a new incident intelligence system.
@@ -51,6 +52,22 @@ func NewIncidentIntelligence(app *App) *IncidentIntelligence {
 
 	// Setup Kubernetes adapter
 	ii.setupKubeAdapter()
+
+	// Initialize IntelligenceSystem with learning enabled, auto-remediation disabled by default
+	// But we need to create the auto-remediation engine even if disabled, so we can enable it later
+	intelConfig := incidents.DefaultIntelligenceConfig()
+	intelConfig.EnableLearning = true
+	intelConfig.EnableKnowledgeBank = true
+	intelConfig.EnableAutoRemediation = true // Create the engine, but it will be disabled by default in config
+	intelConfig.AutoConfig.Enabled = false   // Disabled by default for safety
+
+	intelSys, err := incidents.NewIntelligenceSystem(manager, ii.kubeAdapter, intelConfig)
+	if err != nil {
+		log.Printf("[IncidentIntelligence] Warning: Failed to initialize IntelligenceSystem: %v", err)
+	} else {
+		ii.intelligenceSys = intelSys
+		log.Printf("[IncidentIntelligence] IntelligenceSystem initialized")
+	}
 
 	return ii
 }
@@ -331,6 +348,18 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 func (ii *IncidentIntelligence) Start(ctx context.Context) {
 	ii.manager.Start(ctx)
 
+	// Start IntelligenceSystem if available
+	if ii.intelligenceSys != nil {
+		if err := ii.intelligenceSys.Start(); err != nil {
+			log.Printf("[IncidentIntelligence] Warning: Failed to start IntelligenceSystem: %v", err)
+		} else {
+			// Register callback to feed incidents to IntelligenceSystem
+			ii.manager.RegisterCallback(func(incident *incidents.Incident) {
+				ii.intelligenceSys.ProcessIncident(incident)
+			})
+		}
+	}
+
 	// Register with event monitor if available
 	if ii.app.eventMonitor != nil {
 		ii.app.eventMonitor.RegisterCallback(ii.handleMonitoredEvent)
@@ -442,16 +471,17 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 			   exitCode == 137 || containerStatus.RestartCount > 5 {
 				log.Printf("[scanAndIngestIncidents] Potential incident detected: pod=%s/%s, reason=%s, exitCode=%d, restarts=%d",
 					pod.Namespace, pod.Name, containerReason, exitCode, containerStatus.RestartCount)
-			}
 		}
+	}
 	}
 	
 	log.Printf("[scanAndIngestIncidents] Ingested %d signals from pods", signalCount)
 
-	// Scan nodes for pressure conditions
+	// Scan nodes for pressure conditions and NotReady status
 	nodes, err := ii.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		for _, node := range nodes.Items {
+			// Check for pressure conditions
 			for _, condition := range node.Status.Conditions {
 				if (condition.Type == corev1.NodeDiskPressure || 
 					condition.Type == corev1.NodeMemoryPressure || 
@@ -466,11 +496,29 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 					}
 					
 					message := fmt.Sprintf("Node %s has %s condition", node.Name, condition.Type)
-					signal := incidents.NewNormalizedSignal(incidents.SourcePodStatus, resource, message)
+					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
 					signal.Timestamp = condition.LastTransitionTime.Time
 					signal.SetAttribute(incidents.AttrSeverity, "critical")
 					signal.SetAttribute("condition_type", string(condition.Type))
 					signal.SetAttribute("condition_status", string(condition.Status))
+					
+					ii.manager.IngestSignal(signal)
+				}
+				
+				// Check for NotReady nodes
+				if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionFalse {
+					resource := incidents.KubeResourceRef{
+						Kind:      "Node",
+						Name:      node.Name,
+						Namespace: "",
+					}
+					
+					message := fmt.Sprintf("Node %s is not ready: %s", node.Name, condition.Reason)
+					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+					signal.Timestamp = condition.LastTransitionTime.Time
+					signal.SetAttribute(incidents.AttrSeverity, "critical")
+					signal.SetAttribute("condition_type", string(condition.Type))
+					signal.SetAttribute("reason", condition.Reason)
 					
 					ii.manager.IngestSignal(signal)
 				}
@@ -499,10 +547,228 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 			}
 		}
 	}
+
+	// Scan services for no endpoints
+	services, err := ii.app.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, svc := range services.Items {
+			// Skip system namespaces
+			if svc.Namespace == "kube-system" || svc.Namespace == "kube-public" || svc.Namespace == "kube-node-lease" {
+				continue
+			}
+			
+			endpoints, err := ii.app.clientset.CoreV1().Endpoints(svc.Namespace).Get(ctx, svc.Name, metav1.GetOptions{})
+			if err == nil {
+				hasReadyEndpoints := false
+				for _, subset := range endpoints.Subsets {
+					if len(subset.Addresses) > 0 {
+						hasReadyEndpoints = true
+						break
+					}
+				}
+				
+				if !hasReadyEndpoints && svc.Spec.Type != corev1.ServiceTypeExternalName {
+					resource := incidents.KubeResourceRef{
+						Kind:      "Service",
+						Name:      svc.Name,
+						Namespace: svc.Namespace,
+					}
+					
+					message := fmt.Sprintf("Service %s/%s has no ready endpoints", svc.Namespace, svc.Name)
+					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+					signal.Timestamp = time.Now()
+					signal.SetAttribute(incidents.AttrSeverity, "warning")
+					signal.SetAttribute("service_type", string(svc.Spec.Type))
+					
+					ii.manager.IngestSignal(signal)
+				}
+			}
+		}
+	}
+
+	// Scan persistent volume claims for pending state
+	pvcs, err := ii.app.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, pvc := range pvcs.Items {
+			// Skip system namespaces
+			if pvc.Namespace == "kube-system" || pvc.Namespace == "kube-public" || pvc.Namespace == "kube-node-lease" {
+				continue
+			}
+			
+			if pvc.Status.Phase == corev1.ClaimPending {
+				resource := incidents.KubeResourceRef{
+					Kind:      "PersistentVolumeClaim",
+					Name:      pvc.Name,
+					Namespace: pvc.Namespace,
+				}
+				
+				message := fmt.Sprintf("PVC %s/%s is pending", pvc.Namespace, pvc.Name)
+				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+				signal.Timestamp = time.Now()
+				signal.SetAttribute(incidents.AttrSeverity, "warning")
+				signal.SetAttribute("pvc_phase", string(pvc.Status.Phase))
+				
+				ii.manager.IngestSignal(signal)
+			}
+		}
+	}
+
+	// Scan deployments for unhealthy replicas
+	deployments, err := ii.app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, deploy := range deployments.Items {
+			// Skip system namespaces
+			if deploy.Namespace == "kube-system" || deploy.Namespace == "kube-public" || deploy.Namespace == "kube-node-lease" {
+				continue
+			}
+			
+			desiredReplicas := int32(1)
+			if deploy.Spec.Replicas != nil {
+				desiredReplicas = *deploy.Spec.Replicas
+			}
+			
+			readyReplicas := deploy.Status.ReadyReplicas
+			availableReplicas := deploy.Status.AvailableReplicas
+			
+			// Check for deployments with no ready replicas when they should have some
+			if desiredReplicas > 0 && readyReplicas == 0 {
+				resource := incidents.KubeResourceRef{
+					Kind:      "Deployment",
+					Name:      deploy.Name,
+					Namespace: deploy.Namespace,
+				}
+				
+				message := fmt.Sprintf("Deployment %s/%s has 0 ready replicas out of %d desired", deploy.Namespace, deploy.Name, desiredReplicas)
+				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+				signal.Timestamp = time.Now()
+				signal.SetAttribute(incidents.AttrSeverity, "critical")
+				signal.SetAttribute("desired_replicas", fmt.Sprintf("%d", desiredReplicas))
+				signal.SetAttribute("ready_replicas", fmt.Sprintf("%d", readyReplicas))
+				
+				ii.manager.IngestSignal(signal)
+			} else if desiredReplicas > 0 && availableReplicas < desiredReplicas {
+				// Check for deployments with some but not all replicas available
+				resource := incidents.KubeResourceRef{
+					Kind:      "Deployment",
+					Name:      deploy.Name,
+					Namespace: deploy.Namespace,
+				}
+				
+				message := fmt.Sprintf("Deployment %s/%s has %d/%d available replicas", deploy.Namespace, deploy.Name, availableReplicas, desiredReplicas)
+				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+				signal.Timestamp = time.Now()
+				signal.SetAttribute(incidents.AttrSeverity, "warning")
+				signal.SetAttribute("desired_replicas", fmt.Sprintf("%d", desiredReplicas))
+				signal.SetAttribute("available_replicas", fmt.Sprintf("%d", availableReplicas))
+				
+				ii.manager.IngestSignal(signal)
+			}
+		}
+	}
+
+	// Scan pods for image pull errors and unschedulable state
+	for _, pod := range pods.Items {
+		if pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease" {
+			continue
+		}
+		
+		// Check for unschedulable pods (stuck in Pending state)
+		if pod.Status.Phase == corev1.PodPending {
+			unschedulable := false
+			schedulingReason := ""
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
+					unschedulable = true
+					schedulingReason = condition.Reason
+					if condition.Message != "" {
+						schedulingReason = condition.Message
+					}
+					break
+				}
+			}
+			
+			// Only report if pod has been pending for more than 30 seconds
+			if unschedulable && time.Since(pod.CreationTimestamp.Time) > 30*time.Second {
+				resource := incidents.KubeResourceRef{
+					Kind:      "Pod",
+					Name:      pod.Name,
+					Namespace: pod.Namespace,
+				}
+				
+				message := fmt.Sprintf("Pod %s/%s is unschedulable: %s", pod.Namespace, pod.Name, schedulingReason)
+				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+				signal.Timestamp = time.Now()
+				signal.SetAttribute(incidents.AttrSeverity, "high")
+				signal.SetAttribute("scheduling_reason", schedulingReason)
+				signal.SetAttribute("pod_phase", string(pod.Status.Phase))
+				
+				ii.manager.IngestSignal(signal)
+			}
+		}
+		
+		// Check for image pull errors
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.State.Waiting != nil {
+				reason := containerStatus.State.Waiting.Reason
+				if reason == "ErrImagePull" || reason == "ImagePullBackOff" {
+					resource := incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      pod.Name,
+						Namespace: pod.Namespace,
+					}
+					
+					message := fmt.Sprintf("Pod %s/%s container %s: %s", pod.Namespace, pod.Name, containerStatus.Name, reason)
+					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
+					signal.Timestamp = time.Now()
+					signal.SetAttribute(incidents.AttrSeverity, "high")
+					signal.SetAttribute("container", containerStatus.Name)
+					signal.SetAttribute("reason", reason)
+					
+					ii.manager.IngestSignal(signal)
+				}
+			}
+		}
+	}
+	
+	// Scan for ConfigMap/Secret mount failures
+	for _, pod := range pods.Items {
+		if pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease" {
+			continue
+		}
+		
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.State.Waiting != nil {
+				reason := containerStatus.State.Waiting.Reason
+				message := containerStatus.State.Waiting.Message
+				
+				// Check for mount-related errors
+				if strings.Contains(message, "secret") || strings.Contains(message, "configmap") || 
+				   strings.Contains(message, "volume") || strings.Contains(message, "mount") {
+					resource := incidents.KubeResourceRef{
+						Kind:      "Pod",
+						Name:      pod.Name,
+						Namespace: pod.Namespace,
+					}
+					
+					msg := fmt.Sprintf("Pod %s/%s container %s mount error: %s", pod.Namespace, pod.Name, containerStatus.Name, reason)
+					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, msg)
+					signal.Timestamp = time.Now()
+					signal.SetAttribute(incidents.AttrSeverity, "medium")
+					signal.SetAttribute("container", containerStatus.Name)
+					signal.SetAttribute("reason", reason)
+					
+					ii.manager.IngestSignal(signal)
+				}
+			}
+		}
+	}
 }
 
 // Stop stops the incident intelligence system.
 func (ii *IncidentIntelligence) Stop() {
+	if ii.intelligenceSys != nil {
+		ii.intelligenceSys.Stop()
+	}
 	ii.manager.Stop()
 }
 
@@ -535,6 +801,11 @@ func (ii *IncidentIntelligence) handleMonitoredEvent(event MonitoredEvent) {
 // GetManager returns the incident manager.
 func (ii *IncidentIntelligence) GetManager() *incidents.Manager {
 	return ii.manager
+}
+
+// GetIntelligenceSystem returns the intelligence system.
+func (ii *IncidentIntelligence) GetIntelligenceSystem() *incidents.IntelligenceSystem {
+	return ii.intelligenceSys
 }
 
 // getKnowledgeBank gets or creates a KnowledgeBank instance for storing incidents
@@ -1343,19 +1614,44 @@ func (ws *WebServer) handleAutoRemediationStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Return a status indicating auto-remediation is not yet fully configured
-	status := map[string]interface{}{
-		"enabled":              false,
-		"activeExecutions":     0,
-		"totalExecutions":      0,
-		"successfulExecutions": 0,
-		"failedExecutions":     0,
-		"rolledBackExecutions": 0,
-		"queuedIncidents":      0,
-		"cooldownResources":    0,
-		"message":              "Auto-remediation engine not yet fully configured",
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		// Return default disabled status
+		status := incidents.AutoRemediationStatus{
+			Enabled:              false,
+			ActiveExecutions:     0,
+			TotalExecutions:      0,
+			SuccessfulExecutions: 0,
+			FailedExecutions:     0,
+			RolledBackExecutions: 0,
+			QueuedIncidents:      0,
+			CooldownResources:    0,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+		return
 	}
 
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	autoEngine := intelSys.GetAutoEngine()
+
+	if autoEngine == nil {
+		// Auto-remediation engine not initialized
+		status := incidents.AutoRemediationStatus{
+			Enabled:              false,
+			ActiveExecutions:     0,
+			TotalExecutions:      0,
+			SuccessfulExecutions: 0,
+			FailedExecutions:     0,
+			RolledBackExecutions: 0,
+			QueuedIncidents:      0,
+			CooldownResources:    0,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+		return
+	}
+
+	status := autoEngine.GetStatus()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }
@@ -1367,10 +1663,21 @@ func (ws *WebServer) handleAutoRemediationEnable(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	if err := intelSys.EnableAutoRemediation(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to enable auto-remediation: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": "Auto-remediation enabled (note: full implementation pending)",
+		"message": "Auto-remediation enabled",
 	})
 }
 
@@ -1378,6 +1685,17 @@ func (ws *WebServer) handleAutoRemediationEnable(w http.ResponseWriter, r *http.
 func (ws *WebServer) handleAutoRemediationDisable(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		http.Error(w, "Incident intelligence not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	if err := intelSys.DisableAutoRemediation(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to disable auto-remediation: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1395,9 +1713,24 @@ func (ws *WebServer) handleAutoRemediationDecisions(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Return empty decisions list for now
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	autoEngine := intelSys.GetAutoEngine()
+
+	if autoEngine == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	decisions := autoEngine.GetRecentDecisions(50)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+	json.NewEncoder(w).Encode(decisions)
 }
 
 // handleLearningClusters handles GET /api/v2/learning/clusters
@@ -1407,9 +1740,45 @@ func (ws *WebServer) handleLearningClusters(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Return empty clusters for now - learning engine needs more data
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	learningEngine := intelSys.GetLearningEngine()
+
+	if learningEngine == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	clusters := learningEngine.GetAllClusters()
+	
+	// Convert to frontend format
+	result := make([]map[string]interface{}, 0, len(clusters))
+	for _, cluster := range clusters {
+		bestRunbook := ""
+		if cluster.BestRunbook != "" {
+			bestRunbook = cluster.BestRunbook
+		}
+		result = append(result, map[string]interface{}{
+			"id":              cluster.ID,
+			"fingerprint":     cluster.Fingerprint,
+			"pattern":         string(cluster.Pattern),
+			"incidentCount":   cluster.IncidentCount,
+			"firstSeen":       cluster.FirstSeen.Format(time.RFC3339),
+			"lastSeen":        cluster.LastSeen.Format(time.RFC3339),
+			"commonCauses":    cluster.CommonCauses,
+			"bestRunbook":     bestRunbook,
+			"successRate":     cluster.SuccessRate,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleLearningPatterns handles GET /api/v2/learning/patterns
@@ -1419,9 +1788,43 @@ func (ws *WebServer) handleLearningPatterns(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Return empty patterns for now
+	query := r.URL.Query()
+	includeAnomalies := query.Get("anomalies") == "true"
+
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	learningEngine := intelSys.GetLearningEngine()
+
+	if learningEngine == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	patterns := learningEngine.GetLearnedPatterns(includeAnomalies)
+	
+	// Convert to frontend format
+	result := make([]map[string]interface{}, 0, len(patterns))
+	for _, pattern := range patterns {
+		result = append(result, map[string]interface{}{
+			"id":          pattern.ID,
+			"name":        pattern.Name,
+			"description": pattern.Description,
+			"basePattern": string(pattern.BasePattern),
+			"confidence":  pattern.Confidence,
+			"occurrences": pattern.Occurrences,
+			"learnedAt":   pattern.LearnedAt.Format(time.RFC3339),
+			"isAnomaly":   pattern.IsAnomaly,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleLearningTrends handles GET /api/v2/learning/trends
@@ -1431,9 +1834,62 @@ func (ws *WebServer) handleLearningTrends(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Return empty trends for now
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	learningEngine := intelSys.GetLearningEngine()
+
+	if learningEngine == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+		return
+	}
+
+	// Update trends before returning
+	learningEngine.UpdateTrends()
+
+	// Get trends for all known patterns
+	allPatterns := []incidents.FailurePattern{
+		incidents.PatternCrashLoop,
+		incidents.PatternOOMPressure,
+		incidents.PatternRestartStorm,
+		incidents.PatternImagePullFailure,
+		incidents.PatternNoReadyEndpoints,
+	}
+
+	result := make(map[string]interface{})
+	for _, pattern := range allPatterns {
+		trend := learningEngine.GetTrend(pattern)
+		if trend != nil {
+			result[string(pattern)] = map[string]interface{}{
+				"pattern":       string(trend.Pattern),
+				"last24h": map[string]interface{}{
+					"count":         trend.Last24h.Count,
+					"resolvedCount": trend.Last24h.ResolvedCount,
+					"successRate":   trend.Last24h.SuccessRate,
+				},
+				"last7d": map[string]interface{}{
+					"count":         trend.Last7d.Count,
+					"resolvedCount": trend.Last7d.ResolvedCount,
+					"successRate":   trend.Last7d.SuccessRate,
+				},
+				"last30d": map[string]interface{}{
+					"count":         trend.Last30d.Count,
+					"resolvedCount": trend.Last30d.ResolvedCount,
+					"successRate":   trend.Last30d.SuccessRate,
+				},
+				"trend":         trend.Trend,
+				"changePercent": trend.ChangePercent,
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{})
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleLearningSimilar handles GET /api/v2/learning/similar

@@ -450,25 +450,25 @@ func getWorkloadRef(incident *Incident) KubeResourceRef {
 	// For pods, try to derive from pod name (remove hash suffix)
 	// This is a fallback and assumes Deployment
 	if incident.Resource.Kind == "Pod" {
-		podName := incident.Resource.Name
-		// Common patterns: app-name-hash-hash, app-name-replicaset-hash
-		if len(podName) > 10 {
-			// Find last two dashes and remove suffix
-			dashCount := 0
-			for i := len(podName) - 1; i >= 0; i-- {
-				if podName[i] == '-' {
-					dashCount++
-					if dashCount == 2 {
+	podName := incident.Resource.Name
+	// Common patterns: app-name-hash-hash, app-name-replicaset-hash
+	if len(podName) > 10 {
+		// Find last two dashes and remove suffix
+		dashCount := 0
+		for i := len(podName) - 1; i >= 0; i-- {
+			if podName[i] == '-' {
+				dashCount++
+				if dashCount == 2 {
 						return KubeResourceRef{
 							Kind:      "Deployment", // Default assumption
 							Name:      podName[:i],
 							Namespace: incident.Resource.Namespace,
 						}
-					}
 				}
 			}
 		}
-		
+	}
+
 		// Last fallback: assume same name as Deployment
 		return KubeResourceRef{
 			Kind:      "Deployment", // Default assumption
