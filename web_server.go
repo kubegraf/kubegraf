@@ -58,6 +58,7 @@ import (
 	"github.com/kubegraf/kubegraf/internal/security"
 	"github.com/kubegraf/kubegraf/mcp/server"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
+	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 )
 
 var (
@@ -195,6 +196,8 @@ type WebServer struct {
 	confidenceLearner *incidents.ConfidenceLearner
 	// Cluster manager for multi-cluster support
 	clusterManager *cluster.ClusterManager
+	// Performance instrumentation store
+	perfStore instrumentation.PerformanceStore
 	// Security features
 	sessionTokenManager *security.SessionTokenManager
 	ephemeralMode       *security.EphemeralMode
@@ -631,15 +634,33 @@ func (ws *WebServer) Start(port int) error {
 	// Initialize Incident Intelligence system
 	ws.RegisterIncidentIntelligenceRoutes()
 
+	// Performance instrumentation endpoints
+	http.HandleFunc("/api/v2/perf/summary", ws.handlePerfSummary)
+	http.HandleFunc("/api/v2/perf/recent", ws.handlePerfRecent)
+	http.HandleFunc("/api/v2/perf/clear", ws.handlePerfClear)
+	http.HandleFunc("/api/v2/perf/ui", ws.handlePerfUI)
+
 	// Incidents V2 endpoint (full incident intelligence with diagnosis, recommendations, fixes)
-	http.HandleFunc("/api/v2/incidents/summary", ws.handleIncidentsV2Summary)
-	http.HandleFunc("/api/v2/incidents/patterns", ws.handleIncidentsV2Patterns)
-	http.HandleFunc("/api/v2/incidents/refresh", ws.handleIncidentsV2Refresh)
-	// Learning endpoints (must be registered before the catch-all /api/v2/incidents/ route)
-	http.HandleFunc("/api/v2/learning/status", ws.handleLearningStatus)
-	http.HandleFunc("/api/v2/learning/reset", ws.handleLearningReset)
-	http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
-	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
+	// Wrap with performance middleware if enabled
+	if ws.perfStore != nil {
+		http.HandleFunc("/api/v2/incidents/summary", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2Summary))
+		http.HandleFunc("/api/v2/incidents/patterns", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2Patterns))
+		http.HandleFunc("/api/v2/incidents/refresh", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2Refresh))
+		// Learning endpoints
+		http.HandleFunc("/api/v2/learning/status", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleLearningStatus))
+		http.HandleFunc("/api/v2/learning/reset", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleLearningReset))
+		http.HandleFunc("/api/v2/incidents/", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentV2ByID))
+		http.HandleFunc("/api/v2/incidents", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2))
+	} else {
+		http.HandleFunc("/api/v2/incidents/summary", ws.handleIncidentsV2Summary)
+		http.HandleFunc("/api/v2/incidents/patterns", ws.handleIncidentsV2Patterns)
+		http.HandleFunc("/api/v2/incidents/refresh", ws.handleIncidentsV2Refresh)
+		// Learning endpoints (must be registered before the catch-all /api/v2/incidents/ route)
+		http.HandleFunc("/api/v2/learning/status", ws.handleLearningStatus)
+		http.HandleFunc("/api/v2/learning/reset", ws.handleLearningReset)
+		http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
+		http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
+	}
 
 	// Fix action endpoints (safe remediation actions)
 	http.HandleFunc("/api/v2/incidents/fix-preview", ws.handleFixPreview)

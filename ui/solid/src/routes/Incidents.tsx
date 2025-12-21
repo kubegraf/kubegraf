@@ -15,6 +15,7 @@ import {
   invalidateIncidentsCache
 } from '../stores/incidents';
 import { currentContext, onClusterSwitch } from '../stores/cluster';
+import { trackIncidentListLoad } from '../stores/performance';
 
 // Separate component for intelligence panels to avoid loading until needed
 const IntelligencePanels: Component = () => (
@@ -44,6 +45,9 @@ const Incidents: Component = () => {
     setFetching(true);
     setIsRefreshing(true);
     
+    // Track incident list load
+    const endListLoad = trackIncidentListLoad();
+    
     try {
       const data = await api.getIncidents();
       const incidents = data || [];
@@ -55,6 +59,7 @@ const Incidents: Component = () => {
     } finally {
       setIsRefreshing(false);
       setFetching(false);
+      endListLoad();
     }
   };
 

@@ -4,6 +4,7 @@ import { namespace, setNamespace, namespaces } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
 import { settings, updateSetting, resetSettings, type AppSettings } from '../stores/settings';
 import { api } from '../services/api';
+import type { PerformanceSummary } from '../stores/performance';
 
 interface SettingSection {
   title: string;
@@ -51,6 +52,9 @@ const Settings: Component = () => {
   const [editingInterval, setEditingInterval] = createSignal(false);
   const [learningStatus, setLearningStatus] = createSignal<any>(null);
   const [resettingLearning, setResettingLearning] = createSignal(false);
+  const [perfSummaries, setPerfSummaries] = createSignal<PerformanceSummary[]>([]);
+  const [loadingPerf, setLoadingPerf] = createSignal(false);
+  const [clearingPerf, setClearingPerf] = createSignal(false);
 
   // Load current version from status
   createEffect(async () => {
@@ -87,6 +91,30 @@ const Settings: Component = () => {
       setLearningStatus(status);
     } catch (err) {
       console.error('Failed to get learning status:', err);
+    }
+  });
+
+  // Load performance summaries
+  const loadPerfSummaries = async () => {
+    setLoadingPerf(true);
+    try {
+      const data = await api.getPerfSummary(15); // 15 minute window
+      setPerfSummaries(data.summaries || []);
+    } catch (err) {
+      console.error('Failed to load performance summaries:', err);
+      addNotification('Failed to load performance data', 'error');
+    } finally {
+      setLoadingPerf(false);
+    }
+  };
+
+  // Load performance data when advanced section is opened
+  createEffect(() => {
+    if (showAdvanced()) {
+      loadPerfSummaries();
+      // Refresh every 30 seconds while advanced section is open
+      const interval = setInterval(loadPerfSummaries, 30000);
+      return () => clearInterval(interval);
     }
   });
 
