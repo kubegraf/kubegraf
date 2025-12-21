@@ -115,6 +115,7 @@ func (h *FixActionHandler) HandleFixPreview(w http.ResponseWriter, r *http.Reque
 			Valid:           false,
 			ValidationError: err.Error(),
 			TargetResource:  fix.TargetResource,
+			Changes:         fix.Changes,
 			GeneratedAt:     time.Now(),
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -139,6 +140,7 @@ func (h *FixActionHandler) HandleFixPreview(w http.ResponseWriter, r *http.Reque
 		DryRunCmd:      fix.DryRunCmd,
 		ApplyCmd:       fix.ApplyCmd,
 		TargetResource: fix.TargetResource,
+		Changes:        fix.Changes,
 		GeneratedAt:    time.Now(),
 	}
 

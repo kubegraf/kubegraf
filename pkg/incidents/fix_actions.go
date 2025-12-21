@@ -58,6 +58,8 @@ type FixPreviewResponse struct {
 	Risks []string `json:"risks,omitempty"`
 	// TargetResource being modified
 	TargetResource KubeResourceRef `json:"targetResource"`
+	// Changes contains structured change information
+	Changes []FixChange `json:"changes,omitempty"`
 	// ValidationError if the fix cannot be applied
 	ValidationError string `json:"validationError,omitempty"`
 	// GeneratedAt timestamp

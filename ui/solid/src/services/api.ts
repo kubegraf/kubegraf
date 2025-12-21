@@ -1676,6 +1676,13 @@ export interface PostCheckResponse {
 }
 
 // ============ Legacy Types ============
+export interface FixChange {
+  path: string;
+  oldValue?: string;
+  newValue?: string;
+  description?: string;
+}
+
 export interface FixPreviewResponse {
   valid: boolean;
   description: string;
@@ -1684,6 +1691,7 @@ export interface FixPreviewResponse {
   applyCmd: string;
   risks: string[];
   targetResource: KubeResourceRef;
+  changes?: FixChange[];
   validationError?: string;
   generatedAt: string;
 }

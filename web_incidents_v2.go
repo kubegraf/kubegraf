@@ -120,6 +120,50 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 					"name":      result.Name,
 					"namespace": result.Namespace,
 				}, nil
+			case "StatefulSet":
+				result, err := ii.app.clientset.AppsV1().StatefulSets(ref.Namespace).Patch(
+					ctx, ref.Name, types.StrategicMergePatchType, patchData, opts,
+				)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]interface{}{
+					"name":      result.Name,
+					"namespace": result.Namespace,
+				}, nil
+			case "DaemonSet":
+				result, err := ii.app.clientset.AppsV1().DaemonSets(ref.Namespace).Patch(
+					ctx, ref.Name, types.StrategicMergePatchType, patchData, opts,
+				)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]interface{}{
+					"name":      result.Name,
+					"namespace": result.Namespace,
+				}, nil
+			case "Job":
+				result, err := ii.app.clientset.BatchV1().Jobs(ref.Namespace).Patch(
+					ctx, ref.Name, types.StrategicMergePatchType, patchData, opts,
+				)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]interface{}{
+					"name":      result.Name,
+					"namespace": result.Namespace,
+				}, nil
+			case "CronJob":
+				result, err := ii.app.clientset.BatchV1().CronJobs(ref.Namespace).Patch(
+					ctx, ref.Name, types.StrategicMergePatchType, patchData, opts,
+				)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]interface{}{
+					"name":      result.Name,
+					"namespace": result.Namespace,
+				}, nil
 			default:
 				return nil, fmt.Errorf("unsupported resource kind for patch: %s", ref.Kind)
 			}
@@ -337,6 +381,24 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 			continue
 		}
 
+		// Extract owner information from pod
+		var ownerKind, ownerName string
+		if len(pod.OwnerReferences) > 0 {
+			owner := pod.OwnerReferences[0]
+			ownerKind = owner.Kind
+			ownerName = owner.Name
+			
+			// Handle ReplicaSet - need to find the Deployment/StatefulSet that owns it
+			if ownerKind == "ReplicaSet" {
+				rs, err := ii.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ownerName, metav1.GetOptions{})
+				if err == nil && len(rs.OwnerReferences) > 0 {
+					rsOwner := rs.OwnerReferences[0]
+					ownerKind = rsOwner.Kind
+					ownerName = rsOwner.Name
+				}
+			}
+		}
+
 		// Check each container status and ingest signals
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			// Ingest pod status signals
@@ -358,6 +420,7 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 				containerState = "running"
 			}
 
+			// Ingest pod status (this creates a signal)
 			ii.manager.IngestPodStatus(
 				pod.Name,
 				pod.Namespace,
@@ -369,6 +432,9 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 				containerStatus.RestartCount,
 				terminatedAt,
 			)
+			
+			// Note: Owner information will be extracted from pod metadata when creating incidents
+			// The aggregator will need to look up owner information from the pod when creating incidents
 			signalCount++
 			
 			// Log potential incidents
