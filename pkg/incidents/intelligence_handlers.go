@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/kubegraf/kubegraf/pkg/capabilities"
 )
 
 // IntelligenceHandler handles API requests for the intelligence system
@@ -587,6 +589,12 @@ func (h *IntelligenceHandler) handleAutoStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Check capabilities - if disabled, return disabled status
+	if !capabilities.IsAutoRemediationEnabled() {
+		writeJSON(w, &AutoRemediationStatus{Enabled: false})
+		return
+	}
+
 	if h.autoEngine == nil {
 		writeJSON(w, &AutoRemediationStatus{Enabled: false})
 		return
@@ -600,6 +608,12 @@ func (h *IntelligenceHandler) handleAutoStatus(w http.ResponseWriter, r *http.Re
 func (h *IntelligenceHandler) handleAutoEnable(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check capabilities - auto-remediation must be enabled
+	if !capabilities.IsAutoRemediationEnabled() {
+		http.Error(w, "Auto-remediation is not enabled in this release", http.StatusForbidden)
 		return
 	}
 
@@ -641,6 +655,12 @@ func (h *IntelligenceHandler) handleAutoDecisions(w http.ResponseWriter, r *http
 		return
 	}
 
+	// Check capabilities - if disabled, return empty list
+	if !capabilities.IsAutoRemediationEnabled() {
+		writeJSON(w, []*AutoRemediationDecision{})
+		return
+	}
+
 	if h.autoEngine == nil {
 		writeJSON(w, []*AutoRemediationDecision{})
 		return
@@ -654,6 +674,12 @@ func (h *IntelligenceHandler) handleAutoDecisions(w http.ResponseWriter, r *http
 func (h *IntelligenceHandler) handleLearningClusters(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check capabilities - learning engine must be enabled
+	if !capabilities.IsLearningEngineEnabled() {
+		writeJSON(w, []*IncidentCluster{})
 		return
 	}
 
@@ -717,6 +743,12 @@ func (h *IntelligenceHandler) handleTrends(w http.ResponseWriter, r *http.Reques
 func (h *IntelligenceHandler) handleSimilarIncidents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check capabilities - similar incidents must be enabled
+	if !capabilities.IsSimilarIncidentsEnabled() {
+		writeJSON(w, []*SimilarityResult{})
 		return
 	}
 

@@ -57,6 +57,7 @@ import (
 	"github.com/kubegraf/kubegraf/internal/database"
 	"github.com/kubegraf/kubegraf/internal/security"
 	"github.com/kubegraf/kubegraf/mcp/server"
+	"github.com/kubegraf/kubegraf/pkg/capabilities"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 )
@@ -370,6 +371,9 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/contexts/current", ws.handleCurrentContext)
 	http.HandleFunc("/api/contexts/switch", ws.handleSwitchContext)
 
+	// Capabilities endpoint
+	http.HandleFunc("/api/capabilities", ws.handleCapabilities)
+
 	// Cluster manager endpoints
 	// Legacy cluster endpoints (keep for backward compatibility)
 	http.HandleFunc("/api/clusters", ws.handleClusters)
@@ -413,6 +417,8 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/pod/terminal", ws.handlePodTerminalWS)
 	http.HandleFunc("/api/pod/logs", ws.handlePodLogs)
 	http.HandleFunc("/api/local/terminal", ws.handleLocalTerminalWS)
+	http.HandleFunc("/api/terminal/shells", ws.handleGetAvailableShells)
+	http.HandleFunc("/api/terminal/preferences", ws.handleGetTerminalPreferences)
 	http.HandleFunc("/api/execution/stream", ws.handleExecutionStream)
 	http.HandleFunc("/terminal", ws.handleLocalTerminalPage)
 	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
@@ -577,6 +583,10 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/ml/jobs/delete", ws.handleMLJobDelete)
 	http.HandleFunc("/api/ml/jobs/logs", ws.handleMLJobLogs)
 	http.HandleFunc("/api/ml/jobs/logs/ws", ws.handleMLJobLogsWS)
+
+	// ML workloads endpoints (legacy/compatibility paths)
+	http.HandleFunc("/api/trainingjobs", ws.handleTrainingJobs)
+	http.HandleFunc("/api/inferenceservices", ws.handleInferenceServices)
 
 	// Inference Services endpoints
 	http.HandleFunc("/api/inference/create", ws.handleInferenceCreate)
@@ -836,6 +846,15 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 	fileServer := http.FileServer(http.FS(webFS))
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		// IMPORTANT: Skip API routes - they should be handled by API handlers
+		// This prevents serving index.html for API endpoints
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws") {
+			// This shouldn't happen if API routes are registered correctly,
+			// but if it does, return 404 instead of serving index.html
+			http.NotFound(w, r)
+			return
+		}
+
 		// Clean the path
 		upath := r.URL.Path
 		if !strings.HasPrefix(upath, "/") {
@@ -2607,6 +2626,234 @@ func (ws *WebServer) handleLocalTerminalPage(w http.ResponseWriter, r *http.Requ
 </html>`)
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(terminalHTML))
+}
+
+// getAvailableWindowsShells detects all available shells on Windows and returns them in priority order
+func getAvailableWindowsShells() []struct {
+	name     string
+	display  string
+	args     []string
+	path     string
+	priority int
+} {
+	var shells []struct {
+		name     string
+		display  string
+		args     []string
+		path     string
+		priority int
+	}
+
+	// Check for shells in priority order (lower priority number = higher priority)
+	shellCandidates := []struct {
+		name     string
+		display  string
+		args     []string
+		priority int
+	}{
+		{"pwsh.exe", "PowerShell Core (pwsh)", []string{"-NoProfile", "-NoExit", "-Command", "-"}, 1},
+		{"powershell.exe", "PowerShell", []string{"-NoProfile", "-NoExit", "-Command", "-"}, 2},
+		{"wsl.exe", "WSL (Windows Subsystem for Linux)", []string{"-e", "bash", "-i"}, 3},
+		{"bash.exe", "Git Bash", []string{"--login", "-i"}, 4},
+		{"git-bash.exe", "Git Bash (alternative)", []string{"--login", "-i"}, 5},
+		{"cmd.exe", "Command Prompt (cmd)", []string{"/K"}, 6},
+	}
+
+	for _, candidate := range shellCandidates {
+		if path, err := exec.LookPath(candidate.name); err == nil {
+			shells = append(shells, struct {
+				name     string
+				display  string
+				args     []string
+				path     string
+				priority int
+			}{
+				name:     candidate.name,
+				display:  candidate.display,
+				args:     candidate.args,
+				path:     path,
+				priority: candidate.priority,
+			})
+		}
+	}
+
+	// Also check for Git Bash in common installation locations
+	foundBash := false
+	for _, shell := range shells {
+		if shell.name == "bash.exe" || shell.name == "git-bash.exe" {
+			foundBash = true
+			break
+		}
+	}
+
+	if !foundBash {
+		gitBashPaths := []string{
+			"C:\\Program Files\\Git\\bin\\bash.exe",
+			"C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+			os.Getenv("LOCALAPPDATA") + "\\Programs\\Git\\bin\\bash.exe",
+		}
+		for _, gitPath := range gitBashPaths {
+			if gitPath != "" {
+				if _, err := os.Stat(gitPath); err == nil {
+					shells = append(shells, struct {
+						name     string
+						display  string
+						args     []string
+						path     string
+						priority int
+					}{
+						name:     "bash.exe",
+						display:  "Git Bash",
+						args:     []string{"--login", "-i"},
+						path:     gitPath,
+						priority: 4,
+					})
+					break
+				}
+			}
+		}
+	}
+
+	// Sort by priority
+	for i := 0; i < len(shells)-1; i++ {
+		for j := i + 1; j < len(shells); j++ {
+			if shells[i].priority > shells[j].priority {
+				shells[i], shells[j] = shells[j], shells[i]
+			}
+		}
+	}
+
+	return shells
+}
+
+// handleGetAvailableShells returns list of available shells for the current platform
+func (ws *WebServer) handleGetAvailableShells(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type ShellInfo struct {
+		Name     string `json:"name"`
+		Display  string `json:"display"`
+		Path     string `json:"path"`
+		Priority int    `json:"priority"`
+	}
+
+	var shells []ShellInfo
+
+	if runtime.GOOS == "windows" {
+		availableShells := getAvailableWindowsShells()
+		for _, shell := range availableShells {
+			shells = append(shells, ShellInfo{
+				Name:     shell.name,
+				Display:  shell.display,
+				Path:     shell.path,
+				Priority: shell.priority,
+			})
+		}
+	} else {
+		// Unix-like systems
+		shellCandidates := []struct {
+			name    string
+			display string
+		}{
+			{"zsh", "Zsh"},
+			{"bash", "Bash"},
+			{"sh", "Sh"},
+		}
+
+		priority := 1
+		for _, candidate := range shellCandidates {
+			if path, err := exec.LookPath(candidate.name); err == nil {
+				shells = append(shells, ShellInfo{
+					Name:     candidate.name,
+					Display:  candidate.display,
+					Path:     path,
+					Priority: priority,
+				})
+				priority++
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"shells": shells,
+	})
+}
+
+// handleGetTerminalPreferences returns user's terminal preferences
+func (ws *WebServer) handleGetTerminalPreferences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get preferred shell from query parameter or use default
+	preferredShell := r.URL.Query().Get("shell")
+	if preferredShell == "" {
+		// Return default (first available shell)
+		if runtime.GOOS == "windows" {
+			shells := getAvailableWindowsShells()
+			if len(shells) > 0 {
+				preferredShell = shells[0].name
+			} else {
+				preferredShell = "powershell.exe"
+			}
+		} else {
+			preferredShell = "/bin/zsh"
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"preferredShell": preferredShell,
+	})
+}
+
+// handleCapabilities returns the current feature capabilities
+func (ws *WebServer) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(capabilities.GetCapabilities())
+}
+
+// handleTrainingJobs returns empty array for now (ML feature placeholder)
+func (ws *WebServer) handleTrainingJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	limit := r.URL.Query().Get("limit")
+	if limit == "" {
+		limit = "100"
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"items": []interface{}{},
+		"total": 0,
+	})
+}
+
+// handleInferenceServices returns empty array for now (ML feature placeholder)
+func (ws *WebServer) handleInferenceServices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	limit := r.URL.Query().Get("limit")
+	if limit == "" {
+		limit = "100"
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"items": []interface{}{},
+		"total": 0,
+	})
 }
 
 // handleLocalTerminalWS handles WebSocket connections for local system terminal

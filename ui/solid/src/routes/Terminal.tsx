@@ -1,8 +1,17 @@
 import { Component, createSignal, Show } from 'solid-js';
 import LocalTerminal from '../components/LocalTerminal';
+import ShellSelector from '../components/ShellSelector';
 
 const TerminalPage: Component = () => {
   const [isMaximized, setIsMaximized] = createSignal(false);
+  const [selectedShell, setSelectedShell] = createSignal<string | undefined>(undefined);
+  const [key, setKey] = createSignal(0); // Force re-render of terminal when shell changes
+
+  const handleShellChange = (shellName: string) => {
+    setSelectedShell(shellName);
+    // Increment key to force terminal to reconnect with new shell
+    setKey(prev => prev + 1);
+  };
 
   const handleOpenInNewWindow = () => {
     console.log('[Terminal] Open in new window clicked');
@@ -24,9 +33,14 @@ const TerminalPage: Component = () => {
     <div class="flex flex-col h-full" style={{ height: containerHeight() }}>
       {/* Header */}
       <div class="flex items-center justify-between mb-4">
-        <div>
+        <div class="flex-1">
           <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Terminal</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Local system terminal</p>
+        </div>
+
+        {/* Shell Selector */}
+        <div class="flex items-center mr-4">
+          <ShellSelector selectedShell={selectedShell()} onShellChange={handleShellChange} />
         </div>
 
         {/* Action buttons */}
@@ -98,8 +112,8 @@ const TerminalPage: Component = () => {
         </div>
       </div>
 
-      {/* Terminal component - same as header terminal but without modal */}
-      <LocalTerminal />
+      {/* Terminal component - key forces re-render when shell changes */}
+      <LocalTerminal key={key()} preferredShell={selectedShell()} />
     </div>
   );
 };

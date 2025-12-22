@@ -6,6 +6,7 @@ package incidents
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -82,6 +83,13 @@ func NewManager(config ManagerConfig) *Manager {
 	}
 }
 
+// GetClusterContext returns the current cluster context.
+func (m *Manager) GetClusterContext() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config.ClusterContext
+}
+
 // SetKubeExecutor sets the Kubernetes executor for fix operations.
 func (m *Manager) SetKubeExecutor(executor KubeFixExecutor) {
 	m.mu.Lock()
@@ -93,9 +101,12 @@ func (m *Manager) SetKubeExecutor(executor KubeFixExecutor) {
 // Immediately clears all incidents from other clusters to prevent cross-cluster contamination.
 func (m *Manager) SetClusterContext(ctx string) {
 	m.mu.Lock()
+	oldContext := m.config.ClusterContext
 	m.config.ClusterContext = ctx
 	m.signalNormalizer = NewSignalNormalizer(ctx)
 	m.mu.Unlock()
+
+	log.Printf("[Manager] Setting cluster context from '%s' to '%s'", oldContext, ctx)
 
 	// Update aggregator cluster context and clear incidents from other clusters
 	// Do this outside manager lock to avoid potential deadlock
@@ -103,7 +114,8 @@ func (m *Manager) SetClusterContext(ctx string) {
 		// Set the aggregator's cluster context and clear incidents from other clusters
 		// This ensures new incidents get the correct context and old incidents are removed
 		m.aggregator.SetCurrentClusterContext(ctx)
-		m.aggregator.ClearIncidentsFromOtherClusters(ctx)
+		clearedCount := m.aggregator.ClearIncidentsFromOtherClusters(ctx)
+		log.Printf("[Manager] Cleared %d incidents from other clusters after switching to '%s'", clearedCount, ctx)
 	} else {
 		// Even if context is empty, update it
 		m.aggregator.SetCurrentClusterContext(ctx)

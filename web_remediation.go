@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubegraf/kubegraf/pkg/capabilities"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -314,6 +315,21 @@ func (ws *WebServer) handleFixApplyV2(w http.ResponseWriter, r *http.Request, in
 		log.Printf("[FixApplyV2] Missing both fixId and recommendationId in request")
 		http.Error(w, "Missing fixId or recommendationId", http.StatusBadRequest)
 		return
+	}
+
+	// Check capabilities - if fix application is disabled, only allow dry-run
+	if !capabilities.IsFixApplicationEnabled() {
+		if !req.DryRun && req.Confirmed {
+			log.Printf("[FixApplyV2] Fix application is disabled - only dry-run allowed")
+			http.Error(w, "Fix application is disabled in this release. Only dry-run preview is available.", http.StatusForbidden)
+			return
+		}
+		// If dry-run, allow it even when fix application is disabled
+		if !req.DryRun {
+			// Force dry-run mode when fix application is disabled
+			req.DryRun = true
+			log.Printf("[FixApplyV2] Fix application disabled - forcing dry-run mode")
+		}
 	}
 
 	if !req.Confirmed && !req.DryRun {
