@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubegraf/kubegraf/pkg/capabilities"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 	appsv1 "k8s.io/api/apps/v1"
@@ -392,6 +393,17 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 	if ii.app.clientset == nil || !ii.app.connected {
 		log.Printf("[scanAndIngestIncidents] Skipping scan - clientset or connection not available")
 		return
+	}
+
+	// CRITICAL: Ensure manager's cluster context matches the current active cluster context
+	// This prevents incidents from being tagged with the wrong cluster context
+	currentContext := ii.app.GetCurrentContext()
+	if currentContext != "" {
+		currentManagerContext := ii.manager.GetClusterContext()
+		if currentManagerContext != currentContext {
+			log.Printf("[scanAndIngestIncidents] Syncing manager cluster context from '%s' to '%s'", currentManagerContext, currentContext)
+			ii.manager.SetClusterContext(currentContext)
+		}
 	}
 
 	// Scan pods and ingest as signals
@@ -886,16 +898,35 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add resolved incidents from database if filtering by resolved status
+	// IMPORTANT: Filter by current cluster context to avoid cross-cluster contamination
 	if status := query.Get("status"); status == "resolved" {
 		kb := ws.getKnowledgeBank()
 		if kb != nil {
+			// Get current cluster context from manager for filtering
+			currentClusterContext := ""
+			if ws.app.incidentIntelligence != nil {
+				manager := ws.app.incidentIntelligence.GetManager()
+				if manager != nil {
+					currentClusterContext = manager.GetClusterContext()
+				}
+			}
+
 			records, err := kb.GetResolvedIncidents(1000, namespace, patternStr, severityStr)
 			if err != nil {
 				log.Printf("[handleIncidentsV2] Error fetching resolved incidents from database: %v", err)
 			} else {
-				log.Printf("[handleIncidentsV2] Found %d resolved incidents in database", len(records))
-				// Convert IncidentRecord to Incident
+				log.Printf("[handleIncidentsV2] Found %d resolved incidents in database, filtering by cluster context: %s", len(records), currentClusterContext)
+				// Convert IncidentRecord to Incident, but only include incidents from current cluster
 				for _, record := range records {
+					// Filter by cluster context - only include incidents from current cluster
+					if currentClusterContext != "" && record.ClusterContext != currentClusterContext {
+						continue
+					}
+					// Also exclude incidents with empty cluster context when we have an active cluster context
+					if currentClusterContext != "" && record.ClusterContext == "" {
+						continue
+					}
+
 					var diagnosis *incidents.Diagnosis
 					if record.Diagnosis != nil {
 						// CitedDiagnosis embeds Diagnosis, so we can use it directly
@@ -1614,6 +1645,23 @@ func (ws *WebServer) handleAutoRemediationStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Check capabilities - if disabled, return disabled status
+	if !capabilities.IsAutoRemediationEnabled() {
+		status := incidents.AutoRemediationStatus{
+			Enabled:              false,
+			ActiveExecutions:     0,
+			TotalExecutions:      0,
+			SuccessfulExecutions: 0,
+			FailedExecutions:     0,
+			RolledBackExecutions: 0,
+			QueuedIncidents:      0,
+			CooldownResources:    0,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+		return
+	}
+
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
 		// Return default disabled status
 		status := incidents.AutoRemediationStatus{
@@ -1713,9 +1761,16 @@ func (ws *WebServer) handleAutoRemediationDecisions(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Check capabilities - if disabled, return empty list
+	if !capabilities.IsAutoRemediationEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
@@ -1740,9 +1795,16 @@ func (ws *WebServer) handleLearningClusters(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Check capabilities - learning engine must be enabled
+	if !capabilities.IsLearningEngineEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
@@ -1788,12 +1850,19 @@ func (ws *WebServer) handleLearningPatterns(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Check capabilities - learning engine must be enabled
+	if !capabilities.IsLearningEngineEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
 	query := r.URL.Query()
 	includeAnomalies := query.Get("anomalies") == "true"
 
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
@@ -1834,9 +1903,16 @@ func (ws *WebServer) handleLearningTrends(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check capabilities - learning engine must be enabled
+	if !capabilities.IsLearningEngineEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+		return
+	}
+
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{})
 		return
 	}
 
@@ -2811,6 +2887,15 @@ func (ws *WebServer) handleIncidentCitations(w http.ResponseWriter, r *http.Requ
 func (ws *WebServer) handleIncidentSimilar(w http.ResponseWriter, r *http.Request, incidentID string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check capabilities - similar incidents must be enabled
+	if !capabilities.IsSimilarIncidentsEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"similar": []interface{}{},
+		})
 		return
 	}
 

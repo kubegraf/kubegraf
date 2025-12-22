@@ -1531,6 +1531,10 @@ export const api = {
       body: JSON.stringify(metric),
     });
   },
+
+  // ============ Terminal ============
+  getAvailableShells: () => fetchAPI<{ shells: Array<{ name: string; display: string; path: string; priority: number }> }>('/terminal/shells'),
+  getTerminalPreferences: () => fetchAPI<{ preferredShell: string }>('/terminal/preferences'),
 };
 
 interface Connector {

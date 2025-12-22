@@ -427,7 +427,8 @@ func (a *IncidentAggregator) ClearIncidentsByCluster(clusterContext string) {
 
 // ClearIncidentsFromOtherClusters removes all incidents that don't match the current cluster context.
 // This ensures only incidents from the active cluster are visible.
-func (a *IncidentAggregator) ClearIncidentsFromOtherClusters(currentClusterContext string) {
+// Returns the number of incidents cleared.
+func (a *IncidentAggregator) ClearIncidentsFromOtherClusters(currentClusterContext string) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -445,12 +446,16 @@ func (a *IncidentAggregator) ClearIncidentsFromOtherClusters(currentClusterConte
 		}
 	}
 
+	clearedCount := 0
 	for _, fingerprint := range toDelete {
 		if incident, exists := a.incidents[fingerprint]; exists {
 			delete(a.incidentsByID, incident.ID)
+			clearedCount++
 		}
 		delete(a.incidents, fingerprint)
 	}
+
+	return clearedCount
 }
 
 // GetIncident returns an incident by ID.

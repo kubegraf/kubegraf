@@ -16,14 +16,33 @@ import {
 } from '../stores/incidents';
 import { currentContext, onClusterSwitch } from '../stores/cluster';
 import { trackIncidentListLoad } from '../stores/performance';
+import { capabilities } from '../stores/capabilities';
 
-// Separate component for intelligence panels to avoid loading until needed
-const IntelligencePanels: Component = () => (
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-    <AutoRemediationPanel />
-    <LearningDashboard />
-  </div>
-);
+// Separate component for intelligence panels - conditionally rendered based on capabilities
+const IntelligencePanels: Component = () => {
+  const caps = capabilities.get();
+  
+  // Only render panels if their capabilities are enabled
+  const showAutoRemediation = caps.autoRemediation;
+  const showLearningDashboard = caps.learningEngine;
+  
+  // Don't render anything if both are disabled
+  if (!showAutoRemediation && !showLearningDashboard) {
+    return null;
+  }
+  
+  // Render grid with only enabled panels
+  return (
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <Show when={showAutoRemediation}>
+        <AutoRemediationPanel />
+      </Show>
+      <Show when={showLearningDashboard}>
+        <LearningDashboard />
+      </Show>
+    </div>
+  );
+};
 
 const Incidents: Component = () => {
   const [patternFilter, setPatternFilter] = createSignal('');
@@ -299,29 +318,31 @@ const Incidents: Component = () => {
         </div>
       </Show>
 
-      {/* Side Panels Toggle - Always visible */}
-      <div class="mt-6 mb-4" style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
-        <button
-          onClick={() => setShowSidePanels(!showSidePanels())}
-          style={{
-            padding: '10px 20px',
-            'font-size': '13px',
-            'border-radius': '6px',
-            border: '1px solid var(--border-color)',
-            background: showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
-            color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            'font-weight': '600',
-            transition: 'all 0.2s ease',
-            'box-shadow': showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
-          }}
-        >
-          {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
-        </button>
-        <span style={{ color: 'var(--text-muted)', 'font-size': '12px' }}>
-          View auto-remediation status and learning insights
-        </span>
-      </div>
+      {/* Side Panels Toggle - Only show if capabilities are enabled */}
+      <Show when={capabilities.isAutoRemediationEnabled() || capabilities.isLearningEngineEnabled()}>
+        <div class="mt-6 mb-4" style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
+          <button
+            onClick={() => setShowSidePanels(!showSidePanels())}
+            style={{
+              padding: '10px 20px',
+              'font-size': '13px',
+              'border-radius': '6px',
+              border: '1px solid var(--border-color)',
+              background: showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
+              color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              'font-weight': '600',
+              transition: 'all 0.2s ease',
+              'box-shadow': showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+            }}
+          >
+            {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
+          </button>
+          <span style={{ color: 'var(--text-muted)', 'font-size': '12px' }}>
+            View auto-remediation status and learning insights
+          </span>
+        </div>
+      </Show>
 
       {/* Intelligence Panels - Only render when toggled */}
       <Show when={showSidePanels()}>

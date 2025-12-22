@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/kubegraf/kubegraf/internal/update"
 	"github.com/kubegraf/kubegraf/pkg/update/unix"
 	"github.com/kubegraf/kubegraf/pkg/update/windows"
@@ -663,10 +664,13 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Update incident manager cluster context when switching contexts
+	// CRITICAL: Update incident manager cluster context when switching contexts
+	// This clears all incidents from other clusters and ensures new scans use the correct context
 	if ws.app.incidentIntelligence != nil {
 		manager := ws.app.incidentIntelligence.GetManager()
+		log.Printf("[handleSwitchContext] Switching incident manager context to: %s", req.Context)
 		manager.SetClusterContext(req.Context)
+		log.Printf("[handleSwitchContext] Incident manager context switched successfully")
 	}
 
 	// Clear cost cache when switching contexts (cost is cluster-specific)
@@ -676,15 +680,34 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 	ws.costCacheTime = make(map[string]time.Time)
 	ws.costCacheMu.Unlock()
 
-	// Broadcast context change to all WebSocket clients
+	// Broadcast context change to all WebSocket clients (with mutex protection)
 	contextMsg := map[string]interface{}{
 		"type":    "contextSwitch",
 		"context": req.Context,
 	}
+	ws.mu.Lock()
+	// Create a copy of clients map to avoid holding lock during WriteJSON
+	clientsCopy := make([]*websocket.Conn, 0, len(ws.clients))
 	for client := range ws.clients {
+		clientsCopy = append(clientsCopy, client)
+	}
+	ws.mu.Unlock()
+
+	// Write to clients without holding the lock to avoid blocking
+	for _, client := range clientsCopy {
+		ws.mu.Lock()
+		_, exists := ws.clients[client]
+		ws.mu.Unlock()
+
+		if !exists {
+			continue // Client was removed
+		}
+
 		if err := client.WriteJSON(contextMsg); err != nil {
-			client.Close()
+			ws.mu.Lock()
 			delete(ws.clients, client)
+			ws.mu.Unlock()
+			client.Close()
 		}
 	}
 

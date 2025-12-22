@@ -6,6 +6,8 @@ import 'xterm/css/xterm.css';
 interface LocalTerminalProps {
   // Optional: if provided, will be called when terminal is ready
   onReady?: () => void;
+  // Optional: preferred shell to use (e.g., "powershell.exe", "bash.exe", "wsl.exe")
+  preferredShell?: string;
 }
 
 const LocalTerminal: Component<LocalTerminalProps> = (props) => {
@@ -102,7 +104,9 @@ const LocalTerminal: Component<LocalTerminalProps> = (props) => {
 
   const connectWebSocket = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/local/terminal`;
+    // Add shell preference to query string if provided
+    const shellParam = props.preferredShell ? `?shell=${encodeURIComponent(props.preferredShell)}` : '';
+    const wsUrl = `${protocol}//${window.location.host}/api/local/terminal${shellParam}`;
 
     console.log('Connecting to WebSocket:', wsUrl);
     try {
@@ -213,7 +217,7 @@ const LocalTerminal: Component<LocalTerminalProps> = (props) => {
           {connected() ? 'Connected' : 'Disconnected'}
         </span>
         <span style={{ color: 'var(--text-muted)' }} class="text-sm ml-auto">
-          Local System Terminal
+          {props.preferredShell ? `Shell: ${props.preferredShell}` : 'Local System Terminal'}
         </span>
       </div>
 

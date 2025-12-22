@@ -3,6 +3,7 @@
 
 import { Component, Show, createSignal, createEffect } from 'solid-js';
 import { api } from '../../services/api';
+import { capabilities } from '../../stores/capabilities';
 
 interface FixPreviewPanelProps {
   incidentId: string;
@@ -285,23 +286,30 @@ const FixPreviewPanel: Component<FixPreviewPanelProps> = (props) => {
             Cancel
           </button>
           <Show when={preview()}>
-            <button
-              onClick={handleApply}
-              disabled={!confirmed() || applying()}
-              style={{
-                padding: '10px 20px',
-                'border-radius': '6px',
-                border: 'none',
-                background: confirmed() && !applying() ? 'var(--accent-primary)' : 'var(--text-muted)',
-                color: 'white',
-                'font-size': '13px',
-                'font-weight': '500',
-                cursor: confirmed() && !applying() ? 'pointer' : 'not-allowed',
-                opacity: confirmed() && !applying() ? 1 : 0.6,
-              }}
-            >
-              {applying() ? 'Applying...' : 'Apply Fix'}
-            </button>
+            <Show when={capabilities.isFixApplicationEnabled()}>
+              <button
+                onClick={handleApply}
+                disabled={!confirmed() || applying()}
+                style={{
+                  padding: '10px 20px',
+                  'border-radius': '6px',
+                  border: 'none',
+                  background: confirmed() && !applying() ? 'var(--accent-primary)' : 'var(--text-muted)',
+                  color: 'white',
+                  'font-size': '13px',
+                  'font-weight': '500',
+                  cursor: confirmed() && !applying() ? 'pointer' : 'not-allowed',
+                  opacity: confirmed() && !applying() ? 1 : 0.6,
+                }}
+              >
+                {applying() ? 'Applying...' : 'Apply Fix'}
+              </button>
+            </Show>
+            <Show when={!capabilities.isFixApplicationEnabled()}>
+              <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', 'font-size': '13px' }}>
+                Fix application is disabled in this release. Only dry-run preview is available.
+              </div>
+            </Show>
           </Show>
         </div>
       </div>

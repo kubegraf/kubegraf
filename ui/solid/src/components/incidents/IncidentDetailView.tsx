@@ -5,6 +5,7 @@
 import { Component, Show, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
 import { Incident, IncidentSnapshot, api } from '../../services/api';
 import { incidentsV2Store } from '../../stores/incidentsV2';
+import { capabilities } from '../../stores/capabilities';
 import IncidentHeader from './IncidentHeader';
 import SignalSummaryPanel from './SignalSummaryPanel';
 import RootCauseExplanation from './RootCauseExplanation';
@@ -297,15 +298,17 @@ const IncidentDetailView: Component<IncidentDetailViewProps> = (props) => {
               />
             </CollapsibleSection>
 
-            {/* 9. Knowledge Bank */}
-            <CollapsibleSection
-              id="knowledge"
-              title="Knowledge Bank"
-              collapsed={isSectionCollapsed('knowledge')}
-              onToggle={() => toggleSection('knowledge')}
-            >
-              <KnowledgeBank incidentId={inc.id} />
-            </CollapsibleSection>
+            {/* 9. Knowledge Bank - Only show if similar incidents capability is enabled */}
+            <Show when={capabilities.isSimilarIncidentsEnabled()}>
+              <CollapsibleSection
+                id="knowledge"
+                title="Knowledge Bank"
+                collapsed={isSectionCollapsed('knowledge')}
+                onToggle={() => toggleSection('knowledge')}
+              >
+                <KnowledgeBank incidentId={inc.id} />
+              </CollapsibleSection>
+            </Show>
 
             {/* 10. Citations & References */}
             <CollapsibleSection
