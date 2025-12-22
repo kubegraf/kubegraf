@@ -320,9 +320,31 @@ func (a *IncidentAggregator) cleanup() {
 		delete(a.incidents, fingerprint)
 	}
 
+	// Remove incidents from inactive clusters (not the current cluster context)
+	// This prevents memory accumulation from multiple clusters
+	if a.config.ClusterContext != "" {
+		var inactiveClusterIncidents []string
+		for fingerprint, incident := range a.incidents {
+			// Remove incidents from other clusters that are resolved/old
+			if incident.ClusterContext != "" && incident.ClusterContext != a.config.ClusterContext {
+				// Only remove if resolved and old enough (to allow brief cluster switches)
+				if (incident.Status == StatusResolved || incident.Status == StatusSuppressed) &&
+					incident.ResolvedAt != nil && now.Sub(*incident.ResolvedAt) > 5*time.Minute {
+					inactiveClusterIncidents = append(inactiveClusterIncidents, fingerprint)
+				}
+			}
+		}
+		for _, fingerprint := range inactiveClusterIncidents {
+			if incident, exists := a.incidents[fingerprint]; exists {
+				delete(a.incidentsByID, incident.ID)
+			}
+			delete(a.incidents, fingerprint)
+		}
+	}
+
 	// Enforce max incidents limit
 	if len(a.incidents) > a.config.MaxIncidents {
-		// Remove oldest resolved incidents first
+		// Remove oldest resolved incidents first, prioritizing incidents from inactive clusters
 		a.removeOldestIncidents(len(a.incidents) - a.config.MaxIncidents)
 	}
 }
@@ -331,34 +353,103 @@ func (a *IncidentAggregator) cleanup() {
 func (a *IncidentAggregator) removeOldestIncidents(count int) {
 	// Sort incidents by last seen time
 	type incidentEntry struct {
-		fingerprint string
-		lastSeen    time.Time
-		resolved    bool
+		fingerprint     string
+		lastSeen        time.Time
+		resolved        bool
+		fromActiveCluster bool
 	}
 
 	entries := make([]incidentEntry, 0, len(a.incidents))
+	currentCluster := a.config.ClusterContext
 	for fp, inc := range a.incidents {
+		isFromActiveCluster := inc.ClusterContext == "" || inc.ClusterContext == currentCluster
 		entries = append(entries, incidentEntry{
-			fingerprint: fp,
-			lastSeen:    inc.LastSeen,
-			resolved:    inc.Status == StatusResolved || inc.Status == StatusSuppressed,
+			fingerprint:       fp,
+			lastSeen:          inc.LastSeen,
+			resolved:          inc.Status == StatusResolved || inc.Status == StatusSuppressed,
+			fromActiveCluster: isFromActiveCluster,
 		})
 	}
 
-	// Sort: resolved first, then by oldest
+	// Sort: inactive cluster incidents first, then resolved, then by oldest
 	sort.Slice(entries, func(i, j int) bool {
+		// Prioritize incidents from inactive clusters for removal
+		if entries[i].fromActiveCluster != entries[j].fromActiveCluster {
+			return !entries[i].fromActiveCluster // inactive cluster incidents first
+		}
+		// Then prioritize resolved incidents
 		if entries[i].resolved != entries[j].resolved {
 			return entries[i].resolved // resolved incidents first
 		}
+		// Finally sort by oldest
 		return entries[i].lastSeen.Before(entries[j].lastSeen)
 	})
 
-	// Remove oldest
+	// Remove oldest (prioritizing inactive clusters and resolved incidents)
 	for i := 0; i < count && i < len(entries); i++ {
 		if incident, exists := a.incidents[entries[i].fingerprint]; exists {
 			delete(a.incidentsByID, incident.ID)
 		}
 		delete(a.incidents, entries[i].fingerprint)
+	}
+}
+
+// SetCurrentClusterContext updates the aggregator's cluster context.
+// This should be called when switching clusters to ensure new incidents get the correct context.
+func (a *IncidentAggregator) SetCurrentClusterContext(clusterContext string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.config.ClusterContext = clusterContext
+	// Also update the signal normalizer with the new context
+	a.signalNormalizer = NewSignalNormalizer(clusterContext)
+}
+
+// ClearIncidentsByCluster removes all incidents from a specific cluster context.
+// This is useful when switching clusters to prevent memory accumulation.
+func (a *IncidentAggregator) ClearIncidentsByCluster(clusterContext string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	var toDelete []string
+	for fingerprint, incident := range a.incidents {
+		if incident.ClusterContext == clusterContext {
+			toDelete = append(toDelete, fingerprint)
+		}
+	}
+
+	for _, fingerprint := range toDelete {
+		if incident, exists := a.incidents[fingerprint]; exists {
+			delete(a.incidentsByID, incident.ID)
+		}
+		delete(a.incidents, fingerprint)
+	}
+}
+
+// ClearIncidentsFromOtherClusters removes all incidents that don't match the current cluster context.
+// This ensures only incidents from the active cluster are visible.
+func (a *IncidentAggregator) ClearIncidentsFromOtherClusters(currentClusterContext string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	var toDelete []string
+	for fingerprint, incident := range a.incidents {
+		// Delete incidents that have a different cluster context OR empty cluster context from old scans
+		// Keep only incidents from the current cluster
+		if incident.ClusterContext != "" && incident.ClusterContext != currentClusterContext {
+			toDelete = append(toDelete, fingerprint)
+		}
+		// Also delete incidents with empty cluster context (they're from before cluster context was tracked)
+		// UNLESS the current context is also empty (initial state)
+		if incident.ClusterContext == "" && currentClusterContext != "" {
+			toDelete = append(toDelete, fingerprint)
+		}
+	}
+
+	for _, fingerprint := range toDelete {
+		if incident, exists := a.incidents[fingerprint]; exists {
+			delete(a.incidentsByID, incident.ID)
+		}
+		delete(a.incidents, fingerprint)
 	}
 }
 

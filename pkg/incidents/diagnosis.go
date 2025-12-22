@@ -229,6 +229,9 @@ func defaultDiagnosisTemplates() map[FailurePattern]DiagnosisTemplate {
 				"Selector does not match any running pods",
 				"Deployment scaled to zero replicas",
 			},
+			// NOTE: We list possible causes but do NOT assume causality.
+			// We show facts: "Service has 0 endpoints" and "Pods are crashing"
+			// but let the user connect the dots. We never say "Ingress down because app crashed".
 		},
 		PatternInternalErrors: {
 			SummaryFormat: "%s %s in namespace %s is returning HTTP 5xx internal server errors.",
