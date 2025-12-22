@@ -663,6 +663,12 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Update incident manager cluster context when switching contexts
+	if ws.app.incidentIntelligence != nil {
+		manager := ws.app.incidentIntelligence.GetManager()
+		manager.SetClusterContext(req.Context)
+	}
+
 	// Clear cost cache when switching contexts (cost is cluster-specific)
 	ws.costCacheMu.Lock()
 	// Clear all cached costs to ensure fresh data for new cluster

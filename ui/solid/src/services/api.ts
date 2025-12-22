@@ -1162,6 +1162,24 @@ export const api = {
   getIncidentMetrics: async (id: string) => {
     return fetchAPI<{ metrics: any[] }>(`/v2/incidents/${id}/metrics`);
   },
+  getIncidentChanges: async (id: string, lookback?: number) => {
+    const params = new URLSearchParams();
+    if (lookback) params.append('lookback', lookback.toString());
+    const query = params.toString();
+    return fetchAPI<{ changes: any[] }>(`/v2/incidents/${id}/changes${query ? `?${query}` : ''}`);
+  },
+  getIncidentRunbooks: async (id: string) => {
+    return fetchAPI<{ runbooks: any[] }>(`/v2/incidents/${id}/runbooks`);
+  },
+  getIncidentSimilar: async (id: string) => {
+    return fetchAPI<{ similar: any[] }>(`/v2/incidents/${id}/similar`);
+  },
+  getIncidentEvidence: async (id: string) => {
+    return fetchAPI<{ evidence: any[] }>(`/v2/incidents/${id}/evidence`);
+  },
+  getIncidentCitations: async (id: string) => {
+    return fetchAPI<{ citations: any[] }>(`/v2/incidents/${id}/citations`);
+  },
   
   // Learning/Feedback endpoints
   submitIncidentFeedback: async (id: string, outcome: 'worked' | 'not_worked' | 'unknown', appliedFixId?: string, appliedFixType?: string, notes?: string) => {
@@ -1542,6 +1560,76 @@ export interface Diagnosis {
   confidence: number;
   evidence: string[];
   generatedAt: string;
+}
+
+// ============ Incident Snapshot Types ============
+export interface IncidentSnapshot {
+  fingerprint: string;
+  incidentId: string;
+  pattern: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'warning';
+  status: 'open' | 'investigating' | 'remediating' | 'resolved' | 'suppressed';
+  resource: KubeResourceRef;
+  title: string;
+  description: string;
+  occurrences: number;
+  firstSeen: string;
+  lastSeen: string;
+  // Hot evidence
+  restartCounts?: RestartCounts;
+  lastExitCode?: number;
+  lastErrorString?: string;
+  readinessStatus?: string;
+  recentChangeSummary?: string;
+  // Diagnosis
+  diagnosisSummary: string;
+  rootCauses: RootCause[];
+  confidence: number;
+  confidenceLabel: string;
+  // Impact
+  impact: ImpactSummary;
+  // Why now
+  whyNowExplanation: string;
+  // Recommended action
+  recommendedAction?: RecommendedAction;
+  // Cache metadata
+  cachedAt: string;
+  validUntil: string;
+}
+
+export interface RestartCounts {
+  last5Minutes: number;
+  last1Hour: number;
+  last24Hours: number;
+  total: number;
+}
+
+export interface RootCause {
+  cause: string;
+  likelihood: number;
+  evidenceCount?: number;
+}
+
+export interface ImpactSummary {
+  affectedReplicas: number;
+  serviceExposure: ServiceExposure;
+  userFacingLikelihood: number;
+  userFacingLabel: string;
+  namespaceCriticality?: string;
+}
+
+export interface ServiceExposure {
+  hasService: boolean;
+  serviceName?: string;
+  hasIngress: boolean;
+  ingressNames?: string[];
+}
+
+export interface RecommendedAction {
+  title: string;
+  description?: string;
+  tab: string;
+  risk?: string;
 }
 
 export interface ProposedFix {

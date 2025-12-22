@@ -1714,8 +1714,8 @@ func (ws *WebServer) handleAutoRemediationDecisions(w http.ResponseWriter, r *ht
 	}
 
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
@@ -1741,8 +1741,8 @@ func (ws *WebServer) handleLearningClusters(w http.ResponseWriter, r *http.Reque
 	}
 
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
@@ -1792,8 +1792,8 @@ func (ws *WebServer) handleLearningPatterns(w http.ResponseWriter, r *http.Reque
 	includeAnomalies := query.Get("anomalies") == "true"
 
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
@@ -1835,8 +1835,8 @@ func (ws *WebServer) handleLearningTrends(w http.ResponseWriter, r *http.Request
 	}
 
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{})
 		return
 	}
 
