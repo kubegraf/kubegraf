@@ -288,6 +288,45 @@ const ExecutionPanel: Component = () => {
     return d.toLocaleTimeString();
   };
 
+  const stepChips = () => {
+    const mode = executionMode();
+    const isApply = mode === 'apply';
+    const steps = [
+      { key: 'preview', label: 'Preview', active: true },
+      { key: 'dry', label: 'Dry run', active: true },
+      { key: 'apply', label: 'Apply', active: isApply },
+    ];
+    return (
+      <div class="flex flex-wrap gap-2">
+        <For each={steps}>
+          {(step) => (
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
+              style={{
+                background: step.active ? 'rgba(226, 232, 240, 0.14)' : 'rgba(148, 163, 184, 0.1)',
+                color: step.active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                border: '1px solid rgba(148, 163, 184, 0.25)',
+              }}
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full"
+                style={{
+                  background: step.active ? 'var(--accent-primary)' : 'rgba(148, 163, 184, 0.6)',
+                }}
+              />
+              {step.label}
+              <Show when={step.key === 'dry'}>
+                <span style={{ color: 'var(--text-muted)', 'font-weight': 500 }}>
+                  (server-side validation)
+                </span>
+              </Show>
+            </span>
+          )}
+        </For>
+      </div>
+    );
+  };
+
   return (
     <Show when={executionPanelOpen()}>
       <div
@@ -348,6 +387,9 @@ const ExecutionPanel: Component = () => {
                       {executionDurationDisplay()}
                     </span>
                   </Show>
+                </div>
+                <div class="mt-1">
+                  {stepChips()}
                 </div>
               </div>
             </div>
@@ -493,7 +535,7 @@ const ExecutionPanel: Component = () => {
                 class="mt-2 rounded-md border font-mono text-[11px] leading-relaxed"
                 style={{
                   'border-color': 'rgba(51, 65, 85, 0.9)',
-                  background: '#020617',
+                  background: '#0b1221',
                   maxHeight: '260px',
                   minHeight: '140px',
                   overflow: 'auto',
@@ -508,8 +550,8 @@ const ExecutionPanel: Component = () => {
                       style={{ color: 'var(--text-muted)' }}
                     >
                       {executionMode() === 'dry-run'
-                        ? 'Dry run mode: Kubernetes server-side validation only. No changes will be persisted. Admission controllers and policies still run; any validation or webhook errors will appear here.'
-                        : 'Output will appear here as the command runs. Secrets and sensitive tokens are automatically masked on the server.'}
+                        ? 'Dry run: server-side validation only. No resources changed.'
+                        : 'Live execution stream. Secrets are masked. Watch for apply progress and outcomes here.'}
                     </div>
                   }
                 >
