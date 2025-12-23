@@ -245,25 +245,25 @@ const Incidents: Component = () => {
         </div>
       </div>
 
-      {/* Summary chips - ultra compact */}
+      {/* Summary chips - compact with color accents */}
       <div class="flex flex-wrap gap-2 mb-3">
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
           <span style={{ color: 'var(--error-color)' }}>Critical</span>
           <span class="text-base font-bold" style={{ color: 'var(--error-color)' }}>{criticalCount()}</span>
         </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.35)' }}>
           <span style={{ color: '#ff6b6b' }}>High</span>
           <span class="text-base font-bold" style={{ color: '#ff6b6b' }}>{highCount()}</span>
         </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}>
           <span style={{ color: 'var(--warning-color)' }}>Medium/Warning</span>
           <span class="text-base font-bold" style={{ color: 'var(--warning-color)' }}>{warningCount()}</span>
         </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(81,207,102,0.12)', border: '1px solid rgba(81,207,102,0.35)' }}>
           <span style={{ color: '#51cf66' }}>With Diagnosis</span>
           <span class="text-base font-bold" style={{ color: '#51cf66' }}>{diagnosedCount()}</span>
         </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)' }}>
           <span style={{ color: 'var(--accent-primary)' }}>Fixable</span>
           <span class="text-base font-bold" style={{ color: 'var(--accent-primary)' }}>{fixableCount()}</span>
         </div>
