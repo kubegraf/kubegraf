@@ -226,37 +226,46 @@ const Incidents: Component = () => {
         </button>
       </div>
 
-      {/* Summary Cards - Always visible, shows current counts */}
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--error-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--error-color)' }}>
-            {criticalCount()}
-          </div>
+      {/* Post-launch notice: compact, non-blocking */}
+      <div class="card p-3 mb-4 flex flex-col gap-1" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Incident Intelligence roadmap</span>
+          <span class="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--accent-primary)15', color: 'var(--accent-primary)' }}>Not in v1 launch</span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #ff6b6b' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>High</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#ff6b6b' }}>
-            {highCount()}
-          </div>
+        <div class="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+            Security Incidents (scanner/exploit) — coming after launch
+          </span>
+          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+            Reliability Incidents (5xx RCA) — coming after launch
+          </span>
+          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+            No runtime traffic analysis in v1
+          </span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--warning-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Medium/Warning</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--warning-color)' }}>
-            {warningCount()}
-          </div>
+      </div>
+
+      {/* Summary chips - ultra compact */}
+      <div class="flex flex-wrap gap-2 mb-3">
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+          <span style={{ color: 'var(--error-color)' }}>Critical</span>
+          <span class="text-base font-bold" style={{ color: 'var(--error-color)' }}>{criticalCount()}</span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #51cf66' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>With Diagnosis</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#51cf66' }}>
-            {diagnosedCount()}
-          </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+          <span style={{ color: '#ff6b6b' }}>High</span>
+          <span class="text-base font-bold" style={{ color: '#ff6b6b' }}>{highCount()}</span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--accent-primary)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Fixable</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--accent-primary)' }}>
-            {fixableCount()}
-          </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+          <span style={{ color: 'var(--warning-color)' }}>Medium/Warning</span>
+          <span class="text-base font-bold" style={{ color: 'var(--warning-color)' }}>{warningCount()}</span>
+        </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+          <span style={{ color: '#51cf66' }}>With Diagnosis</span>
+          <span class="text-base font-bold" style={{ color: '#51cf66' }}>{diagnosedCount()}</span>
+        </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+          <span style={{ color: 'var(--accent-primary)' }}>Fixable</span>
+          <span class="text-base font-bold" style={{ color: 'var(--accent-primary)' }}>{fixableCount()}</span>
         </div>
       </div>
 
