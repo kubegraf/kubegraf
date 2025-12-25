@@ -974,6 +974,18 @@ export const api = {
     }),
   getInstalledApps: () => fetchAPI<any[]>('/apps/installed'),
   getLocalClusters: () => fetchAPI<{ success: boolean; clusters: any[]; total: number }>('/apps/local-clusters'),
+  
+  // ============ Custom App Deployment ============
+  previewCustomApp: (manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppPreviewResponse>('/custom-apps/preview', {
+      method: 'POST',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
+  deployCustomApp: (manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppDeployResponse>('/custom-apps/deploy', {
+      method: 'POST',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
 
   // ============ AI Log Analysis ============
   analyzePodsLogs: (namespace?: string) =>
@@ -1149,6 +1161,67 @@ export const api = {
   getIncident: async (id: string) => {
     return fetchAPI<Incident>(`/v2/incidents/${id}`);
   },
+<<<<<<< HEAD
+=======
+  getIncidentSnapshot: async (id: string) => {
+    return fetchAPI<IncidentSnapshot>(`/v2/incidents/${id}/snapshot`);
+  },
+  getIncidentLogs: async (id: string, tail?: number) => {
+    const params = new URLSearchParams();
+    if (tail) params.append('tail', tail.toString());
+    const query = params.toString();
+    return fetchAPI<{ logs: any[] }>(`/v2/incidents/${id}/logs${query ? `?${query}` : ''}`);
+  },
+  getIncidentMetrics: async (id: string) => {
+    return fetchAPI<{ metrics: any[] }>(`/v2/incidents/${id}/metrics`);
+  },
+  getIncidentChanges: async (id: string, lookback?: number) => {
+    const params = new URLSearchParams();
+    if (lookback) params.append('lookback', lookback.toString());
+    const query = params.toString();
+    return fetchAPI<{ changes: any[] }>(`/v2/incidents/${id}/changes${query ? `?${query}` : ''}`);
+  },
+  getIncidentRunbooks: async (id: string) => {
+    // API returns array directly, not wrapped in { runbooks: [...] }
+    const data = await fetchAPI<any[]>(`/v2/incidents/${id}/runbooks`);
+    // Normalize to always return { runbooks: [...] } format
+    return Array.isArray(data) ? { runbooks: data } : { runbooks: data?.runbooks || [] };
+  },
+  getIncidentSimilar: async (id: string) => {
+    return fetchAPI<{ similar: any[] }>(`/v2/incidents/${id}/similar`);
+  },
+  getIncidentEvidence: async (id: string) => {
+    return fetchAPI<{ evidence: any[] }>(`/v2/incidents/${id}/evidence`);
+  },
+  getIncidentCitations: async (id: string) => {
+    return fetchAPI<{ citations: any[] }>(`/v2/incidents/${id}/citations`);
+  },
+  
+  // Learning/Feedback endpoints
+  submitIncidentFeedback: async (id: string, outcome: 'worked' | 'not_worked' | 'unknown', appliedFixId?: string, appliedFixType?: string, notes?: string) => {
+    return fetchAPI<{ status: string; message: string; outcomeId?: number; learningStatus?: any; summary?: string }>(`/v2/incidents/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome, appliedFixId, appliedFixType, notes }),
+    });
+  },
+  
+  getLearningStatus: async () => {
+    return fetchAPI<{
+      featureWeights: Array<{ key: string; weight: number; updatedAt: string }>;
+      causePriors: Array<{ causeKey: string; prior: number; updatedAt: string }>;
+      lastUpdated: string;
+      sampleSize: number;
+      topImprovingSignals: string[];
+    }>('/v2/learning/status');
+  },
+  
+  resetLearning: async () => {
+    return fetchAPI<{ status: string; message: string }>('/v2/learning/reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true }),
+    });
+  },
+>>>>>>> 6a37a66 (feat: Add Custom App Deployment feature)
 
   getIncidentRecommendations: async (incidentId: string) => {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);
@@ -1526,4 +1599,30 @@ export interface AutoFixAction {
   namespace: string;
   status: 'success' | 'failed' | 'pending';
   message: string;
+}
+
+// ============ Custom App Deployment ============
+export interface ResourcePreview {
+  kind: string;
+  name: string;
+  namespace: string;
+  apiVersion: string;
+}
+
+export interface CustomAppPreviewResponse {
+  success: boolean;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  warnings?: string[];
+  errors?: string[];
+  manifests: string[];
+}
+
+export interface CustomAppDeployResponse {
+  success: boolean;
+  deploymentId: string;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  message?: string;
+  errors?: string[];
 }

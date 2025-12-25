@@ -388,6 +388,10 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/apps/install", ws.handleInstallApp)
 	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
 	http.HandleFunc("/api/apps/local-clusters", ws.handleLocalClusters)
+	
+	// Custom app deployment endpoints
+	http.HandleFunc("/api/custom-apps/preview", ws.handleCustomAppPreview)
+	http.HandleFunc("/api/custom-apps/deploy", ws.handleCustomAppDeploy)
 
 	// Impact analysis endpoint
 	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)
