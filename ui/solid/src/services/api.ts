@@ -974,6 +974,18 @@ export const api = {
     }),
   getInstalledApps: () => fetchAPI<any[]>('/apps/installed'),
   getLocalClusters: () => fetchAPI<{ success: boolean; clusters: any[]; total: number }>('/apps/local-clusters'),
+  
+  // ============ Custom App Deployment ============
+  previewCustomApp: (manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppPreviewResponse>('/custom-apps/preview', {
+      method: 'POST',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
+  deployCustomApp: (manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppDeployResponse>('/custom-apps/deploy', {
+      method: 'POST',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
 
   // ============ AI Log Analysis ============
   analyzePodsLogs: (namespace?: string) =>
@@ -1169,7 +1181,10 @@ export const api = {
     return fetchAPI<{ changes: any[] }>(`/v2/incidents/${id}/changes${query ? `?${query}` : ''}`);
   },
   getIncidentRunbooks: async (id: string) => {
-    return fetchAPI<{ runbooks: any[] }>(`/v2/incidents/${id}/runbooks`);
+    // API returns array directly, not wrapped in { runbooks: [...] }
+    const data = await fetchAPI<any[]>(`/v2/incidents/${id}/runbooks`);
+    // Normalize to always return { runbooks: [...] } format
+    return Array.isArray(data) ? { runbooks: data } : { runbooks: data?.runbooks || [] };
   },
   getIncidentSimilar: async (id: string) => {
     return fetchAPI<{ similar: any[] }>(`/v2/incidents/${id}/similar`);
@@ -1866,4 +1881,30 @@ export interface AutoFixAction {
   namespace: string;
   status: 'success' | 'failed' | 'pending';
   message: string;
+}
+
+// ============ Custom App Deployment ============
+export interface ResourcePreview {
+  kind: string;
+  name: string;
+  namespace: string;
+  apiVersion: string;
+}
+
+export interface CustomAppPreviewResponse {
+  success: boolean;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  warnings?: string[];
+  errors?: string[];
+  manifests: string[];
+}
+
+export interface CustomAppDeployResponse {
+  success: boolean;
+  deploymentId: string;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  message?: string;
+  errors?: string[];
 }

@@ -25,6 +25,7 @@ import NamespaceBadges from '../components/NamespaceBadges';
 import { formatNamespacesForUninstall } from '../features/marketplace/uninstallFormatting';
 import { getAppSourceMetadata } from '../features/marketplace/sourceRegistry';
 import CommandPreview from '../components/CommandPreview';
+import CustomAppDeployWizard from '../components/CustomAppDeployWizard';
 
 // Use LegacyApp type from adapters for backward compatibility
 type App = LegacyApp;
@@ -93,6 +94,9 @@ const Apps: Component<AppsProps> = (props) => {
   // Custom app delete modal states
   const [showDeleteCustomModal, setShowDeleteCustomModal] = createSignal(false);
   const [appToDelete, setAppToDelete] = createSignal<App | null>(null);
+  
+  // Custom app deployment wizard state
+  const [showCustomDeployWizard, setShowCustomDeployWizard] = createSignal(false);
 
   // Auto-filter to Local Cluster if coming from no-cluster overlay
   onMount(() => {
@@ -1269,6 +1273,18 @@ const Apps: Component<AppsProps> = (props) => {
               )}
             </For>
           </div>
+          <Show when={activeTab() === 'marketplace'}>
+            <button
+              onClick={() => setShowCustomDeployWizard(true)}
+              class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all hover:opacity-80"
+              style={{ background: 'var(--accent-primary)', color: '#000' }}
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              Deploy Custom App
+            </button>
+          </Show>
           <Show when={activeTab() === 'custom'}>
             <button
               onClick={() => setShowAddCustomModal(true)}
@@ -1388,27 +1404,6 @@ const Apps: Component<AppsProps> = (props) => {
         </For>
       </div>
 
-      {/* Empty state for custom apps */}
-      <Show when={activeTab() === 'custom' && customApps().length === 0}>
-        <div class="card p-12 text-center">
-          <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ background: 'var(--bg-tertiary)' }}>
-            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-            </svg>
-          </div>
-          <h3 class="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>No Custom Apps</h3>
-          <p class="mb-4" style={{ color: 'var(--text-secondary)' }}>
-            Add your own Helm charts to deploy custom applications.
-          </p>
-          <button
-            onClick={() => setShowAddCustomModal(true)}
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-            style={{ background: 'var(--accent-primary)', color: '#000' }}
-          >
-            Add Your First Custom App
-          </button>
-        </div>
-      </Show>
 
       {/* Apps View */}
       <Switch>
@@ -1975,6 +1970,15 @@ const Apps: Component<AppsProps> = (props) => {
           setAppToDelete(null);
         }}
         onConfirm={confirmDeleteCustomApp}
+      />
+
+      {/* Custom App Deployment Wizard */}
+      <CustomAppDeployWizard
+        isOpen={showCustomDeployWizard()}
+        onClose={() => setShowCustomDeployWizard(false)}
+        onSuccess={() => {
+          refetchInstalled();
+        }}
       />
     </div>
   );
