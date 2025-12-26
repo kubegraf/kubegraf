@@ -20,10 +20,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/kubegraf/kubegraf/internal/update"
+	"github.com/kubegraf/kubegraf/pkg/update/unix"
+	"github.com/kubegraf/kubegraf/pkg/update/windows"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -150,7 +155,39 @@ func (ws *WebServer) handleCheckUpdates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	json.NewEncoder(w).Encode(info)
+	// Check if this is a Scoop installation (Windows only)
+	response := map[string]interface{}{
+		"currentVersion":  info.CurrentVersion,
+		"latestVersion":   info.LatestVersion,
+		"updateAvailable": info.UpdateAvailable,
+		"releaseNotes":    info.ReleaseNotes,
+		"htmlUrl":          info.HTMLURL,
+		"downloadUrl":      info.DownloadURL,
+	}
+
+	// Check installation method and add appropriate warnings
+	execPath, err := os.Executable()
+	if err == nil {
+		if runtime.GOOS == "windows" {
+			// Check for Scoop installation
+			scoopInfo, _ := windows.DetectScoopInstallation(execPath)
+			if scoopInfo != nil && scoopInfo.IsScoopInstall {
+				response["isScoopInstall"] = true
+				response["scoopUpdateCommand"] = windows.GetScoopUpdateCommand()
+				response["scoopWarning"] = "KubeGraf is installed via Scoop. For best compatibility, use 'scoop update kubegraf' instead of in-app updates."
+			}
+		} else if runtime.GOOS == "darwin" {
+			// Check for Homebrew installation
+			homebrewInfo, _ := unix.DetectHomebrewInstallation(execPath)
+			if homebrewInfo != nil && homebrewInfo.IsHomebrewInstall {
+				response["isHomebrewInstall"] = true
+				response["homebrewUpdateCommand"] = unix.GetHomebrewUpdateCommand()
+				response["homebrewWarning"] = "KubeGraf is installed via Homebrew. For best compatibility, use 'brew upgrade kubegraf' instead of in-app updates."
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleInstallUpdate downloads and installs the latest version
@@ -189,15 +226,9 @@ func (ws *WebServer) handleInstallUpdate(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		fmt.Printf("✓ Update installed successfully. Restarting...\n")
-
-		// Give the HTTP response time to be sent
-		time.Sleep(1 * time.Second)
-
-		// Restart the application
-		if err := RestartApplication(); err != nil {
-			fmt.Printf("❌ Failed to restart: %v\n", err)
-		}
+		// PerformUpdate will exit the application on all platforms
+		// The updater script (Windows PowerShell or Unix shell) handles the restart
+		// We never reach here because PerformUpdate calls os.Exit(0)
 	}()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -633,6 +664,15 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// CRITICAL: Update incident manager cluster context when switching contexts
+	// This clears all incidents from other clusters and ensures new scans use the correct context
+	if ws.app.incidentIntelligence != nil {
+		manager := ws.app.incidentIntelligence.GetManager()
+		log.Printf("[handleSwitchContext] Switching incident manager context to: %s", req.Context)
+		manager.SetClusterContext(req.Context)
+		log.Printf("[handleSwitchContext] Incident manager context switched successfully")
+	}
+
 	// Clear cost cache when switching contexts (cost is cluster-specific)
 	ws.costCacheMu.Lock()
 	// Clear all cached costs to ensure fresh data for new cluster
@@ -640,15 +680,34 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 	ws.costCacheTime = make(map[string]time.Time)
 	ws.costCacheMu.Unlock()
 
-	// Broadcast context change to all WebSocket clients
+	// Broadcast context change to all WebSocket clients (with mutex protection)
 	contextMsg := map[string]interface{}{
 		"type":    "contextSwitch",
 		"context": req.Context,
 	}
+	ws.mu.Lock()
+	// Create a copy of clients map to avoid holding lock during WriteJSON
+	clientsCopy := make([]*websocket.Conn, 0, len(ws.clients))
 	for client := range ws.clients {
+		clientsCopy = append(clientsCopy, client)
+	}
+	ws.mu.Unlock()
+
+	// Write to clients without holding the lock to avoid blocking
+	for _, client := range clientsCopy {
+		ws.mu.Lock()
+		_, exists := ws.clients[client]
+		ws.mu.Unlock()
+
+		if !exists {
+			continue // Client was removed
+		}
+
 		if err := client.WriteJSON(contextMsg); err != nil {
-			client.Close()
+			ws.mu.Lock()
 			delete(ws.clients, client)
+			ws.mu.Unlock()
+			client.Close()
 		}
 	}
 

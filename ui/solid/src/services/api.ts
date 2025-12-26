@@ -1164,11 +1164,12 @@ export const api = {
     }),
 
   // ============ Incidents ============
-  getIncidents: async (namespace?: string, pattern?: string, severity?: string) => {
+  getIncidents: async (namespace?: string, pattern?: string, severity?: string, status?: string) => {
     const params = new URLSearchParams();
     if (namespace) params.append('namespace', namespace);
     if (pattern) params.append('pattern', pattern);
     if (severity) params.append('severity', severity);
+    if (status) params.append('status', status);
     const query = params.toString();
     const endpoint = query ? `/v2/incidents?${query}` : '/v2/incidents';
     const data = await fetchAPI<{ incidents: Incident[]; total: number; summary?: any }>(endpoint);
@@ -1197,10 +1198,7 @@ export const api = {
     return fetchAPI<{ changes: any[] }>(`/v2/incidents/${id}/changes${query ? `?${query}` : ''}`);
   },
   getIncidentRunbooks: async (id: string) => {
-    // API returns array directly, not wrapped in { runbooks: [...] }
-    const data = await fetchAPI<any[]>(`/v2/incidents/${id}/runbooks`);
-    // Normalize to always return { runbooks: [...] } format
-    return Array.isArray(data) ? { runbooks: data } : { runbooks: data?.runbooks || [] };
+    return fetchAPI<{ runbooks: any[] }>(`/v2/incidents/${id}/runbooks`);
   },
   getIncidentSimilar: async (id: string) => {
     return fetchAPI<{ similar: any[] }>(`/v2/incidents/${id}/similar`);
@@ -1241,6 +1239,39 @@ export const api = {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);
   },
 
+  // ============ Remediation Engine APIs ============
+  getIncidentFixes: async (incidentId: string) => {
+    return fetchAPI<RemediationPlan>(`/v2/incidents/${incidentId}/fixes`);
+  },
+
+  previewFix: async (incidentId: string, fixId: string) => {
+    return fetchAPI<FixPreviewResponseV2>(`/v2/incidents/${incidentId}/fix-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ fixId }),
+    });
+  },
+
+  applyFix: async (incidentId: string, fixId: string, confirmed: boolean, resourceInfo?: { resourceNamespace?: string; resourceKind?: string; resourceName?: string }) => {
+    const body: any = { fixId, confirmed };
+    if (resourceInfo) {
+      body.resourceNamespace = resourceInfo.resourceNamespace;
+      body.resourceKind = resourceInfo.resourceKind;
+      body.resourceName = resourceInfo.resourceName;
+    }
+    return fetchAPI<FixApplyResponseV2>(`/v2/incidents/${incidentId}/fix-apply`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  postCheck: async (incidentId: string, executionId?: string) => {
+    return fetchAPI<PostCheckResponse>(`/v2/incidents/${incidentId}/post-check`, {
+      method: 'POST',
+      body: JSON.stringify({ executionId }),
+    });
+  },
+
+  // Legacy fix endpoints (kept for backward compatibility)
   previewIncidentFix: async (incidentId: string, recommendationId?: string) => {
     return fetchAPI<FixPreviewResponse>(`/v2/incidents/fix-preview`, {
       method: 'POST',
@@ -1460,6 +1491,79 @@ export const api = {
       body: JSON.stringify({ backup_path: backupPath, db_path: dbPath }),
     }),
   },
+
+  // ============ Performance Instrumentation ============
+  getPerfSummary: async (window?: number, route?: string) => {
+    const params = new URLSearchParams();
+    if (window) params.append('window', window.toString());
+    if (route) params.append('route', route);
+    const query = params.toString();
+    const endpoint = query ? `/v2/perf/summary?${query}` : '/v2/perf/summary';
+    return fetchAPI<{
+      summaries: Array<{
+        route: string;
+        method: string;
+        count: number;
+        p50: number;
+        p90: number;
+        p99: number;
+        cacheHitRate: number;
+        avgUpstreamK8sCalls: number;
+        avgUpstreamK8sMs: number;
+        avgDBMs: number;
+        lastUpdated: string;
+      }>;
+      window: number;
+    }>(endpoint);
+  },
+
+  getPerfRecent: async (count?: number) => {
+    const params = new URLSearchParams();
+    if (count) params.append('count', count.toString());
+    const query = params.toString();
+    const endpoint = query ? `/v2/perf/recent?${query}` : '/v2/perf/recent';
+    return fetchAPI<{
+      spans: Array<{
+        requestId: string;
+        route: string;
+        method: string;
+        handlerTotalMs: number;
+        upstreamK8sCalls: number;
+        upstreamK8sTotalMs: number;
+        dbMs: number;
+        cacheHit: boolean;
+        incidentPattern?: string;
+        cluster?: string;
+        timestamp: string;
+        tags?: Record<string, string>;
+      }>;
+      count: number;
+    }>(endpoint);
+  },
+
+  clearPerf: async (confirm: boolean = false) => {
+    return fetchAPI<{ success: boolean; message: string }>('/v2/perf/clear', {
+      method: 'POST',
+      body: JSON.stringify({ confirm }),
+    });
+  },
+
+  postPerfUI: async (metric: {
+    page: string;
+    action: string;
+    ms: number;
+    incidentId?: string;
+    requestId?: string;
+  }) => {
+    return fetchAPI<{ success: boolean }>('/v2/perf/ui', {
+      method: 'POST',
+      body: JSON.stringify(metric),
+    });
+  },
+
+  // ============ Terminal ============
+  getAvailableShells: () => fetchAPI<{ shells: Array<{ name: string; display: string; path: string; priority: number }> }>('/terminal/shells'),
+  getTerminalPreferences: () => fetchAPI<{ preferredShell: string }>('/terminal/preferences'),
 };
 
 interface Connector {
@@ -1489,6 +1593,76 @@ export interface Diagnosis {
   confidence: number;
   evidence: string[];
   generatedAt: string;
+}
+
+// ============ Incident Snapshot Types ============
+export interface IncidentSnapshot {
+  fingerprint: string;
+  incidentId: string;
+  pattern: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'warning';
+  status: 'open' | 'investigating' | 'remediating' | 'resolved' | 'suppressed';
+  resource: KubeResourceRef;
+  title: string;
+  description: string;
+  occurrences: number;
+  firstSeen: string;
+  lastSeen: string;
+  // Hot evidence
+  restartCounts?: RestartCounts;
+  lastExitCode?: number;
+  lastErrorString?: string;
+  readinessStatus?: string;
+  recentChangeSummary?: string;
+  // Diagnosis
+  diagnosisSummary: string;
+  rootCauses: RootCause[];
+  confidence: number;
+  confidenceLabel: string;
+  // Impact
+  impact: ImpactSummary;
+  // Why now
+  whyNowExplanation: string;
+  // Recommended action
+  recommendedAction?: RecommendedAction;
+  // Cache metadata
+  cachedAt: string;
+  validUntil: string;
+}
+
+export interface RestartCounts {
+  last5Minutes: number;
+  last1Hour: number;
+  last24Hours: number;
+  total: number;
+}
+
+export interface RootCause {
+  cause: string;
+  likelihood: number;
+  evidenceCount?: number;
+}
+
+export interface ImpactSummary {
+  affectedReplicas: number;
+  serviceExposure: ServiceExposure;
+  userFacingLikelihood: number;
+  userFacingLabel: string;
+  namespaceCriticality?: string;
+}
+
+export interface ServiceExposure {
+  hasService: boolean;
+  serviceName?: string;
+  hasIngress: boolean;
+  ingressNames?: string[];
+}
+
+export interface RecommendedAction {
+  title: string;
+  description?: string;
+  tab: string;
+  risk?: string;
 }
 
 export interface ProposedFix {
@@ -1523,6 +1697,113 @@ export interface Recommendation {
   tags?: string[];
 }
 
+// ============ Remediation Engine Types ============
+export interface RemediationPlan {
+  incidentId: string;
+  recommendedAction: RecommendedActionDetails | null;
+  fixPlans: FixPlan[];
+  generatedAt: string;
+}
+
+export interface RecommendedActionDetails {
+  type: 'read_only';
+  title: string;
+  description: string;
+  actions: string[];
+}
+
+export interface FixPlan {
+  id: string;
+  title: string;
+  description: string;
+  type: 'read_only' | 'patch' | 'rollback' | 'scale' | 'restart' | 'config_change';
+  risk: 'low' | 'medium' | 'high';
+  prerequisites: string[];
+  evidenceRefs: EvidenceRef[];
+  preview: FixPreviewDetails;
+  rollback: FixRollback;
+  guardrails: FixGuardrails;
+  confidence: number;
+  whyThisFix: string;
+}
+
+export interface EvidenceRef {
+  kind: 'event' | 'log' | 'change' | 'metric';
+  refId: string;
+  snippet: string;
+}
+
+export interface FixPreviewDetails {
+  kubectlCommands: string[];
+  dryRunSupported: boolean;
+  expectedDiff: string;
+}
+
+export interface FixRollback {
+  description: string;
+  kubectlCommands: string[];
+}
+
+export interface FixGuardrails {
+  confidenceMin: number;
+  requiresNamespaceScoped: boolean;
+  requiresOwnerKind: string;
+  requiresUserAck: boolean;
+}
+
+export interface FixPreviewResponseV2 {
+  fixId: string;
+  title: string;
+  description: string;
+  risk: 'low' | 'medium' | 'high';
+  confidence: number;
+  whyThisFix: string;
+  diff: string;
+  kubectlCommands: string[];
+  dryRunSupported: boolean;
+  dryRunOutput?: string;
+  dryRunError?: string;
+  rollback: {
+    description: string;
+    kubectlCommands: string[];
+  };
+  guardrails: FixGuardrails;
+  evidenceRefs: EvidenceRef[];
+}
+
+export interface FixApplyResponseV2 {
+  executionId: string;
+  status: string;
+  message: string;
+  changes?: string[] | Array<{ type: string; resource: string; action: string }>;
+  postCheckPlan: {
+    checks: string[];
+    timeoutSeconds: number;
+  };
+}
+
+export interface PostCheckResponse {
+  incidentId: string;
+  executionId?: string;
+  status: 'ok' | 'warning' | 'error';
+  improved: boolean;
+  checks: Array<{
+    name: string;
+    status: 'ok' | 'warning' | 'error';
+    message: string;
+  }>;
+  timestamp: string;
+  message?: string;
+}
+
+// ============ Legacy Types ============
+export interface FixChange {
+  path: string;
+  oldValue?: string;
+  newValue?: string;
+  description?: string;
+}
+
 export interface FixPreviewResponse {
   valid: boolean;
   description: string;
@@ -1531,6 +1812,7 @@ export interface FixPreviewResponse {
   applyCmd: string;
   risks: string[];
   targetResource: KubeResourceRef;
+  changes?: FixChange[];
   validationError?: string;
   generatedAt: string;
 }

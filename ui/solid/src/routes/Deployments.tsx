@@ -222,6 +222,14 @@ const Deployments: Component = () => {
 
   // Get deployments from cache
   const deployments = createMemo(() => deploymentsCache.data() || []);
+
+  // Lightweight silent polling (2s) while page is open
+  createEffect(() => {
+    const interval = setInterval(() => {
+      deploymentsCache.refetch();
+    }, 2000);
+    return () => clearInterval(interval);
+  });
   const [yamlContent] = createResource(
     () => yamlKey(),
     async (key) => {

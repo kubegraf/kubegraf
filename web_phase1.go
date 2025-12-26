@@ -62,6 +62,9 @@ func (ws *WebServer) handleIncidentChangesRoute(w http.ResponseWriter, r *http.R
 	}
 
 	incident := manager.GetIncident(incidentID)
+	
+	// No v1 fallback - v2 manager only (production-ready)
+	
 	if incident == nil {
 		http.Error(w, "Incident not found", http.StatusNotFound)
 		return
@@ -194,7 +197,7 @@ func (ws *WebServer) handleIncidentChangesRoute(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Sort by relevance
+	// Sort by relevance (descending)
 	for i := 0; i < len(correlatedChanges)-1; i++ {
 		for j := i + 1; j < len(correlatedChanges); j++ {
 			if correlatedChanges[j].RelevanceScore > correlatedChanges[i].RelevanceScore {
@@ -202,6 +205,9 @@ func (ws *WebServer) handleIncidentChangesRoute(w http.ResponseWriter, r *http.R
 			}
 		}
 	}
+	
+	// Ensure timestamps are properly formatted in JSON response
+	// The time.Time fields will be automatically serialized to RFC3339 format by Go's JSON encoder
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

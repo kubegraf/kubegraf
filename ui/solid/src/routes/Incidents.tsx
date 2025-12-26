@@ -4,7 +4,7 @@ import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
 import { Incident } from '../services/api';
 import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
-import IncidentDetailModal from '../components/intelligence/IncidentDetailModal';
+import { IncidentDetailView } from '../components/incidents';
 import { AutoRemediationPanel, LearningDashboard } from '../components/intelligence';
 import { 
   getCachedIncidents, 
@@ -15,19 +15,40 @@ import {
   invalidateIncidentsCache
 } from '../stores/incidents';
 import { currentContext, onClusterSwitch } from '../stores/cluster';
+import { trackIncidentListLoad } from '../stores/performance';
+import { capabilities } from '../stores/capabilities';
 
-// Separate component for intelligence panels to avoid loading until needed
-const IntelligencePanels: Component = () => (
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-    <AutoRemediationPanel />
-    <LearningDashboard />
-  </div>
-);
+// Separate component for intelligence panels - conditionally rendered based on capabilities
+const IntelligencePanels: Component = () => {
+  const caps = capabilities.get();
+  
+  // Only render panels if their capabilities are enabled
+  const showAutoRemediation = caps.autoRemediation;
+  const showLearningDashboard = caps.learningEngine;
+  
+  // Don't render anything if both are disabled
+  if (!showAutoRemediation && !showLearningDashboard) {
+    return null;
+  }
+  
+  // Render grid with only enabled panels
+  return (
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <Show when={showAutoRemediation}>
+        <AutoRemediationPanel />
+      </Show>
+      <Show when={showLearningDashboard}>
+        <LearningDashboard />
+      </Show>
+    </div>
+  );
+};
 
 const Incidents: Component = () => {
   const [patternFilter, setPatternFilter] = createSignal('');
   const [severityFilter, setSeverityFilter] = createSignal('');
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
+  const [statusFilter, setStatusFilter] = createSignal('');
   const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
   const [showSidePanels, setShowSidePanels] = createSignal(false);
@@ -35,6 +56,7 @@ const Incidents: Component = () => {
   // Initialize with cached data immediately - NO loading state blocking UI
   const [localIncidents, setLocalIncidents] = createSignal<Incident[]>(getCachedIncidents());
   const [isRefreshing, setIsRefreshing] = createSignal(false); // Subtle indicator, doesn't block UI
+  const [isInitialLoad, setIsInitialLoad] = createSignal(true); // Track if this is the first load
   const [namespaces, setNamespaces] = createSignal<string[]>([]);
 
   // Fast background fetch - never blocks UI
@@ -44,8 +66,16 @@ const Incidents: Component = () => {
     setFetching(true);
     setIsRefreshing(true);
     
+    // Track incident list load
+    const endListLoad = trackIncidentListLoad();
+    
     try {
-      const data = await api.getIncidents();
+      const data = await api.getIncidents(
+        namespaceFilter() || undefined,
+        patternFilter() || undefined,
+        severityFilter() || undefined,
+        statusFilter() || undefined
+      );
       const incidents = data || [];
       setLocalIncidents(incidents);
       // Save with current cluster context for cache validation
@@ -55,6 +85,8 @@ const Incidents: Component = () => {
     } finally {
       setIsRefreshing(false);
       setFetching(false);
+      setIsInitialLoad(false); // Mark initial load as complete
+      endListLoad();
     }
   };
 
@@ -76,6 +108,10 @@ const Incidents: Component = () => {
     const cached = getCachedIncidents();
     if (cached.length > 0 && isCacheValid(ctx)) {
       setLocalIncidents(cached);
+      setIsInitialLoad(false); // If we have cached data, we're not in initial load
+    } else {
+      // No cache or invalid cache - we're in initial load
+      setIsInitialLoad(true);
     }
     
     // Fetch fresh data in background (non-blocking)
@@ -95,6 +131,7 @@ const Incidents: Component = () => {
       // Invalidate cache and clear local data
       invalidateIncidentsCache();
       setLocalIncidents([]);
+      setIsInitialLoad(true); // Reset to initial load state on cluster switch
       // Refetch data for new cluster
       fetchIncidentsBackground();
       fetchNamespacesBackground();
@@ -117,6 +154,7 @@ const Incidents: Component = () => {
       if (patternFilter() && pattern.toUpperCase() !== patternFilter().toUpperCase()) return false;
       if (severityFilter() && inc.severity !== severityFilter()) return false;
       if (namespaceFilter() && namespace !== namespaceFilter()) return false;
+      if (statusFilter() && inc.status !== statusFilter()) return false;
       return true;
     });
   });
@@ -188,54 +226,78 @@ const Incidents: Component = () => {
         </button>
       </div>
 
-      {/* Summary Cards - Always visible, shows current counts */}
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--error-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Critical</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--error-color)' }}>
-            {criticalCount()}
-          </div>
+      {/* Post-launch notice: compact, non-blocking */}
+      <div class="card p-3 mb-4 flex flex-col gap-1" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Incident Intelligence roadmap</span>
+          <span class="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--accent-primary)15', color: 'var(--accent-primary)' }}>Not in v1 launch</span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #ff6b6b' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>High</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#ff6b6b' }}>
-            {highCount()}
-          </div>
+        <div class="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+            Security Incidents (scanner/exploit) — coming after launch
+          </span>
+          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+            Reliability Incidents (5xx RCA) — coming after launch
+          </span>
+          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+            No runtime traffic analysis in v1
+          </span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--warning-color)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Medium/Warning</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--warning-color)' }}>
-            {warningCount()}
-          </div>
+      </div>
+
+      {/* Summary chips - compact with color accents */}
+      <div class="flex flex-wrap gap-2 mb-3">
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
+          <span style={{ color: 'var(--error-color)' }}>Critical</span>
+          <span class="text-base font-bold" style={{ color: 'var(--error-color)' }}>{criticalCount()}</span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid #51cf66' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>With Diagnosis</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: '#51cf66' }}>
-            {diagnosedCount()}
-          </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.35)' }}>
+          <span style={{ color: '#ff6b6b' }}>High</span>
+          <span class="text-base font-bold" style={{ color: '#ff6b6b' }}>{highCount()}</span>
         </div>
-        <div class="card p-4" style={{ 'border-left': '4px solid var(--accent-primary)' }}>
-          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Fixable</div>
-          <div class="text-2xl font-bold mt-1" style={{ color: 'var(--accent-primary)' }}>
-            {fixableCount()}
-          </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}>
+          <span style={{ color: 'var(--warning-color)' }}>Medium/Warning</span>
+          <span class="text-base font-bold" style={{ color: 'var(--warning-color)' }}>{warningCount()}</span>
+        </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(81,207,102,0.12)', border: '1px solid rgba(81,207,102,0.35)' }}>
+          <span style={{ color: '#51cf66' }}>With Diagnosis</span>
+          <span class="text-base font-bold" style={{ color: '#51cf66' }}>{diagnosedCount()}</span>
+        </div>
+        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)' }}>
+          <span style={{ color: 'var(--accent-primary)' }}>Fixable</span>
+          <span class="text-base font-bold" style={{ color: 'var(--accent-primary)' }}>{fixableCount()}</span>
         </div>
       </div>
 
       {/* Filters - Always visible */}
-      <IncidentFilters
-        patternFilter={patternFilter()}
-        severityFilter={severityFilter()}
-        namespaceFilter={namespaceFilter()}
-        namespaces={namespaces()}
-        onPatternFilterChange={setPatternFilter}
-        onSeverityFilterChange={setSeverityFilter}
-        onNamespaceFilterChange={setNamespaceFilter}
-      />
+        <IncidentFilters
+          patternFilter={patternFilter()}
+          severityFilter={severityFilter()}
+          namespaceFilter={namespaceFilter()}
+          statusFilter={statusFilter()}
+          namespaces={namespaces()}
+          onPatternFilterChange={(val) => {
+            setPatternFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onSeverityFilterChange={(val) => {
+            setSeverityFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onNamespaceFilterChange={(val) => {
+            setNamespaceFilter(val);
+            fetchIncidentsBackground();
+          }}
+          onStatusFilterChange={(val) => {
+            setStatusFilter(val);
+            fetchIncidentsBackground();
+          }}
+        />
 
       {/* Incidents Table - Always rendered, shows empty state or data */}
       <IncidentTable
         incidents={filteredIncidents()}
+        isLoading={isInitialLoad() || (isRefreshing() && localIncidents().length === 0)}
         onViewPod={handleViewPod}
         onViewLogs={handleViewLogs}
         onViewEvents={handleViewEvents}
@@ -265,24 +327,31 @@ const Incidents: Component = () => {
         </div>
       </Show>
 
-      {/* Side Panels Toggle */}
-      <div class="mt-6 mb-4">
-        <button
-          onClick={() => setShowSidePanels(!showSidePanels())}
-          style={{
-            padding: '8px 16px',
-            'font-size': '12px',
-            'border-radius': '6px',
-            border: '1px solid var(--border-color)',
-            background: showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
-            color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            'font-weight': '500'
-          }}
-        >
-          {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
-        </button>
-      </div>
+      {/* Side Panels Toggle - Only show if capabilities are enabled */}
+      <Show when={capabilities.isAutoRemediationEnabled() || capabilities.isLearningEngineEnabled()}>
+        <div class="mt-6 mb-4" style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
+          <button
+            onClick={() => setShowSidePanels(!showSidePanels())}
+            style={{
+              padding: '10px 20px',
+              'font-size': '13px',
+              'border-radius': '6px',
+              border: '1px solid var(--border-color)',
+              background: showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
+              color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              'font-weight': '600',
+              transition: 'all 0.2s ease',
+              'box-shadow': showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+            }}
+          >
+            {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
+          </button>
+          <span style={{ color: 'var(--text-muted)', 'font-size': '12px' }}>
+            View auto-remediation status and learning insights
+          </span>
+        </div>
+      </Show>
 
       {/* Intelligence Panels - Only render when toggled */}
       <Show when={showSidePanels()}>
@@ -299,8 +368,8 @@ const Incidents: Component = () => {
         </div>
       </div>
 
-      {/* Modal */}
-      <IncidentDetailModal
+      {/* Incident Detail View - Production-grade incident explanation */}
+      <IncidentDetailView
         incident={selectedIncident()}
         isOpen={detailModalOpen()}
         onClose={closeDetailModal}

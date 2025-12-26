@@ -248,7 +248,8 @@ func showSplash() {
 
 	blue.Println(logo)
 	fmt.Println()
-	white.Println("                    Advanced Kubernetes Visualization Tool")
+	white.Println("                              KubēGraf")
+	fmt.Println("              Intelligent Insight for Kubernetes Incidents")
 	blue.Printf("                              Version %s\n", GetVersion())
 	fmt.Println()
 	white.Println("                          Initializing...")
@@ -261,7 +262,7 @@ func showSplash() {
 }
 
 func printHelp() {
-	fmt.Printf(`KubeGraf %s - Advanced Kubernetes Visualization Tool
+	fmt.Printf(`KubeGraf %s - Intelligent Insight for Kubernetes Incidents
 
 USAGE:
   kubegraf [namespace] [flags]

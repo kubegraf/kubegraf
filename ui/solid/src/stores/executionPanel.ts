@@ -332,6 +332,92 @@ export function clearExecutionOutput() {
   setRawError(null);
 }
 
+// Manually set execution state for REST API responses (like fix apply)
+export function setExecutionStateFromResult(opts: {
+  executionId: string;
+  label?: string;
+  status: 'succeeded' | 'failed';
+  message: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  exitCode?: number;
+  resourcesChanged?: ExecutionResourcesChanged;
+  error?: string;
+  lines?: ExecutionLine[];
+}) {
+  const now = new Date().toISOString();
+  const started = opts.startedAt || now;
+  const completed = opts.completedAt || now;
+  const duration = opts.durationMs || (new Date(completed).getTime() - new Date(started).getTime());
+
+  // Open and expand the panel
+  setPanelOpen(true);
+  setPanelExpanded(true);
+  
+  // Set status
+  setStatus(opts.status);
+  setMode('apply');
+  setSourceLabel('kubectl-equivalent');
+  setLabel(opts.label || 'Fix Applied');
+  setCurrentExecutionId(opts.executionId);
+  
+  // Set summary
+  setSummary({
+    startedAt: started,
+    completedAt: completed,
+    durationMs: duration,
+    exitCode: opts.exitCode || (opts.status === 'succeeded' ? 0 : 1),
+    resourcesChanged: opts.resourcesChanged || null,
+  });
+  
+  // Set timestamps
+  setStartedAt(started);
+  setCompletedAt(completed);
+  
+  // Set error if failed
+  if (opts.status === 'failed') {
+    setError(opts.error || opts.message);
+  } else {
+    setError(null);
+    setRawError(null);
+  }
+  
+  // Set lines
+  let executionLines: ExecutionLine[] = opts.lines || [];
+  // Add id field to lines if missing
+  executionLines = executionLines.map((line, idx) => ({
+    ...line,
+    id: line.id || `${opts.executionId}-${idx}`,
+  }));
+  
+  if (opts.message && !opts.lines) {
+    executionLines.push({
+      id: `${opts.executionId}-${executionLines.length}`,
+      timestamp: completed,
+      stream: 'stdout',
+      text: opts.message,
+    });
+  }
+  if (opts.error && opts.status === 'failed' && !opts.lines) {
+    executionLines.push({
+      id: `${opts.executionId}-${executionLines.length}`,
+      timestamp: completed,
+      stream: 'stderr',
+      text: opts.error,
+    });
+  }
+  setLines(executionLines);
+  
+  // Reset scroll state
+  setAutoScrollEnabled(true);
+  setHasManualScroll(false);
+  setPhases([]);
+}
+
+// Export setLines for external use
+export { setLines };
+
 function mapBackendStatusToLocal(status: ExecutionRecord['status']): ExecutionStatus {
   switch (status) {
     case 'running':

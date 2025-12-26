@@ -26,6 +26,14 @@ body:
       required: true
 
   - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
     id: reproduce
     attributes:
       label: Steps to Reproduce
@@ -37,33 +45,14 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: interface
-    attributes:
-      label: Interface
-      description: Which interface were you using?
-      options:
-        - Terminal UI (TUI)
-        - Web Dashboard
-        - Both
-    validations:
-      required: true
-
   - type: input
     id: version
     attributes:
       label: KubeGraf Version
       description: Output of `kubegraf --version`
-      placeholder: "v0.0.1"
+      placeholder: "v1.7.21"
     validations:
       required: true
-
-  - type: input
-    id: kubernetes
-    attributes:
-      label: Kubernetes Version
-      description: Output of `kubectl version --short`
-      placeholder: "v1.28.0"
 
   - type: dropdown
     id: os
@@ -77,11 +66,34 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install Method
+      description: How did you install KubeGraf?
+      options:
+        - Homebrew (brew)
+        - curl (manual download)
+        - Scoop (Windows)
+        - Manual build
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: cluster_type
+    attributes:
+      label: Cluster Type
+      description: What type of Kubernetes cluster are you using?
+      placeholder: "kind, minikube, k3s, EKS, GKE, AKS, etc."
+    validations:
+      required: true
+
   - type: textarea
     id: logs
     attributes:
       label: Relevant Logs
-      description: Please copy and paste any relevant log output
+      description: Please copy and paste any relevant log output (redact any secrets)
       render: shell
 
   - type: textarea

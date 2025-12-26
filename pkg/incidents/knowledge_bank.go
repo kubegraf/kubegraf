@@ -213,10 +213,104 @@ func (kb *KnowledgeBank) initSchema() error {
 		PRIMARY KEY (cluster_id, incident_id),
 		FOREIGN KEY (incident_id) REFERENCES incidents(id)
 	);
+
+	-- Incident fingerprint statistics (for learning)
+	CREATE TABLE IF NOT EXISTS incident_fingerprint_stats (
+		fingerprint TEXT PRIMARY KEY,
+		pattern TEXT NOT NULL,
+		namespace TEXT NOT NULL,
+		resource_kind TEXT NOT NULL,
+		container TEXT,
+		seen_count INTEGER DEFAULT 1,
+		last_seen_ts INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_fingerprint_stats_pattern ON incident_fingerprint_stats(pattern);
+	CREATE INDEX IF NOT EXISTS idx_fingerprint_stats_namespace ON incident_fingerprint_stats(namespace);
+
+	-- Incident outcomes (for learning from feedback)
+	CREATE TABLE IF NOT EXISTS incident_outcomes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		fingerprint TEXT NOT NULL,
+		incident_id TEXT NOT NULL,
+		ts INTEGER NOT NULL,
+		proposed_primary_cause TEXT,
+		proposed_confidence REAL,
+		applied_fix_id TEXT,
+		applied_fix_type TEXT,
+		outcome TEXT CHECK(outcome IN ('worked','not_worked','unknown')) NOT NULL,
+		time_to_recovery_sec INTEGER,
+		notes TEXT,
+		FOREIGN KEY (incident_id) REFERENCES incidents(id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_outcomes_fingerprint ON incident_outcomes(fingerprint);
+	CREATE INDEX IF NOT EXISTS idx_outcomes_incident ON incident_outcomes(incident_id);
+	CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON incident_outcomes(ts);
+
+	-- Feature weights (for confidence scoring)
+	CREATE TABLE IF NOT EXISTS feature_weights (
+		key TEXT PRIMARY KEY,
+		weight REAL NOT NULL,
+		updated_ts INTEGER NOT NULL
+	);
+
+	-- Cause priors (for root cause ranking)
+	CREATE TABLE IF NOT EXISTS cause_priors (
+		cause_key TEXT PRIMARY KEY,
+		prior REAL NOT NULL,
+		updated_ts INTEGER NOT NULL
+	);
 	`
 
 	_, err := kb.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Seed default feature weights if they don't exist
+	return kb.seedDefaultWeights()
+}
+
+// seedDefaultWeights seeds default feature weights and cause priors
+func (kb *KnowledgeBank) seedDefaultWeights() error {
+	defaultWeights := map[string]float64{
+		"signal.logs":    0.4,
+		"signal.events":  0.3,
+		"signal.metrics": 0.2,
+		"signal.changes": 0.1,
+	}
+
+	defaultPriors := map[string]float64{
+		"cause.app_crash":     0.25,
+		"cause.oom":           0.25,
+		"cause.probe_failure": 0.25,
+		"cause.image_pull":    0.25,
+	}
+
+	now := time.Now().Unix()
+
+	// Insert default weights
+	for key, weight := range defaultWeights {
+		_, err := kb.db.Exec(`
+			INSERT OR IGNORE INTO feature_weights (key, weight, updated_ts)
+			VALUES (?, ?, ?)
+		`, key, weight, now)
+		if err != nil {
+			return fmt.Errorf("failed to seed weight %s: %w", key, err)
+		}
+	}
+
+	// Insert default priors
+	for key, prior := range defaultPriors {
+		_, err := kb.db.Exec(`
+			INSERT OR IGNORE INTO cause_priors (cause_key, prior, updated_ts)
+			VALUES (?, ?, ?)
+		`, key, prior, now)
+		if err != nil {
+			return fmt.Errorf("failed to seed prior %s: %w", key, err)
+		}
+	}
+
+	return nil
 }
 
 // Close closes the database connection
@@ -718,6 +812,46 @@ func (kb *KnowledgeBank) GetUnresolvedIncidents(limit int) ([]*IncidentRecord, e
 	`
 
 	rows, err := kb.db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return kb.scanIncidentRows(rows)
+}
+
+// GetResolvedIncidents retrieves resolved incidents
+func (kb *KnowledgeBank) GetResolvedIncidents(limit int, namespace string, pattern string, severity string) ([]*IncidentRecord, error) {
+	kb.mu.RLock()
+	defer kb.mu.RUnlock()
+
+	query := `
+	SELECT id, fingerprint, pattern, severity, resource_json, cluster_context,
+		title, description, occurrences, first_seen, last_seen,
+		resolved_at, resolution, evidence_pack_json, diagnosis_json, metadata_json,
+		created_at, updated_at
+	FROM incidents
+	WHERE resolved_at IS NOT NULL
+	`
+	args := []interface{}{}
+	
+	if namespace != "" {
+		query += " AND json_extract(resource_json, '$.namespace') = ?"
+		args = append(args, namespace)
+	}
+	if pattern != "" {
+		query += " AND pattern = ?"
+		args = append(args, pattern)
+	}
+	if severity != "" {
+		query += " AND severity = ?"
+		args = append(args, severity)
+	}
+	
+	query += " ORDER BY resolved_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := kb.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

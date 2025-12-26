@@ -313,8 +313,13 @@ func (r *RunbookRegistry) registerDefaultRunbooks() {
 				Description: "Verify replacement pod is running",
 			},
 		},
+		Rollback: &RunbookAction{
+			Type:            FixTypeRestart,
+			Description:     "No rollback needed - controller will recreate pod if needed",
+			RollbackCommand: "echo 'Pod restart is safe - Kubernetes controller manages recreation'",
+		},
 		Risk:          RiskRunbookLow,
-		AutonomyLevel: AutonomyPropose,
+		AutonomyLevel: AutonomyAutoExecute,
 		BlastRadius:   1,
 		SuccessRate:   0.95,
 		Enabled:       true,
@@ -363,7 +368,7 @@ func (r *RunbookRegistry) registerDefaultRunbooks() {
 			RollbackCommand: "kubectl scale deployment {{.Name}} -n {{.Namespace}} --replicas={{.OriginalReplicas}}",
 		},
 		Risk:          RiskRunbookLow,
-		AutonomyLevel: AutonomyPropose,
+		AutonomyLevel: AutonomyAutoExecute,
 		BlastRadius:   1,
 		SuccessRate:   0.90,
 		Enabled:       true,
@@ -505,12 +510,334 @@ func (r *RunbookRegistry) registerDefaultRunbooks() {
 				Description: "Verify all pods have been restarted",
 			},
 		},
+		Rollback: &RunbookAction{
+			Type:            FixTypeRestart,
+			Description:     "No rollback needed - rolling restart is inherently safe",
+			RollbackCommand: "echo 'Rolling restart is safe - deployment manages pod recreation'",
+		},
 		Risk:          RiskRunbookLow,
-		AutonomyLevel: AutonomyPropose,
+		AutonomyLevel: AutonomyAutoExecute,
 		BlastRadius:   1,
 		SuccessRate:   0.95,
 		Enabled:       true,
 		Tags:          []string{"deployment", "restart", "rolling"},
+	})
+
+	// RESTART_STORM runbooks (as specified in requirements)
+	r.registerRestartStormRunbooks()
+
+	// OOM runbooks
+	r.registerOOMRunbooks()
+
+	// IMAGE_PULL runbooks
+	r.registerImagePullRunbooks()
+
+	// PENDING/UNSCHEDULABLE runbooks
+	r.registerPendingRunbooks()
+}
+
+// registerRestartStormRunbooks registers runbooks for RESTART_STORM pattern
+func (r *RunbookRegistry) registerRestartStormRunbooks() {
+	// Read-only action: fetch logs, describe, events
+	// This is handled by RecommendedAction in remediation engine
+
+	// Fix1: Rollout undo deployment (if change detected)
+	r.Register(&Runbook{
+		ID:          "restart-storm-rollback",
+		Name:        "Rollback Deployment (if recent change detected)",
+		Description: "Rollback deployment to previous revision if a recent change may have caused the restart storm",
+		Pattern:     PatternRestartStorm,
+		Preconditions: []Check{
+			{
+				ID:       "check-recent-change",
+				Name:     "Recent change detected",
+				Type:     CheckTypeResourceExists,
+				Target:   "metadata.annotations.deployment.kubernetes.io/revision",
+				Operator: OpGreaterThan,
+				Expected: 1,
+				Description: "Only suggest if deployment has revision history",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypeRollback,
+			Description: "Rollback to previous deployment revision",
+			DryRunCommand: "kubectl rollout undo deployment {{.Name}} -n {{.Namespace}} --dry-run=client",
+			ApplyCommand:  "kubectl rollout undo deployment {{.Name}} -n {{.Namespace}}",
+			Timeout:       180 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-restart-rate-decreased",
+				Name:     "Restart rate decreased",
+				Type:     CheckTypeMetricValue,
+				Target:   "restart_rate_5m",
+				Operator: OpLessThan,
+				Expected: 0.1, // Less than 0.1 restarts per minute
+				Timeout:  300 * time.Second,
+				Description: "Verify restart rate has decreased after rollback",
+			},
+		},
+		Rollback: &RunbookAction{
+			Type:            FixTypeRollback,
+			Description:     "Rollback to current revision",
+			RollbackCommand: "kubectl rollout undo deployment {{.Name}} -n {{.Namespace}}",
+		},
+		Risk:          RiskRunbookMedium,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.80,
+		Enabled:       true,
+		Tags:          []string{"restart_storm", "rollback", "deployment"},
+	})
+
+	// Fix2: Increase memory limit by +25% (ONLY if OOM evidence)
+	r.Register(&Runbook{
+		ID:          "restart-storm-increase-memory",
+		Name:        "Increase Memory Limit (+25%)",
+		Description: "Increase container memory limit by 25% if OOM events or memory pressure evidence exists",
+		Pattern:     PatternRestartStorm,
+		Preconditions: []Check{
+			{
+				ID:       "check-oom-evidence",
+				Name:     "OOM evidence present",
+				Type:     CheckTypeEventAbsent,
+				Target:   "OOMKilled",
+				Operator: OpNotExists, // Inverted: we want OOM events to exist
+				Description: "Only suggest if OOM events or memory metrics indicate pressure",
+			},
+			{
+				ID:       "check-memory-limit-exists",
+				Name:     "Memory limit exists",
+				Type:     CheckTypeResourceExists,
+				Target:   "spec.containers[0].resources.limits.memory",
+				Operator: OpExists,
+				Description: "Ensure memory limit is currently set",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypePatch,
+			Description: "Increase memory limit by 25%",
+			Parameters:  map[string]interface{}{"increase_percent": 25},
+			DryRunCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.NewLimit}}\"}]' --dry-run=client",
+			ApplyCommand:  "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.NewLimit}}\"}]'",
+			Timeout:       120 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-no-oom-after-increase",
+				Name:     "No OOM events after increase",
+				Type:     CheckTypeEventAbsent,
+				Target:   "OOMKilled",
+				Timeout:  300 * time.Second,
+				Description: "Verify no new OOM events after memory increase",
+			},
+		},
+		Rollback: &RunbookAction{
+			Type:            FixTypePatch,
+			Description:     "Restore original memory limit",
+			RollbackCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.OriginalLimit}}\"}]'",
+		},
+		Risk:          RiskRunbookMedium,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.85,
+		Enabled:       true,
+		Tags:          []string{"restart_storm", "memory", "oom"},
+	})
+
+	// Fix3: Relax liveness probe thresholds (ONLY if probe failures evidenced)
+	r.Register(&Runbook{
+		ID:          "restart-storm-relax-probe",
+		Name:        "Relax Liveness Probe Thresholds",
+		Description: "Increase liveness probe timeout/period if probe failures are causing restarts",
+		Pattern:     PatternRestartStorm,
+		Preconditions: []Check{
+			{
+				ID:       "check-probe-failure-evidence",
+				Name:     "Probe failure evidence",
+				Type:     CheckTypeLogPattern,
+				Target:   "logs",
+				Operator: OpContains,
+				Expected: "liveness probe failed",
+				Description: "Only suggest if liveness probe failures are evidenced",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypePatch,
+			Description: "Increase liveness probe timeout and period",
+			Parameters:  map[string]interface{}{"timeout_seconds": 5, "period_seconds": 30},
+			DryRunCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds\",\"value\":5},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/livenessProbe/periodSeconds\",\"value\":30}]' --dry-run=client",
+			ApplyCommand:  "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds\",\"value\":5},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/livenessProbe/periodSeconds\",\"value\":30}]'",
+			Timeout:       120 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-probe-success",
+				Name:     "Liveness probe succeeding",
+				Type:     CheckTypePodStatus,
+				Target:   "status.conditions",
+				Operator: OpContains,
+				Expected: "Ready=True",
+				Timeout:  300 * time.Second,
+				Description: "Verify pods are passing liveness probes",
+			},
+		},
+		Rollback: &RunbookAction{
+			Type:            FixTypePatch,
+			Description:     "Restore original probe settings",
+			RollbackCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds\",\"value\":{{.OriginalTimeout}}},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/livenessProbe/periodSeconds\",\"value\":{{.OriginalPeriod}}}]'",
+		},
+		Risk:          RiskRunbookMedium,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.75,
+		Enabled:       true,
+		Tags:          []string{"restart_storm", "probe", "liveness"},
+	})
+}
+
+// registerOOMRunbooks registers runbooks for OOM pattern
+func (r *RunbookRegistry) registerOOMRunbooks() {
+	// Fix: Increase memory limit, reduce concurrency hints, set request/limit ratio
+	r.Register(&Runbook{
+		ID:          "oom-increase-memory-limit",
+		Name:        "Increase Memory Limit",
+		Description: "Increase container memory limit to prevent OOM kills",
+		Pattern:     PatternOOMPressure,
+		Preconditions: []Check{
+			{
+				ID:       "check-memory-limit-exists",
+				Name:     "Memory limit exists",
+				Type:     CheckTypeResourceExists,
+				Target:   "spec.containers[0].resources.limits.memory",
+				Operator: OpExists,
+				Description: "Ensure memory limit is currently set",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypePatch,
+			Description: "Increase memory limit by 50% and set request to 80% of limit",
+			Parameters:  map[string]interface{}{"increase_percent": 50, "request_ratio": 0.8},
+			DryRunCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.NewLimit}}\"},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/requests/memory\",\"value\":\"{{.NewRequest}}\"}]' --dry-run=client",
+			ApplyCommand:  "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.NewLimit}}\"},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/requests/memory\",\"value\":\"{{.NewRequest}}\"}]'",
+			Timeout:       120 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-no-oom",
+				Name:     "No OOM events",
+				Type:     CheckTypeEventAbsent,
+				Target:   "OOMKilled",
+				Timeout:  300 * time.Second,
+				Description: "Verify no new OOM events after increase",
+			},
+		},
+		Rollback: &RunbookAction{
+			Type:            FixTypePatch,
+			Description:     "Restore original memory limits",
+			RollbackCommand: "kubectl patch deployment {{.Name}} -n {{.Namespace}} --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"{{.OriginalLimit}}\"},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/requests/memory\",\"value\":\"{{.OriginalRequest}}\"}]'",
+		},
+		Risk:          RiskRunbookMedium,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.85,
+		Enabled:       true,
+		Tags:          []string{"oom", "memory", "resources"},
+	})
+}
+
+// registerImagePullRunbooks registers runbooks for IMAGE_PULL pattern
+func (r *RunbookRegistry) registerImagePullRunbooks() {
+	// Fix: Validate image ref, check secret, pull policy, registry auth
+	r.Register(&Runbook{
+		ID:          "image-pull-validate-and-fix",
+		Name:        "Validate Image Configuration",
+		Description: "Validate image reference, check pull secrets, verify pull policy and registry authentication",
+		Pattern:     PatternImagePullFailure,
+		Preconditions: []Check{
+			{
+				ID:       "check-image-pull-error",
+				Name:     "Image pull error present",
+				Type:     CheckTypeLogPattern,
+				Target:   "events",
+				Operator: OpContains,
+				Expected: "ErrImagePull",
+				Description: "Only suggest if image pull errors are present",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypePatch,
+			Description: "Validate and fix image pull configuration",
+			Parameters:  map[string]interface{}{"validate_image": true, "check_secrets": true, "verify_pull_policy": true},
+			DryRunCommand: "kubectl get pod {{.Name}} -n {{.Namespace}} -o jsonpath='{.spec.containers[0].image}' && kubectl get secret -n {{.Namespace}}",
+			ApplyCommand:  "# Manual fix required: validate image reference, check imagePullSecrets, verify imagePullPolicy",
+			Timeout:       60 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-image-pulled",
+				Name:     "Image pulled successfully",
+				Type:     CheckTypePodStatus,
+				Target:   "status.containerStatuses[0].imageID",
+				Operator: OpExists,
+				Timeout:  300 * time.Second,
+				Description: "Verify image was pulled successfully",
+			},
+		},
+		Risk:          RiskRunbookLow,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.70, // Lower success rate as this often requires manual intervention
+		Enabled:       true,
+		Tags:          []string{"image_pull", "config", "validation"},
+	})
+}
+
+// registerPendingRunbooks registers runbooks for PENDING/UNSCHEDULABLE pattern
+func (r *RunbookRegistry) registerPendingRunbooks() {
+	// Fix: Show scheduling reasons, suggest tolerations/node selector adjustment
+	r.Register(&Runbook{
+		ID:          "pending-scheduling-fix",
+		Name:        "Fix Pod Scheduling",
+		Description: "Show scheduling reasons and suggest tolerations or node selector adjustments",
+		Pattern:     PatternUnschedulable,
+		Preconditions: []Check{
+			{
+				ID:       "check-pod-pending",
+				Name:     "Pod is pending",
+				Type:     CheckTypePodStatus,
+				Target:   "status.phase",
+				Operator: OpEquals,
+				Expected: "Pending",
+				Description: "Only suggest if pod is in Pending state",
+			},
+		},
+		Action: RunbookAction{
+			Type:        FixTypePatch,
+			Description: "Add tolerations or adjust node selectors based on scheduling events",
+			Parameters:  map[string]interface{}{"show_reasons": true, "suggest_tolerations": true},
+			DryRunCommand: "kubectl describe pod {{.Name}} -n {{.Namespace}} | grep -A 10 Events",
+			ApplyCommand:  "# Manual fix: Add tolerations or adjust node selectors based on scheduling events",
+			Timeout:       60 * time.Second,
+		},
+		Verification: []Check{
+			{
+				ID:       "verify-pod-scheduled",
+				Name:     "Pod is scheduled",
+				Type:     CheckTypePodStatus,
+				Target:   "status.phase",
+				Operator: OpNotEquals,
+				Expected: "Pending",
+				Timeout:  300 * time.Second,
+				Description: "Verify pod has been scheduled",
+			},
+		},
+		Risk:          RiskRunbookLow,
+		AutonomyLevel: AutonomyRecommend,
+		BlastRadius:   1,
+		SuccessRate:   0.75,
+		Enabled:       true,
+		Tags:          []string{"pending", "scheduling", "tolerations"},
 	})
 }
 

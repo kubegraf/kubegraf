@@ -29,6 +29,9 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/kubegraf/kubegraf/pkg/update/unix"
+	"github.com/kubegraf/kubegraf/pkg/update/windows"
 )
 
 // GitHubRelease represents a GitHub release
@@ -272,34 +275,14 @@ func PerformUpdate(downloadURL string) error {
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	// On Windows, we need to replace the file differently
+	// On Windows, use the Windows updater script pattern
 	if runtime.GOOS == "windows" {
-		// Move old binary to backup
-		backupPath := execPath + ".old"
-		if err := os.Rename(execPath, backupPath); err != nil {
-			return fmt.Errorf("failed to backup old binary: %w", err)
+		return performWindowsUpdate(execPath, tmpFile)
 		}
 
-		// Move new binary into place
-		if err := os.Rename(tmpFile, execPath); err != nil {
-			// Restore backup on failure
-			os.Rename(backupPath, execPath)
-			return fmt.Errorf("failed to install new binary: %w", err)
-		}
-
-		// Clean up backup after a delay (in background)
-		go func() {
-			time.Sleep(5 * time.Second)
-			os.Remove(backupPath)
-		}()
-	} else {
-		// Unix-like: replace atomically
-		if err := os.Rename(tmpFile, execPath); err != nil {
-			return fmt.Errorf("failed to install new binary: %w", err)
-		}
-	}
-
-	return nil
+	// Unix-like: use updater script pattern (similar to Windows)
+	// This is necessary because you can't replace a running executable
+	return performUnixUpdate(execPath, tmpFile)
 }
 
 // extractAndInstallFromTarGz extracts kubegraf binary from tar.gz archive
@@ -341,20 +324,9 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 
 			// Install it
 			if runtime.GOOS == "windows" {
-				backupPath := execPath + ".old"
-				os.Rename(execPath, backupPath)
-				if err := os.Rename(tmpFile, execPath); err != nil {
-					os.Rename(backupPath, execPath)
-					return fmt.Errorf("failed to install: %w", err)
-				}
-				go func() {
-					time.Sleep(5 * time.Second)
-					os.Remove(backupPath)
-				}()
+				return performWindowsUpdate(execPath, tmpFile)
 			} else {
-				if err := os.Rename(tmpFile, execPath); err != nil {
-					return fmt.Errorf("failed to install: %w", err)
-				}
+				return performUnixUpdate(execPath, tmpFile)
 			}
 
 			return nil
@@ -406,20 +378,9 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 
 			// Install it
 			if runtime.GOOS == "windows" {
-				backupPath := execPath + ".old"
-				os.Rename(execPath, backupPath)
-				if err := os.Rename(tmpFile, execPath); err != nil {
-					os.Rename(backupPath, execPath)
-					return fmt.Errorf("failed to install: %w", err)
-				}
-				go func() {
-					time.Sleep(5 * time.Second)
-					os.Remove(backupPath)
-				}()
+				return performWindowsUpdate(execPath, tmpFile)
 			} else {
-				if err := os.Rename(tmpFile, execPath); err != nil {
-					return fmt.Errorf("failed to install: %w", err)
-				}
+				return performUnixUpdate(execPath, tmpFile)
 			}
 
 			return nil
@@ -429,7 +390,206 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 	return fmt.Errorf("kubegraf binary not found in archive")
 }
 
+// performWindowsUpdate handles Windows-specific update process
+// It creates an updater script that runs after the application exits
+func performWindowsUpdate(execPath, newBinaryPath string) error {
+	// Check if this is a Scoop installation
+	scoopInfo, err := windows.DetectScoopInstallation(execPath)
+	if err != nil {
+		// Log error but continue with normal update
+		fmt.Printf("⚠️  Warning: Could not detect installation method: %v\n", err)
+	}
+
+	// If it's a Scoop installation, we need special handling
+	if scoopInfo != nil && scoopInfo.IsScoopInstall {
+		return performScoopUpdate(execPath, newBinaryPath, scoopInfo)
+	}
+
+	// Get installation directory
+	installDir := windows.GetInstallDirectory(execPath)
+
+	// Determine app name and exe name
+	appName := "KubeGraf"
+	exeName := filepath.Base(execPath)
+
+	// Find icon file in installation directory
+	iconPath := filepath.Join(installDir, "kubegraf_color_icon.ico")
+	// If not found, try alternative locations
+	if _, err := os.Stat(iconPath); err != nil {
+		// Try other possible locations
+		altPaths := []string{
+			filepath.Join(installDir, "kubegraf.ico"),
+			filepath.Join(installDir, "icon.ico"),
+			filepath.Join(filepath.Dir(execPath), "kubegraf_color_icon.ico"),
+		}
+		for _, altPath := range altPaths {
+			if _, err := os.Stat(altPath); err == nil {
+				iconPath = altPath
+				break
+			}
+		}
+	}
+
+	// Create updater script configuration
+	config := windows.UpdateConfig{
+		ExecPath:      execPath,
+		NewBinaryPath: newBinaryPath,
+		AppName:       appName,
+		AppExeName:    exeName,
+		InstallDir:    installDir,
+		IconPath:      iconPath,
+	}
+
+	// Create the updater script
+	scriptPath, err := windows.CreateUpdaterScript(config)
+	if err != nil {
+		return fmt.Errorf("failed to create updater script: %w", err)
+	}
+
+	// Launch the updater script (it will run after we exit)
+	if err := windows.LaunchUpdater(scriptPath); err != nil {
+		return fmt.Errorf("failed to launch updater: %w", err)
+	}
+
+	// Give the updater script a moment to start
+	time.Sleep(1 * time.Second)
+
+	// Exit the application - the updater script will handle the rest
+	// This allows the updater to replace the binary while we're not running
+	fmt.Println("🔄 Update downloaded. Application will restart automatically...")
+	os.Exit(0)
+
+	return nil
+}
+
+// performUnixUpdate handles Unix-like (Linux/macOS) update process
+// It creates a shell script that runs after the application exits
+func performUnixUpdate(execPath, newBinaryPath string) error {
+	// Check if this is a Homebrew installation (macOS only)
+	if runtime.GOOS == "darwin" {
+		homebrewInfo, err := unix.DetectHomebrewInstallation(execPath)
+		if err == nil && homebrewInfo != nil && homebrewInfo.IsHomebrewInstall {
+			fmt.Println("🍺 Detected Homebrew installation")
+			fmt.Printf("   Homebrew Prefix: %s\n", homebrewInfo.HomebrewPrefix)
+			fmt.Printf("   Formula: %s\n", homebrewInfo.FormulaName)
+			fmt.Println("⚠️  Note: This update bypasses Homebrew. Consider using 'brew upgrade kubegraf' for future updates.")
+		}
+	}
+
+	// Get command line arguments (excluding the executable name)
+	args := os.Args[1:]
+
+	// Create updater script configuration
+	config := unix.UpdateConfig{
+		ExecPath:      execPath,
+		NewBinaryPath: newBinaryPath,
+		AppName:       "KubeGraf",
+		Args:          args,
+	}
+
+	// Create the updater script
+	scriptPath, err := unix.CreateUpdaterScript(config)
+	if err != nil {
+		return fmt.Errorf("failed to create updater script: %w", err)
+	}
+
+	// Launch the updater script (it will run after we exit)
+	if err := unix.LaunchUpdater(scriptPath); err != nil {
+		return fmt.Errorf("failed to launch updater: %w", err)
+	}
+
+	// Give the updater script a moment to start
+	time.Sleep(1 * time.Second)
+
+	// Exit the application - the updater script will handle the rest
+	// This allows the updater to replace the binary while we're not running
+	fmt.Println("🔄 Update downloaded. Application will restart automatically...")
+	os.Exit(0)
+
+	return nil
+}
+
+// performScoopUpdate handles updates for Scoop-installed applications
+// Scoop uses symlinks and version directories, so we need special handling
+func performScoopUpdate(execPath, newBinaryPath string, scoopInfo *windows.ScoopInfo) error {
+	fmt.Println("📦 Detected Scoop installation")
+	fmt.Printf("   App Directory: %s\n", scoopInfo.ScoopAppDir)
+	if scoopInfo.ScoopVersion != "" {
+		fmt.Printf("   Current Version: %s\n", scoopInfo.ScoopVersion)
+	}
+
+	// For Scoop installations, we update the actual version directory
+	// and let Scoop's symlink structure handle the rest
+	
+	// Get installation directory (Scoop app directory)
+	installDir := scoopInfo.ScoopAppDir
+	if installDir == "" {
+		installDir = filepath.Dir(execPath)
+	}
+
+	// Determine app name and exe name
+	appName := "KubeGraf"
+	exeName := filepath.Base(execPath)
+
+	// Resolve the actual executable path (might be a symlink)
+	realExecPath, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		realExecPath = execPath
+	}
+
+	// Find icon file in installation directory
+	iconPath := filepath.Join(installDir, "kubegraf_color_icon.ico")
+	// If not found, try alternative locations
+	if _, err := os.Stat(iconPath); err != nil {
+		// Try other possible locations
+		altPaths := []string{
+			filepath.Join(installDir, "kubegraf.ico"),
+			filepath.Join(installDir, "icon.ico"),
+			filepath.Join(filepath.Dir(realExecPath), "kubegraf_color_icon.ico"),
+		}
+		for _, altPath := range altPaths {
+			if _, err := os.Stat(altPath); err == nil {
+				iconPath = altPath
+				break
+			}
+		}
+	}
+
+	// Create updater script configuration
+	config := windows.UpdateConfig{
+		ExecPath:      realExecPath, // Use real path, not symlink
+		NewBinaryPath: newBinaryPath,
+		AppName:       appName,
+		AppExeName:    exeName,
+		InstallDir:    installDir,
+		IconPath:      iconPath,
+	}
+
+	// Create the updater script
+	scriptPath, err := windows.CreateUpdaterScript(config)
+	if err != nil {
+		return fmt.Errorf("failed to create updater script: %w", err)
+	}
+
+	// Launch the updater script (it will run after we exit)
+	if err := windows.LaunchUpdater(scriptPath); err != nil {
+		return fmt.Errorf("failed to launch updater: %w", err)
+	}
+
+	// Give the updater script a moment to start
+	time.Sleep(1 * time.Second)
+
+	// Exit the application - the updater script will handle the rest
+	fmt.Println("🔄 Update downloaded. Application will restart automatically...")
+	fmt.Println("⚠️  Note: This update bypasses Scoop. Consider using 'scoop update kubegraf' for future updates.")
+	os.Exit(0)
+
+	return nil
+}
+
 // RestartApplication restarts the application with the new binary
+// NOTE: This is now only used as a fallback. The updater scripts handle restart.
+// NOTE: This is now only used as a fallback. The updater scripts handle restart.
 func RestartApplication() error {
 	execPath, err := os.Executable()
 	if err != nil {

@@ -188,6 +188,121 @@ const FixPreviewModal: Component<FixPreviewModalProps> = (props) => {
               </div>
             </Show>
 
+            {/* Memory Change Summary - Show prominently if memory limit change */}
+            <Show when={preview()!.changes && preview()!.changes.some(c => c.path?.includes('memory') && c.oldValue && c.newValue)}>
+              {() => {
+                const memoryChange = preview()!.changes!.find(c => c.path?.includes('memory') && c.oldValue && c.newValue);
+                if (!memoryChange) return null;
+                
+                // Calculate increase amount
+                const parseMemory = (val: string): number => {
+                  if (val.endsWith('Mi')) {
+                    return parseFloat(val.replace('Mi', ''));
+                  } else if (val.endsWith('Gi')) {
+                    return parseFloat(val.replace('Gi', '')) * 1024;
+                  } else if (val.endsWith('Ki')) {
+                    return parseFloat(val.replace('Ki', '')) / 1024;
+                  }
+                  return 0;
+                };
+                
+                const oldVal = parseMemory(memoryChange.oldValue!);
+                const newVal = parseMemory(memoryChange.newValue!);
+                const increase = newVal - oldVal;
+                const percentIncrease = oldVal > 0 ? Math.round((increase / oldVal) * 100) : 0;
+                
+                // Format the increase amount
+                const formatMemory = (val: number): string => {
+                  if (val >= 1024) {
+                    return `${(val / 1024).toFixed(1)}Gi`;
+                  }
+                  return `${Math.round(val)}Mi`;
+                };
+                
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
+                    border: '2px solid rgba(6, 182, 212, 0.3)',
+                    'border-radius': '12px',
+                    padding: '20px',
+                    'margin-bottom': '20px',
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      'align-items': 'center',
+                      'justify-content': 'space-between',
+                      'flex-wrap': 'wrap',
+                      gap: '16px'
+                    }}>
+                      <div>
+                        <div style={{
+                          'font-size': '12px',
+                          color: 'var(--text-secondary)',
+                          'font-weight': '600',
+                          'text-transform': 'uppercase',
+                          'letter-spacing': '0.5px',
+                          'margin-bottom': '8px'
+                        }}>
+                          Memory Limit Change
+                        </div>
+                        <div style={{
+                          display: 'flex',
+                          'align-items': 'center',
+                          gap: '12px',
+                          'flex-wrap': 'wrap'
+                        }}>
+                          <div style={{
+                            'font-size': '24px',
+                            'font-weight': '700',
+                            color: 'var(--text-primary)',
+                            'font-family': 'monospace'
+                          }}>
+                            {memoryChange.oldValue}
+                          </div>
+                          <div style={{
+                            'font-size': '20px',
+                            color: 'var(--text-secondary)'
+                          }}>
+                            →
+                          </div>
+                          <div style={{
+                            'font-size': '24px',
+                            'font-weight': '700',
+                            color: '#22c55e',
+                            'font-family': 'monospace'
+                          }}>
+                            {memoryChange.newValue}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        'flex-direction': 'column',
+                        'align-items': 'flex-end',
+                        gap: '4px'
+                      }}>
+                        <div style={{
+                          'font-size': '18px',
+                          'font-weight': '700',
+                          color: '#22c55e',
+                          'font-family': 'monospace'
+                        }}>
+                          +{formatMemory(increase)}
+                        </div>
+                        <div style={{
+                          'font-size': '12px',
+                          color: 'var(--text-secondary)',
+                          'font-weight': '600'
+                        }}>
+                          +{percentIncrease}% increase
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }}
+            </Show>
+
             {/* Description */}
             <div style={{ 'margin-bottom': '20px' }}>
               <h4 style={{ color: 'var(--accent-primary)', 'font-size': '13px', 'font-weight': '700', 'margin-bottom': '8px' }}>

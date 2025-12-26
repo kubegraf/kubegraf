@@ -6,6 +6,7 @@ package incidents
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -82,6 +83,13 @@ func NewManager(config ManagerConfig) *Manager {
 	}
 }
 
+// GetClusterContext returns the current cluster context.
+func (m *Manager) GetClusterContext() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config.ClusterContext
+}
+
 // SetKubeExecutor sets the Kubernetes executor for fix operations.
 func (m *Manager) SetKubeExecutor(executor KubeFixExecutor) {
 	m.mu.Lock()
@@ -90,11 +98,28 @@ func (m *Manager) SetKubeExecutor(executor KubeFixExecutor) {
 }
 
 // SetClusterContext updates the cluster context.
+// Immediately clears all incidents from other clusters to prevent cross-cluster contamination.
 func (m *Manager) SetClusterContext(ctx string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	oldContext := m.config.ClusterContext
 	m.config.ClusterContext = ctx
 	m.signalNormalizer = NewSignalNormalizer(ctx)
+	m.mu.Unlock()
+
+	log.Printf("[Manager] Setting cluster context from '%s' to '%s'", oldContext, ctx)
+
+	// Update aggregator cluster context and clear incidents from other clusters
+	// Do this outside manager lock to avoid potential deadlock
+	if ctx != "" {
+		// Set the aggregator's cluster context and clear incidents from other clusters
+		// This ensures new incidents get the correct context and old incidents are removed
+		m.aggregator.SetCurrentClusterContext(ctx)
+		clearedCount := m.aggregator.ClearIncidentsFromOtherClusters(ctx)
+		log.Printf("[Manager] Cleared %d incidents from other clusters after switching to '%s'", clearedCount, ctx)
+	} else {
+		// Even if context is empty, update it
+		m.aggregator.SetCurrentClusterContext(ctx)
+	}
 }
 
 // Start starts the incident manager.
@@ -243,14 +268,48 @@ func (m *Manager) GetIncident(id string) *Incident {
 	return m.aggregator.GetIncident(id)
 }
 
-// GetAllIncidents returns all incidents.
+// GetAllIncidents returns all incidents from the current cluster context.
 func (m *Manager) GetAllIncidents() []*Incident {
-	return m.aggregator.GetAllIncidents()
+	all := m.aggregator.GetAllIncidents()
+	m.mu.RLock()
+	currentClusterContext := m.config.ClusterContext
+	m.mu.RUnlock()
+
+	// Filter by cluster context
+	if currentClusterContext == "" {
+		return all
+	}
+
+	var result []*Incident
+	for _, inc := range all {
+		// Only return incidents from current cluster (exclude incidents with empty or different cluster context)
+		if inc.ClusterContext == currentClusterContext {
+			result = append(result, inc)
+		}
+	}
+	return result
 }
 
-// GetActiveIncidents returns only active incidents.
+// GetActiveIncidents returns only active incidents from the current cluster context.
 func (m *Manager) GetActiveIncidents() []*Incident {
-	return m.aggregator.GetActiveIncidents()
+	all := m.aggregator.GetActiveIncidents()
+	m.mu.RLock()
+	currentClusterContext := m.config.ClusterContext
+	m.mu.RUnlock()
+
+	// Filter by cluster context
+	if currentClusterContext == "" {
+		return all
+	}
+
+	var result []*Incident
+	for _, inc := range all {
+		// Only return incidents from current cluster (exclude incidents with empty or different cluster context)
+		if inc.ClusterContext == currentClusterContext {
+			result = append(result, inc)
+		}
+	}
+	return result
 }
 
 // GetIncidentsByPattern returns incidents matching a specific pattern.
@@ -446,7 +505,17 @@ func (m *Manager) FilterIncidents(filter IncidentFilter) []*Incident {
 	all := m.GetAllIncidents()
 	var result []*Incident
 
+	m.mu.RLock()
+	currentClusterContext := m.config.ClusterContext
+	m.mu.RUnlock()
+
 	for _, inc := range all {
+		// Filter by cluster context first (only return incidents from current cluster)
+		// Exclude incidents with empty or different cluster context
+		if inc.ClusterContext != currentClusterContext {
+			continue
+		}
+
 		// Apply filters
 		if filter.Namespace != "" && inc.Resource.Namespace != filter.Namespace {
 			continue

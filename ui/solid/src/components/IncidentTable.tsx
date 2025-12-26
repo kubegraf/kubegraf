@@ -4,6 +4,7 @@ import ActionMenu from './ActionMenu';
 
 interface IncidentTableProps {
   incidents: Incident[];
+  isLoading?: boolean;
   onViewPod?: (incident: Incident) => void;
   onViewLogs?: (incident: Incident) => void;
   onViewEvents?: (incident: Incident) => void;
@@ -11,6 +12,9 @@ interface IncidentTableProps {
 }
 
 // Inline FixPreviewModal with proper confirmation modal
+import { setExecutionStateFromResult } from '../stores/executionPanel';
+import { api } from '../services/api';
+
 const FixPreviewModalInline: Component<{
   isOpen: boolean;
   incidentId: string;
@@ -101,14 +105,126 @@ const FixPreviewModalInline: Component<{
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           dryRun: false, 
-          incidentId: props.incidentId,
-          recommendationId: props.recommendationId 
+          recommendationId: props.recommendationId,
+          confirmed: true
         })
       });
-      const data = await response.json();
-      setApplyResult(data);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `HTTP ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      // Show execution summary in bottom right panel
+      const startedAt = new Date().toISOString();
+      const completedAt = new Date().toISOString();
+      
+      setExecutionStateFromResult({
+        executionId: result.executionId || `fix-apply-${Date.now()}`,
+        label: props.title || 'Fix Application',
+        status: result.status === 'applied' || result.status === 'ok' ? 'succeeded' : 'failed',
+        message: result.message || 'Fix applied successfully',
+        error: result.status === 'failed' ? (result.error || result.message) : undefined,
+        startedAt: startedAt,
+        completedAt: completedAt,
+        exitCode: result.status === 'applied' || result.status === 'ok' ? 0 : 1,
+        resourcesChanged: result.changes ? {
+          configured: result.changes.length,
+          created: 0,
+          updated: result.changes.length,
+          deleted: 0,
+        } : null,
+        lines: [
+          {
+            id: `fix-apply-${Date.now()}-msg`,
+            executionId: result.executionId || `fix-apply-${Date.now()}`,
+            timestamp: startedAt,
+            stream: 'stdout',
+            text: `Applying fix: ${props.title}`,
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+          {
+            id: `fix-apply-${Date.now()}-result`,
+            executionId: result.executionId || `fix-apply-${Date.now()}`,
+            timestamp: completedAt,
+            stream: result.status === 'applied' || result.status === 'ok' ? 'stdout' : 'stderr',
+            text: result.message || (result.status === 'applied' ? 'Fix applied successfully' : 'Fix application failed'),
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+          {
+            id: `fix-apply-${Date.now()}-final`,
+            executionId: result.executionId || `fix-apply-${Date.now()}`,
+            timestamp: completedAt,
+            stream: 'stdout',
+            text: 'Execution completed successfully',
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+        ],
+      });
+      
+      setApplyResult({ 
+        success: result.status === 'applied' || result.status === 'ok',
+        message: result.message,
+        dryRun: false 
+      });
+      
+      // Optionally run post-check after a delay
+      if (result.executionId && result.postCheckPlan) {
+        setTimeout(async () => {
+          try {
+            console.log('[FixApply] Running post-check for execution:', result.executionId, 'incidentId:', props.incidentId);
+            const postCheck = await api.postCheck(props.incidentId, result.executionId);
+            console.log('[FixApply] Post-check completed:', postCheck);
+            // Post-check results are already handled by the execution panel
+          } catch (err: any) {
+            console.error('[FixApply] Error running post-check:', err);
+            // Don't show error to user - post-check is optional
+          }
+        }, 15000); // Wait 15 seconds for pod to be recreated
+      }
     } catch (err: any) {
-      setApplyResult({ success: false, error: err.message, dryRun: false });
+      const errorMessage = err?.message || err?.toString() || 'Unknown error';
+      const executionId = `fix-apply-error-${Date.now()}`;
+      const timestamp = new Date().toISOString();
+      
+      // Show error in execution panel
+      setExecutionStateFromResult({
+        executionId: executionId,
+        label: props.title || 'Fix Application',
+        status: 'failed',
+        message: `Failed to apply fix: ${errorMessage}`,
+        error: errorMessage,
+        startedAt: timestamp,
+        completedAt: timestamp,
+        exitCode: 1,
+        lines: [
+          {
+            id: `${executionId}-msg`,
+            executionId: executionId,
+            timestamp: timestamp,
+            stream: 'stdout',
+            text: `Applying fix: ${props.title}`,
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+          {
+            id: `${executionId}-err`,
+            executionId: executionId,
+            timestamp: timestamp,
+            stream: 'stderr',
+            text: `Failed to apply fix: ${errorMessage}`,
+            mode: 'apply',
+            sourceLabel: 'kubectl-equivalent',
+          },
+        ],
+      });
+      
+      setApplyResult({ success: false, error: errorMessage, dryRun: false });
     } finally {
       setApplying(false);
     }
@@ -217,6 +333,121 @@ const FixPreviewModalInline: Component<{
             </Show>
 
             <Show when={!loading() && !error() && preview()}>
+              {/* Memory Change Summary - Show prominently if memory limit change */}
+              <Show when={preview()?.changes && preview()!.changes.some((c: any) => c.path?.includes('memory') && c.oldValue && c.newValue)}>
+                {() => {
+                  const memoryChange = preview()!.changes!.find((c: any) => c.path?.includes('memory') && c.oldValue && c.newValue);
+                  if (!memoryChange) return null;
+                  
+                  // Calculate increase amount
+                  const parseMemory = (val: string): number => {
+                    if (val.endsWith('Mi')) {
+                      return parseFloat(val.replace('Mi', ''));
+                    } else if (val.endsWith('Gi')) {
+                      return parseFloat(val.replace('Gi', '')) * 1024;
+                    } else if (val.endsWith('Ki')) {
+                      return parseFloat(val.replace('Ki', '')) / 1024;
+                    }
+                    return 0;
+                  };
+                  
+                  const oldVal = parseMemory(memoryChange.oldValue!);
+                  const newVal = parseMemory(memoryChange.newValue!);
+                  const increase = newVal - oldVal;
+                  const percentIncrease = oldVal > 0 ? Math.round((increase / oldVal) * 100) : 0;
+                  
+                  // Format the increase amount
+                  const formatMemory = (val: number): string => {
+                    if (val >= 1024) {
+                      return `${(val / 1024).toFixed(1)}Gi`;
+                    }
+                    return `${Math.round(val)}Mi`;
+                  };
+                  
+                  return (
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
+                      border: '2px solid rgba(6, 182, 212, 0.3)',
+                      'border-radius': '12px',
+                      padding: '16px',
+                      'margin-bottom': '16px',
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        'align-items': 'center',
+                        'justify-content': 'space-between',
+                        'flex-wrap': 'wrap',
+                        gap: '12px'
+                      }}>
+                        <div>
+                          <div style={{
+                            'font-size': '11px',
+                            color: 'var(--text-secondary)',
+                            'font-weight': '600',
+                            'text-transform': 'uppercase',
+                            'letter-spacing': '0.5px',
+                            'margin-bottom': '6px'
+                          }}>
+                            Memory Limit Change
+                          </div>
+                          <div style={{
+                            display: 'flex',
+                            'align-items': 'center',
+                            gap: '10px',
+                            'flex-wrap': 'wrap'
+                          }}>
+                            <div style={{
+                              'font-size': '20px',
+                              'font-weight': '700',
+                              color: 'var(--text-primary)',
+                              'font-family': 'monospace'
+                            }}>
+                              {memoryChange.oldValue}
+                            </div>
+                            <div style={{
+                              'font-size': '16px',
+                              color: 'var(--text-secondary)'
+                            }}>
+                              →
+                            </div>
+                            <div style={{
+                              'font-size': '20px',
+                              'font-weight': '700',
+                              color: '#22c55e',
+                              'font-family': 'monospace'
+                            }}>
+                              {memoryChange.newValue}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{
+                          display: 'flex',
+                          'flex-direction': 'column',
+                          'align-items': 'flex-end',
+                          gap: '2px'
+                        }}>
+                          <div style={{
+                            'font-size': '16px',
+                            'font-weight': '700',
+                            color: '#22c55e',
+                            'font-family': 'monospace'
+                          }}>
+                            +{formatMemory(increase)}
+                          </div>
+                          <div style={{
+                            'font-size': '11px',
+                            color: 'var(--text-secondary)',
+                            'font-weight': '600'
+                          }}>
+                            +{percentIncrease}% increase
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }}
+              </Show>
+
               <div style={{ 'margin-bottom': '16px' }}>
                 <h4 style={{ color: 'var(--accent-primary)', 'font-size': '13px', 'font-weight': '700', 'margin-bottom': '8px' }}>
                   Description
@@ -730,23 +961,50 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
             </tr>
           </thead>
           <tbody>
-            <For each={props.incidents} fallback={
+            <Show when={props.isLoading}>
               <tr>
-                <td colspan="8" style={{ padding: '24px', 'text-align': 'center', color: 'var(--text-muted)' }}>
-                  No incidents found
+                <td colspan="8" style={{ padding: '40px', 'text-align': 'center' }}>
+                  <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', gap: '16px' }}>
+                    <div class="spinner" style={{ width: '32px', height: '32px' }} />
+                    <div style={{ color: 'var(--text-secondary)', 'font-size': '14px' }}>
+                      Loading incidents...
+                    </div>
+                  </div>
                 </td>
               </tr>
-            }>
+            </Show>
+            <Show when={!props.isLoading}>
+              <For each={props.incidents} fallback={
+                <tr>
+                  <td colspan="8" style={{ padding: '24px', 'text-align': 'center', color: 'var(--text-muted)' }}>
+                    No incidents found
+                  </td>
+                </tr>
+              }>
               {(incident) => (
                 <>
                   <tr 
                     style={{ 
                       'border-bottom': expandedRow() === incident.id ? 'none' : '1px solid var(--border-color)',
                       height: '56px',
-                      background: 'var(--bg-card)',
+                      background: incident.status === 'resolved' ? 'var(--bg-secondary)' : 'var(--bg-card)',
+                      opacity: incident.status === 'resolved' ? 0.7 : 1,
                       cursor: 'pointer'
                     }}
-                    onClick={() => toggleRow(incident.id)}
+                    onClick={(e) => {
+                      // If clicking on a button or link, don't toggle
+                      const target = e.target as HTMLElement;
+                      if (target.tagName === 'BUTTON' || target.closest('button') || target.tagName === 'A' || target.closest('a')) {
+                        return;
+                      }
+                      toggleRow(incident.id);
+                    }}
+                    onDoubleClick={() => {
+                      // Double-click opens the modal
+                      if (props.onViewDetails) {
+                        props.onViewDetails(incident);
+                      }
+                    }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'var(--bg-secondary)';
                     }}
@@ -766,8 +1024,23 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                       <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
                         <span style={{ 'font-size': '18px' }}>{getPatternIcon(getPattern(incident))}</span>
                         <div>
-                          <div style={{ 'font-weight': '600', 'font-size': '13px' }}>
-                            {getPattern(incident).replace(/_/g, ' ')}
+                          <div style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                            <div style={{ 'font-weight': '600', 'font-size': '13px' }}>
+                              {getPattern(incident).replace(/_/g, ' ')}
+                            </div>
+                            <Show when={incident.status === 'resolved'}>
+                              <span style={{ 
+                                padding: '2px 6px',
+                                'border-radius': '3px',
+                                'font-size': '10px',
+                                'font-weight': '700',
+                                background: '#51cf6620',
+                                color: '#51cf66',
+                                'text-transform': 'uppercase'
+                              }}>
+                                ✅ Resolved
+                              </span>
+                            </Show>
                           </div>
                           <div style={{ 'font-size': '11px', color: 'var(--text-secondary)' }}>
                             ×{getOccurrences(incident)}
@@ -936,9 +1209,36 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
 
                           {/* Right Column - Recommendations */}
                           <div>
-                            <h4 style={{ color: 'var(--accent-primary)', 'font-size': '13px', 'font-weight': '700', 'margin-bottom': '12px' }}>
-                              💡 Recommendations
-                            </h4>
+                            <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '12px' }}>
+                              <h4 style={{ color: 'var(--accent-primary)', 'font-size': '13px', 'font-weight': '700', margin: 0 }}>
+                                💡 Recommendations
+                              </h4>
+                              <Show when={props.onViewDetails}>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('[IncidentTable] View Full Remediation clicked for:', incident.id);
+                                    props.onViewDetails!(incident);
+                                  }}
+                                  style={{
+                                    padding: '6px 12px',
+                                    background: 'var(--accent-primary)',
+                                    color: 'white',
+                                    border: 'none',
+                                    'border-radius': '6px',
+                                    cursor: 'pointer',
+                                    'font-weight': '500',
+                                    'font-size': '12px',
+                                    display: 'flex',
+                                    'align-items': 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  🚀 View Full Remediation
+                                </button>
+                              </Show>
+                            </div>
                             <Show when={incident.recommendations && incident.recommendations.length > 0} fallback={
                               <p style={{ color: 'var(--text-muted)', 'font-size': '13px' }}>No recommendations available</p>
                             }>
@@ -1062,7 +1362,8 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                   </Show>
                 </>
               )}
-            </For>
+              </For>
+            </Show>
           </tbody>
         </table>
       </div>

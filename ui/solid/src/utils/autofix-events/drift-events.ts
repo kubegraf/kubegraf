@@ -25,8 +25,17 @@ export interface DriftEvent {
 export function filterDriftEvents(incidents: Incident[]): DriftEvent[] {
   return incidents
     .filter(inc => {
+      // Check v2 pattern field first (drift patterns if any exist)
+      if (inc.pattern) {
+        const pattern = inc.pattern.toUpperCase();
+        if (pattern.includes('DRIFT') || pattern.includes('CONFIG')) {
+          return true;
+        }
+      }
+      
+      // Fallback to legacy type field
       const type = inc.type?.toLowerCase() || '';
-      const message = inc.message?.toLowerCase() || '';
+      const message = (inc.message || inc.description || '').toLowerCase();
 
       // Check for drift-related types
       return type === 'drift' ||
@@ -39,7 +48,7 @@ export function filterDriftEvents(incidents: Incident[]): DriftEvent[] {
              message.includes('does not match');
     })
     .map(inc => {
-      const message = inc.message?.toLowerCase() || '';
+      const message = (inc.message || inc.description || '').toLowerCase();
       let driftType: DriftEvent['driftType'] = 'other';
 
       if (message.includes('configuration') || message.includes('config')) {
@@ -52,17 +61,22 @@ export function filterDriftEvents(incidents: Incident[]): DriftEvent[] {
         driftType = 'label';
       }
 
+      // Use v2 resource structure if available, otherwise fallback to legacy fields
+      const resourceName = inc.resource?.name || inc.resourceName || '';
+      const namespace = inc.resource?.namespace || inc.namespace || 'default';
+      const resourceKind = inc.resource?.kind || inc.resourceKind || 'Unknown';
+
       return {
-        id: inc.id || `${inc.namespace}-${inc.resourceName}`,
+        id: inc.id || `${namespace}-${resourceName}`,
         type: 'drift' as const,
-        resource: inc.resourceName,
-        namespace: inc.namespace || 'default',
-        resourceName: inc.resourceName,
-        resourceKind: inc.resourceKind || 'Unknown',
+        resource: resourceName,
+        namespace,
+        resourceName,
+        resourceKind,
         severity: (inc.severity === 'critical' ? 'critical' : 'warning') as 'critical' | 'warning',
         timestamp: inc.lastSeen || inc.firstSeen,
-        message: inc.message || `Configuration drift detected for ${inc.resourceName}`,
-        count: inc.count || 1,
+        message: inc.message || inc.description || `Configuration drift detected for ${resourceName}`,
+        count: inc.occurrences || inc.count || 1,
         firstSeen: inc.firstSeen,
         lastSeen: inc.lastSeen,
         driftType,

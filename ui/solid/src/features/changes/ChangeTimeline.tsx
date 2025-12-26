@@ -52,7 +52,7 @@ const ChangeTimeline: Component<ChangeTimelineProps> = (props) => {
     try {
       const lookback = props.lookbackMinutes || 30;
       const data = await fetchAPI<CorrelationResult>(
-        `/api/incidents/${props.incidentId}/changes?lookback=${lookback}`
+        `/api/v2/incidents/${props.incidentId}/changes?lookback=${lookback}`
       );
       setResult(data);
     } catch (err) {
