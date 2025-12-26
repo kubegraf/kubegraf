@@ -974,6 +974,35 @@ export const api = {
     }),
   getInstalledApps: () => fetchAPI<any[]>('/apps/installed'),
   getLocalClusters: () => fetchAPI<{ success: boolean; clusters: any[]; total: number }>('/apps/local-clusters'),
+  
+  // ============ Custom App Deployment ============
+  previewCustomApp: (manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppPreviewResponse>('/custom-apps/preview', {
+      method: 'POST',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
+  deployCustomApp: (manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppDeployResponse>('/custom-apps/deploy', {
+      method: 'POST',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
+  listCustomApps: () =>
+    fetchAPI<{ success: boolean; apps: CustomAppInfo[] }>('/custom-apps/list'),
+  getCustomApp: (deploymentId: string) =>
+    fetchAPI<{ success: boolean; app: CustomAppInfo }>(`/custom-apps/get?deploymentId=${deploymentId}`),
+  updateCustomApp: (deploymentId: string, manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppDeployResponse>(`/custom-apps/update?deploymentId=${deploymentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
+  restartCustomApp: (deploymentId: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/custom-apps/restart?deploymentId=${deploymentId}`, {
+      method: 'POST',
+    }),
+  deleteCustomApp: (deploymentId: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/custom-apps/delete?deploymentId=${deploymentId}`, {
+      method: 'DELETE',
+    }),
 
   // ============ AI Log Analysis ============
   analyzePodsLogs: (namespace?: string) =>
@@ -1866,4 +1895,40 @@ export interface AutoFixAction {
   namespace: string;
   status: 'success' | 'failed' | 'pending';
   message: string;
+}
+
+// ============ Custom App Deployment ============
+export interface ResourcePreview {
+  kind: string;
+  name: string;
+  namespace: string;
+  apiVersion: string;
+}
+
+export interface CustomAppPreviewResponse {
+  success: boolean;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  warnings?: string[];
+  errors?: string[];
+  manifests: string[];
+}
+
+export interface CustomAppDeployResponse {
+  success: boolean;
+  deploymentId: string;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  message?: string;
+  errors?: string[];
+}
+
+export interface CustomAppInfo {
+  deploymentId: string;
+  name: string;
+  namespace: string;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  createdAt: string;
+  manifests?: string[];
 }
