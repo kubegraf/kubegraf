@@ -2,6 +2,7 @@
 
 import { Component, For, Show, createSignal, createEffect, onMount, createResource } from 'solid-js';
 import { api, type CustomAppPreviewResponse, type CustomAppDeployResponse } from '../services/api';
+import type { CustomAppInfo } from '../services/api';
 import { addNotification } from '../stores/ui';
 import Modal from './Modal';
 import YAMLViewer from './YAMLViewer';
@@ -10,6 +11,9 @@ interface CustomAppDeployWizardProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  initialManifests?: string[];
+  initialNamespace?: string;
+  deploymentId?: string; // For modify/redeploy mode
 }
 
 type WizardStep = 'upload' | 'preview' | 'deploy';
@@ -39,16 +43,24 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
     }
   );
 
-  // Reset state when modal opens/closes
+  // Reset state when modal opens/closes or initialize from props
   createEffect(() => {
     if (!props.isOpen) {
       setStep('upload');
       setFiles([]);
       setManifests([]);
+      setSelectedNamespace('');
       setPreview(null);
       setDeployResponse(null);
       setError('');
       setValidationErrors([]);
+    } else if (props.initialManifests && props.initialManifests.length > 0) {
+      // Initialize with existing manifests for modify mode
+      setManifests(props.initialManifests);
+      if (props.initialNamespace) {
+        setSelectedNamespace(props.initialNamespace);
+      }
+      setStep('preview'); // Skip upload step if modifying
     }
   });
 
@@ -185,23 +197,30 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
     setError('');
 
     try {
-      const response = await api.deployCustomApp(manifests(), selectedNamespace());
+      let response: CustomAppDeployResponse;
+      if (props.deploymentId) {
+        // Update mode
+        response = await api.updateCustomApp(props.deploymentId, manifests(), selectedNamespace());
+      } else {
+        // Deploy mode
+        response = await api.deployCustomApp(manifests(), selectedNamespace());
+      }
       setDeployResponse(response);
 
       if (response.success) {
         addNotification({
           type: 'success',
-          message: response.message || `Successfully deployed ${response.resources.length} resources`,
+          message: response.message || `Successfully ${props.deploymentId ? 'updated' : 'deployed'} ${response.resources.length} resources`,
         });
         setStep('deploy');
         if (props.onSuccess) {
           props.onSuccess();
         }
       } else {
-        setError(response.errors?.join('\n') || 'Deployment failed');
+        setError(response.errors?.join('\n') || `${props.deploymentId ? 'Update' : 'Deployment'} failed`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to deploy manifests');
+      setError(err instanceof Error ? err.message : `Failed to ${props.deploymentId ? 'update' : 'deploy'} manifests`);
     } finally {
       setLoading(false);
     }
@@ -230,7 +249,7 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
   };
 
   return (
-    <Modal isOpen={props.isOpen} onClose={handleClose} title="Custom App Deployment" size="lg">
+    <Modal isOpen={props.isOpen} onClose={handleClose} title={props.deploymentId ? "Modify Custom App" : "Custom App Deployment"} size="lg">
       <div class="space-y-6">
         {/* Step indicator */}
         <div class="flex items-center justify-between mb-6">

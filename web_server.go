@@ -170,6 +170,11 @@ type WebServer struct {
 	costCache     map[string]*ClusterCost // key: context name, value: cached cost
 	costCacheTime map[string]time.Time    // key: context name, value: cache time
 	costCacheMu   sync.RWMutex
+	// Custom apps cache - caches list of deployed custom apps for 30 seconds
+	// Keyed by cluster context to prevent cross-cluster cache hits
+	customAppsCache     map[string][]CustomAppInfo // key: context name, value: cached apps list
+	customAppsCacheTime map[string]time.Time       // key: context name, value: cache time
+	customAppsCacheMu   sync.RWMutex
 	// Event monitor integration
 	eventMonitorStarted bool
 	// Execution streaming state (for live command execution panel)
@@ -202,8 +207,10 @@ func NewWebServer(app *App) *WebServer {
 		portForwards:  make(map[string]*PortForwardSession),
 		events:        make([]WebEvent, 0, 500),
 		stopCh:        make(chan struct{}),
-		costCache:     make(map[string]*ClusterCost),
-		costCacheTime: make(map[string]time.Time),
+		costCache:            make(map[string]*ClusterCost),
+		costCacheTime:        make(map[string]time.Time),
+		customAppsCache:      make(map[string][]CustomAppInfo),
+		customAppsCacheTime:   make(map[string]time.Time),
 		executions:    make(map[string]*ExecutionRecord),
 		execLogs:      make(map[string][]ExecutionLogLine),
 		execLogLimit:  500,
@@ -392,6 +399,11 @@ func (ws *WebServer) Start(port int) error {
 	// Custom app deployment endpoints
 	http.HandleFunc("/api/custom-apps/preview", ws.handleCustomAppPreview)
 	http.HandleFunc("/api/custom-apps/deploy", ws.handleCustomAppDeploy)
+	http.HandleFunc("/api/custom-apps/list", ws.handleCustomAppList)
+	http.HandleFunc("/api/custom-apps/get", ws.handleCustomAppGet)
+	http.HandleFunc("/api/custom-apps/update", ws.handleCustomAppUpdate)
+	http.HandleFunc("/api/custom-apps/restart", ws.handleCustomAppRestart)
+	http.HandleFunc("/api/custom-apps/delete", ws.handleCustomAppDelete)
 
 	// Impact analysis endpoint
 	http.HandleFunc("/api/impact", ws.handleImpactAnalysis)

@@ -1,5 +1,5 @@
 import { Component, For, Show, createSignal, createMemo, createResource, onCleanup, onMount, Match, Switch, createEffect } from 'solid-js';
-import { api } from '../services/api';
+import { api, type CustomAppInfo } from '../services/api';
 import { addNotification, setCurrentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
@@ -97,6 +97,8 @@ const Apps: Component<AppsProps> = (props) => {
   
   // Custom app deployment wizard state
   const [showCustomDeployWizard, setShowCustomDeployWizard] = createSignal(false);
+  const [customAppToModify, setCustomAppToModify] = createSignal<CustomAppInfo | null>(null);
+  const [showCustomModifyModal, setShowCustomModifyModal] = createSignal(false);
 
   // Auto-filter to Local Cluster if coming from no-cluster overlay
   onMount(() => {
@@ -157,6 +159,16 @@ const Apps: Component<AppsProps> = (props) => {
   const [installedApps, { refetch: refetchInstalled }] = createResource(async () => {
     try {
       return await api.getInstalledApps();
+    } catch {
+      return [];
+    }
+  });
+
+  // Fetch deployed custom apps
+  const [deployedCustomApps, { refetch: refetchDeployedCustomApps }] = createResource(async () => {
+    try {
+      const response = await api.listCustomApps();
+      return response.apps || [];
     } catch {
       return [];
     }
@@ -715,9 +727,85 @@ const Apps: Component<AppsProps> = (props) => {
     setAppToDelete(null);
   };
 
+  // Handle modify/redeploy deployed custom app
+  const handleModifyCustomApp = async (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
+    if (!app.isDeployedCustomApp || !app.customAppInfo) return;
+    
+    try {
+      // Fetch the latest app info with manifests
+      const response = await api.getCustomApp(app.customAppInfo.deploymentId);
+      if (response.success && response.app) {
+        setCustomAppToModify(response.app);
+        setShowCustomDeployWizard(true);
+      } else {
+        addNotification('Failed to load app details', 'error');
+      }
+    } catch (err) {
+      addNotification('Failed to load app details', 'error');
+      console.error(err);
+    }
+  };
+
+  // Handle restart deployed custom app
+  const handleRestartCustomApp = async (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
+    if (!app.isDeployedCustomApp || !app.customAppInfo) return;
+    
+    try {
+      const response = await api.restartCustomApp(app.customAppInfo.deploymentId);
+      if (response.success) {
+        addNotification('Custom app restarted successfully', 'success');
+        refetchDeployedCustomApps();
+      } else {
+        addNotification(response.error || 'Failed to restart app', 'error');
+      }
+    } catch (err) {
+      addNotification('Failed to restart app', 'error');
+      console.error(err);
+    }
+  };
+
+  // Handle delete deployed custom app
+  const handleDeleteDeployedCustomApp = async (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
+    if (!app.isDeployedCustomApp || !app.customAppInfo) return;
+    
+    if (!confirm(`Are you sure you want to delete "${app.displayName}"? This will delete all resources associated with this deployment.`)) {
+      return;
+    }
+    
+    try {
+      const response = await api.deleteCustomApp(app.customAppInfo.deploymentId);
+      if (response.success) {
+        addNotification('Custom app deleted successfully', 'success');
+        refetchDeployedCustomApps();
+      } else {
+        addNotification(response.error || 'Failed to delete app', 'error');
+      }
+    } catch (err) {
+      addNotification('Failed to delete app', 'error');
+      console.error(err);
+    }
+  };
+
+  // Convert CustomAppInfo to App format for display
+  const convertCustomAppInfoToApp = (customApp: CustomAppInfo): App => {
+    return {
+      name: customApp.deploymentId,
+      displayName: customApp.name || `Custom App (${customApp.deploymentId.substring(0, 8)})`,
+      description: `Deployed custom app with ${Object.values(customApp.resourceCount).reduce((a, b) => a + b, 0)} resources`,
+      category: 'Custom',
+      version: '1.0.0',
+      icon: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4',
+      isCustom: true,
+      isDeployedCustomApp: true, // Flag to identify deployed custom apps
+      customAppInfo: customApp, // Store the original info
+    } as App & { isDeployedCustomApp: boolean; customAppInfo: CustomAppInfo };
+  };
+
   // Get all apps (marketplace + custom) with installed status
   const allApps = createMemo(() => {
     const installed = (installedApps() || []) as InstalledHelmRelease[];
+    const deployedCustom = (deployedCustomApps() || []) as CustomAppInfo[];
+    
     const marketplaceWithStatus = defaultApps.map(app => {
       const instances = getInstalledInstancesForApp(app, installed);
 
@@ -727,7 +815,11 @@ const Apps: Component<AppsProps> = (props) => {
       };
     });
 
-    const customWithStatus = customApps().map(app => {
+    // Convert deployed custom apps to App format
+    const deployedCustomAppsFormatted = deployedCustom.map(convertCustomAppInfoToApp);
+
+    // Merge localStorage custom apps with deployed custom apps
+    const customFromStorage = customApps().map(app => {
       const instances = getInstalledInstancesForApp(app, installed);
 
       return {
@@ -735,6 +827,14 @@ const Apps: Component<AppsProps> = (props) => {
         installedInstances: instances,
       };
     });
+
+    // Combine storage-based and deployed custom apps (avoid duplicates)
+    const customWithStatus = [
+      ...customFromStorage,
+      ...deployedCustomAppsFormatted.filter(deployed => 
+        !customFromStorage.some(storage => storage.name === deployed.name)
+      ),
+    ];
 
     return { marketplace: marketplaceWithStatus, custom: customWithStatus };
   });
@@ -1098,10 +1198,14 @@ const Apps: Component<AppsProps> = (props) => {
                     <td class="font-mono text-sm">{app.chartName}</td>
                     <td>
                       <Show when={isDeploying()} fallback={
-                        <Show when={(app.installedInstances?.length || 0) > 0} fallback={
-                          <span class="badge badge-default">Available</span>
+                        <Show when={(app as any).isDeployedCustomApp} fallback={
+                          <Show when={(app.installedInstances?.length || 0) > 0} fallback={
+                            <span class="badge badge-default">Available</span>
+                          }>
+                            <span class="badge badge-success">Installed</span>
+                          </Show>
                         }>
-                          <span class="badge badge-success">Installed</span>
+                          <span class="badge badge-success">Deployed</span>
                         </Show>
                       }>
                         <span class="badge badge-info flex items-center gap-1">
@@ -1118,7 +1222,7 @@ const Apps: Component<AppsProps> = (props) => {
                     <td>
                       <div class="flex items-center gap-2">
                         <Show when={!isDeploying()}>
-                          <Show when={(app.installedInstances?.length || 0) > 0} fallback={
+                          <Show when={(app.installedInstances?.length || 0) > 0 || (app as any).isDeployedCustomApp} fallback={
                             <button
                               onClick={() => { 
                                 setSelectedApp(app);
@@ -1134,20 +1238,50 @@ const Apps: Component<AppsProps> = (props) => {
                               Install
                             </button>
                           }>
-                            <button
-                              onClick={() => navigateToPods(app)}
-                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
-                              style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
-                            >
-                              View
-                            </button>
-                            <button
-                              onClick={() => handleUninstall(app)}
-                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
-                              style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
-                            >
-                              Uninstall
-                            </button>
+                            <Show when={(app as any).isDeployedCustomApp} fallback={
+                              <>
+                                <button
+                                  onClick={() => navigateToPods(app)}
+                                  class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                                  style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
+                                >
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => handleUninstall(app)}
+                                  class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                                  style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                                >
+                                  Uninstall
+                                </button>
+                              </>
+                            }>
+                              {/* Deployed Custom App Actions */}
+                              <button
+                                onClick={() => handleModifyCustomApp(app as any)}
+                                class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                                style={{ background: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent-primary)' }}
+                                title="Modify/Redeploy"
+                              >
+                                Modify
+                              </button>
+                              <button
+                                onClick={() => handleRestartCustomApp(app as any)}
+                                class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                                style={{ background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24' }}
+                                title="Restart"
+                              >
+                                Restart
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDeployedCustomApp(app as any)}
+                                class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                                style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                                title="Delete"
+                              >
+                                Delete
+                              </button>
+                            </Show>
                           </Show>
                         </Show>
                       </div>
@@ -1287,14 +1421,14 @@ const Apps: Component<AppsProps> = (props) => {
           </Show>
           <Show when={activeTab() === 'custom'}>
             <button
-              onClick={() => setShowAddCustomModal(true)}
+              onClick={() => setShowCustomDeployWizard(true)}
               class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all hover:opacity-80"
               style={{ background: 'var(--accent-primary)', color: '#000' }}
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
-              Add Custom App
+              Deploy Custom App
             </button>
           </Show>
           <button
@@ -1346,7 +1480,7 @@ const Apps: Component<AppsProps> = (props) => {
             </svg>
             Custom Apps
             <span class="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
-              {customApps().length}
+              {customApps().length + (deployedCustomApps()?.length || 0)}
             </span>
           </button>
         </div>
@@ -1975,10 +2109,18 @@ const Apps: Component<AppsProps> = (props) => {
       {/* Custom App Deployment Wizard */}
       <CustomAppDeployWizard
         isOpen={showCustomDeployWizard()}
-        onClose={() => setShowCustomDeployWizard(false)}
+        onClose={() => {
+          setShowCustomDeployWizard(false);
+          setCustomAppToModify(null);
+        }}
         onSuccess={() => {
           refetchInstalled();
+          refetchDeployedCustomApps();
+          setCustomAppToModify(null);
         }}
+        initialManifests={customAppToModify()?.manifests}
+        initialNamespace={customAppToModify()?.namespace}
+        deploymentId={customAppToModify()?.deploymentId}
       />
     </div>
   );

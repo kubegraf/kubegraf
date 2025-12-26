@@ -986,6 +986,23 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ manifests, namespace }),
     }),
+  listCustomApps: () =>
+    fetchAPI<{ success: boolean; apps: CustomAppInfo[] }>('/custom-apps/list'),
+  getCustomApp: (deploymentId: string) =>
+    fetchAPI<{ success: boolean; app: CustomAppInfo }>(`/custom-apps/get?deploymentId=${deploymentId}`),
+  updateCustomApp: (deploymentId: string, manifests: string[], namespace: string) =>
+    fetchAPI<CustomAppDeployResponse>(`/custom-apps/update?deploymentId=${deploymentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ manifests, namespace }),
+    }),
+  restartCustomApp: (deploymentId: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/custom-apps/restart?deploymentId=${deploymentId}`, {
+      method: 'POST',
+    }),
+  deleteCustomApp: (deploymentId: string) =>
+    fetchAPI<{ success: boolean; message?: string; error?: string }>(`/custom-apps/delete?deploymentId=${deploymentId}`, {
+      method: 'DELETE',
+    }),
 
   // ============ AI Log Analysis ============
   analyzePodsLogs: (namespace?: string) =>
@@ -1161,8 +1178,6 @@ export const api = {
   getIncident: async (id: string) => {
     return fetchAPI<Incident>(`/v2/incidents/${id}`);
   },
-<<<<<<< HEAD
-=======
   getIncidentSnapshot: async (id: string) => {
     return fetchAPI<IncidentSnapshot>(`/v2/incidents/${id}/snapshot`);
   },
@@ -1221,7 +1236,6 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     });
   },
->>>>>>> 6a37a66 (feat: Add Custom App Deployment feature)
 
   getIncidentRecommendations: async (incidentId: string) => {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);
@@ -1625,4 +1639,14 @@ export interface CustomAppDeployResponse {
   resourceCount: Record<string, number>;
   message?: string;
   errors?: string[];
+}
+
+export interface CustomAppInfo {
+  deploymentId: string;
+  name: string;
+  namespace: string;
+  resources: ResourcePreview[];
+  resourceCount: Record<string, number>;
+  createdAt: string;
+  manifests?: string[];
 }

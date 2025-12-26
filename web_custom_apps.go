@@ -130,6 +130,18 @@ func (ws *WebServer) handleCustomAppPreview(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(preview)
 }
 
+// invalidateCustomAppsCache invalidates the custom apps cache for the current cluster context
+func (ws *WebServer) invalidateCustomAppsCache() {
+	currentContext := ws.app.GetCurrentContext()
+	if currentContext == "" {
+		return
+	}
+	ws.customAppsCacheMu.Lock()
+	delete(ws.customAppsCache, currentContext)
+	delete(ws.customAppsCacheTime, currentContext)
+	ws.customAppsCacheMu.Unlock()
+}
+
 // handleCustomAppDeploy handles POST /api/custom-apps/deploy
 func (ws *WebServer) handleCustomAppDeploy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -604,5 +616,749 @@ func (ws *WebServer) objectToYAML(obj runtime.Object) (string, error) {
 	}
 
 	return string(yamlBytes), nil
+}
+
+// CustomAppInfo represents information about a deployed custom app
+type CustomAppInfo struct {
+	DeploymentID  string                 `json:"deploymentId"`
+	Name          string                 `json:"name"`
+	Namespace     string                 `json:"namespace"`
+	Resources     []ResourcePreview      `json:"resources"`
+	ResourceCount map[string]int         `json:"resourceCount"`
+	CreatedAt     string                 `json:"createdAt"`
+	Manifests     []string               `json:"manifests,omitempty"`
+}
+
+// handleCustomAppList handles GET /api/custom-apps/list
+func (ws *WebServer) handleCustomAppList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Kubernetes client not initialized",
+			"apps":    []CustomAppInfo{},
+		})
+		return
+	}
+
+	// Get current cluster context for cache key
+	currentContext := ws.app.GetCurrentContext()
+	if currentContext == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "No cluster context selected",
+			"apps":    []CustomAppInfo{},
+		})
+		return
+	}
+
+	// Check cache first (30 second TTL, per context)
+	ws.customAppsCacheMu.RLock()
+	cachedApps, hasCache := ws.customAppsCache[currentContext]
+	cacheTime, hasTime := ws.customAppsCacheTime[currentContext]
+	if hasCache && hasTime && time.Since(cacheTime) < 30*time.Second {
+		apps := cachedApps
+		ws.customAppsCacheMu.RUnlock()
+		w.Header().Set("X-Cache", "HIT")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"apps":    apps,
+		})
+		return
+	}
+	ws.customAppsCacheMu.RUnlock()
+
+	// Cache miss - query Kubernetes API
+	ctx := r.Context()
+	apps, err := ws.listCustomApps(ctx)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+			"apps":    []CustomAppInfo{},
+		})
+		return
+	}
+
+	// Store in cache
+	ws.customAppsCacheMu.Lock()
+	ws.customAppsCache[currentContext] = apps
+	ws.customAppsCacheTime[currentContext] = time.Now()
+	ws.customAppsCacheMu.Unlock()
+
+	w.Header().Set("X-Cache", "MISS")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"apps":    apps,
+	})
+}
+
+// handleCustomAppGet handles GET /api/custom-apps/get?deploymentId=xxx
+func (ws *WebServer) handleCustomAppGet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	deploymentID := r.URL.Query().Get("deploymentId")
+	if deploymentID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "deploymentId is required",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Kubernetes client not initialized",
+		})
+		return
+	}
+
+	ctx := r.Context()
+	app, err := ws.getCustomApp(ctx, deploymentID)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Invalidate cache after update (in case get was called for modify operation)
+	// Note: We don't invalidate on get, only on modify/delete/deploy operations
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"app":     app,
+	})
+}
+
+// handleCustomAppUpdate handles PUT /api/custom-apps/update
+func (ws *WebServer) handleCustomAppUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPut {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{"Method not allowed"},
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{"Kubernetes client not initialized"},
+		})
+		return
+	}
+
+	var req CustomAppDeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{fmt.Sprintf("Failed to parse request: %v", err)},
+		})
+		return
+	}
+
+	deploymentID := r.URL.Query().Get("deploymentId")
+	if deploymentID == "" {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{"deploymentId is required"},
+		})
+		return
+	}
+
+	if len(req.Manifests) == 0 {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{"No manifests provided"},
+		})
+		return
+	}
+
+	if req.Namespace == "" {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{"Namespace is required"},
+		})
+		return
+	}
+
+	ctx := r.Context()
+	deploy, err := ws.updateCustomAppManifests(ctx, deploymentID, req.Manifests, req.Namespace)
+	if err != nil {
+		json.NewEncoder(w).Encode(CustomAppDeployResponse{
+			Success: false,
+			Errors:  []string{err.Error()},
+		})
+		return
+	}
+
+	// Invalidate cache after update
+	ws.invalidateCustomAppsCache()
+
+	json.NewEncoder(w).Encode(deploy)
+}
+
+// handleCustomAppRestart handles POST /api/custom-apps/restart
+func (ws *WebServer) handleCustomAppRestart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	deploymentID := r.URL.Query().Get("deploymentId")
+	if deploymentID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "deploymentId is required",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Kubernetes client not initialized",
+		})
+		return
+	}
+
+	ctx := r.Context()
+	err := ws.restartCustomApp(ctx, deploymentID)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Invalidate cache after restart (apps list doesn't change, but we refresh for consistency)
+	ws.invalidateCustomAppsCache()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Custom app restarted successfully",
+	})
+}
+
+// handleCustomAppDelete handles DELETE /api/custom-apps/delete
+func (ws *WebServer) handleCustomAppDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodDelete {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	deploymentID := r.URL.Query().Get("deploymentId")
+	if deploymentID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "deploymentId is required",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Kubernetes client not initialized",
+		})
+		return
+	}
+
+	ctx := r.Context()
+	err := ws.deleteCustomApp(ctx, deploymentID)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Invalidate cache after deletion
+	ws.invalidateCustomAppsCache()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Custom app deleted successfully",
+	})
+}
+
+// listCustomApps lists all deployed custom apps by querying resources with kubegraf.io/app-id label
+func (ws *WebServer) listCustomApps(ctx context.Context) ([]CustomAppInfo, error) {
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %v", err)
+	}
+
+	// Group resources by deployment ID
+	deploymentGroups := make(map[string]*CustomAppInfo)
+
+	// Query common resource types - we'll filter by label in the code
+	// Kubernetes label selector syntax requires key=value, so we'll query all and filter
+	
+	// Query Deployments - we'll list all and filter by label
+	resourceTypes := []struct {
+		groupVersion string
+		resource     string
+	}{
+		{"apps/v1", "deployments"},
+		{"apps/v1", "statefulsets"},
+		{"v1", "services"},
+		{"v1", "configmaps"},
+		{"networking.k8s.io/v1", "ingresses"},
+	}
+
+	for _, rt := range resourceTypes {
+		if err := ws.queryLabeledResources(ctx, dynamicClient, rt.groupVersion, rt.resource, deploymentGroups); err != nil {
+			fmt.Printf("Warning: failed to query %s: %v\n", rt.resource, err)
+		}
+	}
+
+	// Convert map to slice
+	apps := make([]CustomAppInfo, 0, len(deploymentGroups))
+	for _, app := range deploymentGroups {
+		// Sort resources by kind and name
+		apps = append(apps, *app)
+	}
+
+	return apps, nil
+}
+
+// queryLabeledResources queries resources and groups them by deployment ID based on kubegraf.io/app-id label
+func (ws *WebServer) queryLabeledResources(ctx context.Context, dynamicClient dynamic.Interface, groupVersion, resource string, deploymentGroups map[string]*CustomAppInfo) error {
+	parts := strings.Split(groupVersion, "/")
+	gvr := schema.GroupVersionResource{
+		Group:    parts[0],
+		Version:  parts[1],
+		Resource: resource,
+	}
+
+	// List all resources (we'll filter by label in code since we want to group by label value)
+	uList, err := dynamicClient.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	for _, item := range uList.Items {
+		labels := item.GetLabels()
+		if labels == nil {
+			continue
+		}
+		
+		appID := labels[kubegrafAppIDLabel]
+		if appID == "" {
+			continue
+		}
+
+		if deploymentGroups[appID] == nil {
+			deploymentGroups[appID] = &CustomAppInfo{
+				DeploymentID:  appID,
+				Namespace:     item.GetNamespace(),
+				Resources:     []ResourcePreview{},
+				ResourceCount: make(map[string]int),
+			}
+		}
+
+		kind := item.GetObjectKind().GroupVersionKind().Kind
+		name := item.GetName()
+		namespace := item.GetNamespace()
+		createdAt := item.GetCreationTimestamp()
+
+		// Set name from first Deployment or StatefulSet found, or use first resource name
+		if deploymentGroups[appID].Name == "" && (kind == "Deployment" || kind == "StatefulSet") {
+			deploymentGroups[appID].Name = name
+			deploymentGroups[appID].CreatedAt = createdAt.Format(time.RFC3339)
+		} else if deploymentGroups[appID].Name == "" {
+			deploymentGroups[appID].Name = name
+			if deploymentGroups[appID].CreatedAt == "" {
+				deploymentGroups[appID].CreatedAt = createdAt.Format(time.RFC3339)
+			}
+		}
+
+		// Add resource
+		deploymentGroups[appID].Resources = append(deploymentGroups[appID].Resources, ResourcePreview{
+			Kind:       kind,
+			Name:       name,
+			Namespace:  namespace,
+			APIVersion: item.GetAPIVersion(),
+		})
+		deploymentGroups[appID].ResourceCount[kind]++
+	}
+
+	return nil
+}
+
+// getCustomApp gets details of a specific custom app deployment including manifests
+func (ws *WebServer) getCustomApp(ctx context.Context, deploymentID string) (*CustomAppInfo, error) {
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %v", err)
+	}
+
+	labelSelector := fmt.Sprintf("%s=%s", kubegrafAppIDLabel, deploymentID)
+	app := &CustomAppInfo{
+		DeploymentID:  deploymentID,
+		Resources:     []ResourcePreview{},
+		ResourceCount: make(map[string]int),
+		Manifests:     []string{},
+	}
+
+	// Common resource types to query
+	resourceTypes := []struct {
+		groupVersion string
+		resource     string
+	}{
+		{"apps/v1", "deployments"},
+		{"apps/v1", "statefulsets"},
+		{"apps/v1", "daemonsets"},
+		{"v1", "services"},
+		{"v1", "configmaps"},
+		{"v1", "secrets"},
+		{"networking.k8s.io/v1", "ingresses"},
+	}
+
+	for _, rt := range resourceTypes {
+		gvr := schema.GroupVersionResource{
+			Group:    strings.Split(rt.groupVersion, "/")[0],
+			Version:  strings.Split(rt.groupVersion, "/")[1],
+			Resource: rt.resource,
+		}
+
+		uList, err := dynamicClient.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			continue // Skip if resource type not available
+		}
+
+		for _, item := range uList.Items {
+			kind := item.GetObjectKind().GroupVersionKind().Kind
+			name := item.GetName()
+			namespace := item.GetNamespace()
+			createdAt := item.GetCreationTimestamp()
+
+			if app.Name == "" && (kind == "Deployment" || kind == "StatefulSet") {
+				app.Name = name
+				app.Namespace = namespace
+				app.CreatedAt = createdAt.Format(time.RFC3339)
+			} else if app.Name == "" {
+				app.Name = name
+				if app.Namespace == "" {
+					app.Namespace = namespace
+				}
+				if app.CreatedAt == "" {
+					app.CreatedAt = createdAt.Format(time.RFC3339)
+				}
+			}
+
+			// Add resource
+			app.Resources = append(app.Resources, ResourcePreview{
+				Kind:       kind,
+				Name:       name,
+				Namespace:  namespace,
+				APIVersion: item.GetAPIVersion(),
+			})
+			app.ResourceCount[kind]++
+
+			// Convert to YAML for manifests
+			yamlBytes, err := kyaml.Marshal(item.Object)
+			if err == nil {
+				app.Manifests = append(app.Manifests, string(yamlBytes))
+			}
+		}
+	}
+
+	if app.Name == "" {
+		return nil, fmt.Errorf("custom app with deploymentId %s not found", deploymentID)
+	}
+
+	return app, nil
+}
+
+// updateCustomAppManifests updates/redeploys a custom app with new manifests
+func (ws *WebServer) updateCustomAppManifests(ctx context.Context, deploymentID string, manifests []string, namespace string) (*CustomAppDeployResponse, error) {
+	// First verify the app exists
+	_, err := ws.getCustomApp(ctx, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("custom app not found: %v", err)
+	}
+
+	// Use the same deployment ID to maintain tracking
+	var allResources []ResourcePreview
+	var resourceCount = make(map[string]int)
+	var errors []string
+
+	// Parse and apply new manifests
+	combinedYAML := strings.Join(manifests, "\n---\n")
+	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(combinedYAML), 4096)
+	decoded := scheme.Codecs.UniversalDeserializer()
+
+	for {
+		var rawObj runtime.RawExtension
+		if err := decoder.Decode(&rawObj); err != nil {
+			if err == io.EOF {
+				break
+			}
+			errors = append(errors, fmt.Sprintf("Failed to parse YAML: %v", err))
+			continue
+		}
+
+		if len(rawObj.Raw) == 0 {
+			continue
+		}
+
+		obj, gvk, err := unstructured.UnstructuredJSONScheme.Decode(rawObj.Raw, nil, nil)
+		if err != nil {
+			obj, gvk, err = decoded.Decode(rawObj.Raw, nil, nil)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to decode object: %v", err))
+				continue
+			}
+		}
+
+		if gvk == nil {
+			errors = append(errors, "Object missing GroupVersionKind")
+			continue
+		}
+
+		metaObj, ok := obj.(metav1.Object)
+		if !ok {
+			errors = append(errors, "Object does not implement metav1.Object")
+			continue
+		}
+
+		objNamespace := metaObj.GetNamespace()
+		if objNamespace == "" {
+			objNamespace = namespace
+		}
+
+		if ws.isNamespacedResource(gvk) {
+			metaObj.SetNamespace(objNamespace)
+		}
+
+		// Add deployment ID label
+		labels := metaObj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		labels[kubegrafAppIDLabel] = deploymentID
+		metaObj.SetLabels(labels)
+
+		// Apply the resource
+		err = ws.applyResource(ctx, obj, gvk, objNamespace)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Failed to apply %s/%s: %v", gvk.Kind, metaObj.GetName(), err))
+			continue
+		}
+
+		resource := ResourcePreview{
+			Kind:       gvk.Kind,
+			Name:       metaObj.GetName(),
+			Namespace:  objNamespace,
+			APIVersion: gvk.GroupVersion().String(),
+		}
+		allResources = append(allResources, resource)
+		resourceCount[gvk.Kind]++
+	}
+
+	if len(errors) > 0 {
+		return &CustomAppDeployResponse{
+			Success:      false,
+			DeploymentID: deploymentID,
+			Resources:    allResources,
+			ResourceCount: resourceCount,
+			Errors:       errors,
+		}, nil
+	}
+
+	// Invalidate cache after update
+	// Note: This is called from handleCustomAppUpdate, but we also invalidate in the handler
+	// to ensure cache is cleared even if called directly
+
+	// Note: Cache invalidation is handled in the handler function, not here
+
+	return &CustomAppDeployResponse{
+		Success:      true,
+		DeploymentID: deploymentID,
+		Resources:    allResources,
+		ResourceCount: resourceCount,
+		Message:      fmt.Sprintf("Successfully updated %d resources", len(allResources)),
+	}, nil
+}
+
+// restartCustomApp restarts Deployments and StatefulSets in a custom app
+func (ws *WebServer) restartCustomApp(ctx context.Context, deploymentID string) error {
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %v", err)
+	}
+
+	labelSelector := fmt.Sprintf("%s=%s", kubegrafAppIDLabel, deploymentID)
+
+	// Restart Deployments
+	deploymentsGVR := schema.GroupVersionResource{
+		Group:    "apps",
+		Version:  "v1",
+		Resource: "deployments",
+	}
+
+	depList, err := dynamicClient.Resource(deploymentsGVR).Namespace("").List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err == nil {
+		for _, item := range depList.Items {
+			namespace := item.GetNamespace()
+			name := item.GetName()
+
+			// Get the deployment
+			dep, err := dynamicClient.Resource(deploymentsGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+
+			// Add/update annotation to trigger restart
+			annotations := dep.GetAnnotations()
+			if annotations == nil {
+				annotations = make(map[string]string)
+			}
+			annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+			dep.SetAnnotations(annotations)
+
+			// Update the deployment
+			_, err = dynamicClient.Resource(deploymentsGVR).Namespace(namespace).Update(ctx, dep, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to restart deployment %s/%s: %v", namespace, name, err)
+			}
+		}
+	}
+
+	// Restart StatefulSets
+	statefulSetsGVR := schema.GroupVersionResource{
+		Group:    "apps",
+		Version:  "v1",
+		Resource: "statefulsets",
+	}
+
+	stsList, err := dynamicClient.Resource(statefulSetsGVR).Namespace("").List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err == nil {
+		for _, item := range stsList.Items {
+			namespace := item.GetNamespace()
+			name := item.GetName()
+
+			sts, err := dynamicClient.Resource(statefulSetsGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+
+			annotations := sts.GetAnnotations()
+			if annotations == nil {
+				annotations = make(map[string]string)
+			}
+			annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+			sts.SetAnnotations(annotations)
+
+			_, err = dynamicClient.Resource(statefulSetsGVR).Namespace(namespace).Update(ctx, sts, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to restart statefulset %s/%s: %v", namespace, name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// deleteCustomApp deletes all resources with the deployment ID label
+func (ws *WebServer) deleteCustomApp(ctx context.Context, deploymentID string) error {
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %v", err)
+	}
+
+	labelSelector := fmt.Sprintf("%s=%s", kubegrafAppIDLabel, deploymentID)
+
+	// Resource types to delete
+	resourceTypes := []struct {
+		groupVersion string
+		resource     string
+	}{
+		{"apps/v1", "deployments"},
+		{"apps/v1", "statefulsets"},
+		{"apps/v1", "daemonsets"},
+		{"v1", "services"},
+		{"v1", "configmaps"},
+		{"v1", "secrets"},
+		{"networking.k8s.io/v1", "ingresses"},
+		{"batch/v1", "jobs"},
+		{"batch/v1", "cronjobs"},
+	}
+
+	for _, rt := range resourceTypes {
+		parts := strings.Split(rt.groupVersion, "/")
+		gvr := schema.GroupVersionResource{
+			Group:    parts[0],
+			Version:  parts[1],
+			Resource: rt.resource,
+		}
+
+		uList, err := dynamicClient.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			continue // Skip if resource type not available
+		}
+
+		for _, item := range uList.Items {
+			namespace := item.GetNamespace()
+			name := item.GetName()
+
+			var deleteErr error
+			if ws.isNamespacedResource(&schema.GroupVersionKind{Group: parts[0], Version: parts[1], Kind: ""}) {
+				deleteErr = dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+			} else {
+				deleteErr = dynamicClient.Resource(gvr).Delete(ctx, name, metav1.DeleteOptions{})
+			}
+
+			if deleteErr != nil && !strings.Contains(deleteErr.Error(), "not found") {
+				return fmt.Errorf("failed to delete %s %s/%s: %v", rt.resource, namespace, name, deleteErr)
+			}
+		}
+	}
+
+	return nil
 }
 
