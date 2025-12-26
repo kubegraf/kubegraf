@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -196,6 +197,9 @@ func (ws *WebServer) handleCustomAppDeploy(w http.ResponseWriter, r *http.Reques
 		})
 		return
 	}
+
+	// Invalidate cache after deployment
+	ws.invalidateCustomAppsCache()
 
 	json.NewEncoder(w).Encode(deploy)
 }
@@ -959,10 +963,22 @@ func (ws *WebServer) listCustomApps(ctx context.Context) ([]CustomAppInfo, error
 
 // queryLabeledResources queries resources and groups them by deployment ID based on kubegraf.io/app-id label
 func (ws *WebServer) queryLabeledResources(ctx context.Context, dynamicClient dynamic.Interface, groupVersion, resource string, deploymentGroups map[string]*CustomAppInfo) error {
+	// Handle core API resources (v1) which don't have a group
 	parts := strings.Split(groupVersion, "/")
+	var group, version string
+	if len(parts) == 1 {
+		// Core API resource (e.g., "v1")
+		group = ""
+		version = parts[0]
+	} else {
+		// Grouped API resource (e.g., "apps/v1")
+		group = parts[0]
+		version = parts[1]
+	}
+	
 	gvr := schema.GroupVersionResource{
-		Group:    parts[0],
-		Version:  parts[1],
+		Group:    group,
+		Version:  version,
 		Resource: resource,
 	}
 
@@ -1051,9 +1067,22 @@ func (ws *WebServer) getCustomApp(ctx context.Context, deploymentID string) (*Cu
 	}
 
 	for _, rt := range resourceTypes {
+		// Handle core API resources (v1) which don't have a group
+		parts := strings.Split(rt.groupVersion, "/")
+		var group, version string
+		if len(parts) == 1 {
+			// Core API resource (e.g., "v1")
+			group = ""
+			version = parts[0]
+		} else {
+			// Grouped API resource (e.g., "apps/v1")
+			group = parts[0]
+			version = parts[1]
+		}
+		
 		gvr := schema.GroupVersionResource{
-			Group:    strings.Split(rt.groupVersion, "/")[0],
-			Version:  strings.Split(rt.groupVersion, "/")[1],
+			Group:    group,
+			Version:  version,
 			Resource: rt.resource,
 		}
 
@@ -1243,22 +1272,38 @@ func (ws *WebServer) restartCustomApp(ctx context.Context, deploymentID string) 
 			namespace := item.GetNamespace()
 			name := item.GetName()
 
-			// Get the deployment
-			dep, err := dynamicClient.Resource(deploymentsGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+			// Get existing annotations from spec.template.metadata.annotations
+			templateAnnotations, _, _ := unstructured.NestedMap(item.Object, "spec", "template", "metadata", "annotations")
+			if templateAnnotations == nil {
+				templateAnnotations = make(map[string]interface{})
+			}
+			
+			// Add restart annotation to pod template
+			templateAnnotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+			
+			// Create patch to update spec.template.metadata.annotations
+			patchData := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"metadata": map[string]interface{}{
+							"annotations": templateAnnotations,
+						},
+					},
+				},
+			}
+			patchBytes, err := json.Marshal(patchData)
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to create patch for deployment %s/%s: %v", namespace, name, err)
 			}
 
-			// Add/update annotation to trigger restart
-			annotations := dep.GetAnnotations()
-			if annotations == nil {
-				annotations = make(map[string]string)
-			}
-			annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
-			dep.SetAnnotations(annotations)
-
-			// Update the deployment
-			_, err = dynamicClient.Resource(deploymentsGVR).Namespace(namespace).Update(ctx, dep, metav1.UpdateOptions{})
+			// Patch the deployment to trigger restart
+			_, err = dynamicClient.Resource(deploymentsGVR).Namespace(namespace).Patch(
+				ctx,
+				name,
+				types.StrategicMergePatchType,
+				patchBytes,
+				metav1.PatchOptions{},
+			)
 			if err != nil {
 				return fmt.Errorf("failed to restart deployment %s/%s: %v", namespace, name, err)
 			}
@@ -1280,19 +1325,38 @@ func (ws *WebServer) restartCustomApp(ctx context.Context, deploymentID string) 
 			namespace := item.GetNamespace()
 			name := item.GetName()
 
-			sts, err := dynamicClient.Resource(statefulSetsGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+			// Get existing annotations from spec.template.metadata.annotations
+			templateAnnotations, _, _ := unstructured.NestedMap(item.Object, "spec", "template", "metadata", "annotations")
+			if templateAnnotations == nil {
+				templateAnnotations = make(map[string]interface{})
+			}
+			
+			// Add restart annotation to pod template
+			templateAnnotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+			
+			// Create patch to update spec.template.metadata.annotations
+			patchData := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"metadata": map[string]interface{}{
+							"annotations": templateAnnotations,
+						},
+					},
+				},
+			}
+			patchBytes, err := json.Marshal(patchData)
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to create patch for statefulset %s/%s: %v", namespace, name, err)
 			}
 
-			annotations := sts.GetAnnotations()
-			if annotations == nil {
-				annotations = make(map[string]string)
-			}
-			annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
-			sts.SetAnnotations(annotations)
-
-			_, err = dynamicClient.Resource(statefulSetsGVR).Namespace(namespace).Update(ctx, sts, metav1.UpdateOptions{})
+			// Patch the statefulset to trigger restart
+			_, err = dynamicClient.Resource(statefulSetsGVR).Namespace(namespace).Patch(
+				ctx,
+				name,
+				types.StrategicMergePatchType,
+				patchBytes,
+				metav1.PatchOptions{},
+			)
 			if err != nil {
 				return fmt.Errorf("failed to restart statefulset %s/%s: %v", namespace, name, err)
 			}
@@ -1328,10 +1392,22 @@ func (ws *WebServer) deleteCustomApp(ctx context.Context, deploymentID string) e
 	}
 
 	for _, rt := range resourceTypes {
+		// Handle core API resources (v1) which don't have a group
 		parts := strings.Split(rt.groupVersion, "/")
+		var group, version string
+		if len(parts) == 1 {
+			// Core API resource (e.g., "v1")
+			group = ""
+			version = parts[0]
+		} else {
+			// Grouped API resource (e.g., "apps/v1")
+			group = parts[0]
+			version = parts[1]
+		}
+		
 		gvr := schema.GroupVersionResource{
-			Group:    parts[0],
-			Version:  parts[1],
+			Group:    group,
+			Version:  version,
 			Resource: rt.resource,
 		}
 
@@ -1347,7 +1423,7 @@ func (ws *WebServer) deleteCustomApp(ctx context.Context, deploymentID string) e
 			name := item.GetName()
 
 			var deleteErr error
-			if ws.isNamespacedResource(&schema.GroupVersionKind{Group: parts[0], Version: parts[1], Kind: ""}) {
+			if ws.isNamespacedResource(&schema.GroupVersionKind{Group: group, Version: version, Kind: ""}) {
 				deleteErr = dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 			} else {
 				deleteErr = dynamicClient.Resource(gvr).Delete(ctx, name, metav1.DeleteOptions{})

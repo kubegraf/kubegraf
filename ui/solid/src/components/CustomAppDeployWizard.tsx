@@ -60,7 +60,30 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
       if (props.initialNamespace) {
         setSelectedNamespace(props.initialNamespace);
       }
-      setStep('preview'); // Skip upload step if modifying
+      // Auto-preview manifests when opening in modify mode
+      const previewManifests = async () => {
+        if (props.initialNamespace) {
+          setLoading(true);
+          try {
+            const response = await api.previewCustomApp(props.initialManifests, props.initialNamespace);
+            setPreview(response);
+            if (response.success) {
+              setStep('preview');
+            } else {
+              setError(response.errors?.join('\n') || 'Preview failed');
+              setStep('upload');
+            }
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to preview manifests');
+            setStep('upload');
+          } finally {
+            setLoading(false);
+          }
+        } else {
+          setStep('preview'); // If no namespace, just set step (user will need to select namespace)
+        }
+      };
+      previewManifests();
     }
   });
 
