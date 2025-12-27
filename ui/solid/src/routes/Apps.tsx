@@ -1,6 +1,6 @@
 import { Component, For, Show, createSignal, createMemo, createResource, onCleanup, onMount, Match, Switch, createEffect } from 'solid-js';
 import { api, type CustomAppInfo } from '../services/api';
-import { addNotification, setCurrentView } from '../stores/ui';
+import { addNotification, setCurrentView, currentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
 import Modal from '../components/Modal';
 import AppUninstallModal from '../components/AppUninstallModal';
@@ -104,24 +104,24 @@ const Apps: Component<AppsProps> = (props) => {
   onMount(() => {
     const autoFilter = sessionStorage.getItem('kubegraf-auto-filter');
     let shouldScrollToLocalCluster = false;
-    
+
     if (autoFilter) {
       // Map legacy category names to new category IDs
       const mappedCategory = mapLegacyCategoryToNew(autoFilter);
       setSelectedCategory(mappedCategory);
       sessionStorage.removeItem('kubegraf-auto-filter');
-      
+
       // Check if we should scroll to local cluster section
       shouldScrollToLocalCluster = autoFilter === 'Local Cluster' || autoFilter === 'local-cluster' || mappedCategory === 'local-cluster';
     }
-    
+
     // Set default tab if specified
     const defaultTab = sessionStorage.getItem('kubegraf-default-tab');
     if (defaultTab && (defaultTab === 'marketplace' || defaultTab === 'custom')) {
       setActiveTab(defaultTab as TabType);
       sessionStorage.removeItem('kubegraf-default-tab');
     }
-    
+
     // Scroll to Local Cluster section after a brief delay
     if (shouldScrollToLocalCluster) {
       setTimeout(() => {
@@ -131,6 +131,41 @@ const Apps: Component<AppsProps> = (props) => {
           localClusterSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       }, 300);
+    }
+  });
+
+  // Reactive effect to watch for view changes and apply sessionStorage filters
+  // This handles the case where Apps component is already mounted when user navigates from ClusterManager
+  createEffect(() => {
+    // Trigger on currentView change (when navigating to 'apps')
+    const view = currentView();
+
+    if (view === 'apps') {
+      // Check for auto-filter and default-tab in sessionStorage
+      const autoFilter = sessionStorage.getItem('kubegraf-auto-filter');
+      const defaultTab = sessionStorage.getItem('kubegraf-default-tab');
+
+      if (autoFilter) {
+        const mappedCategory = mapLegacyCategoryToNew(autoFilter);
+        setSelectedCategory(mappedCategory);
+        sessionStorage.removeItem('kubegraf-auto-filter');
+
+        // Scroll to the filtered category
+        const shouldScrollToLocalCluster = autoFilter === 'Local Cluster' || autoFilter === 'local-cluster' || mappedCategory === 'local-cluster';
+        if (shouldScrollToLocalCluster) {
+          setTimeout(() => {
+            const localClusterSection = document.querySelector('[data-category="local-cluster"]');
+            if (localClusterSection) {
+              localClusterSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 300);
+        }
+      }
+
+      if (defaultTab && (defaultTab === 'marketplace' || defaultTab === 'custom')) {
+        setActiveTab(defaultTab as TabType);
+        sessionStorage.removeItem('kubegraf-default-tab');
+      }
     }
   });
 

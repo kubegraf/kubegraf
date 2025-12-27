@@ -1452,19 +1452,26 @@ const Pods: Component = () => {
                                   }
                                 }}
                                 title={formatWorkloadChain(ref())}
-                                class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium transition-colors hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-offset-1"
+                                class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold transition-all duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-1"
                                 style={{
-                                  background: 'rgba(14, 165, 233, 0.2)',
-                                  color: '#0ea5e9',
-                                  border: '1px solid rgba(14, 165, 233, 0.3)',
+                                  background: 'var(--accent-primary)35',
+                                  color: 'var(--accent-primary)',
+                                  border: '1.5px solid var(--accent-primary)',
                                   'font-size': `${Math.max(10, fontSize() - 2)}px`,
-                                  'line-height': '1.2',
-                                  'max-width': '120px',
+                                  'line-height': '1.3',
+                                  'max-width': '130px',
                                   overflow: 'hidden',
                                   'text-overflow': 'ellipsis',
                                   'white-space': 'nowrap',
+                                  'font-weight': '700',
+                                  cursor: 'pointer',
+                                  'box-shadow': '0 1px 2px rgba(0, 0, 0, 0.1)',
                                 }}
                               >
+                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" style={{ 'flex-shrink': '0' }}>
+                                  <path d="M2 2h8v8H2z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                  <path d="M4 6h4M6 4v4" stroke="currentColor" stroke-width="1.5"/>
+                                </svg>
                                 {kindAbbrev(ref().kind)} {ref().name.length > 12 ? ref().name.slice(0, 10) + '...' : ref().name}
                               </button>
                             )}

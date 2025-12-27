@@ -96,10 +96,10 @@ const ExecutionPanel: Component = () => {
 
     const bg =
       mode === 'dry-run'
-        ? 'rgba(245, 158, 11, 0.15)'
+        ? 'color-mix(in srgb, var(--warning-color) 15%, transparent)'
         : mode === 'apply'
-          ? 'rgba(248, 113, 113, 0.12)'
-          : 'rgba(148, 163, 184, 0.15)';
+          ? 'color-mix(in srgb, var(--error-color) 12%, transparent)'
+          : 'var(--bg-tertiary)';
 
     return (
       <span
@@ -132,8 +132,8 @@ const ExecutionPanel: Component = () => {
     const label = mode === 'dry-run' ? 'Dry run' : 'Apply';
     const bg =
       mode === 'dry-run'
-        ? 'rgba(245, 158, 11, 0.15)'
-        : 'rgba(248, 113, 113, 0.12)';
+        ? 'color-mix(in srgb, var(--warning-color) 15%, transparent)'
+        : 'color-mix(in srgb, var(--error-color) 12%, transparent)';
     const color =
       mode === 'dry-run'
         ? 'var(--warning-color)'
@@ -160,7 +160,7 @@ const ExecutionPanel: Component = () => {
       <span
         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide"
         style={{
-          background: 'rgba(148, 163, 184, 0.16)',
+          background: 'var(--bg-tertiary)',
           color: 'var(--text-secondary)',
         }}
         title={
@@ -232,9 +232,9 @@ const ExecutionPanel: Component = () => {
             <span
               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px]"
               style={{
-                background: 'rgba(15, 23, 42, 0.7)',
+                background: 'var(--bg-secondary)',
                 color: chip.color,
-                border: '1px solid rgba(148, 163, 184, 0.4)',
+                border: '1px solid var(--border-color)',
               }}
             >
               <span class="uppercase tracking-wide opacity-70">{chip.label}</span>
@@ -267,9 +267,9 @@ const ExecutionPanel: Component = () => {
             <span
               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px]"
               style={{
-                background: 'rgba(15, 23, 42, 0.7)',
+                background: 'var(--bg-secondary)',
                 color: chip.color,
-                border: '1px solid rgba(148, 163, 184, 0.4)',
+                border: '1px solid var(--border-color)',
               }}
             >
               <span class="uppercase tracking-wide opacity-70">{chip.label}</span>
@@ -303,15 +303,15 @@ const ExecutionPanel: Component = () => {
             <span
               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
               style={{
-                background: step.active ? 'rgba(226, 232, 240, 0.14)' : 'rgba(148, 163, 184, 0.1)',
+                background: step.active ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
                 color: step.active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                border: '1px solid rgba(148, 163, 184, 0.25)',
+                border: '1px solid var(--border-color)',
               }}
             >
               <span
                 class="w-1.5 h-1.5 rounded-full"
                 style={{
-                  background: step.active ? 'var(--accent-primary)' : 'rgba(148, 163, 184, 0.6)',
+                  background: step.active ? 'var(--accent-primary)' : 'var(--text-muted)',
                 }}
               />
               {step.label}
@@ -339,7 +339,7 @@ const ExecutionPanel: Component = () => {
         <div
           class="card shadow-lg border"
           style={{
-            background: 'rgba(15, 23, 42, 0.98)',
+            background: 'var(--bg-card)',
             'border-color': 'var(--border-color)',
           }}
         >
@@ -354,8 +354,8 @@ const ExecutionPanel: Component = () => {
                 style={{
                   background:
                     executionMode() === 'dry-run'
-                      ? 'rgba(245, 158, 11, 0.12)'
-                      : 'rgba(248, 113, 113, 0.12)',
+                      ? 'color-mix(in srgb, var(--warning-color) 12%, transparent)'
+                      : 'color-mix(in srgb, var(--error-color) 12%, transparent)',
                   color:
                     executionMode() === 'dry-run'
                       ? 'var(--warning-color)'
@@ -412,10 +412,12 @@ const ExecutionPanel: Component = () => {
 
               {/* Clear output */}
               <button
-                class="p-1.5 rounded hover:bg-slate-700 transition-colors"
+                class="p-1.5 rounded transition-colors"
                 onClick={() => clearExecutionOutput()}
                 title="Clear output"
                 style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -429,10 +431,12 @@ const ExecutionPanel: Component = () => {
 
               {/* Copy output */}
               <button
-                class="p-1.5 rounded hover:bg-slate-700 transition-colors"
+                class="p-1.5 rounded transition-colors"
                 onClick={handleCopyOutput}
                 title="Copy output"
                 style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -446,10 +450,12 @@ const ExecutionPanel: Component = () => {
 
               {/* Expand / collapse */}
               <button
-                class="p-1.5 rounded hover:bg-slate-700 transition-colors"
+                class="p-1.5 rounded transition-colors"
                 onClick={() => toggleExecutionPanelExpanded()}
                 title={executionPanelExpanded() ? 'Collapse' : 'Expand'}
                 style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -467,10 +473,12 @@ const ExecutionPanel: Component = () => {
 
               {/* Close */}
               <button
-                class="p-1.5 rounded hover:bg-slate-700 transition-colors"
+                class="p-1.5 rounded transition-colors"
                 onClick={() => hideExecutionPanel()}
                 title="Hide execution panel"
                 style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -534,8 +542,8 @@ const ExecutionPanel: Component = () => {
                 ref={containerRef}
                 class="mt-2 rounded-md border font-mono text-[11px] leading-relaxed"
                 style={{
-                  'border-color': 'rgba(51, 65, 85, 0.9)',
-                  background: '#0b1221',
+                  'border-color': 'var(--border-color)',
+                  background: 'var(--bg-primary)',
                   maxHeight: '260px',
                   minHeight: '140px',
                   overflow: 'auto',
@@ -567,13 +575,13 @@ const ExecutionPanel: Component = () => {
                           style={{
                             color:
                               line.stream === 'stderr'
-                                ? 'rgba(248, 113, 113, 0.95)'
-                                : 'rgba(148, 163, 184, 0.95)',
+                                ? 'var(--error-color)'
+                                : 'var(--text-secondary)',
                           }}
                         >
                           <span
                             class="mr-2"
-                            style={{ color: 'rgba(75, 85, 99, 0.9)' }}
+                            style={{ color: 'var(--text-muted)' }}
                           >
                             [{hh}:{mm}:{ss}]
                           </span>
@@ -582,8 +590,8 @@ const ExecutionPanel: Component = () => {
                             style={{
                               color:
                                 line.stream === 'stderr'
-                                  ? 'rgba(248, 113, 113, 0.95)'
-                                  : 'rgba(148, 163, 184, 0.8)',
+                                  ? 'var(--error-color)'
+                                  : 'var(--text-secondary)',
                             }}
                           >
                             {line.stream === 'stderr' ? 'ERR' : 'OUT'}
@@ -601,9 +609,9 @@ const ExecutionPanel: Component = () => {
                 <div
                   class="mt-2 rounded-md px-3 py-2 text-[11px]"
                   style={{
-                    background: 'rgba(239, 68, 68, 0.12)',
+                    background: 'color-mix(in srgb, var(--error-color) 12%, transparent)',
                     color: 'var(--error-color)',
-                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    border: '1px solid color-mix(in srgb, var(--error-color) 40%, transparent)',
                   }}
                 >
                   <div class="flex items-start justify-between gap-2">
@@ -653,10 +661,11 @@ const ExecutionPanel: Component = () => {
                   </div>
                   <Show when={showRawError() && executionRawError()}>
                     <pre
-                      class="mt-2 p-2 rounded bg-black/40 overflow-auto max-h-32"
+                      class="mt-2 p-2 rounded overflow-auto max-h-32"
                       style={{
-                        border: '1px solid rgba(239, 68, 68, 0.4)',
-                        color: 'rgba(248, 250, 252, 0.9)',
+                        border: '1px solid color-mix(in srgb, var(--error-color) 40%, transparent)',
+                        color: 'var(--text-primary)',
+                        background: 'var(--bg-secondary)',
                       }}
                     >
                       {executionRawError()}
