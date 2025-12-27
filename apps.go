@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -297,10 +298,13 @@ func (ws *WebServer) getInstalledApps() ([]InstalledApp, error) {
 
 // handleInstallApp handles app installation requests
 func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("📥 [API] Received app installation request\n")
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	if r.Method != http.MethodPost {
+		fmt.Printf("❌ [API] Method not allowed: %s\n", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -313,12 +317,15 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fmt.Printf("❌ [API] Failed to decode request body: %v\n", err)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
 		})
 		return
 	}
+
+	fmt.Printf("📦 [API] Install request: name=%s, namespace=%s, clusterName=%s\n", req.Name, req.Namespace, req.ClusterName)
 
 	// Find app in catalog
 	var app *AppDefinition
@@ -374,11 +381,12 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if !dockerAvailable {
+			fmt.Printf("❌ [API] Docker not available: %s\n", dockerError)
 			// Update installation record with error
 			if installationID > 0 {
 				ws.db.UpdateAppInstallation(installationID, "failed", 0, dockerError)
 			}
-			
+
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
 				"error":   dockerError,
@@ -386,12 +394,15 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		
+
+		fmt.Printf("✅ [API] Docker is available, launching local cluster installer for %s (installationID: %d)\n", app.Name, installationID)
 		go ws.installLocalCluster(app, req.Namespace, req.ClusterName, installationID)
 	} else {
+		fmt.Printf("✅ [API] Launching Helm installer for %s (installationID: %d)\n", app.Name, installationID)
 		go ws.installHelmApp(app, req.Namespace, req.Values, installationID)
 	}
 
+	fmt.Printf("📤 [API] Returning success response for %s installation\n", app.DisplayName)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Installation of %s has started", app.DisplayName),
@@ -401,22 +412,33 @@ func (ws *WebServer) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 // installLocalCluster installs a local Kubernetes cluster (k3d, kind, minikube)
 func (ws *WebServer) installLocalCluster(app *AppDefinition, namespace, clusterName string, installationID int) {
+	fmt.Printf("🚀 [Local Cluster] Starting installation for app: %s, namespace: %s, clusterName: %s (installationID: %d)\n",
+		app.Name, namespace, clusterName, installationID)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	// Update progress to 20% (checking Docker)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "checking_docker", 20, "")
+		fmt.Printf("📊 [Local Cluster] Updated progress to 20%% (checking Docker)\n")
 	}
 
 	// Check for Docker/container runtime first
+	fmt.Printf("🐳 [Local Cluster] Checking if Docker is available\n")
 	dockerAvailable := false
 	if _, err := exec.LookPath("docker"); err == nil {
+		fmt.Printf("✅ [Local Cluster] Docker binary found, checking if daemon is running\n")
 		// Check if Docker daemon is running
 		checkCmd := exec.CommandContext(ctx, "docker", "info")
 		if err := checkCmd.Run(); err == nil {
 			dockerAvailable = true
+			fmt.Printf("✅ [Local Cluster] Docker daemon is running\n")
+		} else {
+			fmt.Printf("❌ [Local Cluster] Docker daemon is not running: %v\n", err)
 		}
+	} else {
+		fmt.Printf("❌ [Local Cluster] Docker binary not found: %v\n", err)
 	}
 
 	osType := runtime.GOOS
@@ -437,7 +459,7 @@ func (ws *WebServer) installLocalCluster(app *AppDefinition, namespace, clusterN
 			"2. Wait for Docker to be ready\n"+
 			"3. Try installing the cluster again", dockerURL)
 
-		fmt.Printf("❌ %s\n", errorMsg)
+		fmt.Printf("❌ [Local Cluster] %s\n", errorMsg)
 
 		// Update installation record with error
 		if installationID > 0 {
@@ -450,12 +472,15 @@ func (ws *WebServer) installLocalCluster(app *AppDefinition, namespace, clusterN
 	if clusterName == "" {
 		clusterName = "kubegraf-cluster"
 	}
+	fmt.Printf("📝 [Local Cluster] Using cluster name: %s\n", clusterName)
 
 	// Update progress to 30% (installing tools)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "installing_tools", 30, "")
+		fmt.Printf("📊 [Local Cluster] Updated progress to 30%% (installing tools)\n")
 	}
 
+	fmt.Printf("🔄 [Local Cluster] Dispatching to installer for: %s\n", app.Name)
 	switch app.Name {
 	case "k3d":
 		ws.installK3d(ctx, clusterName, installationID)
@@ -468,78 +493,124 @@ func (ws *WebServer) installLocalCluster(app *AppDefinition, namespace, clusterN
 
 // installK3d installs a k3d cluster
 func (ws *WebServer) installK3d(ctx context.Context, clusterName string, installationID int) {
+	fmt.Printf("🚀 [K3D Install] Starting installation for cluster: %s (installationID: %d)\n", clusterName, installationID)
+
 	// Check if k3d is installed
 	osType := runtime.GOOS
+	fmt.Printf("📦 [K3D Install] Checking if k3d is installed (OS: %s)\n", osType)
 
 	if _, err := exec.LookPath("k3d"); err != nil {
+		fmt.Printf("⚠️  [K3D Install] k3d not found, proceeding with installation\n")
+
 		// Install k3d based on OS
 		if osType == "windows" {
+			fmt.Printf("🔧 [K3D Install] Installing k3d on Windows using PowerShell\n")
 			// Windows: Use PowerShell to install
 			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
 				"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -UseBasicParsing | Invoke-Expression")
+
+			var stdout, stderr bytes.Buffer
+			installCmd.Stdout = &stdout
+			installCmd.Stderr = &stderr
+
 			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install k3d: %v\n", err)
+				errMsg := fmt.Sprintf("Failed to install k3d: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+				fmt.Printf("❌ [K3D Install] %s\n", errMsg)
 				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install k3d: %v", err))
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
+			fmt.Printf("✅ [K3D Install] k3d installed successfully on Windows\n")
+			fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
 		} else {
+			fmt.Printf("🔧 [K3D Install] Installing k3d on macOS/Linux using bash\n")
 			// macOS/Linux: Use bash script
 			installCmd := exec.CommandContext(ctx, "sh", "-c",
 				"curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash")
+
+			var stdout, stderr bytes.Buffer
+			installCmd.Stdout = &stdout
+			installCmd.Stderr = &stderr
+
 			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install k3d: %v\n", err)
+				errMsg := fmt.Sprintf("Failed to install k3d: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+				fmt.Printf("❌ [K3D Install] %s\n", errMsg)
 				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install k3d: %v", err))
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
+			fmt.Printf("✅ [K3D Install] k3d installed successfully on macOS/Linux\n")
+			fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
 		}
+	} else {
+		fmt.Printf("✅ [K3D Install] k3d already installed\n")
 	}
 
 	// Update progress to 40% (creating cluster)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "creating_cluster", 40, "")
+		fmt.Printf("📊 [K3D Install] Updated progress to 40%% (creating cluster)\n")
 	}
 
-	// Create k3d cluster
-	createCmd := exec.CommandContext(ctx, "k3d", "cluster", "create", clusterName,
+	// Create k3d cluster with random ports to avoid conflicts
+	// K3D automatically adds "k3d-" prefix, so we pass the cluster name without any k3d- prefix
+	// User provides: kubegraf-<suffix> → K3D creates: k3d-kubegraf-<suffix>
+	k3dClusterName := clusterName
+	fmt.Printf("🏗️  [K3D Install] Creating k3d cluster with name: %s (K3D will add 'k3d-' prefix automatically)\n", k3dClusterName)
+	createCmd := exec.CommandContext(ctx, "k3d", "cluster", "create", k3dClusterName,
 		"--agents", "1",
 		"--servers", "1",
-		"--port", "8080:80@loadbalancer",
-		"--port", "8443:443@loadbalancer",
 		"--wait")
 
+	var createStdout, createStderr bytes.Buffer
+	createCmd.Stdout = &createStdout
+	createCmd.Stderr = &createStderr
+
 	if err := createCmd.Run(); err != nil {
-		fmt.Printf("Failed to create k3d cluster: %v\n", err)
+		errMsg := fmt.Sprintf("Failed to create k3d cluster: %v\nStdout: %s\nStderr: %s", err, createStdout.String(), createStderr.String())
+		fmt.Printf("❌ [K3D Install] %s\n", errMsg)
 		if installationID > 0 {
-			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to create k3d cluster: %v", err))
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 		}
 		return
 	}
+	fmt.Printf("✅ [K3D Install] Cluster created successfully\n")
+	fmt.Printf("📝 [K3D Install] Create output: %s\n", createStdout.String())
 
 	// Update progress to 80% (configuring kubectl)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "configuring_kubectl", 80, "")
+		fmt.Printf("📊 [K3D Install] Updated progress to 80%% (configuring kubectl)\n")
 	}
 
 	// Get kubeconfig
-	kubeconfigCmd := exec.CommandContext(ctx, "k3d", "kubeconfig", "write", clusterName)
+	fmt.Printf("🔧 [K3D Install] Writing kubeconfig for cluster: %s\n", k3dClusterName)
+	kubeconfigCmd := exec.CommandContext(ctx, "k3d", "kubeconfig", "write", k3dClusterName)
+
+	var kcStdout, kcStderr bytes.Buffer
+	kubeconfigCmd.Stdout = &kcStdout
+	kubeconfigCmd.Stderr = &kcStderr
+
 	if err := kubeconfigCmd.Run(); err != nil {
-		fmt.Printf("Failed to write kubeconfig: %v\n", err)
+		errMsg := fmt.Sprintf("Failed to write kubeconfig: %v\nStdout: %s\nStderr: %s", err, kcStdout.String(), kcStderr.String())
+		fmt.Printf("❌ [K3D Install] %s\n", errMsg)
 		if installationID > 0 {
-			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to write kubeconfig: %v", err))
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 		}
 		return
 	}
+	fmt.Printf("✅ [K3D Install] Kubeconfig written successfully\n")
+	fmt.Printf("📝 [K3D Install] Kubeconfig output: %s\n", kcStdout.String())
 
 	// Update progress to 100% (completed)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "completed", 100, "K3d cluster created successfully")
+		fmt.Printf("📊 [K3D Install] Updated progress to 100%% (completed)\n")
 	}
 
-	fmt.Printf("✅ k3d cluster '%s' created successfully\n", clusterName)
+	fmt.Printf("✅ [K3D Install] k3d cluster '%s' created successfully (full name: k3d-%s)\n", k3dClusterName, k3dClusterName)
 }
 
 // installKind installs a kind cluster
@@ -911,5 +982,67 @@ func (ws *WebServer) handleLocalClusters(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"clusters": clusters,
 		"count":    len(clusters),
+	})
+}
+
+// handleDeleteLocalCluster handles deletion of local clusters
+func (ws *WebServer) handleDeleteLocalCluster(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	fmt.Printf("🗑️  [Delete Cluster] Deleting %s cluster: %s\n", req.Type, req.Name)
+
+	var cmd *exec.Cmd
+	switch req.Type {
+	case "k3d":
+		cmd = exec.CommandContext(ctx, "k3d", "cluster", "delete", req.Name)
+	case "kind":
+		cmd = exec.CommandContext(ctx, "kind", "delete", "cluster", "--name", req.Name)
+	case "minikube":
+		cmd = exec.CommandContext(ctx, "minikube", "delete", "-p", req.Name)
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Unknown cluster type: %s", req.Type),
+		})
+		return
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to delete %s cluster '%s': %v\nOutput: %s", req.Type, req.Name, err, string(output))
+		fmt.Printf("❌ [Delete Cluster] %s\n", errorMsg)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   errorMsg,
+		})
+		return
+	}
+
+	fmt.Printf("✅ [Delete Cluster] Successfully deleted %s cluster: %s\n", req.Type, req.Name)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Successfully deleted %s cluster '%s'", req.Type, req.Name),
 	})
 }

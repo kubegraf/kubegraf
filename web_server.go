@@ -411,6 +411,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/apps/install", ws.handleInstallApp)
 	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
 	http.HandleFunc("/api/apps/local-clusters", ws.handleLocalClusters)
+	http.HandleFunc("/api/apps/local-clusters/delete", ws.handleDeleteLocalCluster)
 	
 	// Custom app deployment endpoints
 	http.HandleFunc("/api/custom-apps/preview", ws.handleCustomAppPreview)

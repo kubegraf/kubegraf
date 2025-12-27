@@ -124,7 +124,7 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                     props.onSectionClick?.(section);
                   }}
                   class={`
-                    w-full flex flex-col items-center justify-center gap-1 py-2.5 px-2
+                    w-full flex flex-col items-center justify-center
                     transition-all duration-150
                     focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
                     ${active() || hasActive()
@@ -134,12 +134,15 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                     ${pinned() ? 'bg-bg-panelAlt' : ''}
                   `}
                   style={{
-                    opacity: active() || hasActive() ? 1 : 0.95
+                    opacity: active() || hasActive() ? 1 : 0.95,
+                    gap: 'clamp(2px, 0.25rem, 4px)',
+                    padding: 'clamp(6px, 0.625rem, 10px) clamp(4px, 0.5rem, 8px)'
                   }}
                   title={section.title}
                 >
                   <svg
-                    class="w-5 h-5 flex-shrink-0"
+                    class="flex-shrink-0"
+                    style={{ width: 'clamp(16px, 1.25rem, 20px)', height: 'clamp(16px, 1.25rem, 20px)' }}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -147,7 +150,7 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                   >
                     <path stroke-linecap="round" stroke-linejoin="round" d={getSectionIcon(section)} />
                   </svg>
-                  <span class="text-[10px] font-bold leading-tight text-center">
+                  <span class="font-bold leading-tight text-center" style={{ 'font-size': 'clamp(8px, 0.625rem, 10px)' }}>
                     {getShortLabel(section)}
                   </span>
                   

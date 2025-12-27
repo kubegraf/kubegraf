@@ -76,7 +76,6 @@ const Apps: Component<AppsProps> = (props) => {
   const [clusterName, setClusterName] = createSignal(generateDefaultClusterName()); // For local clusters
   const [clusterNameError, setClusterNameError] = createSignal<string>('');
   const [installing, setInstalling] = createSignal(false);
-  const [localClusters, setLocalClusters] = createSignal<any[]>([]);
   const [showLocalClusters, setShowLocalClusters] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
   // Track apps currently being deployed with their target namespace
@@ -99,6 +98,11 @@ const Apps: Component<AppsProps> = (props) => {
   const [showCustomDeployWizard, setShowCustomDeployWizard] = createSignal(false);
   const [customAppToModify, setCustomAppToModify] = createSignal<CustomAppInfo | null>(null);
   const [showCustomModifyModal, setShowCustomModifyModal] = createSignal(false);
+
+  // Local cluster delete confirmation modal state
+  const [showDeleteClusterModal, setShowDeleteClusterModal] = createSignal(false);
+  const [clusterToDelete, setClusterToDelete] = createSignal<{ name: string; type: string } | null>(null);
+  const [deletingCluster, setDeletingCluster] = createSignal(false);
 
   // Auto-filter to Local Cluster if coming from no-cluster overlay
   onMount(() => {
@@ -206,6 +210,17 @@ const Apps: Component<AppsProps> = (props) => {
       return response.apps || [];
     } catch {
       return [];
+    }
+  });
+
+  // Fetch local clusters
+  const [localClusters, { refetch: refetchLocalClusters }] = createResource(async () => {
+    try {
+      const response = await fetch('/api/apps/local-clusters');
+      if (!response.ok) return { clusters: [], count: 0 };
+      return await response.json();
+    } catch {
+      return { clusters: [], count: 0 };
     }
   });
 
@@ -442,6 +457,9 @@ const Apps: Component<AppsProps> = (props) => {
           progress: 100,
           endTime: Date.now()
         });
+
+        // Close modal immediately after Docker check passes
+        setShowInstallModal(false);
       } else {
         // For regular apps, validate namespace
         updateDeploymentTask(deploymentId, 'task-0', {
@@ -963,7 +981,18 @@ const Apps: Component<AppsProps> = (props) => {
                         Deploying...
                       </div>
                     </Show>
-                    <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying()}>
+                    {/* For local cluster installers (k3d, kind, minikube), show installed clusters count */}
+                    <Show when={(app.name === 'k3d' || app.name === 'kind' || app.name === 'minikube') && localClusters()?.clusters?.filter((c: any) => c.type === app.name).length > 0 && !isDeploying()}>
+                      <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                           style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}>
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                        </svg>
+                        {localClusters()?.clusters?.filter((c: any) => c.type === app.name).length} Installed
+                      </div>
+                    </Show>
+                    {/* For regular apps, show installed instances */}
+                    <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying() && app.name !== 'k3d' && app.name !== 'kind' && app.name !== 'minikube'}>
                       <div class="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
                            style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}>
                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
@@ -1096,8 +1125,43 @@ const Apps: Component<AppsProps> = (props) => {
                       </Show>
                     </div>
 
+                    {/* Local cluster installers: Installed clusters list */}
+                    <Show when={(app.name === 'k3d' || app.name === 'kind' || app.name === 'minikube') && localClusters()?.clusters?.filter((c: any) => c.type === app.name).length > 0 && !isDeploying()}>
+                      <div class="mt-3 pt-3 border-t space-y-2" style={{ 'border-color': 'var(--border-color)' }}>
+                        <div class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Installed Clusters ({localClusters()?.clusters?.filter((c: any) => c.type === app.name).length})</div>
+                        <For each={localClusters()?.clusters?.filter((c: any) => c.type === app.name) || []}>
+                          {(cluster: any) => (
+                            <div class="flex items-center justify-between p-2 rounded" style={{ background: 'var(--bg-tertiary)' }}>
+                              <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                  {cluster.name}
+                                </div>
+                                <div class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                  {cluster.provider} • {cluster.type}
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setClusterToDelete({ name: cluster.name, type: cluster.type });
+                                  setShowDeleteClusterModal(true);
+                                }}
+                                class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80"
+                                style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                                title="Delete cluster"
+                              >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+
                     {/* Installed instances list */}
-                    <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying()}>
+                    <Show when={app.installedInstances && app.installedInstances.length > 0 && !isDeploying() && app.name !== 'k3d' && app.name !== 'kind' && app.name !== 'minikube'}>
                       <div class="mt-3 pt-3 border-t space-y-2" style={{ 'border-color': 'var(--border-color)' }}>
                         <div class="text-xs flex items-center gap-2 flex-wrap">
                           <span style={{ color: 'var(--text-muted)' }}>Installed in:</span>
@@ -1705,6 +1769,88 @@ const Apps: Component<AppsProps> = (props) => {
                           </span>
                         </div>
                       </div>
+
+                      {/* Cluster Name Input for Local Clusters - Show in Overview */}
+                      <Show when={app().name === 'k3d' || app().name === 'kind' || app().name === 'minikube'}>
+                        <div class="mt-4">
+                          <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                            Cluster Name <span style={{ color: 'var(--error-color)' }}>*</span>
+                          </label>
+                          <div class="flex items-center gap-2">
+                            <span class="text-sm px-3 py-2 rounded-l-lg" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', 'border-right': 'none' }}>
+                              kubegraf-
+                            </span>
+                            <input
+                              type="text"
+                              value={clusterName().replace(/^kubegraf-/, '')}
+                              onInput={(e) => {
+                                const customPart = e.currentTarget.value;
+                                setClusterName(`kubegraf-${customPart}`);
+                                setClusterNameError('');
+                              }}
+                              class="flex-1 px-3 py-2 rounded-r-lg text-sm"
+                              style={{
+                                background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)',
+                                border: `1px solid ${clusterNameError() ? 'var(--error-color)' : 'var(--border-color)'}`,
+                                'border-left': 'none'
+                              }}
+                              placeholder="my-cluster"
+                            />
+                          </div>
+                          <Show when={clusterNameError()}>
+                            <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>
+                              {clusterNameError()}
+                            </p>
+                          </Show>
+                          <p class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            Enter a custom suffix (lowercase letters, numbers, or hyphens). Full name: k3d-kubegraf-{clusterName().replace(/^kubegraf-/, '') || 'my-cluster'}
+                          </p>
+                        </div>
+
+                        {/* Installed Clusters List */}
+                        <Show when={localClusters()?.clusters?.filter((c: any) => c.type === app().name).length > 0}>
+                          <div class="mt-4 pt-4 border-t" style={{ 'border-color': 'var(--border-color)' }}>
+                            <h4 class="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                              Installed Clusters ({localClusters()?.clusters?.filter((c: any) => c.type === app().name).length})
+                            </h4>
+                            <div class="space-y-2">
+                              <For each={localClusters()?.clusters?.filter((c: any) => c.type === app().name)}>
+                                {(cluster: any) => (
+                                  <div class="flex items-center justify-between p-2 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                                    <div class="flex-1">
+                                      <div class="flex items-center gap-2">
+                                        <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{cluster.name}</span>
+                                        <span class={`text-xs px-2 py-0.5 rounded-full ${
+                                          cluster.status === 'running' || cluster.status === 'Running'
+                                            ? 'bg-emerald-500/15 text-emerald-300'
+                                            : 'bg-slate-600/15 text-slate-300'
+                                        }`}>
+                                          {cluster.status}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setClusterToDelete({ name: cluster.name, type: cluster.type });
+                                        setShowDeleteClusterModal(true);
+                                      }}
+                                      class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80"
+                                      style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                                      title="Delete cluster"
+                                    >
+                                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </Show>
+                      </Show>
                     </Match>
 
                     {/* Sources */}
@@ -2157,6 +2303,105 @@ const Apps: Component<AppsProps> = (props) => {
         initialNamespace={customAppToModify()?.namespace}
         deploymentId={customAppToModify()?.deploymentId}
       />
+
+      {/* Local Cluster Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteClusterModal()}
+        onClose={() => {
+          if (!deletingCluster()) {
+            setShowDeleteClusterModal(false);
+            setClusterToDelete(null);
+          }
+        }}
+        title="Delete Cluster"
+        size="xs"
+      >
+        <div class="space-y-4">
+          {/* Warning Message */}
+          <div class="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--error-color)' }} fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+            <div class="flex-1">
+              <div class="text-sm font-medium mb-1" style={{ color: 'var(--error-color)' }}>This action cannot be undone</div>
+              <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Are you sure you want to delete cluster <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>{clusterToDelete()?.name}</span>?
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div class="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setShowDeleteClusterModal(false);
+                setClusterToDelete(null);
+              }}
+              disabled={deletingCluster()}
+              class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)',
+                opacity: deletingCluster() ? '0.5' : '1',
+                cursor: deletingCluster() ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                const cluster = clusterToDelete();
+                if (!cluster) return;
+
+                setDeletingCluster(true);
+                try {
+                  const response = await fetch(`/api/apps/local-clusters/delete`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                      name: cluster.name,
+                      type: cluster.type
+                    })
+                  });
+
+                  if (response.ok) {
+                    refetchLocalClusters();
+                    setShowDeleteClusterModal(false);
+                    setClusterToDelete(null);
+                    addNotification('success', `Cluster "${cluster.name}" deleted successfully`);
+                  } else {
+                    const error = await response.text();
+                    addNotification('error', `Failed to delete cluster: ${error}`);
+                  }
+                } catch (err) {
+                  console.error('Delete cluster error:', err);
+                  addNotification('error', 'Failed to delete cluster. Check console for details.');
+                } finally {
+                  setDeletingCluster(false);
+                }
+              }}
+              disabled={deletingCluster()}
+              class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+              style={{
+                background: 'var(--error-color)',
+                color: 'white',
+                opacity: deletingCluster() ? '0.7' : '1',
+                cursor: deletingCluster() ? 'not-allowed' : 'pointer'
+              }}
+            >
+              <Show when={deletingCluster()}>
+                <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </Show>
+              {deletingCluster() ? 'Deleting...' : 'Delete Cluster'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

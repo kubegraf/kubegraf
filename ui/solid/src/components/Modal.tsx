@@ -46,8 +46,8 @@ const Modal: Component<ModalProps> = (props) => {
   return (
     <Show when={props.isOpen}>
       <Portal>
-        <div 
-          class="modal-overlay animate-fade-in" 
+        <div
+          class="modal-overlay animate-fade-in"
           onClick={props.onClose}
           style={{
             position: 'fixed',
@@ -60,7 +60,7 @@ const Modal: Component<ModalProps> = (props) => {
             display: 'flex',
             'align-items': 'center',
             'justify-content': 'center',
-            'z-index': 1000,
+            'z-index': 9999,
           }}
         >
           <div

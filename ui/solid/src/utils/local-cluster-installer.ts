@@ -6,6 +6,7 @@
  * - Must start with 'kubegraf-'
  * - Can contain lowercase letters, numbers, and hyphens
  * - Must be 3-50 characters total
+ * - K3D will automatically add 'k3d-' prefix when creating the cluster
  */
 export function validateClusterName(name: string): { valid: boolean; error?: string } {
   if (!name) {
@@ -16,8 +17,8 @@ export function validateClusterName(name: string): { valid: boolean; error?: str
     return { valid: false, error: 'Cluster name must start with "kubegraf-"' };
   }
 
-  if (name.length < 10 || name.length > 50) {
-    return { valid: false, error: 'Cluster name must be between 10 and 50 characters' };
+  if (name.length < 9 || name.length > 50) {
+    return { valid: false, error: 'Cluster name must be between 9 and 50 characters' };
   }
 
   const suffix = name.substring(9); // After 'kubegraf-'
@@ -33,6 +34,7 @@ export function validateClusterName(name: string): { valid: boolean; error?: str
 
 /**
  * Generate a default cluster name with timestamp
+ * K3D will automatically add 'k3d-' prefix when creating the cluster
  */
 export function generateDefaultClusterName(): string {
   const timestamp = Date.now().toString(36);

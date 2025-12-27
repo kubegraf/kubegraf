@@ -238,10 +238,11 @@ const DeploymentProgress: Component = () => {
     <Show when={deployments().length > 0}>
       <Portal>
         <div
-          class="fixed bottom-6 right-6 z-50 transition-all duration-300"
+          class="fixed top-20 right-4 z-[10000] transition-all duration-300"
           style={{
             width: isMinimized() ? '320px' : '420px',
-            'max-height': isMinimized() ? '60px' : '600px',
+            'max-width': 'calc(100vw - 2rem)',
+            'max-height': isMinimized() ? '60px' : 'min(70vh, 600px)',
           }}
         >
           <div
