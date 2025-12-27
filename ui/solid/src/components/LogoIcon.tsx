@@ -8,21 +8,22 @@ interface LogoIconProps {
 
 /**
  * Brand logo icon that adapts to the current theme.
+ * Uses the new binary-matrix logo design matching kubegraf.io website.
  *
- * - Uses the monochrome (black) icon on the light theme for better contrast.
- * - Uses the color icon on all dark-style themes.
+ * - Light theme: favicon.svg (cyan background with black icon)
+ * - Dark themes: logo-binary-matrix-cyan.svg (cyan icon on transparent)
  */
 const LogoIcon: Component<LogoIconProps> = (props) => {
   const getSrc = () => {
     const themeName = currentTheme();
 
-    // Light theme: use monochrome black icon for clarity on bright backgrounds
+    // Light theme: use favicon.svg (cyan background with black icon) for clarity
     if (themeName === 'light') {
-      return '/assets/logos/kubegraf_black_icon.png';
+      return '/assets/logos/binary-matrix/favicon.svg';
     }
 
-    // All other (dark) themes: use the full-color icon
-    return '/assets/logos/kubegraf_color_icon.png';
+    // All other (dark) themes: use the cyan logo on transparent background
+    return '/assets/logos/binary-matrix/logo-binary-matrix-cyan.svg';
   };
 
   return (

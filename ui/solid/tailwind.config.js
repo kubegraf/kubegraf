@@ -5,24 +5,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Base surfaces (Sidebar v2 theme)
+        // Base surfaces (Sidebar v2 theme) - use CSS variables for theme support
         bg: {
-          app: '#0b0f14',
-          panel: '#0f1520',
-          panelAlt: '#131b2b',
-          sidebar: '#0a0f1a',
-          hover: '#111827',
+          app: 'var(--bg-primary, #0b0f14)',
+          panel: 'var(--bg-card, #0f1520)',
+          panelAlt: 'var(--bg-tertiary, #131b2b)',
+          sidebar: 'var(--bg-secondary, #0a0f1a)',
+          hover: 'var(--bg-tertiary, #111827)',
+          surface: 'var(--bg-secondary, #1e293b)',
         },
-        // Borders & dividers
+        // Borders & dividers - use CSS variables for theme support
         border: {
-          subtle: '#1f2937',
-          strong: '#334155',
+          subtle: 'var(--border-color, #1f2937)',
+          strong: 'var(--border-light, #334155)',
         },
-        // Text
+        // Text - use CSS variables for theme support
         text: {
-          primary: '#e5e7eb',
-          secondary: '#9ca3af',
-          muted: '#6b7280',
+          primary: 'var(--text-primary, #e5e7eb)',
+          secondary: 'var(--text-secondary, #9ca3af)',
+          muted: 'var(--text-muted, #6b7280)',
         },
         // Brand / intelligence
         brand: {
