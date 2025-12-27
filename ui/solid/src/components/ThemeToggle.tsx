@@ -86,6 +86,7 @@ const ThemeToggle: Component = () => {
         ref={buttonRef}
         onClick={handleToggle}
         class="icon-btn border border-[var(--border-color)] hover:border-[var(--accent-primary)]"
+        style={{ color: 'var(--text-primary)' }}
         title={`Theme: ${themes[currentTheme()].label}`}
       >
         {themeIcons[currentTheme()]}
