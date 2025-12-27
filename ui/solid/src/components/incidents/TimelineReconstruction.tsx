@@ -35,13 +35,31 @@ const TimelineReconstruction: Component<TimelineReconstructionProps> = (props) =
 
       // Convert changes to timeline events
       if (changesData.changes) {
+        // Deduplicate changes by creating a unique key
+        const seen = new Set<string>();
+        
         for (const change of changesData.changes) {
+          // Build a unique key to deduplicate identical changes
+          const key = `${change.timestamp || change.time || ''}-${change.kind || ''}-${change.name || ''}-${change.action || ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          // Build description with proper fallbacks
+          let description = change.description;
+          if (!description) {
+            const parts: string[] = [];
+            if (change.kind) parts.push(change.kind);
+            if (change.name) parts.push(change.name);
+            if (change.namespace) parts.push(`in ${change.namespace}`);
+            description = parts.length > 0 ? parts.join(' ') : 'Resource changed';
+          }
+
           timelineEvents.push({
             timestamp: change.timestamp || change.time || new Date().toISOString(),
             type: change.kind?.toLowerCase().includes('deployment') ? 'deployment' : 
                   change.kind?.toLowerCase().includes('pod') ? 'pod' : 'change',
             title: change.action || 'Resource changed',
-            description: change.description || `${change.kind} ${change.name} in ${change.namespace}`,
+            description: description,
             source: 'Kubernetes API',
           });
         }

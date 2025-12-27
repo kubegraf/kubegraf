@@ -3,6 +3,7 @@
 // Sections in MANDATORY ORDER: Header → Signals → Root Cause → Timeline → Logs → Impact → Changes → Fixes → Knowledge
 
 import { Component, Show, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { Incident, IncidentSnapshot, api } from '../../services/api';
 import { incidentsV2Store } from '../../stores/incidentsV2';
 import { capabilities } from '../../stores/capabilities';
@@ -90,49 +91,42 @@ const IncidentDetailView: Component<IncidentDetailViewProps> = (props) => {
 
   const isSectionCollapsed = (sectionId: string) => collapsedSections().has(sectionId);
 
-  const snap = snapshot();
-  const inc = props.incident;
-
-  if (!props.isOpen || !inc) {
-    return null;
-  }
-
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 9998,
-          transition: 'opacity 0.2s',
-        }}
-        onClick={props.onClose}
-      />
+    <Show when={props.isOpen && props.incident}>
+      <Portal>
+        {/* Backdrop */}
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 9998,
+            transition: 'opacity 0.2s',
+          }}
+          onClick={props.onClose}
+        />
 
-      {/* Modal Container */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: '100%',
-          maxWidth: '900px',
-          background: 'var(--bg-primary)',
-          boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.3)',
-          display: 'flex',
-          'flex-direction': 'column',
-          zIndex: 9999,
-          transform: props.isOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.3s ease-out',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+        {/* Modal Container - Right Side Panel */}
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: '900px',
+            maxWidth: '90vw',
+            background: 'var(--bg-primary)',
+            boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.3)',
+            display: 'flex',
+            'flex-direction': 'column',
+            zIndex: 9999,
+            overflow: 'hidden',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Close button (top right) */}
         <button
           onClick={props.onClose}
@@ -166,224 +160,243 @@ const IncidentDetailView: Component<IncidentDetailViewProps> = (props) => {
 
         {/* Scrollable Content */}
         <div style={{ flex: 1, overflow: 'auto', '-webkit-overflow-scrolling': 'touch' }}>
-          <Show when={snapshotLoading()}>
-            <div style={{ padding: '60px 20px', 'text-align': 'center', color: 'var(--text-secondary)' }}>
-              <div style={{ 'font-size': '16px', 'margin-bottom': '8px' }}>Loading incident details...</div>
-              <div style={{ 'font-size': '13px', color: 'var(--text-muted)' }}>Fetching snapshot and evidence</div>
-            </div>
-          </Show>
+          {(() => {
+            const inc = props.incident!; // Safe because Show guarantees it's not null
+            
+            return (
+              <>
+                <Show when={snapshotLoading()}>
+                  <div style={{ padding: '60px 20px', 'text-align': 'center', color: 'var(--text-secondary)' }}>
+                    <div style={{ 'font-size': '16px', 'margin-bottom': '8px' }}>Loading incident details...</div>
+                    <div style={{ 'font-size': '13px', color: 'var(--text-muted)' }}>Fetching snapshot and evidence</div>
+                  </div>
+                </Show>
 
-          <Show when={snapshotError()}>
-            <div style={{ padding: '40px 20px', 'text-align': 'center' }}>
-              <div style={{ padding: '20px', background: 'rgba(239, 68, 68, 0.1)', 'border-radius': '8px', color: '#dc3545', 'margin-bottom': '16px' }}>
-                Error: {snapshotError()}
-              </div>
-              <button
-                onClick={() => {
-                  setSnapshotLoading(true);
-                  setSnapshotError(null);
-                  const incidentId = inc.id;
-                  api.getIncidentSnapshot(incidentId)
-                    .then((snap) => {
-                      incidentsV2Store.setSnapshot(incidentId, snap);
-                      setSnapshot(snap);
-                    })
-                    .catch((err: any) => {
-                      setSnapshotError(err.message || 'Failed to load incident snapshot');
-                    })
-                    .finally(() => {
-                      setSnapshotLoading(false);
-                    });
-                }}
-                style={{
-                  padding: '10px 20px',
-                  'border-radius': '6px',
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--accent-primary)',
-                  color: 'white',
-                  'font-size': '13px',
-                  cursor: 'pointer',
-                }}
-              >
-                Retry
-              </button>
-            </div>
-          </Show>
+                <Show when={snapshotError()}>
+                  <div style={{ padding: '40px 20px', 'text-align': 'center' }}>
+                    <div style={{ padding: '20px', background: 'rgba(239, 68, 68, 0.1)', 'border-radius': '8px', color: '#dc3545', 'margin-bottom': '16px' }}>
+                      Error: {snapshotError()}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSnapshotLoading(true);
+                        setSnapshotError(null);
+                        const incidentId = inc.id;
+                        api.getIncidentSnapshot(incidentId)
+                          .then((snap) => {
+                            incidentsV2Store.setSnapshot(incidentId, snap);
+                            setSnapshot(snap);
+                          })
+                          .catch((err: any) => {
+                            setSnapshotError(err.message || 'Failed to load incident snapshot');
+                          })
+                          .finally(() => {
+                            setSnapshotLoading(false);
+                          });
+                      }}
+                      style={{
+                        padding: '10px 20px',
+                        'border-radius': '6px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--accent-primary)',
+                        color: 'white',
+                        'font-size': '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </Show>
 
-          <Show when={snap && !snapshotLoading() && !snapshotError()}>
-            {/* 1. Incident Header */}
-            <IncidentHeader incident={inc} snapshot={snap!} />
+                <Show when={snapshot() && !snapshotLoading() && !snapshotError()}>
+                  {/* 1. Incident Header */}
+                  <IncidentHeader incident={inc} snapshot={snapshot()!} />
 
-            {/* 2. Signal Summary Panel */}
-            <CollapsibleSection
-              id="signals"
-              title="Signal Summary"
-              collapsed={isSectionCollapsed('signals')}
-              onToggle={() => toggleSection('signals')}
-            >
-              <SignalSummaryPanel snapshot={snap!} />
-            </CollapsibleSection>
+                  {/* 2. Signal Summary Panel */}
+                  <CollapsibleSection
+                    id="signals"
+                    title="Signal Summary"
+                    collapsed={isSectionCollapsed('signals')}
+                    onToggle={() => toggleSection('signals')}
+                  >
+                    <SignalSummaryPanel snapshot={snapshot()!} />
+                  </CollapsibleSection>
 
-            {/* 3. Root Cause Explanation */}
-            <CollapsibleSection
-              id="root-cause"
-              title="Root Cause Explanation"
-              collapsed={isSectionCollapsed('root-cause')}
-              onToggle={() => toggleSection('root-cause')}
-            >
-              <RootCauseExplanation snapshot={snap!} />
-            </CollapsibleSection>
+                  {/* 3. Root Cause Explanation */}
+                  <CollapsibleSection
+                    id="root-cause"
+                    title="Root Cause Explanation"
+                    collapsed={isSectionCollapsed('root-cause')}
+                    onToggle={() => toggleSection('root-cause')}
+                  >
+                    <RootCauseExplanation snapshot={snapshot()!} />
+                  </CollapsibleSection>
 
-            {/* 4. Timeline Reconstruction */}
-            <CollapsibleSection
-              id="timeline"
-              title="Timeline Reconstruction"
-              collapsed={isSectionCollapsed('timeline')}
-              onToggle={() => toggleSection('timeline')}
-            >
-              <TimelineReconstruction incidentId={inc.id} />
-            </CollapsibleSection>
+                  {/* 4. Timeline Reconstruction */}
+                  <CollapsibleSection
+                    id="timeline"
+                    title="Timeline Reconstruction"
+                    collapsed={isSectionCollapsed('timeline')}
+                    onToggle={() => toggleSection('timeline')}
+                  >
+                    <TimelineReconstruction incidentId={inc.id} />
+                  </CollapsibleSection>
 
-            {/* 5. Log Error Analysis */}
-            <CollapsibleSection
-              id="logs"
-              title="Log Error Analysis"
-              collapsed={isSectionCollapsed('logs')}
-              onToggle={() => toggleSection('logs')}
-            >
-              <LogErrorAnalysis incidentId={inc.id} />
-            </CollapsibleSection>
+                  {/* 5. Log Error Analysis */}
+                  <CollapsibleSection
+                    id="logs"
+                    title="Log Error Analysis"
+                    collapsed={isSectionCollapsed('logs')}
+                    onToggle={() => toggleSection('logs')}
+                  >
+                    <LogErrorAnalysis incidentId={inc.id} />
+                  </CollapsibleSection>
 
-            {/* 5b. Metrics Analysis */}
-            <CollapsibleSection
-              id="metrics"
-              title="Metrics Analysis"
-              collapsed={isSectionCollapsed('metrics')}
-              onToggle={() => toggleSection('metrics')}
-            >
-              <MetricsAnalysis incidentId={inc.id} />
-            </CollapsibleSection>
+                  {/* 5b. Metrics Analysis */}
+                  <CollapsibleSection
+                    id="metrics"
+                    title="Metrics Analysis"
+                    collapsed={isSectionCollapsed('metrics')}
+                    onToggle={() => toggleSection('metrics')}
+                  >
+                    <MetricsAnalysis incidentId={inc.id} />
+                  </CollapsibleSection>
 
-            {/* 6. Availability / HTTP Impact */}
-            <CollapsibleSection
-              id="impact"
-              title="Availability / HTTP Impact"
-              collapsed={isSectionCollapsed('impact')}
-              onToggle={() => toggleSection('impact')}
-            >
-              <AvailabilityImpact snapshot={snap!} />
-            </CollapsibleSection>
+                  {/* 6. Availability / HTTP Impact */}
+                  <CollapsibleSection
+                    id="impact"
+                    title="Availability / HTTP Impact"
+                    collapsed={isSectionCollapsed('impact')}
+                    onToggle={() => toggleSection('impact')}
+                  >
+                    <AvailabilityImpact snapshot={snapshot()!} />
+                  </CollapsibleSection>
 
-            {/* 7. Change Intelligence */}
-            <CollapsibleSection
-              id="changes"
-              title="Change Intelligence"
-              collapsed={isSectionCollapsed('changes')}
-              onToggle={() => toggleSection('changes')}
-            >
-              <ChangeIntelligence incidentId={inc.id} firstSeen={snap!.firstSeen} />
-            </CollapsibleSection>
+                  {/* 7. Change Intelligence */}
+                  <CollapsibleSection
+                    id="changes"
+                    title="Change Intelligence"
+                    collapsed={isSectionCollapsed('changes')}
+                    onToggle={() => toggleSection('changes')}
+                  >
+                    <ChangeIntelligence incidentId={inc.id} firstSeen={snapshot()!.firstSeen} />
+                  </CollapsibleSection>
 
-            {/* 8. Recommended Fixes */}
-            <CollapsibleSection
-              id="fixes"
-              title="Recommended Fixes"
-              collapsed={isSectionCollapsed('fixes')}
-              onToggle={() => toggleSection('fixes')}
-            >
-              <RecommendedFixes
-                incidentId={inc.id}
-                snapshot={snap!}
-                onPreviewFix={(fixId) => setSelectedFixId(fixId)}
-              />
-            </CollapsibleSection>
+                  {/* 8. Recommended Fixes */}
+                  <CollapsibleSection
+                    id="fixes"
+                    title="Recommended Fixes"
+                    collapsed={isSectionCollapsed('fixes')}
+                    onToggle={() => toggleSection('fixes')}
+                  >
+                    <RecommendedFixes
+                      incidentId={inc.id}
+                      snapshot={snapshot()!}
+                      onPreviewFix={(fixId) => setSelectedFixId(fixId)}
+                    />
+                  </CollapsibleSection>
 
-            {/* 9. Knowledge Bank - Only show if similar incidents capability is enabled */}
-            <Show when={capabilities.isSimilarIncidentsEnabled()}>
-              <CollapsibleSection
-                id="knowledge"
-                title="Knowledge Bank"
-                collapsed={isSectionCollapsed('knowledge')}
-                onToggle={() => toggleSection('knowledge')}
-              >
-                <KnowledgeBank incidentId={inc.id} />
-              </CollapsibleSection>
-            </Show>
+                  {/* 9. Knowledge Bank - Only show if similar incidents capability is enabled */}
+                  <Show when={capabilities.isSimilarIncidentsEnabled()}>
+                    <CollapsibleSection
+                      id="knowledge"
+                      title="Knowledge Bank"
+                      collapsed={isSectionCollapsed('knowledge')}
+                      onToggle={() => toggleSection('knowledge')}
+                    >
+                      <KnowledgeBank incidentId={inc.id} />
+                    </CollapsibleSection>
+                  </Show>
 
-            {/* 10. Citations & References */}
-            <CollapsibleSection
-              id="citations"
-              title="Citations & References"
-              collapsed={isSectionCollapsed('citations')}
-              onToggle={() => toggleSection('citations')}
-            >
-              <CitationsPanel incidentId={inc.id} />
-            </CollapsibleSection>
+                  {/* 10. Citations & References */}
+                  <CollapsibleSection
+                    id="citations"
+                    title="Citations & References"
+                    collapsed={isSectionCollapsed('citations')}
+                    onToggle={() => toggleSection('citations')}
+                  >
+                    <CitationsPanel incidentId={inc.id} />
+                  </CollapsibleSection>
+                </Show>
+              </>
+            );
+          })()}
+        </div>
+
+        {/* Footer with Resolve Button */}
+        <div
+          style={{
+            padding: '16px 20px',
+            borderTop: '1px solid var(--border-color)',
+            background: 'var(--bg-primary)',
+            display: 'flex',
+            'justify-content': 'flex-end',
+            gap: '12px',
+          }}
+        >
+          <Show when={snapshot() && snapshot()!.status !== 'resolved'}>
+            {() => {
+              const inc = props.incident!;
+              return (
+                <button
+                  onClick={async () => {
+                    if (!inc.id) return;
+                    try {
+                      await api.resolveIncident(inc.id, 'Resolved via UI');
+                      // Refresh snapshot or close modal
+                      props.onClose();
+                    } catch (err: any) {
+                      console.error('Failed to resolve incident:', err);
+                      alert(`Failed to resolve incident: ${err.message || 'Unknown error'}`);
+                    }
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    'border-radius': '6px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    'font-size': '13px',
+                    'font-weight': '500',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Mark as Resolved
+                </button>
+              );
+            }}
           </Show>
         </div>
       </div>
 
-      {/* Footer with Resolve Button */}
-      <div
-        style={{
-          padding: '16px 20px',
-          borderTop: '1px solid var(--border-color)',
-          background: 'var(--bg-primary)',
-          display: 'flex',
-          'justify-content': 'flex-end',
-          gap: '12px',
-        }}
-      >
-        <Show when={snap && snap.status !== 'resolved'}>
-          <button
-            onClick={async () => {
-              if (!inc.id) return;
-              try {
-                await api.resolveIncident(inc.id, 'Resolved via UI');
-                // Refresh snapshot or close modal
-                props.onClose();
-              } catch (err: any) {
-                console.error('Failed to resolve incident:', err);
-                alert(`Failed to resolve incident: ${err.message || 'Unknown error'}`);
-              }
-            }}
-            style={{
-              padding: '10px 20px',
-              'border-radius': '6px',
-              border: '1px solid var(--border-color)',
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              'font-size': '13px',
-              'font-weight': '500',
-              cursor: 'pointer',
-            }}
-          >
-            Mark as Resolved
-          </button>
-        </Show>
-      </div>
-
       {/* Fix Preview Panel */}
       <Show when={selectedFixId()}>
-        <FixPreviewPanel
-          incidentId={inc.id}
-          fixId={selectedFixId()}
-          onClose={() => setSelectedFixId(null)}
-          onApply={() => {
-            setSelectedFixId(null);
-            // Refresh snapshot to reflect changes
-            if (inc.id) {
-              api.getIncidentSnapshot(inc.id)
-                .then((snap) => {
-                  incidentsV2Store.setSnapshot(inc.id, snap);
-                  setSnapshot(snap);
-                })
-                .catch((err) => console.error('Failed to refresh snapshot:', err));
-            }
-          }}
-        />
+        {() => {
+          const inc = props.incident!;
+          return (
+            <FixPreviewPanel
+              incidentId={inc.id}
+              fixId={selectedFixId()}
+              onClose={() => setSelectedFixId(null)}
+              onApply={() => {
+                setSelectedFixId(null);
+                // Refresh snapshot to reflect changes
+                if (inc.id) {
+                  api.getIncidentSnapshot(inc.id)
+                    .then((snap) => {
+                      incidentsV2Store.setSnapshot(inc.id, snap);
+                      setSnapshot(snap);
+                    })
+                    .catch((err) => console.error('Failed to refresh snapshot:', err));
+                }
+              }}
+            />
+          );
+        }}
       </Show>
-    </>
+      </Portal>
+    </Show>
   );
 };
 
