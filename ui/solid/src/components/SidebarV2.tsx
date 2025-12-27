@@ -219,8 +219,8 @@ const SidebarV2: Component = () => {
               {/* Expand/Collapse Toggle */}
               <button
                 onClick={() => setBottomSectionCollapsed(!bottomSectionCollapsed())}
-                class="w-full flex items-center justify-center gap-0.5 py-0.5 px-0.5 transition-all duration-150 text-text-secondary hover:text-text-primary hover:bg-bg-hover"
-                style={{ width: '64px', maxWidth: '64px', boxSizing: 'border-box' }}
+                class="w-full flex items-center justify-center gap-0.5 py-0.5 px-0.5 transition-all duration-150 text-text-primary hover:text-text-primary hover:bg-bg-hover"
+                style={{ width: '64px', maxWidth: '64px', boxSizing: 'border-box', opacity: '0.95' }}
                 title={bottomSectionCollapsed() ? 'Expand options' : 'Collapse options'}
               >
                 <svg
@@ -231,11 +231,11 @@ const SidebarV2: Component = () => {
                 >
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
                 </svg>
-                <span 
-                  class="text-text-muted truncate"
+                <span
+                  class="truncate"
                   style={{
                     fontSize: '6px',
-                    fontWeight: '500',
+                    fontWeight: '700',
                     maxWidth: '64px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -243,7 +243,8 @@ const SidebarV2: Component = () => {
                     display: 'block',
                     transform: 'scale(0.75)',
                     transformOrigin: 'center',
-                    color: 'var(--text-secondary)',
+                    color: 'var(--text-primary)',
+                    opacity: '0.95',
                     textShadow: 'none'
                   }}
                 >

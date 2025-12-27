@@ -81,10 +81,10 @@ export const themes: Record<ThemeName, Theme> = {
       // Borders: light slate instead of strong outlines
       borderColor: 'rgba(15, 23, 42, 0.08)',
       borderLight: 'rgba(15, 23, 42, 0.14)',
-      // Accent: Slate blue
-      accentPrimary: '#4F46E5',
-      accentSecondary: '#6366F1',
-      accentGradient: 'linear-gradient(135deg, #4F46E5 0%, #6366F1 100%)',
+      // Accent: Cyan (brand color)
+      accentPrimary: '#06b6d4',
+      accentSecondary: '#22d3ee',
+      accentGradient: 'linear-gradient(135deg, #06b6d4 0%, #22d3ee 100%)',
       // Status colors tuned for light background
       successColor: '#16A34A',
       warningColor: '#D97706',
@@ -107,9 +107,9 @@ export const themes: Record<ThemeName, Theme> = {
       textMuted: '#6b7280',
       borderColor: 'rgba(75, 85, 99, 0.4)',
       borderLight: 'rgba(75, 85, 99, 0.6)',
-      accentPrimary: '#8b5cf6',
-      accentSecondary: '#a855f7',
-      accentGradient: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)',
+      accentPrimary: '#06b6d4',
+      accentSecondary: '#22d3ee',
+      accentGradient: 'linear-gradient(135deg, #06b6d4 0%, #22d3ee 100%)',
       successColor: '#10b981',
       warningColor: '#f59e0b',
       errorColor: '#f43f5e',
@@ -161,10 +161,10 @@ export const themes: Record<ThemeName, Theme> = {
       textMuted: '#6B7280',
       borderColor: 'rgba(37, 99, 235, 0.4)',
       borderLight: 'rgba(59, 130, 246, 0.6)',
-      // Neon blue / cyan highlights
-      accentPrimary: '#22D3EE',
-      accentSecondary: '#38BDF8',
-      accentGradient: 'linear-gradient(135deg, #22D3EE 0%, #38BDF8 40%, #6366F1 100%)',
+      // Aurora Teal/Emerald - inspired by Northern Lights
+      accentPrimary: '#14B8A6',
+      accentSecondary: '#10B981',
+      accentGradient: 'linear-gradient(135deg, #14B8A6 0%, #10B981 50%, #3B82F6 100%)',
       successColor: '#22C55E',
       warningColor: '#FACC15',
       errorColor: '#FB7185',
@@ -211,9 +211,10 @@ export const themes: Record<ThemeName, Theme> = {
       textMuted: '#6B7280',
       borderColor: 'rgba(31, 41, 55, 0.7)',
       borderLight: 'rgba(55, 65, 81, 0.9)',
-      accentPrimary: '#22C55E',
-      accentSecondary: '#0EA5E9',
-      accentGradient: 'linear-gradient(135deg, #22C55E 0%, #0EA5E9 50%, #6366F1 100%)',
+      // Matrix Green - Classic terminal aesthetic (muted)
+      accentPrimary: '#00D636',
+      accentSecondary: '#32CD32',
+      accentGradient: 'linear-gradient(135deg, #00D636 0%, #32CD32 50%, #3CB371 100%)',
       successColor: '#22C55E',
       warningColor: '#FACC15',
       errorColor: '#FB7185',

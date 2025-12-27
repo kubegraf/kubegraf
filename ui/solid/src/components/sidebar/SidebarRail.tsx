@@ -129,10 +129,13 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                     focus:outline-none focus:ring-2 focus:ring-brand-cyan/40
                     ${active() || hasActive()
                       ? 'text-brand-cyan shadow-glowCyan'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+                      : 'text-text-primary hover:text-text-primary hover:bg-bg-hover'
                     }
                     ${pinned() ? 'bg-bg-panelAlt' : ''}
                   `}
+                  style={{
+                    opacity: active() || hasActive() ? 1 : 0.95
+                  }}
                   title={section.title}
                 >
                   <svg
@@ -144,7 +147,7 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                   >
                     <path stroke-linecap="round" stroke-linejoin="round" d={getSectionIcon(section)} />
                   </svg>
-                  <span class="text-[10px] font-medium leading-tight text-center">
+                  <span class="text-[10px] font-bold leading-tight text-center">
                     {getShortLabel(section)}
                   </span>
                   
@@ -185,7 +188,7 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                     >
                       {/* Header */}
                       <div class="px-3 py-2.5 border-b border-border-subtle/50 flex items-center justify-between bg-bg-sidebar/50">
-                        <h2 class="text-xs font-semibold text-text-primary uppercase tracking-wider">
+                        <h2 class="text-xs font-bold text-text-primary uppercase tracking-wider">
                           {section.title}
                         </h2>
                         <Show when={checkSectionPinned(section.title)}>
@@ -223,9 +226,12 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                                   ${
                                     isActive()
                                       ? 'bg-gradient-to-r from-brand-cyan/20 to-brand-purple/10 text-brand-cyan border border-brand-cyan/30'
-                                      : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
+                                      : 'text-text-primary hover:bg-white/5 hover:text-text-primary'
                                   }
                                 `}
+                                style={{
+                                  opacity: isActive() ? 1 : 0.95
+                                }}
                               >
                                 <svg
                                   class={`w-4 h-4 flex-shrink-0 ${isActive() ? 'text-brand-cyan' : ''}`}
@@ -236,7 +242,7 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                                 >
                                   <path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
                                 </svg>
-                                <span class="text-sm flex-1 text-left truncate">{item.label}</span>
+                                <span class="text-sm font-semibold flex-1 text-left truncate">{item.label}</span>
 
                                 {/* Pulse indicator */}
                                 <Show when={showPulse()}>

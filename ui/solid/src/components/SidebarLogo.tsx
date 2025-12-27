@@ -22,7 +22,7 @@ const SidebarLogo: Component = () => {
       style={{ width: '100%', 'margin-top': '-8px' }}
     >
       <LogoIcon class="w-24 h-auto object-contain" style={{ 'max-width': 'none' }} />
-      <span class="mt-1 text-[10px] tracking-wide font-medium" style={{ 'text-transform': 'none', color: 'var(--text-secondary)' }}>
+      <span class="mt-1 text-[12px] tracking-wide font-bold" style={{ 'text-transform': 'none', color: 'var(--text-primary)', opacity: '0.95' }}>
         KubēGraf
       </span>
     </button>
