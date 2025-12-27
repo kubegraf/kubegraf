@@ -10,7 +10,7 @@ interface LogoIconProps {
  * Brand logo icon that adapts to the current theme.
  * Uses the new binary-matrix logo design matching kubegraf.io website.
  *
- * - Light theme: favicon.svg (cyan background with black icon)
+ * - Light theme: logo-binary-matrix-cyan.svg (cyan icon on transparent)
  * - Dark themes: logo-binary-matrix-cyan.svg (cyan icon on transparent)
  */
 const LogoIcon: Component<LogoIconProps> = (props) => {
