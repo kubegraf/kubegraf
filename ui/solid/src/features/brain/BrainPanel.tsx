@@ -1,4 +1,4 @@
-import { Component, Show, createResource, createMemo } from 'solid-js';
+import { Component, Show, createResource, createMemo, onMount, onCleanup } from 'solid-js';
 import { brainPanelOpen, brainPanelPinned, toggleBrainPanel, toggleBrainPanelPin } from '../../stores/brain';
 import { fetchBrainDataInParallel } from '../../services/brainService';
 import { settings } from '../../stores/settings';
@@ -11,11 +11,22 @@ import MLPredictions from './MLPredictions';
 import MLSummary from './MLSummary';
 import { BrainData } from '../../services/brainService';
 
+// Cache for Brain data with TTL (60 seconds)
+let brainDataCache: { data: BrainData | null; timestamp: number } = {
+  data: null,
+  timestamp: 0,
+};
+const CACHE_TTL = 60000; // 60 seconds
+
 const BrainPanel: Component = () => {
   // Make theme reactive
   const theme = createMemo(() => getTheme());
-  // Fetch all Brain data in parallel using a single resource with timeout
-  const [brainData] = createResource<BrainData>(
+  
+  // Auto-refresh interval (5 minutes)
+  let refreshInterval: number | undefined;
+  
+  // Fetch all Brain data in parallel using a single resource with timeout and caching
+  const [brainData, { refetch: refetchBrainData }] = createResource<BrainData>(
     () => brainPanelOpen(),
     async () => {
       if (!brainPanelOpen()) {
@@ -31,23 +42,50 @@ const BrainPanel: Component = () => {
           },
         };
       }
+      
+      // Check cache first
+      const now = Date.now();
+      if (brainDataCache.data && (now - brainDataCache.timestamp) < CACHE_TTL) {
+        console.log('[Brain] Using cached data');
+        return brainDataCache.data;
+      }
+      
       // Fetch all data in parallel with timeout (90 seconds max to match backend timeout)
       try {
+        console.log('[Brain] Fetching fresh data...');
         const timeoutPromise = new Promise<BrainData>((_, reject) => {
           setTimeout(() => reject(new Error('Brain data fetch timeout')), 90000);
         });
-        return await Promise.race([
+        const data = await Promise.race([
           fetchBrainDataInParallel(),
           timeoutPromise
         ]);
+        
+        // Update cache
+        brainDataCache = {
+          data,
+          timestamp: now,
+        };
+        
+        return data;
       } catch (error) {
-        console.error('Brain data fetch error:', error);
+        console.error('[Brain] Brain data fetch error:', error);
+        // If we have cached data, use it even if expired
+        if (brainDataCache.data) {
+          console.log('[Brain] Using expired cache due to fetch error');
+          return brainDataCache.data;
+        }
+        
         // Even on error, try to fetch with individual fallbacks
-        // This ensures we always show something useful
         try {
-          return await fetchBrainDataInParallel();
+          const data = await fetchBrainDataInParallel();
+          brainDataCache = {
+            data,
+            timestamp: now,
+          };
+          return data;
         } catch (fallbackError) {
-          console.error('Brain data fallback fetch also failed:', fallbackError);
+          console.error('[Brain] Brain data fallback fetch also failed:', fallbackError);
           // Return structure with helpful message
           return {
             timelineEvents: [],
@@ -63,6 +101,27 @@ const BrainPanel: Component = () => {
       }
     }
   );
+
+  // Set up auto-refresh when panel is open
+  onMount(() => {
+    if (brainPanelOpen()) {
+      // Refresh every 5 minutes (300000ms)
+      refreshInterval = setInterval(() => {
+        if (brainPanelOpen()) {
+          console.log('[Brain] Auto-refreshing data...');
+          // Clear cache to force fresh fetch
+          brainDataCache.timestamp = 0;
+          refetchBrainData();
+        }
+      }, 300000) as unknown as number;
+    }
+  });
+
+  onCleanup(() => {
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+  });
 
   return (
     <Show when={brainPanelOpen()}>
@@ -116,8 +175,9 @@ const BrainPanel: Component = () => {
             <div class="flex items-center gap-2">
               <button
                 onClick={() => {
-                  // Force refresh by mutating the resource
-                  brainData.refetch();
+                  // Clear cache and force refresh
+                  brainDataCache.timestamp = 0;
+                  refetchBrainData();
                 }}
                 class="p-2 rounded-lg transition-colors"
                 title="Refresh Brain insights"

@@ -21,8 +21,8 @@ const SidebarLogo: Component = () => {
       title="KubēGraf Dashboard"
       style={{ width: '100%', 'margin-top': '-8px' }}
     >
-      <LogoIcon class="w-24 h-auto object-contain" style={{ 'max-width': 'none' }} />
-      <span class="mt-1 text-[12px] tracking-wide font-bold" style={{ 'text-transform': 'none', color: 'var(--text-primary)', opacity: '0.95' }}>
+      <LogoIcon class="w-16 h-auto object-contain" style={{ 'max-width': 'none' }} />
+      <span class="mt-0.5 text-[12px] tracking-wide font-bold" style={{ 'text-transform': 'none', color: 'var(--text-primary)', opacity: '0.95' }}>
         KubēGraf
       </span>
     </button>

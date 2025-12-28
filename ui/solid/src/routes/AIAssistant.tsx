@@ -1,4 +1,4 @@
-import { Component, onMount, Show } from 'solid-js';
+import { Component, onMount } from 'solid-js';
 import AIChat from '../components/AIChat';
 import { setAIPanelOpen, setCurrentView } from '../stores/ui';
 
@@ -53,6 +53,8 @@ const AIAssistant: Component = () => {
           </svg>
         </button>
       </div>
+      
+
       <div class="flex-1 overflow-hidden rounded-lg border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
         <AIChat inline={true} />
       </div>

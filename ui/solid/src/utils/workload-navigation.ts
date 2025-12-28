@@ -135,10 +135,12 @@ export function buildWorkloadFocusUrl(ref: WorkloadRef): string {
 /**
  * Navigates to a workload view with focus on a specific resource
  * Updates the URL and view state
+ * @param returnView - Optional view to return to when modal closes (e.g., 'pods')
  */
 export function navigateToWorkloadWithFocus(
   ref: WorkloadRef,
-  setCurrentView: (view: string) => void
+  setCurrentView: (view: string) => void,
+  returnView?: string
 ): void {
   const view = workloadKindToView(ref.kind);
   const focusUrl = buildWorkloadFocusUrl(ref);
@@ -148,6 +150,11 @@ export function navigateToWorkloadWithFocus(
   const newParams = new URLSearchParams();
   if (ref.namespace) newParams.set('namespace', ref.namespace);
   newParams.set('focus', ref.name);
+  
+  // Store return view in URL if provided
+  if (returnView) {
+    newParams.set('returnView', returnView);
+  }
   
   // Preserve other query params if needed
   currentUrl.search = newParams.toString();

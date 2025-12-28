@@ -1442,13 +1442,13 @@ const Pods: Component = () => {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  navigateToWorkloadWithFocus(ref(), setCurrentView);
+                                  navigateToWorkloadWithFocus(ref(), setCurrentView, 'pods');
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    navigateToWorkloadWithFocus(ref(), setCurrentView);
+                                    navigateToWorkloadWithFocus(ref(), setCurrentView, 'pods');
                                   }
                                 }}
                                 title={formatWorkloadChain(ref())}

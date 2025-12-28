@@ -779,18 +779,26 @@ const Secrets: Component = () => {
         size="sm"
       />
 
-      {/* Details Modal - Shows secret data with eye icons and decrypt/copy */}
-      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Secret Data: ${selected()?.name}`} size="xl">
+      {/* Details Modal - Similar to ConfigMap modal with reveal secret values */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`Secret: ${selected()?.name}`} size="xl">
         <Show when={selected()}>
           {(() => {
             const [secretDetails] = createResource(
               () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
               async (params) => {
                 if (!params) return null;
+                return api.getSecretDetails(params.name, params.ns);
+              }
+            );
+            
+            // Get secret data from YAML for display
+            const [secretData] = createResource(
+              () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
+              async (params) => {
+                if (!params) return null;
                 const yaml = await api.getSecretYAML(params.name, params.ns);
                 // Parse YAML to extract data fields
                 try {
-                  // Improved YAML parsing - find data: section and extract key-value pairs
                   const lines = yaml.yaml.split('\n');
                   const data: SecretData = {};
                   let inDataSection = false;
@@ -799,34 +807,25 @@ const Secrets: Component = () => {
                   for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
 
-                    // Check if we're entering the data section
                     if (line.match(/^data:\s*$/)) {
                       inDataSection = true;
-                      dataIndent = 0; // Reset indent
+                      dataIndent = 0;
                       continue;
                     }
 
-                    // If we're in the data section
                     if (inDataSection) {
-                      // Calculate current line's indentation
                       const indent = line.search(/\S/);
-
-                      // Extract key-value pairs (lines with "  key: value" format)
                       const match = line.match(/^\s+([^:]+):\s*(.*)$/);
                       if (match) {
-                        // Set the data indent based on first key-value pair found
                         if (dataIndent === 0) {
                           dataIndent = indent;
                         }
-
                         const key = match[1].trim();
                         const value = match[2].trim();
-                        // Store key even if value is empty (some secrets may have empty values)
                         if (key) {
                           data[key] = value;
                         }
                       } else if (indent !== -1 && dataIndent > 0 && indent < dataIndent) {
-                        // If we encounter a line with less indentation than data fields, we've exited the section
                         break;
                       }
                     }
@@ -841,92 +840,168 @@ const Secrets: Component = () => {
             );
 
             return (
-              <Show when={!secretDetails.loading} fallback={
-                <div class="p-8 text-center">
-                  <div class="spinner mx-auto mb-2" />
-                  <span style={{ color: 'var(--text-muted)' }}>Loading secret data...</span>
-                </div>
-              }>
-                <div class="space-y-4">
-                  <Show when={secretDetails() && Object.keys(secretDetails()!).length > 0} fallback={
-                    <div class="p-4 text-center" style={{ color: 'var(--text-muted)' }}>
-                      No data fields found in this secret
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Data Keys</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!secretDetails.loading && secretDetails()}>
+                          {(details) => details().dataKeys + details().stringKeys || selected()?.data || 0}
+                        </Show>
+                        <Show when={secretDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
                     </div>
-                  }>
-                    <For each={Object.entries(secretDetails()!)}>
-                      {([key, value]) => {
-                        const secretKey = `${selected()!.name}/${key}`;
-                        const isVisible = visibleSecrets().has(secretKey);
-                        const decodedValue = decodeBase64(value);
-
-                        return (
-                          <div
-                            class="p-4 rounded-lg border"
-                            style={{
-                              background: 'var(--bg-secondary)',
-                              borderColor: 'var(--border-color)'
-                            }}
-                          >
-                            <div class="flex items-center justify-between mb-2">
-                              <span class="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                                {key}
-                              </span>
-                              <div class="flex items-center gap-2">
-                                {/* Eye icon to toggle visibility */}
-                                <button
-                                  onClick={() => toggleSecretVisibility(secretKey)}
-                                  class="p-1.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
-                                  title={isVisible ? 'Hide value' : 'Show value'}
-                                >
-                                  <Show when={isVisible} fallback={
-                                    <svg class="w-5 h-5" style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                    </svg>
-                                  }>
-                                    <svg class="w-5 h-5" style={{ color: 'var(--accent-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                                    </svg>
-                                  </Show>
-                                </button>
-
-                                {/* Decrypt/Copy button */}
-                                <button
-                                  onClick={() => copyDecodedValue(value)}
-                                  class="px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1.5 transition-colors"
-                                  style={{
-                                    background: 'var(--accent-primary)',
-                                    color: 'white'
-                                  }}
-                                  title="Copy decoded value to clipboard"
-                                >
-                                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                  </svg>
-                                  Copy Decoded
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Value display */}
-                            <div
-                              class="p-3 rounded font-mono text-sm overflow-x-auto"
-                              style={{
-                                background: 'var(--bg-tertiary)',
-                                color: isVisible ? 'var(--text-primary)' : 'var(--text-muted)',
-                                wordBreak: 'break-all',
-                                whiteSpace: 'pre-wrap'
-                              }}
-                            >
-                              {isVisible ? decodedValue : '••••••••••••••••••••••••••••'}
-                            </div>
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </Show>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Type</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.type || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Namespace</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.namespace}</div>
+                    </div>
+                  </div>
                 </div>
-              </Show>
+
+                {/* Related Resources Section */}
+                <Show when={secretDetails()}>
+                  <RelatedResources
+                    kind="secret"
+                    name={secretDetails()!.name}
+                    namespace={secretDetails()!.namespace}
+                    relatedData={secretDetails()}
+                  />
+                </Show>
+
+                {/* Data */}
+                <Show when={!secretData.loading && secretData() && Object.keys(secretData()!).length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Data</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Key</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Value</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={Object.entries(secretData()!)}>
+                            {([key, value]) => {
+                              const secretKey = `${selected()!.name}/${key}`;
+                              const isVisible = visibleSecrets().has(secretKey);
+                              const decodedValue = decodeBase64(value);
+
+                              return (
+                                <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                  <td class="px-4 py-2 text-sm font-mono" style={{ color: 'var(--text-primary)' }}>{key}</td>
+                                  <td class="px-4 py-2 text-sm font-mono break-all" style={{ color: 'var(--text-primary)' }}>
+                                    <div class="flex items-center gap-2">
+                                      <pre class="whitespace-pre-wrap" style={{ 'max-width': '500px', overflow: 'auto' }}>
+                                        {isVisible ? decodedValue : '••••••••••••••••••••••••••••'}
+                                      </pre>
+                                    </div>
+                                  </td>
+                                  <td class="px-4 py-2">
+                                    <div class="flex items-center gap-2">
+                                      <button
+                                        onClick={() => toggleSecretVisibility(secretKey)}
+                                        class="p-1.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                                        title={isVisible ? 'Hide value' : 'Show value'}
+                                      >
+                                        <Show when={isVisible} fallback={
+                                          <svg class="w-4 h-4" style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                          </svg>
+                                        }>
+                                          <svg class="w-4 h-4" style={{ color: 'var(--accent-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                          </svg>
+                                        </Show>
+                                      </button>
+                                      <button
+                                        onClick={() => copyDecodedValue(value)}
+                                        class="px-2 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors"
+                                        style={{
+                                          background: 'var(--accent-primary)',
+                                          color: 'white'
+                                        }}
+                                        title="Copy decoded value to clipboard"
+                                      >
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                        </svg>
+                                        Copy
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            }}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowEdit(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Edit"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSecret(selected()!);
+                    }}
+                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Delete"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
             );
           })()}
         </Show>

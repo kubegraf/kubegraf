@@ -305,9 +305,9 @@ const LandingPage: Component = () => {
       {/* Navigation */}
       <nav class={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrollY() > 50 ? 'bg-[#0a0a0f]/90 backdrop-blur-lg border-b border-white/10' : ''}`}>
         <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
-              <svg class="w-6 h-6" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <div class="flex items-center gap-1">
+            <div class="w-7 h-7 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
+              <svg class="w-4 h-4" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
                 {/* G outline */}
                 <path d="M80 30 L60 12 L35 12 L12 30 L12 70 L35 88 L60 88 L80 70 L80 50 L55 50" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
                 {/* 3D Pod inside G */}

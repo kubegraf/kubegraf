@@ -23,8 +23,30 @@ const Drift: Component = () => {
   const [driftData, { refetch }] = createResource(
     () => namespace(),
     async (ns) => {
-      const actualNs = ns === '_all' ? 'default' : ns;
-      return api.getDriftSummary(actualNs);
+      try {
+        const actualNs = ns === '_all' || !ns ? 'default' : ns;
+        console.log('[Drift] Fetching drift summary for namespace:', actualNs);
+        const data = await api.getDriftSummary(actualNs);
+        console.log('[Drift] Received drift data:', data);
+        // Ensure we have the correct structure
+        if (data && typeof data === 'object') {
+          const result = {
+            total: data.total || 0,
+            synced: data.synced || 0,
+            drifted: data.drifted || 0,
+            missing: data.missing || 0,
+            unknown: data.unknown || 0,
+            driftedResources: data.driftedResources || data.drifted || [],
+          };
+          console.log('[Drift] Processed drift result:', result);
+          return result;
+        }
+        console.warn('[Drift] Invalid data structure received');
+        return { total: 0, synced: 0, drifted: 0, missing: 0, unknown: 0, driftedResources: [] };
+      } catch (error) {
+        console.error('[Drift] Failed to fetch drift summary:', error);
+        return { total: 0, synced: 0, drifted: 0, missing: 0, unknown: 0, driftedResources: [] };
+      }
     }
   );
 
@@ -45,8 +67,8 @@ const Drift: Component = () => {
     }
   };
 
-  const totalDrifted = () => (driftData()?.drifted || []).length;
-  const totalChecked = () => (driftData()?.total || 0);
+  const totalDrifted = () => driftData()?.drifted || 0;
+  const totalChecked = () => driftData()?.total || 0;
 
   return (
     <div class="space-y-6">
@@ -142,7 +164,7 @@ const Drift: Component = () => {
               </tr>
             </thead>
             <tbody>
-              <For each={driftData()?.drifted || []}>
+              <For each={driftData()?.driftedResources || []}>
                 {(drift: DriftResult) => (
                   <tr class="hover:bg-[var(--bg-tertiary)]">
                     <td class="font-medium" style={{ color: 'var(--accent-primary)' }}>{drift.name}</td>
