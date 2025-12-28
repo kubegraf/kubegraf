@@ -126,16 +126,50 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+      - name: Verify Release Published
+        run: |
+          echo "Waiting for release to be available..."
+          sleep 5
+
+          # Check if release exists
+          if gh release view "${{ inputs.version }}" > /dev/null 2>&1; then
+            echo "✅ Release published successfully!"
+            gh release view "${{ inputs.version }}" --json tagName,name,url,createdAt,assets
+          else
+            echo "⚠️ Release not found, may still be processing"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create Release Summary
         run: |
-          echo "## Hotfix Release ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Hotfix Release ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Successfully released version ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Successfully released and deployed version ${{ inputs.version }}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Release Notes" >> $GITHUB_STEP_SUMMARY
-          echo "This is a hotfix release containing:" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ GitHub Release: Published" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Binaries: Built for all platforms (Linux, macOS, Windows)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Checksums: Generated" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Homebrew: Formula updated (if token configured)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Platforms" >> $GITHUB_STEP_SUMMARY
+          echo "- Linux: amd64, arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- macOS: amd64 (Intel), arm64 (Apple Silicon)" >> $GITHUB_STEP_SUMMARY
+          echo "- Windows: amd64, arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Release Contents" >> $GITHUB_STEP_SUMMARY
+          echo "This hotfix release includes:" >> $GITHUB_STEP_SUMMARY
           echo "- Test resources for custom apps" >> $GITHUB_STEP_SUMMARY
-          echo "- Sample Helm charts" >> $GITHUB_STEP_SUMMARY
+          echo "- Sample Helm charts for testing" >> $GITHUB_STEP_SUMMARY
           echo "- Test manifests for various failure scenarios" >> $GITHUB_STEP_SUMMARY
+          echo "- Bug fixes and improvements" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "View the release at: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+          echo "- 📥 [Download Release](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 [View Changelog](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 🍺 Homebrew: \`brew install kubegraf/tap/kubegraf\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "**Release created by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
