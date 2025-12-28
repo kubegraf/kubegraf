@@ -1,4 +1,4 @@
-import { createSignal, createResource, createEffect } from 'solid-js';
+import { createSignal, createResource, createEffect, createMemo, onMount } from 'solid-js';
 import { api, type WorkspaceContextPayload } from '../services/api';
 
 // Types
@@ -141,6 +141,37 @@ async function loadWorkspaceContext(): Promise<void> {
   }
 }
 
+// Initialize resources on first load - ensure they fetch when cluster connects
+createEffect(() => {
+  const connected = clusterStatus().connected;
+  const version = workspaceVersion();
+  
+  // When cluster becomes connected, ensure resources fetch
+  if (connected) {
+    // If workspaceVersion is 0, increment it to trigger resource fetching
+    if (version === 0) {
+      console.log('[Cluster] Cluster connected, triggering resource fetch (workspaceVersion: 0 -> 1)');
+      setWorkspaceVersion(1);
+    }
+    // Also trigger immediate refetch to ensure data loads (with delay to let resources initialize)
+    setTimeout(() => {
+      if (clusterStatus().connected) {
+        console.log('[Cluster] Refetching resources after cluster connection');
+        refetchPods();
+        refetchDeployments();
+        refetchServices();
+        refetchNodes();
+      }
+    }, 500);
+  } else {
+    // When disconnected, reset workspaceVersion to 0 so resources will fetch again when reconnected
+    if (version > 0) {
+      console.log('[Cluster] Cluster disconnected, resetting workspaceVersion');
+      setWorkspaceVersion(0);
+    }
+  }
+});
+
 async function persistWorkspaceContext(next: WorkspaceContextPayload): Promise<void> {
   try {
     const updated = await api.updateWorkspaceContext({
@@ -209,36 +240,87 @@ async function fetchNamespaces(): Promise<string[]> {
 }
 
 async function fetchPods(): Promise<Pod[]> {
-  const res = await fetch('/api/pods');
-  if (!res.ok) throw new Error('Failed to fetch pods');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (data.pods || []);
+  console.log('[Cluster] Fetching pods from /api/pods');
+  try {
+    const res = await fetch('/api/pods');
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[Cluster] Failed to fetch pods:', res.status, res.statusText, errorText);
+      throw new Error(`Failed to fetch pods: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    const pods = Array.isArray(data) ? data : (data.pods || []);
+    console.log('[Cluster] Fetched pods:', pods.length, 'pods');
+    if (pods.length > 0) {
+      console.log('[Cluster] Sample pod:', { name: pods[0].name, namespace: pods[0].namespace, status: pods[0].status });
+    }
+    return pods;
+  } catch (error) {
+    console.error('[Cluster] Error fetching pods:', error);
+    throw error;
+  }
 }
 
 async function fetchDeployments(): Promise<Deployment[]> {
-  const res = await fetch('/api/deployments');
-  if (!res.ok) throw new Error('Failed to fetch deployments');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (data.deployments || []);
+  console.log('[Cluster] Fetching deployments from /api/deployments');
+  try {
+    const res = await fetch('/api/deployments');
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[Cluster] Failed to fetch deployments:', res.status, res.statusText, errorText);
+      throw new Error(`Failed to fetch deployments: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    const deployments = Array.isArray(data) ? data : (data.deployments || []);
+    console.log('[Cluster] Fetched deployments:', deployments.length, 'deployments');
+    if (deployments.length > 0) {
+      console.log('[Cluster] Sample deployment:', { name: deployments[0].name, namespace: deployments[0].namespace, ready: deployments[0].ready });
+    }
+    return deployments;
+  } catch (error) {
+    console.error('[Cluster] Error fetching deployments:', error);
+    throw error;
+  }
 }
 
 async function fetchServices(): Promise<Service[]> {
-  const res = await fetch('/api/services');
-  if (!res.ok) throw new Error('Failed to fetch services');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (data.services || []);
+  console.log('[Cluster] Fetching services from /api/services');
+  try {
+    const res = await fetch('/api/services');
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[Cluster] Failed to fetch services:', res.status, res.statusText, errorText);
+      throw new Error(`Failed to fetch services: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    // Handle both old format (array) and new format (object with services array)
+    const services = Array.isArray(data) ? data : (data.services || []);
+    console.log('[Cluster] Fetched services:', services.length, 'services');
+    return services;
+  } catch (error) {
+    console.error('[Cluster] Error fetching services:', error);
+    throw error;
+  }
 }
 
 async function fetchNodes(): Promise<Node[]> {
-  const res = await fetch('/api/nodes');
-  if (!res.ok) throw new Error('Failed to fetch nodes');
-  const data = await res.json();
-  // Handle both old format (array) and new format (object with nodes array)
-  if (Array.isArray(data)) {
-    return data;
+  console.log('[Cluster] Fetching nodes from /api/nodes');
+  try {
+    const res = await fetch('/api/nodes');
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[Cluster] Failed to fetch nodes:', res.status, res.statusText, errorText);
+      throw new Error(`Failed to fetch nodes: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    // Handle both old format (array) and new format (object with nodes array)
+    const nodes = Array.isArray(data) ? data : (data.nodes || []);
+    console.log('[Cluster] Fetched nodes:', nodes.length, 'nodes');
+    return nodes;
+  } catch (error) {
+    console.error('[Cluster] Error fetching nodes:', error);
+    throw error;
   }
-  // New format: { nodes: [...], total: X, healthy: Y, schedulable: Z, ... }
-  return data.nodes || [];
 }
 
 async function fetchClusterStatus(): Promise<ClusterStatus> {
@@ -307,12 +389,50 @@ async function switchContext(contextName: string): Promise<void> {
 
 // Create resources with fine-grained reactivity
 const [namespacesResource] = createResource(fetchNamespaces);
-const [podsResource, { refetch: refetchPods }] = createResource(workspaceVersion, () => fetchPods());
-const [deploymentsResource, { refetch: refetchDeployments }] = createResource(workspaceVersion, () => fetchDeployments());
-const [servicesResource, { refetch: refetchServices }] = createResource(workspaceVersion, () => fetchServices());
-const [nodesResource, { refetch: refetchNodes }] = createResource(workspaceVersion, () => fetchNodes());
 const [statusResource, { refetch: refetchStatus }] = createResource(fetchClusterStatus);
 const [contextsResource, { refetch: refetchContexts }] = createResource(fetchContexts);
+
+// Create a combined signal that changes when either cluster connects OR workspaceVersion changes
+// This ensures resources fetch when cluster connects, even if workspaceVersion is still 0
+const resourceTrigger = createMemo(() => {
+  const connected = clusterStatus().connected;
+  const version = workspaceVersion();
+  // Return a string that changes when either connected status or version changes
+  // This ensures resources re-fetch when cluster connects
+  return connected ? `connected-${version}` : 'disconnected';
+});
+
+// Resources depend on the combined trigger
+// They will fetch when cluster connects (even if workspaceVersion is 0)
+const [podsResource, { refetch: refetchPods }] = createResource(
+  () => {
+    const trigger = resourceTrigger();
+    // Only fetch if cluster is connected
+    return clusterStatus().connected ? trigger : false;
+  },
+  () => fetchPods()
+);
+const [deploymentsResource, { refetch: refetchDeployments }] = createResource(
+  () => {
+    const trigger = resourceTrigger();
+    return clusterStatus().connected ? trigger : false;
+  },
+  () => fetchDeployments()
+);
+const [servicesResource, { refetch: refetchServices }] = createResource(
+  () => {
+    const trigger = resourceTrigger();
+    return clusterStatus().connected ? trigger : false;
+  },
+  () => fetchServices()
+);
+const [nodesResource, { refetch: refetchNodes }] = createResource(
+  () => {
+    const trigger = resourceTrigger();
+    return clusterStatus().connected ? trigger : false;
+  },
+  () => fetchNodes()
+);
 
 // Update namespaces when resource loads
 createEffect(() => {

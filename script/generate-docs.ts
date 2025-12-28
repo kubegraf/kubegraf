@@ -287,7 +287,7 @@ function renderDocPage(opts: {
     .sidebar-logo {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.25rem;
       margin-bottom: 1.5rem;
       text-decoration: none;
       color: var(--text);
@@ -296,8 +296,8 @@ function renderDocPage(opts: {
     }
 
     .sidebar-logo-icon {
-      width: 28px;
-      height: 28px;
+      width: 32px;
+      height: 32px;
       border-radius: 8px;
     }
 
@@ -470,6 +470,7 @@ export async function generateDocs() {
     console.log("[docs] wrote", path.relative(projectRoot, outPath));
   }
 }
+
 
 
 

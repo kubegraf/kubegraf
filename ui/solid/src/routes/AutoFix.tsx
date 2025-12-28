@@ -52,21 +52,39 @@ const AutoFix: Component = () => {
     }
   });
 
-  // Fetch incidents for event display
+  // Fetch incidents for event display - fetch all incidents without filters to get OOM, HPA, security, drift
   const [incidents, { refetch: refetchIncidents }] = createResource(async () => {
     try {
+      // Fetch all incidents without filters to ensure we get all types
       const data = await api.getIncidents();
       console.log('[AutoFix] Fetched incidents:', data?.length || 0);
+      
+      // Log incident types for debugging
+      const incidentTypes = new Set(data?.map(inc => inc.pattern || inc.type || 'unknown') || []);
+      console.log('[AutoFix] Incident types found:', Array.from(incidentTypes));
+      
       // Log OOM incidents for debugging
       const oomIncidents = data?.filter(inc => {
         const pattern = (inc.pattern || '').toUpperCase();
         const type = (inc.type || '').toLowerCase();
-        return pattern.includes('OOM') || type.includes('oom');
+        const message = (inc.message || inc.description || '').toUpperCase();
+        return pattern.includes('OOM') || type.includes('oom') || message.includes('OOM') || message.includes('OUT OF MEMORY');
       }) || [];
-      console.log('[AutoFix] OOM incidents found:', oomIncidents.length, oomIncidents.map(i => ({ id: i.id, pattern: i.pattern, type: i.type, status: i.status })));
+      console.log('[AutoFix] OOM incidents found:', oomIncidents.length);
+      
+      // Log HPA incidents
+      const hpaIncidents = data?.filter(inc => {
+        const pattern = (inc.pattern || '').toUpperCase();
+        const type = (inc.type || '').toLowerCase();
+        const message = (inc.message || inc.description || '').toUpperCase();
+        return pattern.includes('HPA') || type.includes('hpa') || message.includes('HPA') || message.includes('AUTOSCALER');
+      }) || [];
+      console.log('[AutoFix] HPA incidents found:', hpaIncidents.length);
+      
       return data || [];
     } catch (error) {
       console.error('Failed to fetch incidents:', error);
+      addNotification('Failed to load incidents for AutoFix. Please check your cluster connection.', 'error');
       return [];
     }
   });
@@ -493,14 +511,21 @@ const AutoFix: Component = () => {
           <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Related Events
           </h2>
-          <button
-            onClick={() => refetchIncidents()}
-            class="text-xs px-3 py-1 rounded"
-            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-          >
-            Refresh
-          </button>
+          <div class="flex items-center gap-2">
+            <Show when={incidents.loading}>
+              <div class="spinner" style={{ width: '16px', height: '16px' }} />
+            </Show>
+            <button
+              onClick={() => refetchIncidents()}
+              class="text-xs px-3 py-1 rounded"
+              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              disabled={incidents.loading}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
+
 
         {/* OOM Events */}
         <Show when={filteredEvents().oom.length > 0}>
@@ -688,6 +713,7 @@ const AutoFix: Component = () => {
 
         {/* No Events Message */}
         <Show when={
+          !incidents.loading &&
           filteredEvents().oom.length === 0 &&
           filteredEvents().hpaMax.length === 0 &&
           filteredEvents().security.length === 0 &&
@@ -698,10 +724,20 @@ const AutoFix: Component = () => {
             style={{
               background: 'var(--bg-secondary)',
               'border-color': 'var(--border-color)',
-              color: 'var(--text-muted)',
             }}
           >
-            No events found for selected type
+            <div class="text-4xl mb-4">📊</div>
+            <h3 class="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+              No {selectedType() === 'all' ? '' : selectedType().toUpperCase() + ' '}Events Detected
+            </h3>
+            <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+              {selectedType() === 'all' 
+                ? 'No OOM, HPA Max, security, or drift events found in recent incidents.'
+                : `No ${selectedType().toUpperCase()} events found in recent incidents.`}
+            </p>
+            <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Total incidents checked: {incidents()?.length || 0}
+            </p>
           </div>
         </Show>
       </div>

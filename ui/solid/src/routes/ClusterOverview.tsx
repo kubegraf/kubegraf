@@ -1,7 +1,81 @@
-import { Component, For, Show, createMemo } from 'solid-js';
-import { clusterStatus, podsResource, deploymentsResource, servicesResource, nodesResource } from '../stores/cluster';
+import { Component, For, Show, createMemo, onMount, createEffect } from 'solid-js';
+import { clusterStatus, podsResource, deploymentsResource, servicesResource, nodesResource, refetchPods, refetchDeployments, refetchServices, refetchNodes } from '../stores/cluster';
+import { setCurrentView } from '../stores/ui';
 
 const ClusterOverview: Component = () => {
+  // Trigger data fetch when component mounts and when cluster connects
+  onMount(() => {
+    console.log('[ClusterOverview] Component mounted, cluster connected:', clusterStatus().connected);
+    // Always try to refetch, even if cluster status is uncertain
+    setTimeout(() => {
+      console.log('[ClusterOverview] onMount: Refetching all resources');
+      refetchPods();
+      refetchDeployments();
+      refetchServices();
+      refetchNodes();
+    }, 100);
+    
+    // Also refetch after a longer delay to ensure cluster is ready
+    setTimeout(() => {
+      if (clusterStatus().connected) {
+        console.log('[ClusterOverview] onMount (delayed): Refetching all resources again');
+        refetchPods();
+        refetchDeployments();
+        refetchServices();
+        refetchNodes();
+      }
+    }, 1000);
+  });
+
+  // Also refetch when cluster status changes to connected
+  createEffect(() => {
+    const connected = clusterStatus().connected;
+    if (connected) {
+      console.log('[ClusterOverview] Cluster connected, refetching resources');
+      // Small delay to ensure cluster is fully ready
+      setTimeout(() => {
+        if (clusterStatus().connected) {
+          console.log('[ClusterOverview] Refetching pods, deployments, services, nodes');
+          refetchPods();
+          refetchDeployments();
+          refetchServices();
+          refetchNodes();
+        }
+      }, 500);
+    }
+  });
+
+  // Debug: Log resource states
+  createEffect(() => {
+    const pods = podsResource();
+    const deployments = deploymentsResource();
+    const services = servicesResource();
+    const nodes = nodesResource();
+    
+    console.log('[ClusterOverview] Resource states:', {
+      podsLoading: podsResource.loading,
+      podsError: podsResource.error,
+      podsData: pods?.length || 0,
+      podsSample: pods?.slice(0, 2).map((p: any) => ({ name: p.name, namespace: p.namespace, status: p.status })) || [],
+      deploymentsLoading: deploymentsResource.loading,
+      deploymentsError: deploymentsResource.error,
+      deploymentsData: deployments?.length || 0,
+      servicesLoading: servicesResource.loading,
+      servicesData: services?.length || 0,
+      nodesLoading: nodesResource.loading,
+      nodesData: nodes?.length || 0,
+      connected: clusterStatus().connected,
+    });
+    
+    // If we have errors, log them
+    if (podsResource.error) {
+      console.error('[ClusterOverview] Pods fetch error:', podsResource.error);
+    }
+    if (deploymentsResource.error) {
+      console.error('[ClusterOverview] Deployments fetch error:', deploymentsResource.error);
+    }
+  });
+
   // Derive cluster metrics from shared cluster resources so this view stays in sync
   const clusterMetrics = createMemo(() => {
     const pods = podsResource() || [];
@@ -98,20 +172,28 @@ const ClusterOverview: Component = () => {
       </div>
 
       <Show
-        when={clusterStatus().connected && clusterMetrics()}
+        when={clusterStatus().connected}
         fallback={
           <div class="text-center py-12">
-            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-            <p class="mt-4 text-sm opacity-70">
-              {clusterStatus().connected ? 'Loading cluster metrics...' : 'No cluster connected'}
-            </p>
+            <p class="text-sm opacity-70">No cluster connected</p>
           </div>
         }
       >
-        {() => {
-          const metrics = clusterMetrics()!;
+        {(() => {
+          const isLoading = podsResource.loading || deploymentsResource.loading || servicesResource.loading || nodesResource.loading;
+          const metrics = clusterMetrics();
+          
+          if (isLoading || !metrics) {
+            return (
+              <div class="text-center py-12">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                <p class="mt-4 text-sm opacity-70">Loading cluster metrics...</p>
+              </div>
+            );
+          }
+          
           const score = healthScore();
-
+          
           return (
             <>
               {/* Health Score Card */}
@@ -216,23 +298,35 @@ const ClusterOverview: Component = () => {
               <div class="bg-white/5 rounded-lg p-4 border border-white/10">
                 <h3 class="font-semibold mb-3">Quick Actions</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  <a href="#pods" class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors">
+                  <button 
+                    onClick={() => setCurrentView('pods')}
+                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                  >
                     View Pods
-                  </a>
-                  <a href="#deployments" class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors">
+                  </button>
+                  <button 
+                    onClick={() => setCurrentView('deployments')}
+                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                  >
                     View Deployments
-                  </a>
-                  <a href="#services" class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors">
+                  </button>
+                  <button 
+                    onClick={() => setCurrentView('services')}
+                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                  >
                     View Services
-                  </a>
-                  <a href="#nodes" class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors">
+                  </button>
+                  <button 
+                    onClick={() => setCurrentView('nodes')}
+                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                  >
                     View Nodes
-                  </a>
+                  </button>
                 </div>
               </div>
             </>
           );
-        }}
+        })()}
       </Show>
     </div>
   );

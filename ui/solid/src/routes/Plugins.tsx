@@ -1,7 +1,8 @@
-import { Component, For, Show, createSignal, createResource, createEffect, JSX } from 'solid-js';
+import { Component, For, Show, createSignal, createResource, createEffect, createMemo, JSX } from 'solid-js';
 import { api } from '../services/api';
 import Modal from '../components/Modal';
 import HelmReleaseDeleteModal from '../components/HelmReleaseDeleteModal';
+import ConfirmationModal from '../components/ConfirmationModal';
 import { currentContext } from '../stores/cluster';
 
 interface Plugin {
@@ -55,7 +56,13 @@ const Plugins: Component = () => {
   const [showUninstallModal, setShowUninstallModal] = createSignal(false);
   const [releaseToUninstall, setReleaseToUninstall] = createSignal<HelmRelease | null>(null);
   const [uninstalling, setUninstalling] = createSignal(false);
-
+  const [showRollbackConfirm, setShowRollbackConfirm] = createSignal(false);
+  const [rollbackRevision, setRollbackRevision] = createSignal<number | null>(null);
+  
+  // Search signals for filtering
+  const [helmSearch, setHelmSearch] = createSignal('');
+  const [argoSearch, setArgoSearch] = createSignal('');
+  
   // Resources now depend on currentContext to auto-refetch when cluster changes
   // Fetch data when on Overview tab OR when on the specific tab
   const [helmReleases, { refetch: refetchHelm, mutate: mutateHelm }] = createResource(
@@ -81,6 +88,32 @@ const Plugins: Component = () => {
       mutateFlux(undefined);
     }
   });
+  
+  // Filtered results
+  const filteredHelmReleases = createMemo(() => {
+    const releases = helmReleases() || [];
+    const search = helmSearch().toLowerCase();
+    if (!search) return releases;
+    return releases.filter((r: HelmRelease) =>
+      r.name.toLowerCase().includes(search) ||
+      r.namespace.toLowerCase().includes(search) ||
+      r.chart.toLowerCase().includes(search) ||
+      r.status.toLowerCase().includes(search)
+    );
+  });
+  
+  const filteredArgoApps = createMemo(() => {
+    const apps = argoCDApps() || [];
+    const search = argoSearch().toLowerCase();
+    if (!search) return apps;
+    return apps.filter((a: ArgoCDApp) =>
+      a.name.toLowerCase().includes(search) ||
+      a.namespace.toLowerCase().includes(search) ||
+      a.project.toLowerCase().includes(search) ||
+      a.syncStatus.toLowerCase().includes(search) ||
+      a.health.toLowerCase().includes(search)
+    );
+  });
 
   // Fetch helm release history when modal opens
   const fetchHistory = async (name: string, namespace: string) => {
@@ -95,13 +128,21 @@ const Plugins: Component = () => {
     setHistoryLoading(false);
   };
 
-  // Handle helm rollback
-  const handleRollback = async (revision: number) => {
+  // Handle helm rollback confirmation
+  const handleRollbackClick = (revision: number) => {
+    setRollbackRevision(revision);
+    setShowRollbackConfirm(true);
+  };
+
+  // Handle helm rollback execution
+  const handleRollback = async () => {
     const release = selectedRelease();
-    if (!release) return;
+    const revision = rollbackRevision();
+    if (!release || !revision) return;
 
     setActionLoading(true);
     setActionMessage(null);
+    setShowRollbackConfirm(false);
     try {
       await api.rollbackHelmRelease(release.name, release.namespace, revision);
       setActionMessage({ type: 'success', text: `Rolled back to revision ${revision}` });
@@ -110,8 +151,10 @@ const Plugins: Component = () => {
       refetchHelm();
     } catch (e: any) {
       setActionMessage({ type: 'error', text: e.message || 'Rollback failed' });
+    } finally {
+      setActionLoading(false);
+      setRollbackRevision(null);
     }
-    setActionLoading(false);
   };
 
   // Handle ArgoCD sync
@@ -348,7 +391,7 @@ const Plugins: Component = () => {
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
               <Show when={helmReleases.loading} fallback={
                 <div class="text-2xl font-bold" style={{ color: 'var(--accent-primary)' }}>
-                  {Array.isArray(helmReleases()) ? helmReleases().length : 0}
+                  {Array.isArray(helmReleases()) ? helmReleases()?.length ?? 0 : 0}
                 </div>
               }>
                 <div class="text-2xl font-bold flex items-center justify-center" style={{ color: 'var(--accent-primary)' }}>
@@ -360,7 +403,7 @@ const Plugins: Component = () => {
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
               <Show when={argoCDApps.loading} fallback={
                 <div class="text-2xl font-bold" style={{ color: 'var(--accent-secondary)' }}>
-                  {Array.isArray(argoCDApps()) ? argoCDApps().length : 0}
+                  {Array.isArray(argoCDApps()) ? argoCDApps()?.length ?? 0 : 0}
                 </div>
               }>
                 <div class="text-2xl font-bold flex items-center justify-center" style={{ color: 'var(--accent-secondary)' }}>
@@ -372,7 +415,7 @@ const Plugins: Component = () => {
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
               <Show when={fluxResources.loading} fallback={
                 <div class="text-2xl font-bold" style={{ color: '#8b5cf6' }}>
-                  {Array.isArray(fluxResources()) ? fluxResources().length : 0}
+                  {Array.isArray(fluxResources()) ? fluxResources()?.length ?? 0 : 0}
                 </div>
               }>
                 <div class="text-2xl font-bold flex items-center justify-center" style={{ color: '#8b5cf6' }}>
@@ -391,27 +434,42 @@ const Plugins: Component = () => {
 
       {/* Helm Tab */}
       <Show when={activeTab() === 'helm'}>
-        <div class="flex items-center justify-between mb-4">
-          <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {helmReleases()?.length || 0} releases
-          </div>
-          <button
-            onClick={() => refetchHelm()}
-            disabled={helmReleases.loading}
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-              opacity: helmReleases.loading ? 0.5 : 1,
-            }}
-          >
-            <svg class={`w-4 h-4 ${helmReleases.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
-        </div>
+        <>
+          <div class="flex items-center justify-between mb-4 gap-4">
+            <div class="flex-1 max-w-md">
+              <input
+                type="text"
+                placeholder="Search Helm releases..."
+                value={helmSearch()}
+                onInput={(e) => setHelmSearch(e.currentTarget.value)}
+                class="w-full px-4 py-2 rounded-lg text-sm"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                }}
+              />
+            </div>
+            <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
+              {filteredHelmReleases().length} of {helmReleases()?.length || 0} releases
+            </div>
+                <button
+                  onClick={() => refetchHelm()}
+                  disabled={helmReleases.loading}
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                    opacity: helmReleases.loading ? 0.5 : 1,
+                  }}
+                >
+                  <svg class={`w-4 h-4 ${helmReleases.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
         <div class="card overflow-hidden">
           <Show when={!helmReleases.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
             <table class="data-table">
@@ -419,8 +477,10 @@ const Plugins: Component = () => {
                 <tr><th>Name</th><th>Namespace</th><th>Chart</th><th>Revision</th><th>Status</th><th>Updated</th><th>Actions</th></tr>
               </thead>
               <tbody>
-                <For each={helmReleases() || []} fallback={
-                  <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No Helm releases found</td></tr>
+                <For each={filteredHelmReleases()} fallback={
+                  <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>
+                    {helmSearch() ? `No Helm releases match "${helmSearch()}"` : 'No Helm releases found'}
+                  </td></tr>
                 }>
                   {(release: HelmRelease) => (
                     <tr
@@ -465,31 +525,47 @@ const Plugins: Component = () => {
             </table>
           </Show>
         </div>
+        </>
       </Show>
 
       {/* ArgoCD Tab */}
       <Show when={activeTab() === 'argocd'}>
-        <div class="flex items-center justify-between mb-4">
-          <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {argoCDApps()?.length || 0} applications
-          </div>
-          <button
-            onClick={() => refetchArgo()}
-            disabled={argoCDApps.loading}
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-              opacity: argoCDApps.loading ? 0.5 : 1,
-            }}
-          >
-            <svg class={`w-4 h-4 ${argoCDApps.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
-        </div>
+        <>
+          <div class="flex items-center justify-between mb-4 gap-4">
+            <div class="flex-1 max-w-md">
+              <input
+                type="text"
+                placeholder="Search ArgoCD applications..."
+                value={argoSearch()}
+                onInput={(e) => setArgoSearch(e.currentTarget.value)}
+                class="w-full px-4 py-2 rounded-lg text-sm"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                }}
+              />
+            </div>
+            <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
+              {filteredArgoApps().length} of {argoCDApps()?.length || 0} applications
+            </div>
+                <button
+                  onClick={() => refetchArgo()}
+                  disabled={argoCDApps.loading}
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                    opacity: argoCDApps.loading ? 0.5 : 1,
+                  }}
+                >
+                  <svg class={`w-4 h-4 ${argoCDApps.loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
         <div class="card overflow-hidden">
           <Show when={!argoCDApps.loading} fallback={<div class="p-8 text-center"><div class="spinner mx-auto" /></div>}>
             <Show when={(argoCDApps() || []).length > 0} fallback={
@@ -504,7 +580,11 @@ const Plugins: Component = () => {
               <table class="data-table">
                 <thead><tr><th>Name</th><th>Project</th><th>Sync Status</th><th>Health</th><th>Age</th><th>Actions</th></tr></thead>
                 <tbody>
-                  <For each={argoCDApps() || []}>
+                  <For each={filteredArgoApps()} fallback={
+                    <tr><td colspan="6" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>
+                      {argoSearch() ? `No ArgoCD applications match "${argoSearch()}"` : 'No ArgoCD applications found'}
+                    </td></tr>
+                  }>
                     {(app: ArgoCDApp) => (
                       <tr
                         class="cursor-pointer hover:bg-[var(--bg-tertiary)]"
@@ -550,6 +630,7 @@ const Plugins: Component = () => {
             </Show>
           </Show>
         </div>
+        </>
       </Show>
 
       {/* Flux Tab */}
@@ -687,7 +768,7 @@ const Plugins: Component = () => {
                               <td>
                                 <Show when={entry.revision !== selectedRelease()?.revision}>
                                   <button
-                                    onClick={() => handleRollback(entry.revision)}
+                                    onClick={() => handleRollbackClick(entry.revision)}
                                     disabled={actionLoading()}
                                     class="px-3 py-1.5 rounded transition-colors font-medium"
                                     style={{
@@ -803,6 +884,33 @@ const Plugins: Component = () => {
           </div>
         </Show>
       </Modal>
+
+      {/* Helm Rollback Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showRollbackConfirm()}
+        onClose={() => {
+          if (!actionLoading()) {
+            setShowRollbackConfirm(false);
+            setRollbackRevision(null);
+          }
+        }}
+        title="Rollback Helm Release"
+        message={selectedRelease() && rollbackRevision() 
+          ? `Are you sure you want to rollback "${selectedRelease()!.name}" to revision ${rollbackRevision()}?` 
+          : 'Are you sure you want to rollback this Helm release?'}
+        details={selectedRelease() && rollbackRevision() ? [
+          { label: 'Release', value: selectedRelease()!.name },
+          { label: 'Namespace', value: selectedRelease()!.namespace },
+          { label: 'Target Revision', value: rollbackRevision()!.toString() },
+          { label: 'Current Revision', value: selectedRelease()!.revision.toString() },
+        ] : undefined}
+        variant="warning"
+        confirmText="Rollback"
+        cancelText="Cancel"
+        loading={actionLoading()}
+        onConfirm={handleRollback}
+        size="sm"
+      />
 
       {/* Helm Release Uninstall Confirmation Modal */}
       <HelmReleaseDeleteModal

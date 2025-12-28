@@ -55,21 +55,98 @@ interface SREAction {
 
 const SREAgent: Component = () => {
   const [sreStatus, { refetch: refetchStatus }] = createResource<SREStatus>(async () => {
-    const response = await fetch('/api/sre/status');
-    if (!response.ok) throw new Error('Failed to fetch SRE status');
-    return response.json();
+    try {
+      console.log('[SRE Agent] Fetching SRE status...');
+      const response = await fetch('/api/sre/status');
+      if (!response.ok) {
+        console.error('[SRE Agent] Failed to fetch SRE status:', response.status, response.statusText);
+        // Return default structure instead of throwing
+        return {
+          enabled: false,
+          autoRemediate: false,
+          autoRemediateTypes: [],
+          notificationEnabled: false,
+          batchMonitoring: false,
+          batchSLO: '',
+          maxAutoActionsPerHour: 10,
+          learningEnabled: false,
+          metrics: {
+            incidentsDetected: 0,
+            incidentsResolved: 0,
+            autoRemediations: 0,
+            notificationsSent: 0,
+            escalations: 0,
+            avgResolutionTime: 0,
+            successRate: 0,
+            batchSLOMet: 0,
+            actionsThisHour: 0,
+            lastHourReset: new Date().toISOString(),
+          },
+        };
+      }
+      const data = await response.json();
+      console.log('[SRE Agent] Received SRE status:', data);
+      return data;
+    } catch (error) {
+      console.error('[SRE Agent] Error fetching SRE status:', error);
+      // Return default structure
+      return {
+        enabled: false,
+        autoRemediate: false,
+        autoRemediateTypes: [],
+        notificationEnabled: false,
+        batchMonitoring: false,
+        batchSLO: '',
+        maxAutoActionsPerHour: 10,
+        learningEnabled: false,
+        metrics: {
+          incidentsDetected: 0,
+          incidentsResolved: 0,
+          autoRemediations: 0,
+          notificationsSent: 0,
+          escalations: 0,
+          avgResolutionTime: 0,
+          successRate: 0,
+          batchSLOMet: 0,
+          actionsThisHour: 0,
+          lastHourReset: new Date().toISOString(),
+        },
+      };
+    }
   });
 
   const [incidents, { refetch: refetchIncidents }] = createResource<{ incidents: SREIncident[]; total: number }>(async () => {
-    const response = await fetch('/api/sre/incidents');
-    if (!response.ok) throw new Error('Failed to fetch incidents');
-    return response.json();
+    try {
+      console.log('[SRE Agent] Fetching SRE incidents...');
+      const response = await fetch('/api/sre/incidents');
+      if (!response.ok) {
+        console.error('[SRE Agent] Failed to fetch incidents:', response.status);
+        return { incidents: [], total: 0 };
+      }
+      const data = await response.json();
+      console.log('[SRE Agent] Received incidents:', data);
+      return data;
+    } catch (error) {
+      console.error('[SRE Agent] Error fetching incidents:', error);
+      return { incidents: [], total: 0 };
+    }
   });
 
   const [actions, { refetch: refetchActions }] = createResource<{ actions: SREAction[]; total: number }>(async () => {
-    const response = await fetch('/api/sre/actions');
-    if (!response.ok) throw new Error('Failed to fetch actions');
-    return response.json();
+    try {
+      console.log('[SRE Agent] Fetching SRE actions...');
+      const response = await fetch('/api/sre/actions');
+      if (!response.ok) {
+        console.error('[SRE Agent] Failed to fetch actions:', response.status);
+        return { actions: [], total: 0 };
+      }
+      const data = await response.json();
+      console.log('[SRE Agent] Received actions:', data);
+      return data;
+    } catch (error) {
+      console.error('[SRE Agent] Error fetching actions:', error);
+      return { actions: [], total: 0 };
+    }
   });
 
   // Fetch Kubernetes incidents for overview
@@ -250,7 +327,25 @@ const SREAgent: Component = () => {
             </div>
             <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
               <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Avg Resolution Time</div>
-              <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{Math.round(status().metrics.avgResolutionTime / 1000)}s</div>
+              <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              {(() => {
+                const timeStr = status().metrics.avgResolutionTime;
+                if (typeof timeStr === 'string') {
+                  // Parse duration string like "5s", "2m30s", etc.
+                  const match = timeStr.match(/(\d+)([smh])/);
+                  if (match) {
+                    const val = parseInt(match[1]);
+                    const unit = match[2];
+                    if (unit === 's') return `${val}s`;
+                    if (unit === 'm') return `${val}m`;
+                    if (unit === 'h') return `${val}h`;
+                  }
+                  return timeStr;
+                }
+                // If it's a number (milliseconds), convert to seconds
+                return `${Math.round(timeStr / 1000)}s`;
+              })()}
+              </div>
             </div>
             <div class="rounded-lg p-6 border" style={{ background: 'var(--bg-card)', 'border-color': 'var(--border-color)' }}>
               <div class="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Batch SLO Met</div>

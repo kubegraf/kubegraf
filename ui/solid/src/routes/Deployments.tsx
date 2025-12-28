@@ -1,7 +1,7 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { clusterStatus } from '../stores/cluster';
-import { addNotification } from '../stores/ui';
+import { addNotification, setCurrentView } from '../stores/ui';
 import {
   selectedCluster,
   selectedNamespaces,
@@ -1033,7 +1033,21 @@ const Deployments: Component = () => {
       </Modal>
 
       {/* Details Modal */}
-      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Deployment: ${selected()?.name || ''}`} size="xl">
+      <Modal isOpen={showDetails()} onClose={() => {
+        setShowDetails(false);
+        // Check if we came from another view (e.g., pods) and restore it
+        const urlParams = new URLSearchParams(window.location.search);
+        const returnView = urlParams.get('returnView');
+        if (returnView) {
+          // Remove returnView from URL
+          urlParams.delete('returnView');
+          const newUrl = new URL(window.location.href);
+          newUrl.search = urlParams.toString();
+          window.history.replaceState({}, '', newUrl.toString());
+          // Restore the previous view
+          setCurrentView(returnView as any);
+        }
+      }} title={`Deployment: ${selected()?.name || ''}`} size="xl">
         <Show when={selected()}>
           {(() => {
             const [deploymentDetails] = createResource(
