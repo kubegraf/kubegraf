@@ -52,6 +52,12 @@ export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Prom
         throw new Error(`API endpoint not found (${response.status}). The server returned an HTML error page. Check that the endpoint exists.`);
       }
       
+      // For 503 Service Unavailable, preserve the original error message if it's descriptive
+      // This helps identify optional features that aren't enabled
+      if (response.status === 503 && error) {
+        throw new Error(error);
+      }
+      
       throw new Error(error || `API error: ${response.status}`);
     }
 
