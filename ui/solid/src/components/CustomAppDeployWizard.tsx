@@ -1,7 +1,7 @@
 // Copyright 2025 KubeGraf Contributors
 
 import { Component, For, Show, createSignal, createEffect, onMount, createResource } from 'solid-js';
-import { api, type CustomAppPreviewResponse, type CustomAppDeployResponse } from '../services/api';
+import { api, type CustomAppPreviewResponse, type CustomAppDeployResponse, type HelmChartData } from '../services/api';
 import type { CustomAppInfo } from '../services/api';
 import { addNotification } from '../stores/ui';
 import Modal from './Modal';
@@ -16,12 +16,16 @@ interface CustomAppDeployWizardProps {
   deploymentId?: string; // For modify/redeploy mode
 }
 
+type DeploymentType = 'manifest' | 'helm';
 type WizardStep = 'upload' | 'preview' | 'deploy';
 
 const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => {
+  const [deploymentType, setDeploymentType] = createSignal<DeploymentType>('manifest');
   const [step, setStep] = createSignal<WizardStep>('upload');
   const [files, setFiles] = createSignal<File[]>([]);
   const [manifests, setManifests] = createSignal<string[]>([]);
+  const [helmChart, setHelmChart] = createSignal<HelmChartData | null>(null);
+  const [helmValues, setHelmValues] = createSignal<Record<string, string>>({});
   const [selectedNamespace, setSelectedNamespace] = createSignal<string>('');
   const [preview, setPreview] = createSignal<CustomAppPreviewResponse | null>(null);
   const [deployResponse, setDeployResponse] = createSignal<CustomAppDeployResponse | null>(null);
@@ -46,9 +50,12 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
   // Reset state when modal opens/closes or initialize from props
   createEffect(() => {
     if (!props.isOpen) {
+      setDeploymentType('manifest');
       setStep('upload');
       setFiles([]);
       setManifests([]);
+      setHelmChart(null);
+      setHelmValues({});
       setSelectedNamespace('');
       setPreview(null);
       setDeployResponse(null);
@@ -60,71 +67,119 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
       if (props.initialNamespace) {
         setSelectedNamespace(props.initialNamespace);
       }
-      // Auto-preview manifests when opening in modify mode
-      const previewManifests = async () => {
-        if (props.initialNamespace) {
-          setLoading(true);
-          try {
-            const response = await api.previewCustomApp(props.initialManifests, props.initialNamespace);
-            setPreview(response);
-            if (response.success) {
-              setStep('preview');
-            } else {
-              setError(response.errors?.join('\n') || 'Preview failed');
-              setStep('upload');
-            }
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to preview manifests');
-            setStep('upload');
-          } finally {
-            setLoading(false);
-          }
-        } else {
-          setStep('preview'); // If no namespace, just set step (user will need to select namespace)
-        }
-      };
-      previewManifests();
     }
   });
+
+  const parseHelmChart = async (fileList: File[]): Promise<HelmChartData | null> => {
+    const chartYamlFile = fileList.find(f => f.name === 'Chart.yaml' || f.webkitRelativePath?.endsWith('/Chart.yaml'));
+    const valuesYamlFile = fileList.find(f => f.name === 'values.yaml' || f.webkitRelativePath?.endsWith('/values.yaml'));
+
+    if (!chartYamlFile) {
+      setError('Chart.yaml not found. Please select a valid Helm chart directory.');
+      return null;
+    }
+
+    const templates: Record<string, string> = {};
+    const templateFiles = fileList.filter(f => {
+      const path = f.webkitRelativePath || f.name;
+      return path.includes('/templates/') && (path.endsWith('.yaml') || path.endsWith('.yml'));
+    });
+
+    if (templateFiles.length === 0) {
+      setError('No template files found in templates/ directory');
+      return null;
+    }
+
+    try {
+      const chartYaml = await chartYamlFile.text();
+      const valuesYaml = valuesYamlFile ? await valuesYamlFile.text() : '';
+
+      // Parse Chart.yaml to extract name and version
+      const nameMatch = chartYaml.match(/^name:\s*(.+)$/m);
+      const versionMatch = chartYaml.match(/^version:\s*(.+)$/m);
+
+      const chartName = nameMatch ? nameMatch[1].trim() : 'unknown';
+      const chartVersion = versionMatch ? versionMatch[1].trim() : '1.0.0';
+
+      // Read all template files
+      for (const file of templateFiles) {
+        const content = await file.text();
+        const relativePath = file.webkitRelativePath || file.name;
+        const templatePath = relativePath.split('/templates/')[1] || file.name;
+        templates[templatePath] = content;
+      }
+
+      return {
+        chartYaml,
+        valuesYaml,
+        templates,
+        chartName,
+        chartVersion
+      };
+    } catch (err) {
+      setError(`Failed to parse Helm chart: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      return null;
+    }
+  };
 
   const handleFileSelect = async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     const fileArray = Array.from(selectedFiles);
-    const yamlFiles = fileArray.filter(f => f.name.endsWith('.yaml') || f.name.endsWith('.yml') || f.type === 'text/yaml' || f.type === '');
-
-    if (yamlFiles.length !== fileArray.length) {
-      setError('Please select only YAML files (.yaml or .yml)');
-      return;
-    }
-
-    setFiles(yamlFiles);
     setError('');
+    setValidationErrors([]);
 
-    // Read files as text
-    const fileContents: string[] = [];
-    const errors: string[] = [];
-
-    for (const file of yamlFiles) {
-      try {
-        const text = await file.text();
-        // Basic YAML validation - check if it's not empty and can be parsed
-        if (text.trim().length === 0) {
-          errors.push(`${file.name}: File is empty`);
-          continue;
-        }
-        fileContents.push(text);
-      } catch (err) {
-        errors.push(`${file.name}: Failed to read file - ${err instanceof Error ? err.message : 'Unknown error'}`);
+    if (deploymentType() === 'helm') {
+      // Parse Helm chart - accept all files for Helm charts
+      setFiles(fileArray);
+      const chart = await parseHelmChart(fileArray);
+      if (chart) {
+        setHelmChart(chart);
       }
-    }
-
-    if (errors.length > 0) {
-      setValidationErrors(errors);
-      setManifests([]);
     } else {
-      setValidationErrors([]);
-      setManifests(fileContents);
+      // Handle manifest files - filter to only YAML files
+      const yamlFiles = fileArray.filter(f =>
+        f.name.endsWith('.yaml') || f.name.endsWith('.yml')
+      );
+
+      if (yamlFiles.length === 0) {
+        setError('No YAML files found. Please select .yaml or .yml files.');
+        setFiles([]);
+        return;
+      }
+
+      // Store only YAML files
+      setFiles(yamlFiles);
+
+      // Show warning if non-YAML files were excluded
+      const excludedCount = fileArray.length - yamlFiles.length;
+      if (excludedCount > 0) {
+        setError(`${excludedCount} non-YAML file${excludedCount > 1 ? 's' : ''} excluded (only .yaml and .yml files are supported)`);
+      }
+
+      const fileContents: string[] = [];
+      const errors: string[] = [];
+
+      for (const file of yamlFiles) {
+        try {
+          const text = await file.text();
+          if (text.trim().length === 0) {
+            errors.push(`${file.name}: File is empty`);
+            continue;
+          }
+          fileContents.push(text);
+        } catch (err) {
+          errors.push(`${file.name}: Failed to read file - ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        setValidationErrors(errors);
+        setManifests([]);
+      } else {
+        setValidationErrors([]);
+        setManifests(fileContents);
+      }
     }
   };
 
@@ -151,7 +206,6 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
     if (!ns || ns.trim().length === 0) {
       return 'Namespace name is required';
     }
-    // RFC 1123 label format: lowercase alphanumeric characters or '-', and must start and end with alphanumeric character
     const validNamespaceRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
     if (!validNamespaceRegex.test(ns)) {
       return 'Namespace name must be a valid DNS label (lowercase alphanumeric characters and hyphens, must start and end with alphanumeric)';
@@ -163,8 +217,13 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
   };
 
   const handlePreview = async () => {
-    if (manifests().length === 0) {
+    if (deploymentType() === 'manifest' && manifests().length === 0) {
       setError('Please upload at least one YAML file');
+      return;
+    }
+
+    if (deploymentType() === 'helm' && !helmChart()) {
+      setError('Please upload a valid Helm chart');
       return;
     }
 
@@ -183,6 +242,8 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
     setError('');
 
     try {
+      // TODO: Implement preview for Helm charts
+      // For now, preview only works for manifests
       const response = await api.previewCustomApp(manifests(), selectedNamespace());
       setPreview(response);
 
@@ -193,15 +254,20 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
         setStep('preview');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to preview manifests');
+      setError(err instanceof Error ? err.message : 'Failed to preview');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeploy = async () => {
-    if (manifests().length === 0) {
+    if (deploymentType() === 'manifest' && manifests().length === 0) {
       setError('No manifests to deploy');
+      return;
+    }
+
+    if (deploymentType() === 'helm' && !helmChart()) {
+      setError('No Helm chart to deploy');
       return;
     }
 
@@ -221,29 +287,40 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
 
     try {
       let response: CustomAppDeployResponse;
-      if (props.deploymentId) {
-        // Update mode
-        response = await api.updateCustomApp(props.deploymentId, manifests(), selectedNamespace());
+
+      if (deploymentType() === 'helm') {
+        // Deploy Helm chart
+        response = await api.deployCustomAppWithHelm({
+          deploymentType: 'helm',
+          namespace: selectedNamespace(),
+          helmChart: helmChart()!,
+          values: helmValues()
+        });
       } else {
-        // Deploy mode
-        response = await api.deployCustomApp(manifests(), selectedNamespace());
+        // Deploy manifests
+        if (props.deploymentId) {
+          response = await api.updateCustomApp(props.deploymentId, manifests(), selectedNamespace());
+        } else {
+          response = await api.deployCustomApp(manifests(), selectedNamespace());
+        }
       }
+
       setDeployResponse(response);
 
       if (response.success) {
         addNotification({
           type: 'success',
-          message: response.message || `Successfully ${props.deploymentId ? 'updated' : 'deployed'} ${response.resources.length} resources`,
+          message: response.message || `Successfully deployed ${response.resources.length} resources`,
         });
         setStep('deploy');
         if (props.onSuccess) {
           props.onSuccess();
         }
       } else {
-        setError(response.errors?.join('\n') || `${props.deploymentId ? 'Update' : 'Deployment'} failed`);
+        setError(response.errors?.join('\n') || 'Deployment failed');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to ${props.deploymentId ? 'update' : 'deploy'} manifests`);
+      setError(err instanceof Error ? err.message : 'Failed to deploy');
     } finally {
       setLoading(false);
     }
@@ -272,7 +349,7 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
   };
 
   return (
-    <Modal isOpen={props.isOpen} onClose={handleClose} title={props.deploymentId ? "Modify Custom App" : "Custom App Deployment"} size="lg">
+    <Modal isOpen={props.isOpen} onClose={handleClose} title={props.deploymentId ? "Modify Custom App" : "Deploy Custom App"} size="lg">
       <div class="space-y-6">
         {/* Step indicator */}
         <div class="flex items-center justify-between mb-6">
@@ -307,6 +384,33 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
         {/* Upload Step */}
         <Show when={step() === 'upload'}>
           <div class="space-y-4">
+            {/* Deployment Type Tabs */}
+            <Show when={!props.deploymentId}>
+              <div class="flex gap-2 p-1 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <button
+                  onClick={() => setDeploymentType('manifest')}
+                  class={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    deploymentType() === 'manifest'
+                      ? 'bg-[var(--accent-primary)] text-black'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  📄 Standalone Manifests
+                </button>
+                <button
+                  onClick={() => setDeploymentType('helm')}
+                  class={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    deploymentType() === 'helm'
+                      ? 'bg-[var(--accent-primary)] text-black'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  ⎈ Helm Charts
+                </button>
+              </div>
+            </Show>
+
+            {/* Namespace Selection */}
             <div>
               <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
                 Namespace
@@ -354,70 +458,139 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
               </div>
             </div>
 
-            <div>
-              <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-                Kubernetes Manifests (YAML files)
-              </label>
-              <div
-                class={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  isDragging() ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-color)]'
-                }`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <input
-                  type="file"
-                  multiple
-                  accept=".yaml,.yml,text/yaml"
-                  onChange={(e) => handleFileSelect(e.currentTarget.files)}
-                  class="hidden"
-                  id="yaml-file-input"
-                />
-                <label for="yaml-file-input" class="cursor-pointer">
-                  <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <p class="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
-                    Drag and drop YAML files here, or click to select
-                  </p>
-                  <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    Supports multiple YAML files (.yaml, .yml)
-                  </p>
+            {/* File Upload Section - Manifest Mode */}
+            <Show when={deploymentType() === 'manifest'}>
+              <div>
+                <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                  Kubernetes Manifests (YAML files)
                 </label>
+                <div
+                  class={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                    isDragging() ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-color)]'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <input
+                    type="file"
+                    multiple
+                    webkitdirectory={false}
+                    accept=".yaml,.yml,text/yaml"
+                    onChange={(e) => handleFileSelect(e.currentTarget.files)}
+                    class="hidden"
+                    id="manifest-file-input"
+                  />
+                  <label for="manifest-file-input" class="cursor-pointer">
+                    <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p class="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
+                      Drag and drop YAML files here, or click to select
+                    </p>
+                    <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Supports multiple YAML files (.yaml, .yml)
+                    </p>
+                  </label>
+                </div>
               </div>
+            </Show>
 
-              <Show when={files().length > 0}>
-                <div class="mt-4 p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-                  <p class="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+            {/* File Upload Section - Helm Mode */}
+            <Show when={deploymentType() === 'helm'}>
+              <div>
+                <label class="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                  Helm Chart Directory
+                </label>
+                <div
+                  class={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                    isDragging() ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-color)]'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <input
+                    type="file"
+                    multiple
+                    webkitdirectory={true}
+                    directory=""
+                    mozdirectory=""
+                    onChange={(e) => handleFileSelect(e.currentTarget.files)}
+                    class="hidden"
+                    id="helm-folder-input"
+                  />
+                  <input
+                    type="file"
+                    multiple
+                    accept=".yaml,.yml"
+                    onChange={(e) => handleFileSelect(e.currentTarget.files)}
+                    class="hidden"
+                    id="helm-file-input"
+                  />
+                  <div class="space-y-4">
+                    <label for="helm-folder-input" class="cursor-pointer block">
+                      <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                      <p class="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
+                        Select Helm Chart Folder
+                      </p>
+                      <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        Must contain Chart.yaml, values.yaml, and templates/
+                      </p>
+                    </label>
+                    <div class="text-xs" style={{ color: 'var(--text-muted)' }}>or</div>
+                    <label for="helm-file-input" class="cursor-pointer block">
+                      <p class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                        Select Individual Files
+                      </p>
+                      <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        Chart.yaml, values.yaml, and template files
+                      </p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </Show>
+
+            {/* File List */}
+            <Show when={files().length > 0}>
+              <div class="mt-4 p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                <p class="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                  <Show when={deploymentType() === 'helm' && helmChart()}>
+                    Helm Chart: <span class="font-mono">{helmChart()?.chartName} v{helmChart()?.chartVersion}</span>
+                  </Show>
+                  <Show when={deploymentType() === 'manifest'}>
                     Selected files ({files().length}):
-                  </p>
-                  <ul class="space-y-1">
-                    <For each={files()}>
-                      {(file) => (
-                        <li class="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          {file.name} ({(file.size / 1024).toFixed(2)} KB)
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </div>
-              </Show>
+                  </Show>
+                </p>
+                <ul class="space-y-1 max-h-40 overflow-y-auto">
+                  <For each={files()}>
+                    {(file) => (
+                      <li class="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span class="truncate">{file.webkitRelativePath || file.name}</span>
+                        <span class="text-xs opacity-75">({(file.size / 1024).toFixed(1)} KB)</span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </div>
+            </Show>
 
-              <Show when={validationErrors().length > 0}>
-                <div class="mt-4 p-4 rounded-lg border-l-4" style={{ background: 'rgba(239, 68, 68, 0.1)', 'border-left-color': '#ef4444' }}>
-                  <p class="text-sm font-medium mb-2" style={{ color: '#ef4444' }}>Validation Errors:</p>
-                  <ul class="text-sm space-y-1" style={{ color: '#ef4444' }}>
-                    <For each={validationErrors()}>
-                      {(err) => <li>• {err}</li>}
-                    </For>
-                  </ul>
-                </div>
-              </Show>
-            </div>
+            <Show when={validationErrors().length > 0}>
+              <div class="mt-4 p-4 rounded-lg border-l-4" style={{ background: 'rgba(239, 68, 68, 0.1)', 'border-left-color': '#ef4444' }}>
+                <p class="text-sm font-medium mb-2" style={{ color: '#ef4444' }}>Validation Errors:</p>
+                <ul class="text-sm space-y-1" style={{ color: '#ef4444' }}>
+                  <For each={validationErrors()}>
+                    {(err) => <li>• {err}</li>}
+                  </For>
+                </ul>
+              </div>
+            </Show>
 
             <Show when={error()}>
               <div class="p-4 rounded-lg border-l-4" style={{ background: 'rgba(239, 68, 68, 0.1)', 'border-left-color': '#ef4444' }}>
@@ -435,11 +608,18 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
               </button>
               <button
                 onClick={handlePreview}
-                disabled={manifests().length === 0 || loading() || validationErrors().length > 0 || !selectedNamespace() || !selectedNamespace().trim()}
+                disabled={
+                  (deploymentType() === 'manifest' && manifests().length === 0) ||
+                  (deploymentType() === 'helm' && !helmChart()) ||
+                  loading() ||
+                  validationErrors().length > 0 ||
+                  !selectedNamespace() ||
+                  !selectedNamespace().trim()
+                }
                 class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: 'var(--accent-primary)', color: '#000' }}
               >
-                {loading() ? 'Previewing...' : 'Preview Changes'}
+                {loading() ? 'Processing...' : deploymentType() === 'helm' ? 'Deploy Chart' : 'Preview Changes'}
               </button>
             </div>
           </div>
@@ -654,4 +834,3 @@ const CustomAppDeployWizard: Component<CustomAppDeployWizardProps> = (props) => 
 };
 
 export default CustomAppDeployWizard;
-

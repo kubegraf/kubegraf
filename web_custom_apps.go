@@ -33,16 +33,31 @@ const (
 	kubegrafAppIDLabel = "kubegraf.io/app-id"
 )
 
-// CustomAppDeployRequest represents a request to deploy custom app manifests
+// CustomAppDeployRequest represents a request to deploy custom app manifests or Helm charts
 type CustomAppDeployRequest struct {
-	Manifests []string `json:"manifests"` // Array of YAML strings
-	Namespace string   `json:"namespace"`
+	DeploymentType string            `json:"deploymentType"` // "manifest" or "helm"
+	Manifests      []string          `json:"manifests"`      // Array of YAML strings (for manifest deployments)
+	Namespace      string            `json:"namespace"`
+	HelmChart      *HelmChartData    `json:"helmChart,omitempty"` // Helm chart data (for helm deployments)
+	Values         map[string]string `json:"values,omitempty"`    // Helm values overrides
+}
+
+// HelmChartData represents uploaded Helm chart files
+type HelmChartData struct {
+	ChartYAML    string            `json:"chartYaml"`    // Chart.yaml content
+	ValuesYAML   string            `json:"valuesYaml"`   // values.yaml content
+	Templates    map[string]string `json:"templates"`    // Template files (filename -> content)
+	ChartName    string            `json:"chartName"`    // Extracted from Chart.yaml
+	ChartVersion string            `json:"chartVersion"` // Extracted from Chart.yaml
 }
 
 // CustomAppPreviewRequest represents a request to preview custom app deployment
 type CustomAppPreviewRequest struct {
-	Manifests []string `json:"manifests"` // Array of YAML strings
-	Namespace string   `json:"namespace"`
+	DeploymentType string            `json:"deploymentType"` // "manifest" or "helm"
+	Manifests      []string          `json:"manifests"`      // Array of YAML strings (for manifest deployments)
+	Namespace      string            `json:"namespace"`
+	HelmChart      *HelmChartData    `json:"helmChart,omitempty"` // Helm chart data (for helm deployments)
+	Values         map[string]string `json:"values,omitempty"`    // Helm values overrides
 }
 
 // ResourcePreview represents a preview of a single resource
@@ -172,12 +187,36 @@ func (ws *WebServer) handleCustomAppDeploy(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if len(req.Manifests) == 0 {
-		json.NewEncoder(w).Encode(CustomAppDeployResponse{
-			Success: false,
-			Errors:  []string{"No manifests provided"},
-		})
-		return
+	// Validate based on deployment type
+	if req.DeploymentType == "" {
+		req.DeploymentType = "manifest" // Default to manifest
+	}
+
+	if req.DeploymentType == "helm" {
+		// Validate Helm chart deployment
+		if req.HelmChart == nil {
+			json.NewEncoder(w).Encode(CustomAppDeployResponse{
+				Success: false,
+				Errors:  []string{"Helm chart data is required for helm deployment"},
+			})
+			return
+		}
+		if req.HelmChart.ChartYAML == "" || len(req.HelmChart.Templates) == 0 {
+			json.NewEncoder(w).Encode(CustomAppDeployResponse{
+				Success: false,
+				Errors:  []string{"Chart.yaml and templates are required for helm deployment"},
+			})
+			return
+		}
+	} else {
+		// Validate manifest deployment
+		if len(req.Manifests) == 0 {
+			json.NewEncoder(w).Encode(CustomAppDeployResponse{
+				Success: false,
+				Errors:  []string{"No manifests provided"},
+			})
+			return
+		}
 	}
 
 	if req.Namespace == "" {
@@ -189,7 +228,31 @@ func (ws *WebServer) handleCustomAppDeploy(w http.ResponseWriter, r *http.Reques
 	}
 
 	ctx := r.Context()
-	deploy, err := ws.deployCustomAppManifests(ctx, req.Manifests, req.Namespace)
+
+	var manifests []string
+	var deploy *CustomAppDeployResponse
+	var err error
+
+	// Handle Helm chart deployment
+	if req.DeploymentType == "helm" {
+		releaseName := req.HelmChart.ChartName
+		if releaseName == "" {
+			releaseName = "custom-release"
+		}
+		manifests, err = ws.renderHelmTemplates(req.HelmChart, req.Values, req.Namespace, releaseName)
+		if err != nil {
+			json.NewEncoder(w).Encode(CustomAppDeployResponse{
+				Success: false,
+				Errors:  []string{fmt.Sprintf("Failed to render Helm templates: %v", err)},
+			})
+			return
+		}
+		deploy, err = ws.deployCustomApp(ctx, manifests, req.Namespace, "helm", req.HelmChart.ChartName, req.HelmChart.ChartVersion)
+	} else {
+		// Handle manifest deployment
+		deploy, err = ws.deployCustomApp(ctx, req.Manifests, req.Namespace, "manifest", "", "")
+	}
+
 	if err != nil {
 		json.NewEncoder(w).Encode(CustomAppDeployResponse{
 			Success: false,
@@ -326,8 +389,40 @@ func (ws *WebServer) previewCustomAppManifests(ctx context.Context, manifests []
 	}, nil
 }
 
-// deployCustomAppManifests applies manifests to the cluster
-func (ws *WebServer) deployCustomAppManifests(ctx context.Context, manifests []string, namespace string) (*CustomAppDeployResponse, error) {
+// renderHelmTemplates renders Helm chart templates with values
+func (ws *WebServer) renderHelmTemplates(helmChart *HelmChartData, values map[string]string, namespace string, releaseName string) ([]string, error) {
+	// For now, we'll do a simple template rendering
+	// In production, you might want to use the Helm SDK for proper rendering
+	var renderedManifests []string
+
+	// Simple value substitution (this is a simplified version)
+	// In production, use helm.sh/helm/v3/pkg/chart and helm.sh/helm/v3/pkg/chartutil
+	for filename, templateContent := range helmChart.Templates {
+		// Skip non-YAML files
+		if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
+			continue
+		}
+
+		// Basic template variable substitution
+		rendered := templateContent
+		rendered = strings.ReplaceAll(rendered, "{{ .Release.Name }}", releaseName)
+		rendered = strings.ReplaceAll(rendered, "{{ .Release.Namespace }}", namespace)
+		rendered = strings.ReplaceAll(rendered, "{{ .Chart.Name }}", helmChart.ChartName)
+		rendered = strings.ReplaceAll(rendered, "{{ .Chart.Version }}", helmChart.ChartVersion)
+
+		// Replace custom values
+		for key, value := range values {
+			rendered = strings.ReplaceAll(rendered, fmt.Sprintf("{{ .Values.%s }}", key), value)
+		}
+
+		renderedManifests = append(renderedManifests, rendered)
+	}
+
+	return renderedManifests, nil
+}
+
+// deployCustomApp applies manifests or rendered Helm charts to the cluster
+func (ws *WebServer) deployCustomApp(ctx context.Context, manifests []string, namespace string, deploymentType string, chartName string, chartVersion string) (*CustomAppDeployResponse, error) {
 	deploymentID := fmt.Sprintf("kubegraf-%d", time.Now().Unix())
 	var allResources []ResourcePreview
 	var resourceCount = make(map[string]int)
@@ -406,12 +501,19 @@ func (ws *WebServer) deployCustomAppManifests(ctx context.Context, manifests []s
 			metaObj.SetNamespace(objNamespace)
 		}
 
-		// Add deployment ID label
+		// Add deployment ID and metadata labels
 		labels := metaObj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		labels[kubegrafAppIDLabel] = deploymentID
+		labels["kubegraf.io/deployment-type"] = deploymentType
+		if deploymentType == "helm" && chartName != "" {
+			labels["kubegraf.io/chart-name"] = chartName
+			if chartVersion != "" {
+				labels["kubegraf.io/chart-version"] = chartVersion
+			}
+		}
 		metaObj.SetLabels(labels)
 
 		// Apply the resource
@@ -659,13 +761,16 @@ func (ws *WebServer) objectToYAML(obj runtime.Object) (string, error) {
 
 // CustomAppInfo represents information about a deployed custom app
 type CustomAppInfo struct {
-	DeploymentID  string                 `json:"deploymentId"`
-	Name          string                 `json:"name"`
-	Namespace     string                 `json:"namespace"`
-	Resources     []ResourcePreview      `json:"resources"`
-	ResourceCount map[string]int         `json:"resourceCount"`
-	CreatedAt     string                 `json:"createdAt"`
-	Manifests     []string               `json:"manifests,omitempty"`
+	DeploymentID   string                 `json:"deploymentId"`
+	Name           string                 `json:"name"`
+	Namespace      string                 `json:"namespace"`
+	Resources      []ResourcePreview      `json:"resources"`
+	ResourceCount  map[string]int         `json:"resourceCount"`
+	CreatedAt      string                 `json:"createdAt"`
+	Manifests      []string               `json:"manifests,omitempty"`
+	DeploymentType string                 `json:"deploymentType"` // "manifest" or "helm"
+	ChartName      string                 `json:"chartName,omitempty"`    // For Helm deployments
+	ChartVersion   string                 `json:"chartVersion,omitempty"` // For Helm deployments
 }
 
 // handleCustomAppList handles GET /api/custom-apps/list
@@ -1035,11 +1140,21 @@ func (ws *WebServer) queryLabeledResources(ctx context.Context, dynamicClient dy
 		}
 
 		if deploymentGroups[appID] == nil {
+			deploymentType := labels["kubegraf.io/deployment-type"]
+			if deploymentType == "" {
+				deploymentType = "manifest" // Default for backward compatibility
+			}
+			chartName := labels["kubegraf.io/chart-name"]
+			chartVersion := labels["kubegraf.io/chart-version"]
+
 			deploymentGroups[appID] = &CustomAppInfo{
-				DeploymentID:  appID,
-				Namespace:     item.GetNamespace(),
-				Resources:     []ResourcePreview{},
-				ResourceCount: make(map[string]int),
+				DeploymentID:   appID,
+				Namespace:      item.GetNamespace(),
+				Resources:      []ResourcePreview{},
+				ResourceCount:  make(map[string]int),
+				DeploymentType: deploymentType,
+				ChartName:      chartName,
+				ChartVersion:   chartVersion,
 			}
 		}
 
@@ -1081,10 +1196,11 @@ func (ws *WebServer) getCustomApp(ctx context.Context, deploymentID string) (*Cu
 
 	labelSelector := fmt.Sprintf("%s=%s", kubegrafAppIDLabel, deploymentID)
 	app := &CustomAppInfo{
-		DeploymentID:  deploymentID,
-		Resources:     []ResourcePreview{},
-		ResourceCount: make(map[string]int),
-		Manifests:     []string{},
+		DeploymentID:   deploymentID,
+		Resources:      []ResourcePreview{},
+		ResourceCount:  make(map[string]int),
+		Manifests:      []string{},
+		DeploymentType: "manifest", // Custom apps deployed via manifests
 	}
 
 	// Common resource types to query
@@ -1174,11 +1290,19 @@ func (ws *WebServer) getCustomApp(ctx context.Context, deploymentID string) (*Cu
 
 // updateCustomAppManifests updates/redeploys a custom app with new manifests
 func (ws *WebServer) updateCustomAppManifests(ctx context.Context, deploymentID string, manifests []string, namespace string) (*CustomAppDeployResponse, error) {
-	// First verify the app exists
-	_, err := ws.getCustomApp(ctx, deploymentID)
+	// First verify the app exists and get its metadata
+	existingApp, err := ws.getCustomApp(ctx, deploymentID)
 	if err != nil {
 		return nil, fmt.Errorf("custom app not found: %v", err)
 	}
+
+	// Preserve the deployment type and chart metadata from existing app
+	deploymentType := existingApp.DeploymentType
+	if deploymentType == "" {
+		deploymentType = "manifest" // Default to manifest for backward compatibility
+	}
+	chartName := existingApp.ChartName
+	chartVersion := existingApp.ChartVersion
 
 	// Use the same deployment ID to maintain tracking
 	var allResources []ResourcePreview
@@ -1233,12 +1357,19 @@ func (ws *WebServer) updateCustomAppManifests(ctx context.Context, deploymentID 
 			metaObj.SetNamespace(objNamespace)
 		}
 
-		// Add deployment ID label
+		// Add deployment ID and metadata labels
 		labels := metaObj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		labels[kubegrafAppIDLabel] = deploymentID
+		labels["kubegraf.io/deployment-type"] = deploymentType
+		if deploymentType == "helm" && chartName != "" {
+			labels["kubegraf.io/chart-name"] = chartName
+			if chartVersion != "" {
+				labels["kubegraf.io/chart-version"] = chartVersion
+			}
+		}
 		metaObj.SetLabels(labels)
 
 		// Apply the resource

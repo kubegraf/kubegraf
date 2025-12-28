@@ -990,7 +990,12 @@ export const api = {
   deployCustomApp: (manifests: string[], namespace: string) =>
     fetchAPI<CustomAppDeployResponse>('/custom-apps/deploy', {
       method: 'POST',
-      body: JSON.stringify({ manifests, namespace }),
+      body: JSON.stringify({ deploymentType: 'manifest', manifests, namespace }),
+    }),
+  deployCustomAppWithHelm: (request: CustomAppDeployRequest) =>
+    fetchAPI<CustomAppDeployResponse>('/custom-apps/deploy', {
+      method: 'POST',
+      body: JSON.stringify(request),
     }),
   listCustomApps: () =>
     fetchAPI<{ success: boolean; apps: CustomAppInfo[] }>('/custom-apps/list'),
@@ -1911,6 +1916,22 @@ export interface ResourcePreview {
   apiVersion: string;
 }
 
+export interface HelmChartData {
+  chartYaml: string;
+  valuesYaml: string;
+  templates: Record<string, string>; // filename -> content
+  chartName: string;
+  chartVersion: string;
+}
+
+export interface CustomAppDeployRequest {
+  deploymentType: 'manifest' | 'helm';
+  manifests?: string[]; // For manifest deployments
+  namespace: string;
+  helmChart?: HelmChartData; // For Helm deployments
+  values?: Record<string, string>; // Helm values overrides
+}
+
 export interface CustomAppPreviewResponse {
   success: boolean;
   resources: ResourcePreview[];
@@ -1937,4 +1958,7 @@ export interface CustomAppInfo {
   resourceCount: Record<string, number>;
   createdAt: string;
   manifests?: string[];
+  deploymentType?: string; // "manifest" or "helm"
+  chartName?: string; // For Helm deployments
+  chartVersion?: string; // For Helm deployments
 }
