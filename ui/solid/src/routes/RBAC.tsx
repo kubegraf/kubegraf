@@ -370,12 +370,6 @@ const RBAC: Component = () => {
           </select>
         </div>
       </div>
-      <div class="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 class="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>RBAC</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Manage Roles, RoleBindings, ClusterRoles, and ClusterRoleBindings</p>
-        </div>
-      </div>
 
       {/* Tabs */}
       <div class="flex gap-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
