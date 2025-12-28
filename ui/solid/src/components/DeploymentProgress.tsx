@@ -1,3 +1,4 @@
+// Updated: 2025-12-28 15:30 - Fixed bottom-right positioning
 import { Component, Show, For, createSignal, onCleanup, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
 
@@ -238,7 +239,8 @@ const DeploymentProgress: Component = () => {
     <Show when={deployments().length > 0}>
       <Portal>
         <div
-          class="fixed top-20 right-4 z-[10000] transition-all duration-300"
+          class="fixed right-4 bottom-24 z-[10000] transition-all duration-300"
+          data-version="1.7.29"
           style={{
             width: isMinimized() ? '320px' : '420px',
             'max-width': 'calc(100vw - 2rem)',
@@ -246,10 +248,11 @@ const DeploymentProgress: Component = () => {
           }}
         >
           <div
-            class="rounded-lg shadow-2xl overflow-hidden"
+            class="rounded-lg shadow-2xl overflow-hidden backdrop-blur-xl"
             style={{
-              background: 'var(--card-bg)',
-              border: '1px solid var(--border-color)',
+              background: 'var(--bg-card)',
+              border: '2px solid var(--border-color)',
+              'box-shadow': '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
             }}
           >
             {/* Header */}

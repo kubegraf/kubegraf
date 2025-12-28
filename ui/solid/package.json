@@ -1,6 +1,6 @@
 {
   "name": "kubegraf-ui",
-  "version": "1.7.27",
+  "version": "1.7.29",
   "description": "High-performance Kubernetes dashboard built with Solid.js",
   "author": "KubeGraf Contributors",
   "type": "module",
