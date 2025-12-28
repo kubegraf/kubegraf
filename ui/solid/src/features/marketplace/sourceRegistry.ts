@@ -14,8 +14,9 @@ export interface AppSourceMetadata {
   chartDigest?: string;
   verified: boolean;
   verifiedBy?: string;
-  trustLabel: string;    // e.g. "Verified publisher" | "Community source"
+  trustLabel: string;    // e.g. "Verified publisher" | "Community source" | "Manifest deployment"
   integrityNote: string; // Human-readable integrity/provenance summary
+  isManifestDeployment?: boolean; // True for apps deployed via YAML manifests (not Helm)
 }
 
 // Simple curated index keyed by "<repo>::<chartName>" for well-known charts.
@@ -59,7 +60,53 @@ function buildKey(app: LegacyApp): string {
   return `${app.chartRepo}::${app.chartName}`;
 }
 
-export function getAppSourceMetadata(app: LegacyApp): AppSourceMetadata {
+export function getAppSourceMetadata(app: LegacyApp & { deploymentType?: string; chartName?: string; chartVersion?: string }): AppSourceMetadata {
+  // Check if this is a manifest-based deployment (not Helm)
+  const isManifestDeployment = app.deploymentType === 'manifest' ||
+    (app.chartName && app.chartName.startsWith('kubegraf-') && !app.chartRepo);
+
+  // Check if this is a Helm chart deployment (uploaded chart, not from repo)
+  const isHelmChartDeployment = app.deploymentType === 'helm';
+
+  // For manifest deployments, return appropriate metadata
+  if (isManifestDeployment) {
+    return {
+      publisher: app.displayName || app.name || 'Custom manifest',
+      helmRepo: '',
+      chartName: app.name || 'Custom App',
+      chartVersion: undefined,
+      appVersion: app.version,
+      officialDocsUrl: undefined,
+      githubUrl: undefined,
+      chartDigest: undefined,
+      verified: false,
+      verifiedBy: undefined,
+      trustLabel: 'Manifest deployment',
+      integrityNote: 'Deployed directly from Kubernetes manifests (YAML files), not from a Helm chart repository.',
+      isManifestDeployment: true,
+    };
+  }
+
+  // For Helm chart deployments (uploaded chart files)
+  if (isHelmChartDeployment) {
+    return {
+      publisher: app.displayName || app.chartName || app.name || 'Custom Helm chart',
+      helmRepo: 'Uploaded chart',
+      chartName: app.chartName || app.name || 'Custom Chart',
+      chartVersion: app.chartVersion || app.version,
+      appVersion: app.version,
+      officialDocsUrl: undefined,
+      githubUrl: undefined,
+      chartDigest: undefined,
+      verified: false,
+      verifiedBy: undefined,
+      trustLabel: 'Helm chart deployment',
+      integrityNote: 'Deployed from uploaded Helm chart files. Chart was rendered and applied to the cluster.',
+      isManifestDeployment: false,
+    };
+  }
+
+  // Original Helm-based logic
   const key = buildKey(app);
   const curated = CURATED_SOURCES[key] || {};
 
@@ -93,5 +140,6 @@ export function getAppSourceMetadata(app: LegacyApp): AppSourceMetadata {
     verifiedBy: verified ? 'repo allowlist + curated index' : undefined,
     trustLabel,
     integrityNote,
+    isManifestDeployment: false,
   };
 }

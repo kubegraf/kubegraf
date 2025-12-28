@@ -104,6 +104,11 @@ const Apps: Component<AppsProps> = (props) => {
   const [clusterToDelete, setClusterToDelete] = createSignal<{ name: string; type: string } | null>(null);
   const [deletingCluster, setDeletingCluster] = createSignal(false);
 
+  // Deployed custom app action modals
+  const [showRestartCustomAppModal, setShowRestartCustomAppModal] = createSignal(false);
+  const [showDeleteDeployedCustomAppModal, setShowDeleteDeployedCustomAppModal] = createSignal(false);
+  const [deployedCustomAppToAction, setDeployedCustomAppToAction] = createSignal<App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo } | null>(null);
+
   // Auto-filter to Local Cluster if coming from no-cluster overlay
   onMount(() => {
     const autoFilter = sessionStorage.getItem('kubegraf-auto-filter');
@@ -799,10 +804,18 @@ const Apps: Component<AppsProps> = (props) => {
     }
   };
 
-  // Handle restart deployed custom app
-  const handleRestartCustomApp = async (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
+  // Handle restart deployed custom app - show confirmation modal
+  const handleRestartCustomApp = (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
     if (!app.isDeployedCustomApp || !app.customAppInfo) return;
-    
+    setDeployedCustomAppToAction(app);
+    setShowRestartCustomAppModal(true);
+  };
+
+  // Confirm restart deployed custom app
+  const confirmRestartCustomApp = async () => {
+    const app = deployedCustomAppToAction();
+    if (!app || !app.customAppInfo) return;
+
     try {
       const response = await api.restartCustomApp(app.customAppInfo.deploymentId);
       if (response.success) {
@@ -814,17 +827,24 @@ const Apps: Component<AppsProps> = (props) => {
     } catch (err) {
       addNotification('Failed to restart app', 'error');
       console.error(err);
+    } finally {
+      setShowRestartCustomAppModal(false);
+      setDeployedCustomAppToAction(null);
     }
   };
 
-  // Handle delete deployed custom app
-  const handleDeleteDeployedCustomApp = async (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
+  // Handle delete deployed custom app - show confirmation modal
+  const handleDeleteDeployedCustomApp = (app: App & { isDeployedCustomApp?: boolean; customAppInfo?: CustomAppInfo }) => {
     if (!app.isDeployedCustomApp || !app.customAppInfo) return;
-    
-    if (!confirm(`Are you sure you want to delete "${app.displayName}"? This will delete all resources associated with this deployment.`)) {
-      return;
-    }
-    
+    setDeployedCustomAppToAction(app);
+    setShowDeleteDeployedCustomAppModal(true);
+  };
+
+  // Confirm delete deployed custom app
+  const confirmDeleteDeployedCustomApp = async () => {
+    const app = deployedCustomAppToAction();
+    if (!app || !app.customAppInfo) return;
+
     try {
       const response = await api.deleteCustomApp(app.customAppInfo.deploymentId);
       if (response.success) {
@@ -836,6 +856,9 @@ const Apps: Component<AppsProps> = (props) => {
     } catch (err) {
       addNotification('Failed to delete app', 'error');
       console.error(err);
+    } finally {
+      setShowDeleteDeployedCustomAppModal(false);
+      setDeployedCustomAppToAction(null);
     }
   };
 
@@ -1038,7 +1061,9 @@ const Apps: Component<AppsProps> = (props) => {
                               : 'bg-slate-600/20 text-slate-200 border border-slate-500/40'
                           }`}
                         >
-                          {sourceMeta.verified ? (
+                          {sourceMeta.isManifestDeployment ? (
+                            <>Manifest deployment</>
+                          ) : sourceMeta.verified ? (
                             <>
                               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1052,25 +1077,32 @@ const Apps: Component<AppsProps> = (props) => {
                       </div>
                       <div class="leading-relaxed space-y-0.5">
                         <div>
-                          Artifact from <span class="font-semibold">{sourceMeta.publisher}</span>
+                          {sourceMeta.isManifestDeployment ? 'Deployed from' : 'Artifact from'} <span class="font-semibold">{sourceMeta.publisher}</span>
                         </div>
-                        <div>
-                          <span class="opacity-75">Repo: </span>
-                          <a
-                            href={sourceMeta.helmRepo}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="underline hover:opacity-80"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {sourceMeta.helmRepo}
-                          </a>
-                        </div>
-                        <div>
-                          <span class="opacity-75">Chart: </span>
-                          <span>{sourceMeta.chartName}</span>
-                          {sourceMeta.chartVersion && <span> · v{sourceMeta.chartVersion}</span>}
-                        </div>
+                        <Show when={!sourceMeta.isManifestDeployment && sourceMeta.helmRepo}>
+                          <div>
+                            <span class="opacity-75">Repo: </span>
+                            <a
+                              href={sourceMeta.helmRepo}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="underline hover:opacity-80"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {sourceMeta.helmRepo}
+                            </a>
+                          </div>
+                          <div>
+                            <span class="opacity-75">Chart: </span>
+                            <span>{sourceMeta.chartName}</span>
+                            {sourceMeta.chartVersion && <span> · v{sourceMeta.chartVersion}</span>}
+                          </div>
+                        </Show>
+                        <Show when={sourceMeta.isManifestDeployment}>
+                          <div class="text-xs opacity-90">
+                            Kubernetes manifests (YAML files)
+                          </div>
+                        </Show>
                         <Show when={app.sourceCitation}>
                           <div class="pt-1 border-t text-[11px]" style={{ borderColor: 'rgba(148, 163, 184, 0.3)' }}>
                             {app.sourceCitation}
@@ -1093,34 +1125,77 @@ const Apps: Component<AppsProps> = (props) => {
                       </Show>
 
                       <Show when={!isDeploying()}>
-                        <button
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            setSelectedApp(app);
-                            if (app.name === 'mlflow') {
-                              setShowMLflowWizard(true);
-                            } else if (app.name === 'feast') {
-                              setShowFeastWizard(true);
-                            } else {
-                              setShowInstallModal(true);
-                            }
-                          }}
-                          class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-                          style={{ background: 'var(--accent-primary)', color: '#000' }}
-                        >
-                          Install
-                        </button>
-                        <Show when={app.isCustom}>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteCustomApp(app); }}
-                            class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80 ml-2"
-                            style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
-                            title="Remove custom app"
-                          >
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
+                        {/* Buttons for deployed custom apps */}
+                        <Show when={(app as any).isDeployedCustomApp} fallback={
+                          <>
+                            {/* Hide Install button for deployed custom apps */}
+                            <Show when={!(app as any).isDeployedCustomApp}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedApp(app);
+                                  if (app.name === 'mlflow') {
+                                    setShowMLflowWizard(true);
+                                  } else if (app.name === 'feast') {
+                                    setShowFeastWizard(true);
+                                  } else {
+                                    setShowInstallModal(true);
+                                  }
+                                }}
+                                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+                                style={{ background: 'var(--accent-primary)', color: '#000' }}
+                              >
+                                Install
+                              </button>
+                            </Show>
+                            <Show when={app.isCustom}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteCustomApp(app); }}
+                                class="p-1.5 rounded-lg text-sm transition-all hover:opacity-80 ml-2"
+                                style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                                title="Remove custom app"
+                              >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </Show>
+                          </>
+                        }>
+                          <div class="flex gap-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); navigateToPods(app); }}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
+                              title="View Resources"
+                            >
+                              View
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleModifyCustomApp(app as any); }}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent-primary)' }}
+                              title="Modify/Redeploy"
+                            >
+                              Modify
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRestartCustomApp(app as any); }}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24' }}
+                              title="Restart"
+                            >
+                              Restart
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteDeployedCustomApp(app as any); }}
+                              class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                              style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error-color)' }}
+                              title="Delete"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </Show>
                       </Show>
                     </div>
@@ -1356,6 +1431,14 @@ const Apps: Component<AppsProps> = (props) => {
                               </>
                             }>
                               {/* Deployed Custom App Actions */}
+                              <button
+                                onClick={() => navigateToPods(app)}
+                                class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
+                                style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success-color)' }}
+                                title="View Resources"
+                              >
+                                View
+                              </button>
                               <button
                                 onClick={() => handleModifyCustomApp(app as any)}
                                 class="px-3 py-1 rounded text-sm transition-all hover:opacity-80"
@@ -2398,6 +2481,125 @@ const Apps: Component<AppsProps> = (props) => {
                 </svg>
               </Show>
               {deletingCluster() ? 'Deleting...' : 'Delete Cluster'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Restart Deployed Custom App Confirmation Modal */}
+      <Modal
+        isOpen={showRestartCustomAppModal()}
+        onClose={() => {
+          setShowRestartCustomAppModal(false);
+          setDeployedCustomAppToAction(null);
+        }}
+        title="Restart Custom App"
+        size="xs"
+      >
+        <div class="space-y-4">
+          <div class="p-4 rounded-lg border-l-4" style={{
+            background: 'rgba(251, 191, 36, 0.1)',
+            'border-left-color': '#fbbf24'
+          }}>
+            <div class="flex items-start gap-2">
+              <svg class="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div class="flex-1">
+                <div class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  Are you sure you want to restart <span class="font-semibold">{deployedCustomAppToAction()?.displayName}</span>?
+                </div>
+                <div class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  This will restart all pods associated with this deployment.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setShowRestartCustomAppModal(false);
+                setDeployedCustomAppToAction(null);
+              }}
+              class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmRestartCustomApp}
+              class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'rgba(251, 191, 36, 0.2)',
+                color: '#fbbf24'
+              }}
+            >
+              Restart
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Deployed Custom App Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteDeployedCustomAppModal()}
+        onClose={() => {
+          setShowDeleteDeployedCustomAppModal(false);
+          setDeployedCustomAppToAction(null);
+        }}
+        title="Delete Custom App"
+        size="xs"
+      >
+        <div class="space-y-4">
+          <div class="p-4 rounded-lg border-l-4" style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            'border-left-color': '#ef4444'
+          }}>
+            <div class="flex items-start gap-2">
+              <svg class="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: '#ef4444' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div class="flex-1">
+                <div class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  Are you sure you want to delete <span class="font-semibold">{deployedCustomAppToAction()?.displayName}</span>?
+                </div>
+                <div class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  This will permanently delete all {Object.values(deployedCustomAppToAction()?.customAppInfo?.resourceCount || {}).reduce((a, b) => a + b, 0)} resources associated with this deployment.
+                </div>
+                <div class="text-xs mt-2 font-semibold" style={{ color: '#ef4444' }}>
+                  This action cannot be undone.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setShowDeleteDeployedCustomAppModal(false);
+                setDeployedCustomAppToAction(null);
+              }}
+              class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDeleteDeployedCustomApp}
+              class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'rgba(239, 68, 68, 0.2)',
+                color: '#ef4444'
+              }}
+            >
+              Delete
             </button>
           </div>
         </div>
