@@ -2886,6 +2886,13 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 	}
 	defer conn.Close()
 
+	// Check for Windows and use pipe-based approach
+	if runtime.GOOS == "windows" {
+		ws.handleWindowsTerminalWS(conn, r)
+		return
+	}
+
+	// Unix-like systems: use PTY
 	// Determine shell to use - prefer zsh on macOS, then bash, then sh
 	shell := "/bin/zsh"
 	shellArgs := []string{"-i"} // Interactive mode
@@ -3044,6 +3051,206 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 				}); err != nil {
 					log.Printf("Error resizing PTY: %v", err)
 				}
+			}
+		}
+	}
+}
+
+// handleWindowsTerminalWS handles terminal WebSocket connections on Windows
+// Since PTY doesn't work on Windows, we use pipes with PowerShell
+func (ws *WebServer) handleWindowsTerminalWS(conn *websocket.Conn, r *http.Request) {
+	// Get preferred shell from query parameter
+	preferredShell := r.URL.Query().Get("shell")
+
+	// Determine shell to use
+	var shell string
+	var shellArgs []string
+
+	if preferredShell != "" {
+		// User specified a shell preference
+		shell = preferredShell
+		switch preferredShell {
+		case "pwsh.exe", "powershell.exe":
+			shellArgs = []string{"-NoLogo", "-NoProfile", "-NoExit"}
+		case "cmd.exe":
+			shellArgs = []string{"/K"}
+		case "wsl.exe":
+			shellArgs = []string{"-e", "bash", "-i"}
+		case "bash.exe", "git-bash.exe":
+			shellArgs = []string{"--login", "-i"}
+		default:
+			shellArgs = []string{}
+		}
+	} else {
+		// Auto-detect best available shell
+		shells := getAvailableWindowsShells()
+		if len(shells) > 0 {
+			shell = shells[0].path
+			shellArgs = shells[0].args
+		} else {
+			// Fallback to PowerShell
+			shell = "powershell.exe"
+			shellArgs = []string{"-NoLogo", "-NoProfile", "-NoExit"}
+		}
+	}
+
+	// Get home directory for working directory
+	homeDir := os.Getenv("USERPROFILE")
+	if homeDir == "" {
+		homeDir = "C:\\"
+	}
+
+	// Create command
+	cmd := exec.Command(shell, shellArgs...)
+	cmd.Dir = homeDir
+	cmd.Env = os.Environ()
+
+	// Create pipes for stdin/stdout/stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to create stdin pipe: %v\x1b[0m\r\n", err)))
+		return
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to create stdout pipe: %v\x1b[0m\r\n", err)))
+		return
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to create stderr pipe: %v\x1b[0m\r\n", err)))
+		return
+	}
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to start shell: %v\x1b[0m\r\n", err)))
+		return
+	}
+
+	defer func() {
+		stdin.Close()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		cmd.Wait()
+	}()
+
+	// Use a channel to signal when the connection should close
+	done := make(chan bool, 1)
+
+	// Read from stdout and send to WebSocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			n, err := stdout.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("stdout read error: %v", err)
+				}
+				done <- true
+				return
+			}
+			if n > 0 {
+				if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+					done <- true
+					return
+				}
+			}
+		}
+	}()
+
+	// Read from stderr and send to WebSocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			n, err := stderr.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("stderr read error: %v", err)
+				}
+				return
+			}
+			if n > 0 {
+				if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+					done <- true
+					return
+				}
+			}
+		}
+	}()
+
+	// Wait for command to finish
+	go func() {
+		err := cmd.Wait()
+		select {
+		case <-done:
+			return
+		default:
+			if err != nil {
+				conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[33m[Shell exited: %v]\x1b[0m\r\n", err)))
+			} else {
+				conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m[Shell exited]\x1b[0m\r\n"))
+			}
+			done <- true
+			conn.Close()
+		}
+	}()
+
+	// Read from WebSocket and write to stdin
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("WebSocket read error: %v", err)
+				done <- true
+				return
+			}
+
+			// Parse message
+			var msg struct {
+				Type string `json:"type"`
+				Data string `json:"data"`
+				Cols uint16 `json:"cols"`
+				Rows uint16 `json:"rows"`
+			}
+			if err := json.Unmarshal(message, &msg); err != nil {
+				// Treat as raw input
+				if _, err := stdin.Write(message); err != nil {
+					log.Printf("Error writing to stdin: %v", err)
+					return
+				}
+				continue
+			}
+
+			switch msg.Type {
+			case "input":
+				// Write input data to stdin
+				if _, err := stdin.Write([]byte(msg.Data)); err != nil {
+					log.Printf("Error writing to stdin: %v", err)
+					return
+				}
+			case "resize":
+				// Windows pipe-based terminals don't support resize
+				// Just acknowledge the resize message
+				log.Printf("Terminal resize requested: %dx%d (not supported in pipe mode)", msg.Cols, msg.Rows)
 			}
 		}
 	}

@@ -222,6 +222,10 @@ func PerformUpdate(downloadURL string) error {
 	// Create temporary file for download
 	tmpDir := os.TempDir()
 	tmpFile := filepath.Join(tmpDir, "kubegraf-update")
+	// On Windows, we need the .exe extension for executables
+	if runtime.GOOS == "windows" {
+		tmpFile = filepath.Join(tmpDir, "kubegraf-update.exe")
+	}
 
 	// Download the new binary
 	client := &http.Client{
@@ -304,9 +308,13 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 			return fmt.Errorf("failed to read tar: %w", err)
 		}
 
-		// Look for kubegraf binary
+		// Look for kubegraf binary (on Windows look for .exe)
+		binaryName := "kubegraf"
+		if runtime.GOOS == "windows" {
+			binaryName = "kubegraf.exe"
+		}
 		if header.Typeflag == tar.TypeReg &&
-			(strings.Contains(header.Name, "kubegraf") || strings.HasSuffix(header.Name, "/kubegraf")) {
+			(filepath.Base(header.Name) == binaryName || strings.HasSuffix(header.Name, "/"+binaryName)) {
 			out, err := os.Create(tmpFile)
 			if err != nil {
 				return fmt.Errorf("failed to create temp file: %w", err)
@@ -351,8 +359,15 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 		return fmt.Errorf("failed to open zip: %w", err)
 	}
 
+	// Look for kubegraf binary (on Windows look for .exe)
+	binaryName := "kubegraf"
+	if runtime.GOOS == "windows" {
+		binaryName = "kubegraf.exe"
+	}
+
 	for _, file := range zipReader.File {
-		if strings.Contains(file.Name, "kubegraf") && !file.FileInfo().IsDir() {
+		baseName := filepath.Base(file.Name)
+		if (baseName == binaryName || strings.HasSuffix(file.Name, "/"+binaryName)) && !file.FileInfo().IsDir() {
 			rc, err := file.Open()
 			if err != nil {
 				continue

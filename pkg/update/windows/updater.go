@@ -170,20 +170,21 @@ try {
     exit 1
 }
 
-# Step 3: Recreate shortcuts
+# Step 3: Create/Update shortcuts and add to PATH
 try {
-    Write-Host "🔗 Recreating shortcuts..." -ForegroundColor Cyan
+    Write-Host "🔗 Setting up shortcuts and PATH..." -ForegroundColor Cyan
     & {
         $ErrorActionPreference = "Continue"
-        
-        # Start Menu shortcut
+
+        $shell = New-Object -ComObject WScript.Shell
+
+        # Start Menu shortcut (always create/update)
         $startMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$AppName.lnk"
         $startMenuDir = Split-Path $startMenuPath -Parent
         if (-not (Test-Path $startMenuDir)) {
             New-Item -ItemType Directory -Path $startMenuDir -Force | Out-Null
         }
-        
-        $shell = New-Object -ComObject WScript.Shell
+
         $shortcut = $shell.CreateShortcut($startMenuPath)
         $shortcut.TargetPath = $ExecPath
         $shortcut.Arguments = "web"
@@ -193,25 +194,34 @@ try {
             $shortcut.IconLocation = "$IconPath,0"
         }
         $shortcut.Save()
-        Write-Host "✓ Start Menu shortcut recreated" -ForegroundColor Green
-        
-        # Desktop shortcut (if it exists)
+        Write-Host "✓ Start Menu shortcut created/updated" -ForegroundColor Green
+
+        # Desktop shortcut (always create/update for auto-update)
         $desktopPath = "$env:USERPROFILE\Desktop\$AppName.lnk"
-        if (Test-Path $desktopPath) {
-            $shortcut = $shell.CreateShortcut($desktopPath)
-            $shortcut.TargetPath = $ExecPath
-            $shortcut.Arguments = "web"
-            $shortcut.WorkingDirectory = $InstallDir
-            $shortcut.Description = "Launch $AppName Web Dashboard"
-            if ($IconPath -and (Test-Path $IconPath)) {
-                $shortcut.IconLocation = "$IconPath,0"
-            }
-            $shortcut.Save()
-            Write-Host "✓ Desktop shortcut recreated" -ForegroundColor Green
+        $shortcut = $shell.CreateShortcut($desktopPath)
+        $shortcut.TargetPath = $ExecPath
+        $shortcut.Arguments = "web"
+        $shortcut.WorkingDirectory = $InstallDir
+        $shortcut.Description = "Launch $AppName Web Dashboard"
+        if ($IconPath -and (Test-Path $IconPath)) {
+            $shortcut.IconLocation = "$IconPath,0"
+        }
+        $shortcut.Save()
+        Write-Host "✓ Desktop shortcut created/updated" -ForegroundColor Green
+
+        # Add to User PATH (if not already present)
+        $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+        if ($currentPath -notlike "*$InstallDir*") {
+            Write-Host "📁 Adding $InstallDir to User PATH..." -ForegroundColor Cyan
+            $newPath = "$currentPath;$InstallDir"
+            [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+            Write-Host "✓ Added to PATH (restart terminal to use 'kubegraf' command)" -ForegroundColor Green
+        } else {
+            Write-Host "✓ Already in PATH" -ForegroundColor Green
         }
     }
 } catch {
-    Write-Host "⚠️  Failed to recreate shortcuts: $_" -ForegroundColor Yellow
+    Write-Host "⚠️  Failed to update shortcuts/PATH: $_" -ForegroundColor Yellow
     # Non-critical, continue
 }
 
@@ -264,28 +274,33 @@ Start-Sleep -Seconds 2
 	return scriptPath, nil
 }
 
-// LaunchUpdater launches the PowerShell updater script
+// LaunchUpdater launches the PowerShell updater script in a fully detached process
 func LaunchUpdater(scriptPath string) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("Windows updater can only be launched on Windows")
 	}
 
-	// Use PowerShell to execute the script
-	// -ExecutionPolicy Bypass allows running unsigned scripts
-	// -WindowStyle Hidden runs in background (but we want to see it for debugging)
-	// -File runs the script file
-	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
-	
+	// Use Start-Process to launch a truly detached PowerShell process
+	// This ensures the script continues running after the main app exits
+	// -WindowStyle Normal shows the updater window so users can see progress
+	launchScript := fmt.Sprintf(
+		`Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy", "Bypass", "-File", "%s" -WindowStyle Normal`,
+		strings.ReplaceAll(scriptPath, `"`, `\"`),
+	)
+
+	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", launchScript)
+
 	// Don't wait for the script to complete - it will run after we exit
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	
+	// Don't attach stdout/stderr since we're detaching
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch updater: %w", err)
 	}
 
-	// Give it a moment to start
-	time.Sleep(500 * time.Millisecond)
+	// Give it a moment to start the detached process
+	time.Sleep(1 * time.Second)
 
 	return nil
 }
