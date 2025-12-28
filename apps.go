@@ -20,7 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -499,30 +501,193 @@ func (ws *WebServer) installK3d(ctx context.Context, clusterName string, install
 	osType := runtime.GOOS
 	fmt.Printf("📦 [K3D Install] Checking if k3d is installed (OS: %s)\n", osType)
 
-	if _, err := exec.LookPath("k3d"); err != nil {
+	// Track k3d executable path - important for Windows where PATH may not update immediately
+	k3dExePath := "k3d"
+
+	if existingPath, err := exec.LookPath("k3d"); err != nil {
 		fmt.Printf("⚠️  [K3D Install] k3d not found, proceeding with installation\n")
 
 		// Install k3d based on OS
 		if osType == "windows" {
-			fmt.Printf("🔧 [K3D Install] Installing k3d on Windows using PowerShell\n")
-			// Windows: Use PowerShell to install
-			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
-				"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -UseBasicParsing | Invoke-Expression")
+			fmt.Printf("🔧 [K3D Install] Installing k3d on Windows\n")
 
-			var stdout, stderr bytes.Buffer
-			installCmd.Stdout = &stdout
-			installCmd.Stderr = &stderr
+			var installCmd *exec.Cmd
+			var installMethod string
+			installed := false
 
-			if err := installCmd.Run(); err != nil {
-				errMsg := fmt.Sprintf("Failed to install k3d: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+			// Method 1: Try Chocolatey (most reliable for Windows)
+			if _, err := exec.LookPath("choco"); err == nil {
+				fmt.Printf("📦 [K3D Install] Chocolatey found, using choco to install k3d\n")
+				installMethod = "chocolatey"
+				installCmd = exec.CommandContext(ctx, "choco", "install", "k3d", "-y", "--no-progress")
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [K3D Install] Chocolatey install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+				} else {
+					fmt.Printf("✅ [K3D Install] k3d installed successfully via Chocolatey\n")
+					fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
+					installed = true
+				}
+			}
+
+			// Method 2: Try Scoop
+			if !installed {
+				if _, err := exec.LookPath("scoop"); err == nil {
+					fmt.Printf("📦 [K3D Install] Scoop found, using scoop to install k3d\n")
+					installMethod = "scoop"
+					installCmd = exec.CommandContext(ctx, "scoop", "install", "k3d")
+
+					var stdout, stderr bytes.Buffer
+					installCmd.Stdout = &stdout
+					installCmd.Stderr = &stderr
+
+					if err := installCmd.Run(); err != nil {
+						fmt.Printf("⚠️  [K3D Install] Scoop install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+					} else {
+						fmt.Printf("✅ [K3D Install] k3d installed successfully via Scoop\n")
+						fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
+						installed = true
+					}
+				}
+			}
+
+			// Method 3: Direct download from GitHub releases
+			if !installed {
+				fmt.Printf("📦 [K3D Install] No package manager found, downloading k3d binary directly\n")
+				installMethod = "direct-download"
+
+				// Get latest release version and download
+				downloadScript := `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+# Create installation directory
+$installDir = "$env:LOCALAPPDATA\k3d"
+if (-not (Test-Path $installDir)) {
+    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+}
+
+# Get latest release info from GitHub API
+Write-Host "Fetching latest k3d release..."
+$releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/k3d-io/k3d/releases/latest"
+$version = $releaseInfo.tag_name
+Write-Host "Latest version: $version"
+
+# Download k3d binary
+$downloadUrl = "https://github.com/k3d-io/k3d/releases/download/$version/k3d-windows-amd64.exe"
+$outputPath = "$installDir\k3d.exe"
+Write-Host "Downloading from: $downloadUrl"
+Invoke-WebRequest -Uri $downloadUrl -OutFile $outputPath -UseBasicParsing
+
+# Verify download
+if (Test-Path $outputPath) {
+    $fileSize = (Get-Item $outputPath).Length
+    Write-Host "Downloaded k3d.exe ($fileSize bytes) to $outputPath"
+
+    # Add to user PATH if not already there
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath -notlike "*$installDir*") {
+        Write-Host "Adding $installDir to user PATH..."
+        [Environment]::SetEnvironmentVariable("PATH", "$userPath;$installDir", "User")
+        Write-Host "PATH updated. Please restart your terminal for changes to take effect."
+    }
+
+    # Also update current process PATH
+    $env:PATH = "$env:PATH;$installDir"
+
+    # Test k3d
+    & "$outputPath" version
+    Write-Host "k3d installed successfully!"
+    exit 0
+} else {
+    Write-Error "Failed to download k3d"
+    exit 1
+}
+`
+				installCmd = exec.CommandContext(ctx, "powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-Command", downloadScript)
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [K3D Install] Direct download failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+				} else {
+					fmt.Printf("✅ [K3D Install] k3d installed successfully via direct download\n")
+					fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
+					installed = true
+
+					// Update PATH for current Go process
+					k3dPath := filepath.Join(os.Getenv("LOCALAPPDATA"), "k3d")
+					currentPath := os.Getenv("PATH")
+					if !strings.Contains(currentPath, k3dPath) {
+						os.Setenv("PATH", currentPath+";"+k3dPath)
+						fmt.Printf("✅ [K3D Install] Added %s to current process PATH\n", k3dPath)
+					}
+				}
+			}
+
+			if !installed {
+				errMsg := fmt.Sprintf("Failed to install k3d on Windows.\n\n" +
+					"Tried methods: %s\n\n" +
+					"Please install k3d manually using one of these methods:\n" +
+					"1. Chocolatey: choco install k3d\n" +
+					"2. Scoop: scoop install k3d\n" +
+					"3. Download from: https://github.com/k3d-io/k3d/releases\n\n" +
+					"After installation, restart KubeGraf and try again.", installMethod)
 				fmt.Printf("❌ [K3D Install] %s\n", errMsg)
 				if installationID > 0 {
 					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
-			fmt.Printf("✅ [K3D Install] k3d installed successfully on Windows\n")
-			fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
+
+			// Verify k3d is now accessible
+			time.Sleep(1 * time.Second) // Give PATH a moment to update
+			if k3dPath, err := exec.LookPath("k3d"); err != nil {
+				// Try common installation paths
+				possiblePaths := []string{
+					filepath.Join(os.Getenv("LOCALAPPDATA"), "k3d", "k3d.exe"),
+					filepath.Join(os.Getenv("ProgramFiles"), "k3d", "k3d.exe"),
+					filepath.Join(os.Getenv("USERPROFILE"), "scoop", "shims", "k3d.exe"),
+					`C:\ProgramData\chocolatey\bin\k3d.exe`,
+				}
+
+				foundPath := ""
+				for _, p := range possiblePaths {
+					if _, err := os.Stat(p); err == nil {
+						foundPath = p
+						break
+					}
+				}
+
+				if foundPath != "" {
+					// Add to PATH for current process
+					dir := filepath.Dir(foundPath)
+					currentPath := os.Getenv("PATH")
+					if !strings.Contains(currentPath, dir) {
+						os.Setenv("PATH", currentPath+";"+dir)
+						fmt.Printf("✅ [K3D Install] Found k3d at %s, added to PATH\n", foundPath)
+					}
+					k3dExePath = foundPath // Use the full path for subsequent commands
+				} else {
+					errMsg := fmt.Sprintf("k3d was installed but cannot be found in PATH.\n\n" +
+						"Please restart KubeGraf or add k3d to your system PATH manually.\n" +
+						"Then try installing the cluster again.")
+					fmt.Printf("⚠️  [K3D Install] %s\n", errMsg)
+					if installationID > 0 {
+						ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
+					}
+					return
+				}
+			} else {
+				fmt.Printf("✅ [K3D Install] k3d verified at: %s\n", k3dPath)
+				k3dExePath = k3dPath // Use the verified path for subsequent commands
+			}
 		} else {
 			fmt.Printf("🔧 [K3D Install] Installing k3d on macOS/Linux using bash\n")
 			// macOS/Linux: Use bash script
@@ -545,7 +710,8 @@ func (ws *WebServer) installK3d(ctx context.Context, clusterName string, install
 			fmt.Printf("📝 [K3D Install] Install output: %s\n", stdout.String())
 		}
 	} else {
-		fmt.Printf("✅ [K3D Install] k3d already installed\n")
+		fmt.Printf("✅ [K3D Install] k3d already installed at: %s\n", existingPath)
+		k3dExePath = existingPath
 	}
 
 	// Update progress to 40% (creating cluster)
@@ -558,8 +724,8 @@ func (ws *WebServer) installK3d(ctx context.Context, clusterName string, install
 	// K3D automatically adds "k3d-" prefix, so we pass the cluster name without any k3d- prefix
 	// User provides: kubegraf-<suffix> → K3D creates: k3d-kubegraf-<suffix>
 	k3dClusterName := clusterName
-	fmt.Printf("🏗️  [K3D Install] Creating k3d cluster with name: %s (K3D will add 'k3d-' prefix automatically)\n", k3dClusterName)
-	createCmd := exec.CommandContext(ctx, "k3d", "cluster", "create", k3dClusterName,
+	fmt.Printf("🏗️  [K3D Install] Creating k3d cluster with name: %s using k3d at: %s\n", k3dClusterName, k3dExePath)
+	createCmd := exec.CommandContext(ctx, k3dExePath, "cluster", "create", k3dClusterName,
 		"--agents", "1",
 		"--servers", "1",
 		"--wait")
@@ -587,7 +753,7 @@ func (ws *WebServer) installK3d(ctx context.Context, clusterName string, install
 
 	// Get kubeconfig
 	fmt.Printf("🔧 [K3D Install] Writing kubeconfig for cluster: %s\n", k3dClusterName)
-	kubeconfigCmd := exec.CommandContext(ctx, "k3d", "kubeconfig", "write", k3dClusterName)
+	kubeconfigCmd := exec.CommandContext(ctx, k3dExePath, "kubeconfig", "write", k3dClusterName)
 
 	var kcStdout, kcStderr bytes.Buffer
 	kubeconfigCmd.Stdout = &kcStdout
@@ -615,169 +781,707 @@ func (ws *WebServer) installK3d(ctx context.Context, clusterName string, install
 
 // installKind installs a kind cluster
 func (ws *WebServer) installKind(ctx context.Context, clusterName string, installationID int) {
+	fmt.Printf("🚀 [Kind Install] Starting installation for cluster: %s (installationID: %d)\n", clusterName, installationID)
+
 	// Check if kind is installed
 	osType := runtime.GOOS
+	fmt.Printf("📦 [Kind Install] Checking if kind is installed (OS: %s)\n", osType)
 
-	if _, err := exec.LookPath("kind"); err != nil {
+	// Track kind executable path
+	kindExePath := "kind"
+
+	if existingPath, err := exec.LookPath("kind"); err != nil {
+		fmt.Printf("⚠️  [Kind Install] kind not found, proceeding with installation\n")
+
 		// Install kind based on OS
 		if osType == "windows" {
-			// Windows: Use PowerShell to install
-			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
-				"curl.exe -Lo kind-windows-amd64.exe https://kind.sigs.k8s.io/dl/latest/kind-windows-amd64 && "+
-					"Move-Item kind-windows-amd64.exe C:\\Windows\\System32\\kind.exe")
-			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install kind: %v\n", err)
+			fmt.Printf("🔧 [Kind Install] Installing kind on Windows\n")
+
+			var installCmd *exec.Cmd
+			var installMethod string
+			installed := false
+
+			// Method 1: Try Chocolatey
+			if _, err := exec.LookPath("choco"); err == nil {
+				fmt.Printf("📦 [Kind Install] Chocolatey found, using choco to install kind\n")
+				installMethod = "chocolatey"
+				installCmd = exec.CommandContext(ctx, "choco", "install", "kind", "-y", "--no-progress")
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [Kind Install] Chocolatey install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+				} else {
+					fmt.Printf("✅ [Kind Install] kind installed successfully via Chocolatey\n")
+					installed = true
+				}
+			}
+
+			// Method 2: Try Scoop
+			if !installed {
+				if _, err := exec.LookPath("scoop"); err == nil {
+					fmt.Printf("📦 [Kind Install] Scoop found, using scoop to install kind\n")
+					installMethod = "scoop"
+					installCmd = exec.CommandContext(ctx, "scoop", "install", "kind")
+
+					var stdout, stderr bytes.Buffer
+					installCmd.Stdout = &stdout
+					installCmd.Stderr = &stderr
+
+					if err := installCmd.Run(); err != nil {
+						fmt.Printf("⚠️  [Kind Install] Scoop install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+					} else {
+						fmt.Printf("✅ [Kind Install] kind installed successfully via Scoop\n")
+						installed = true
+					}
+				}
+			}
+
+			// Method 3: Try Winget
+			if !installed {
+				if _, err := exec.LookPath("winget"); err == nil {
+					fmt.Printf("📦 [Kind Install] Winget found, using winget to install kind\n")
+					installMethod = "winget"
+					installCmd = exec.CommandContext(ctx, "winget", "install", "Kubernetes.kind", "--accept-package-agreements", "--accept-source-agreements")
+
+					var stdout, stderr bytes.Buffer
+					installCmd.Stdout = &stdout
+					installCmd.Stderr = &stderr
+
+					if err := installCmd.Run(); err != nil {
+						fmt.Printf("⚠️  [Kind Install] Winget install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+					} else {
+						fmt.Printf("✅ [Kind Install] kind installed successfully via Winget\n")
+						installed = true
+					}
+				}
+			}
+
+			// Method 4: Direct download from GitHub
+			if !installed {
+				fmt.Printf("📦 [Kind Install] No package manager found, downloading kind binary directly\n")
+				installMethod = "direct-download"
+
+				downloadScript := `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+# Create installation directory
+$installDir = "$env:LOCALAPPDATA\kind"
+if (-not (Test-Path $installDir)) {
+    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+}
+
+# Download kind binary
+$downloadUrl = "https://kind.sigs.k8s.io/dl/latest/kind-windows-amd64"
+$outputPath = "$installDir\kind.exe"
+Write-Host "Downloading kind from: $downloadUrl"
+Invoke-WebRequest -Uri $downloadUrl -OutFile $outputPath -UseBasicParsing
+
+# Verify download
+if (Test-Path $outputPath) {
+    $fileSize = (Get-Item $outputPath).Length
+    Write-Host "Downloaded kind.exe ($fileSize bytes) to $outputPath"
+
+    # Add to user PATH if not already there
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath -notlike "*$installDir*") {
+        Write-Host "Adding $installDir to user PATH..."
+        [Environment]::SetEnvironmentVariable("PATH", "$userPath;$installDir", "User")
+    }
+
+    # Update current process PATH
+    $env:PATH = "$env:PATH;$installDir"
+
+    # Test kind
+    & "$outputPath" version
+    Write-Host "kind installed successfully!"
+    exit 0
+} else {
+    Write-Error "Failed to download kind"
+    exit 1
+}
+`
+				installCmd = exec.CommandContext(ctx, "powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-Command", downloadScript)
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [Kind Install] Direct download failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+				} else {
+					fmt.Printf("✅ [Kind Install] kind installed successfully via direct download\n")
+					installed = true
+
+					// Update PATH for current Go process
+					kindPath := filepath.Join(os.Getenv("LOCALAPPDATA"), "kind")
+					currentPath := os.Getenv("PATH")
+					if !strings.Contains(currentPath, kindPath) {
+						os.Setenv("PATH", currentPath+";"+kindPath)
+						fmt.Printf("✅ [Kind Install] Added %s to current process PATH\n", kindPath)
+					}
+				}
+			}
+
+			if !installed {
+				errMsg := fmt.Sprintf("Failed to install kind on Windows.\n\n"+
+					"Tried methods: %s\n\n"+
+					"Please install kind manually using one of these methods:\n"+
+					"1. Chocolatey: choco install kind\n"+
+					"2. Scoop: scoop install kind\n"+
+					"3. Winget: winget install Kubernetes.kind\n"+
+					"4. Download from: https://kind.sigs.k8s.io/docs/user/quick-start/#installation", installMethod)
+				fmt.Printf("❌ [Kind Install] %s\n", errMsg)
 				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install kind: %v", err))
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
-		} else if osType == "darwin" {
-			// macOS: Use brew or direct download
-			installCmd := exec.CommandContext(ctx, "sh", "-c",
-				"command -v brew >/dev/null 2>&1 && brew install kind || "+
-					"curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-$(uname)-$(uname -m | sed 's/x86_64/amd64/') && "+
-					"chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind")
-			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install kind: %v\n", err)
-				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install kind: %v", err))
+
+			// Verify kind is accessible and get path
+			time.Sleep(1 * time.Second)
+			if kindPath, err := exec.LookPath("kind"); err != nil {
+				// Try common installation paths
+				possiblePaths := []string{
+					filepath.Join(os.Getenv("LOCALAPPDATA"), "kind", "kind.exe"),
+					filepath.Join(os.Getenv("USERPROFILE"), "scoop", "shims", "kind.exe"),
+					`C:\ProgramData\chocolatey\bin\kind.exe`,
 				}
-				return
+
+				for _, p := range possiblePaths {
+					if _, err := os.Stat(p); err == nil {
+						kindExePath = p
+						dir := filepath.Dir(p)
+						currentPath := os.Getenv("PATH")
+						if !strings.Contains(currentPath, dir) {
+							os.Setenv("PATH", currentPath+";"+dir)
+						}
+						fmt.Printf("✅ [Kind Install] Found kind at %s\n", p)
+						break
+					}
+				}
+			} else {
+				kindExePath = kindPath
+				fmt.Printf("✅ [Kind Install] kind verified at: %s\n", kindPath)
+			}
+
+		} else if osType == "darwin" {
+			fmt.Printf("🔧 [Kind Install] Installing kind on macOS\n")
+
+			// Try Homebrew first (preferred, no sudo required)
+			if _, err := exec.LookPath("brew"); err == nil {
+				fmt.Printf("📦 [Kind Install] Homebrew found, using brew to install kind\n")
+				installCmd := exec.CommandContext(ctx, "brew", "install", "kind")
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [Kind Install] Homebrew install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+					// Fall through to direct download
+				} else {
+					fmt.Printf("✅ [Kind Install] kind installed successfully via Homebrew\n")
+				}
+			}
+
+			// Verify or try direct download to user directory (no sudo needed)
+			if _, err := exec.LookPath("kind"); err != nil {
+				fmt.Printf("📦 [Kind Install] Downloading kind binary directly\n")
+
+				// Download to ~/.local/bin (user directory, no sudo needed)
+				installScript := `
+set -e
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+
+# Detect architecture
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "arm64" ]; then
+    ARCH="arm64"
+fi
+
+# Download kind
+curl -Lo "$INSTALL_DIR/kind" "https://kind.sigs.k8s.io/dl/latest/kind-darwin-$ARCH"
+chmod +x "$INSTALL_DIR/kind"
+
+# Verify
+"$INSTALL_DIR/kind" version
+echo "kind installed to $INSTALL_DIR/kind"
+`
+				installCmd := exec.CommandContext(ctx, "sh", "-c", installScript)
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					errMsg := fmt.Sprintf("Failed to install kind: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+					fmt.Printf("❌ [Kind Install] %s\n", errMsg)
+					if installationID > 0 {
+						ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
+					}
+					return
+				}
+				fmt.Printf("✅ [Kind Install] kind installed successfully\n")
+
+				// Update PATH for current process
+				homeDir := os.Getenv("HOME")
+				localBin := filepath.Join(homeDir, ".local", "bin")
+				currentPath := os.Getenv("PATH")
+				if !strings.Contains(currentPath, localBin) {
+					os.Setenv("PATH", currentPath+":"+localBin)
+				}
+				kindExePath = filepath.Join(localBin, "kind")
 			}
 		} else {
-			// Linux: Direct download
-			installCmd := exec.CommandContext(ctx, "sh", "-c",
-				"curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 && "+
-					"chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind")
+			fmt.Printf("🔧 [Kind Install] Installing kind on Linux\n")
+
+			// Download to ~/.local/bin (no sudo needed)
+			installScript := `
+set -e
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+
+# Detect architecture
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ]; then
+    ARCH="arm64"
+fi
+
+# Download kind
+curl -Lo "$INSTALL_DIR/kind" "https://kind.sigs.k8s.io/dl/latest/kind-linux-$ARCH"
+chmod +x "$INSTALL_DIR/kind"
+
+# Verify
+"$INSTALL_DIR/kind" version
+echo "kind installed to $INSTALL_DIR/kind"
+`
+			installCmd := exec.CommandContext(ctx, "sh", "-c", installScript)
+
+			var stdout, stderr bytes.Buffer
+			installCmd.Stdout = &stdout
+			installCmd.Stderr = &stderr
+
 			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install kind: %v\n", err)
+				errMsg := fmt.Sprintf("Failed to install kind: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+				fmt.Printf("❌ [Kind Install] %s\n", errMsg)
 				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install kind: %v", err))
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
+			fmt.Printf("✅ [Kind Install] kind installed successfully\n")
+
+			// Update PATH for current process
+			homeDir := os.Getenv("HOME")
+			localBin := filepath.Join(homeDir, ".local", "bin")
+			currentPath := os.Getenv("PATH")
+			if !strings.Contains(currentPath, localBin) {
+				os.Setenv("PATH", currentPath+":"+localBin)
+			}
+			kindExePath = filepath.Join(localBin, "kind")
 		}
+	} else {
+		fmt.Printf("✅ [Kind Install] kind already installed at: %s\n", existingPath)
+		kindExePath = existingPath
 	}
 
 	// Update progress to 40% (creating cluster)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "creating_cluster", 40, "")
+		fmt.Printf("📊 [Kind Install] Updated progress to 40%% (creating cluster)\n")
 	}
 
 	// Create kind cluster
-	createCmd := exec.CommandContext(ctx, "kind", "create", "cluster", "--name", clusterName, "--wait", "5m")
+	fmt.Printf("🏗️  [Kind Install] Creating kind cluster with name: %s using kind at: %s\n", clusterName, kindExePath)
+	createCmd := exec.CommandContext(ctx, kindExePath, "create", "cluster", "--name", clusterName, "--wait", "5m")
+
+	var createStdout, createStderr bytes.Buffer
+	createCmd.Stdout = &createStdout
+	createCmd.Stderr = &createStderr
 
 	if err := createCmd.Run(); err != nil {
-		fmt.Printf("Failed to create kind cluster: %v\n", err)
+		errMsg := fmt.Sprintf("Failed to create kind cluster: %v\nStdout: %s\nStderr: %s", err, createStdout.String(), createStderr.String())
+		fmt.Printf("❌ [Kind Install] %s\n", errMsg)
 		if installationID > 0 {
-			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to create kind cluster: %v", err))
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 		}
 		return
 	}
+	fmt.Printf("✅ [Kind Install] Cluster created successfully\n")
 
 	// Update progress to 80% (configuring kubectl)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "configuring_kubectl", 80, "")
+		fmt.Printf("📊 [Kind Install] Updated progress to 80%% (configuring kubectl)\n")
 	}
 
 	// Get kubeconfig (kind automatically merges into default kubeconfig)
 	// Verify the cluster is accessible
 	verifyCmd := exec.CommandContext(ctx, "kubectl", "cluster-info", "--context", "kind-"+clusterName)
 	if err := verifyCmd.Run(); err != nil {
-		fmt.Printf("Warning: Failed to verify kind cluster: %v\n", err)
+		fmt.Printf("⚠️  [Kind Install] Warning: Failed to verify kind cluster: %v\n", err)
+	} else {
+		fmt.Printf("✅ [Kind Install] Cluster verified successfully\n")
 	}
 
 	// Update progress to 100% (completed)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "completed", 100, "Kind cluster created successfully")
+		fmt.Printf("📊 [Kind Install] Updated progress to 100%% (completed)\n")
 	}
 
-	fmt.Printf("✅ kind cluster '%s' created successfully\n", clusterName)
+	fmt.Printf("✅ [Kind Install] kind cluster '%s' created successfully\n", clusterName)
 }
 
 // installMinikube installs a minikube cluster
 func (ws *WebServer) installMinikube(ctx context.Context, clusterName string, installationID int) {
+	fmt.Printf("🚀 [Minikube Install] Starting installation for cluster: %s (installationID: %d)\n", clusterName, installationID)
+
 	// Check if minikube is installed
 	osType := runtime.GOOS
+	fmt.Printf("📦 [Minikube Install] Checking if minikube is installed (OS: %s)\n", osType)
 
-	if _, err := exec.LookPath("minikube"); err != nil {
+	// Track minikube executable path
+	minikubeExePath := "minikube"
+
+	if existingPath, err := exec.LookPath("minikube"); err != nil {
+		fmt.Printf("⚠️  [Minikube Install] minikube not found, proceeding with installation\n")
+
 		// Install minikube based on OS
 		if osType == "windows" {
-			// Windows: Use PowerShell to install
-			installCmd := exec.CommandContext(ctx, "powershell", "-Command",
-				"New-Item -Path 'C:\\minikube' -Type Directory -Force; "+
-					"Invoke-WebRequest -Uri 'https://storage.googleapis.com/minikube/releases/latest/minikube-windows-amd64.exe' -OutFile 'C:\\minikube\\minikube.exe'; "+
-					"$env:Path += ';C:\\minikube'")
-			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install minikube: %v\n", err)
+			fmt.Printf("🔧 [Minikube Install] Installing minikube on Windows\n")
+
+			var installCmd *exec.Cmd
+			var installMethod string
+			installed := false
+
+			// Method 1: Try Chocolatey
+			if _, err := exec.LookPath("choco"); err == nil {
+				fmt.Printf("📦 [Minikube Install] Chocolatey found, using choco to install minikube\n")
+				installMethod = "chocolatey"
+				installCmd = exec.CommandContext(ctx, "choco", "install", "minikube", "-y", "--no-progress")
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [Minikube Install] Chocolatey install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+				} else {
+					fmt.Printf("✅ [Minikube Install] minikube installed successfully via Chocolatey\n")
+					installed = true
+				}
+			}
+
+			// Method 2: Try Winget
+			if !installed {
+				if _, err := exec.LookPath("winget"); err == nil {
+					fmt.Printf("📦 [Minikube Install] Winget found, using winget to install minikube\n")
+					installMethod = "winget"
+					installCmd = exec.CommandContext(ctx, "winget", "install", "Kubernetes.minikube", "--accept-package-agreements", "--accept-source-agreements")
+
+					var stdout, stderr bytes.Buffer
+					installCmd.Stdout = &stdout
+					installCmd.Stderr = &stderr
+
+					if err := installCmd.Run(); err != nil {
+						fmt.Printf("⚠️  [Minikube Install] Winget install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+					} else {
+						fmt.Printf("✅ [Minikube Install] minikube installed successfully via Winget\n")
+						installed = true
+					}
+				}
+			}
+
+			// Method 3: Direct download
+			if !installed {
+				fmt.Printf("📦 [Minikube Install] No package manager found, downloading minikube binary directly\n")
+				installMethod = "direct-download"
+
+				downloadScript := `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+# Create installation directory
+$installDir = "$env:LOCALAPPDATA\minikube"
+if (-not (Test-Path $installDir)) {
+    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+}
+
+# Download minikube binary
+$downloadUrl = "https://storage.googleapis.com/minikube/releases/latest/minikube-windows-amd64.exe"
+$outputPath = "$installDir\minikube.exe"
+Write-Host "Downloading minikube from: $downloadUrl"
+Invoke-WebRequest -Uri $downloadUrl -OutFile $outputPath -UseBasicParsing
+
+# Verify download
+if (Test-Path $outputPath) {
+    $fileSize = (Get-Item $outputPath).Length
+    Write-Host "Downloaded minikube.exe ($fileSize bytes) to $outputPath"
+
+    # Add to user PATH if not already there
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath -notlike "*$installDir*") {
+        Write-Host "Adding $installDir to user PATH..."
+        [Environment]::SetEnvironmentVariable("PATH", "$userPath;$installDir", "User")
+    }
+
+    # Update current process PATH
+    $env:PATH = "$env:PATH;$installDir"
+
+    # Test minikube
+    & "$outputPath" version
+    Write-Host "minikube installed successfully!"
+    exit 0
+} else {
+    Write-Error "Failed to download minikube"
+    exit 1
+}
+`
+				installCmd = exec.CommandContext(ctx, "powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-Command", downloadScript)
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [Minikube Install] Direct download failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+				} else {
+					fmt.Printf("✅ [Minikube Install] minikube installed successfully via direct download\n")
+					installed = true
+
+					// Update PATH for current Go process
+					minikubePath := filepath.Join(os.Getenv("LOCALAPPDATA"), "minikube")
+					currentPath := os.Getenv("PATH")
+					if !strings.Contains(currentPath, minikubePath) {
+						os.Setenv("PATH", currentPath+";"+minikubePath)
+						fmt.Printf("✅ [Minikube Install] Added %s to current process PATH\n", minikubePath)
+					}
+				}
+			}
+
+			if !installed {
+				errMsg := fmt.Sprintf("Failed to install minikube on Windows.\n\n"+
+					"Tried methods: %s\n\n"+
+					"Please install minikube manually using one of these methods:\n"+
+					"1. Chocolatey: choco install minikube\n"+
+					"2. Winget: winget install Kubernetes.minikube\n"+
+					"3. Download from: https://minikube.sigs.k8s.io/docs/start/", installMethod)
+				fmt.Printf("❌ [Minikube Install] %s\n", errMsg)
 				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install minikube: %v", err))
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
-		} else if osType == "darwin" {
-			// macOS: Use brew or direct download
-			installCmd := exec.CommandContext(ctx, "sh", "-c",
-				"command -v brew >/dev/null 2>&1 && brew install minikube || "+
-					"curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-$(uname -m | sed 's/x86_64/amd64/') && "+
-					"sudo install minikube-darwin-* /usr/local/bin/minikube")
-			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install minikube: %v\n", err)
-				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install minikube: %v", err))
+
+			// Verify minikube is accessible and get path
+			time.Sleep(1 * time.Second)
+			if mkPath, err := exec.LookPath("minikube"); err != nil {
+				// Try common installation paths
+				possiblePaths := []string{
+					filepath.Join(os.Getenv("LOCALAPPDATA"), "minikube", "minikube.exe"),
+					`C:\minikube\minikube.exe`,
+					`C:\ProgramData\chocolatey\bin\minikube.exe`,
 				}
-				return
+
+				for _, p := range possiblePaths {
+					if _, err := os.Stat(p); err == nil {
+						minikubeExePath = p
+						dir := filepath.Dir(p)
+						currentPath := os.Getenv("PATH")
+						if !strings.Contains(currentPath, dir) {
+							os.Setenv("PATH", currentPath+";"+dir)
+						}
+						fmt.Printf("✅ [Minikube Install] Found minikube at %s\n", p)
+						break
+					}
+				}
+			} else {
+				minikubeExePath = mkPath
+				fmt.Printf("✅ [Minikube Install] minikube verified at: %s\n", mkPath)
+			}
+
+		} else if osType == "darwin" {
+			fmt.Printf("🔧 [Minikube Install] Installing minikube on macOS\n")
+
+			// Try Homebrew first (preferred, no sudo required)
+			if _, err := exec.LookPath("brew"); err == nil {
+				fmt.Printf("📦 [Minikube Install] Homebrew found, using brew to install minikube\n")
+				installCmd := exec.CommandContext(ctx, "brew", "install", "minikube")
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					fmt.Printf("⚠️  [Minikube Install] Homebrew install failed: %v\nStdout: %s\nStderr: %s\n", err, stdout.String(), stderr.String())
+					// Fall through to direct download
+				} else {
+					fmt.Printf("✅ [Minikube Install] minikube installed successfully via Homebrew\n")
+				}
+			}
+
+			// Verify or try direct download to user directory (no sudo needed)
+			if _, err := exec.LookPath("minikube"); err != nil {
+				fmt.Printf("📦 [Minikube Install] Downloading minikube binary directly\n")
+
+				// Download to ~/.local/bin (user directory, no sudo needed)
+				installScript := `
+set -e
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+
+# Detect architecture
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "arm64" ]; then
+    ARCH="arm64"
+fi
+
+# Download minikube
+curl -Lo "$INSTALL_DIR/minikube" "https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-$ARCH"
+chmod +x "$INSTALL_DIR/minikube"
+
+# Verify
+"$INSTALL_DIR/minikube" version
+echo "minikube installed to $INSTALL_DIR/minikube"
+`
+				installCmd := exec.CommandContext(ctx, "sh", "-c", installScript)
+
+				var stdout, stderr bytes.Buffer
+				installCmd.Stdout = &stdout
+				installCmd.Stderr = &stderr
+
+				if err := installCmd.Run(); err != nil {
+					errMsg := fmt.Sprintf("Failed to install minikube: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+					fmt.Printf("❌ [Minikube Install] %s\n", errMsg)
+					if installationID > 0 {
+						ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
+					}
+					return
+				}
+				fmt.Printf("✅ [Minikube Install] minikube installed successfully\n")
+
+				// Update PATH for current process
+				homeDir := os.Getenv("HOME")
+				localBin := filepath.Join(homeDir, ".local", "bin")
+				currentPath := os.Getenv("PATH")
+				if !strings.Contains(currentPath, localBin) {
+					os.Setenv("PATH", currentPath+":"+localBin)
+				}
+				minikubeExePath = filepath.Join(localBin, "minikube")
 			}
 		} else {
-			// Linux: Direct download
-			installCmd := exec.CommandContext(ctx, "sh", "-c",
-				"curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && "+
-					"sudo install minikube-linux-amd64 /usr/local/bin/minikube")
+			fmt.Printf("🔧 [Minikube Install] Installing minikube on Linux\n")
+
+			// Download to ~/.local/bin (no sudo needed)
+			installScript := `
+set -e
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+
+# Detect architecture
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ]; then
+    ARCH="arm64"
+fi
+
+# Download minikube
+curl -Lo "$INSTALL_DIR/minikube" "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-$ARCH"
+chmod +x "$INSTALL_DIR/minikube"
+
+# Verify
+"$INSTALL_DIR/minikube" version
+echo "minikube installed to $INSTALL_DIR/minikube"
+`
+			installCmd := exec.CommandContext(ctx, "sh", "-c", installScript)
+
+			var stdout, stderr bytes.Buffer
+			installCmd.Stdout = &stdout
+			installCmd.Stderr = &stderr
+
 			if err := installCmd.Run(); err != nil {
-				fmt.Printf("Failed to install minikube: %v\n", err)
+				errMsg := fmt.Sprintf("Failed to install minikube: %v\nStdout: %s\nStderr: %s", err, stdout.String(), stderr.String())
+				fmt.Printf("❌ [Minikube Install] %s\n", errMsg)
 				if installationID > 0 {
-					ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to install minikube: %v", err))
+					ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 				}
 				return
 			}
+			fmt.Printf("✅ [Minikube Install] minikube installed successfully\n")
+
+			// Update PATH for current process
+			homeDir := os.Getenv("HOME")
+			localBin := filepath.Join(homeDir, ".local", "bin")
+			currentPath := os.Getenv("PATH")
+			if !strings.Contains(currentPath, localBin) {
+				os.Setenv("PATH", currentPath+":"+localBin)
+			}
+			minikubeExePath = filepath.Join(localBin, "minikube")
 		}
+	} else {
+		fmt.Printf("✅ [Minikube Install] minikube already installed at: %s\n", existingPath)
+		minikubeExePath = existingPath
 	}
 
 	// Update progress to 40% (creating cluster)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "creating_cluster", 40, "")
+		fmt.Printf("📊 [Minikube Install] Updated progress to 40%% (creating cluster)\n")
 	}
 
 	// Create minikube cluster
-	createCmd := exec.CommandContext(ctx, "minikube", "start", "-p", clusterName, "--driver=docker")
+	fmt.Printf("🏗️  [Minikube Install] Creating minikube cluster with name: %s using minikube at: %s\n", clusterName, minikubeExePath)
+	createCmd := exec.CommandContext(ctx, minikubeExePath, "start", "-p", clusterName, "--driver=docker")
+
+	var createStdout, createStderr bytes.Buffer
+	createCmd.Stdout = &createStdout
+	createCmd.Stderr = &createStderr
 
 	if err := createCmd.Run(); err != nil {
-		fmt.Printf("Failed to create minikube cluster: %v\n", err)
+		errMsg := fmt.Sprintf("Failed to create minikube cluster: %v\nStdout: %s\nStderr: %s", err, createStdout.String(), createStderr.String())
+		fmt.Printf("❌ [Minikube Install] %s\n", errMsg)
 		if installationID > 0 {
-			ws.db.UpdateAppInstallation(installationID, "failed", 0, fmt.Sprintf("Failed to create minikube cluster: %v", err))
+			ws.db.UpdateAppInstallation(installationID, "failed", 0, errMsg)
 		}
 		return
 	}
+	fmt.Printf("✅ [Minikube Install] Cluster created successfully\n")
 
 	// Update progress to 80% (configuring kubectl)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "configuring_kubectl", 80, "")
+		fmt.Printf("📊 [Minikube Install] Updated progress to 80%% (configuring kubectl)\n")
 	}
 
 	// Get kubeconfig (minikube automatically updates default kubeconfig)
 	// Verify the cluster is accessible
 	verifyCmd := exec.CommandContext(ctx, "kubectl", "cluster-info", "--context", clusterName)
 	if err := verifyCmd.Run(); err != nil {
-		fmt.Printf("Warning: Failed to verify minikube cluster: %v\n", err)
+		fmt.Printf("⚠️  [Minikube Install] Warning: Failed to verify minikube cluster: %v\n", err)
+	} else {
+		fmt.Printf("✅ [Minikube Install] Cluster verified successfully\n")
 	}
 
 	// Update progress to 100% (completed)
 	if installationID > 0 {
 		ws.db.UpdateAppInstallation(installationID, "completed", 100, "Minikube cluster created successfully")
+		fmt.Printf("📊 [Minikube Install] Updated progress to 100%% (completed)\n")
 	}
 
-	fmt.Printf("✅ minikube cluster '%s' created successfully\n", clusterName)
+	fmt.Printf("✅ [Minikube Install] minikube cluster '%s' created successfully\n", clusterName)
 }
 
 // installHelmApp installs a Helm chart
