@@ -23,24 +23,14 @@ import (
 	"time"
 )
 
-// UpdateInfo contains information about available updates
-type UpdateInfo struct {
-	CurrentVersion  string `json:"currentVersion"`
-	LatestVersion   string `json:"latestVersion"`
-	UpdateAvailable bool   `json:"updateAvailable"`
-	ReleaseNotes    string `json:"releaseNotes"`
-	HTMLURL         string `json:"htmlUrl"`
-	DownloadURL     string `json:"downloadUrl"`
-}
-
-// GitHubRelease represents a GitHub release response
+// GitHubRelease represents a GitHub release response (used internally by checker)
 type GitHubRelease struct {
-	TagName  string `json:"tag_name"`
-	Name     string `json:"name"`
-	Body     string `json:"body"`
-	HTMLURL  string `json:"html_url"`
+	TagName     string `json:"tag_name"`
+	Name        string `json:"name"`
+	Body        string `json:"body"`
+	HTMLURL     string `json:"html_url"`
 	PublishedAt string `json:"published_at"`
-	Assets   []struct {
+	Assets      []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 		Size               int64  `json:"size"`
@@ -187,11 +177,26 @@ func CheckGitHubLatestRelease(currentVersion string) (*UpdateInfo, error) {
 		UpdateAvailable: updateAvailable,
 		ReleaseNotes:    release.Body,
 		HTMLURL:         release.HTMLURL,
+		PublishedAt:     release.PublishedAt,
+	}
+
+	// Build assets list
+	if len(release.Assets) > 0 {
+		info.Assets = make([]ReleaseAsset, 0, len(release.Assets))
+		for _, asset := range release.Assets {
+			info.Assets = append(info.Assets, ReleaseAsset{
+				Name:        asset.Name,
+				DownloadURL: asset.BrowserDownloadURL,
+				Size:        asset.Size,
+			})
+		}
 	}
 
 	// Find the appropriate download URL for the current OS and architecture
 	if updateAvailable && len(release.Assets) > 0 {
 		info.DownloadURL = findMatchingAsset(release.Assets, latestVersion)
+		// Also try to find checksum URL
+		info.ChecksumURL = findChecksumAsset(release.Assets)
 	}
 
 	// Update cache
@@ -303,4 +308,17 @@ func findMatchingAsset(assets []struct {
 	return ""
 }
 
-
+// findChecksumAsset finds the checksum file asset URL
+func findChecksumAsset(assets []struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Size               int64  `json:"size"`
+}) string {
+	for _, asset := range assets {
+		name := strings.ToLower(asset.Name)
+		if strings.Contains(name, "checksum") || strings.Contains(name, "sha256") {
+			return asset.BrowserDownloadURL
+		}
+	}
+	return ""
+}
