@@ -1,0 +1,54 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-scenarios
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-test
+  namespace: test-scenarios
+  labels:
+    app: oom-test
+    scenario: memory-exhaustion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oom-test
+  template:
+    metadata:
+      labels:
+        app: oom-test
+    spec:
+      containers:
+      - name: memory-hog
+        image: polinux/stress
+        command: ["stress"]
+        args:
+          - "--vm"
+          - "1"
+          - "--vm-bytes"
+          - "200M"  # Will exceed the limit and cause OOM
+          - "--vm-hang"
+          - "1"
+        resources:
+          limits:
+            memory: "128Mi"  # Lower than what stress will try to allocate
+            cpu: "200m"
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oom-test
+  namespace: test-scenarios
+spec:
+  selector:
+    app: oom-test
+  ports:
+  - port: 80
+    targetPort: 8080

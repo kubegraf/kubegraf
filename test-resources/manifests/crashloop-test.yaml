@@ -1,0 +1,49 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-test
+  namespace: test-scenarios
+  labels:
+    app: crashloop-test
+    scenario: crash-loop-back-off
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crashloop-test
+  template:
+    metadata:
+      labels:
+        app: crashloop-test
+    spec:
+      containers:
+      - name: crasher
+        image: busybox:latest
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "Starting application..."
+            echo "Simulating crash after 5 seconds..."
+            sleep 5
+            echo "Application crashed!"
+            exit 1  # Exit with error to trigger restart
+        resources:
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crashloop-test
+  namespace: test-scenarios
+spec:
+  selector:
+    app: crashloop-test
+  ports:
+  - port: 80
+    targetPort: 8080

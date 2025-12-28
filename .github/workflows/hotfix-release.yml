@@ -1,0 +1,141 @@
+name: Hotfix Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Hotfix version (e.g., v1.7.28)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must be in format vX.Y.Z (e.g., v1.7.28)"
+            exit 1
+          fi
+          echo "Version format is valid: $VERSION"
+
+  build-and-test:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/solid/package-lock.json
+
+      - name: Build SolidJS UI
+        run: |
+          cd ui/solid
+          npm ci
+          npm run build
+
+      - name: Copy UI dist to web/dist
+        run: |
+          mkdir -p web
+          rm -rf web/dist
+          cp -r ui/solid/dist web/dist
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Build binary
+        run: go build -v
+
+  release:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/solid/package-lock.json
+
+      - name: Build SolidJS UI
+        run: |
+          cd ui/solid
+          npm ci
+          npm run build
+
+      - name: Copy UI dist to web/dist
+        run: |
+          mkdir -p web
+          rm -rf web/dist
+          cp -r ui/solid/dist web/dist
+
+      - name: Clean Go toolchain cache
+        run: |
+          rm -rf ~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 2>/dev/null || true
+          rm -rf ${{ env.GOMODCACHE }}/golang.org/toolchain@v0.0.1-go1.24.0.linux-amd64 2>/dev/null || true
+          find ~/go/pkg/mod/golang.org/toolchain* -type d -name "*go1.24.0*" -exec rm -rf {} + 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Create Git Tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Hotfix release $VERSION"
+          git push origin "$VERSION"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Create Release Summary
+        run: |
+          echo "## Hotfix Release ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully released version ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Release Notes" >> $GITHUB_STEP_SUMMARY
+          echo "This is a hotfix release containing:" >> $GITHUB_STEP_SUMMARY
+          echo "- Test resources for custom apps" >> $GITHUB_STEP_SUMMARY
+          echo "- Sample Helm charts" >> $GITHUB_STEP_SUMMARY
+          echo "- Test manifests for various failure scenarios" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View the release at: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,47 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-stress-test
+  namespace: test-scenarios
+  labels:
+    app: cpu-stress
+    scenario: high-cpu-load
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cpu-stress
+  template:
+    metadata:
+      labels:
+        app: cpu-stress
+    spec:
+      containers:
+      - name: cpu-stress
+        image: polinux/stress
+        command: ["stress"]
+        args:
+          - "--cpu"
+          - "2"  # Stress 2 CPU cores
+          - "--timeout"
+          - "300s"  # Run for 5 minutes
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cpu-stress-test
+  namespace: test-scenarios
+spec:
+  selector:
+    app: cpu-stress
+  ports:
+  - port: 80
+    targetPort: 8080

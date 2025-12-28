@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restart-test
+  namespace: test-scenarios
+  labels:
+    app: restart-test
+    scenario: pod-restarts
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: restart-test
+  template:
+    metadata:
+      labels:
+        app: restart-test
+    spec:
+      containers:
+      - name: flaky-app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /health  # This path doesn't exist, will cause probe failures
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 2  # Will restart after 2 failures (10 seconds)
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 3
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: restart-test
+  namespace: test-scenarios
+spec:
+  selector:
+    app: restart-test
+  ports:
+  - port: 80
+    targetPort: 80
