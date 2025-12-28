@@ -2,6 +2,7 @@ import { Component, For, Show, createSignal, createMemo, createResource, onClean
 import { api, type CustomAppInfo } from '../services/api';
 import { addNotification, setCurrentView, currentView } from '../stores/ui';
 import { setNamespace } from '../stores/cluster';
+import { currentTheme } from '../stores/theme';
 import Modal from '../components/Modal';
 import AppUninstallModal from '../components/AppUninstallModal';
 import CustomAppDeleteModal from '../components/CustomAppDeleteModal';
@@ -1048,9 +1049,9 @@ const Apps: Component<AppsProps> = (props) => {
 
                     {/* Source & integrity snippet */}
                     <div class="mt-2 text-xs px-2 py-1.5 rounded" style={{
-                      background: 'rgba(15,23,42,0.7)',
+                      background: currentTheme() === 'light' ? 'rgba(224, 242, 254, 0.9)' : 'rgba(15,23,42,0.7)',
                       color: 'var(--text-secondary)',
-                      border: '1px solid rgba(148, 163, 184, 0.35)'
+                      border: currentTheme() === 'light' ? '1px solid rgba(6, 182, 212, 0.3)' : '1px solid rgba(148, 163, 184, 0.35)'
                     }}>
                       <div class="flex items-center justify-between gap-2 mb-1">
                         <span class="font-semibold" style={{ color: 'var(--text-primary)' }}>Source</span>

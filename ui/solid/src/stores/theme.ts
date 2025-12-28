@@ -66,21 +66,21 @@ export const themes: Record<ThemeName, Theme> = {
     label: 'Polar Light',
     icon: 'sun',
     colors: {
-      // Backgrounds: soft neutral, no pure white at page level
-      bgPrimary: '#F7F8FA', // primary background
+      // Backgrounds: soft neutral with better contrast
+      bgPrimary: '#F3F4F6', // primary background - slightly darker for contrast
       bgSecondary: '#E5E7EB', // secondary surfaces / table headers
-      bgTertiary: '#D1D5DB',
-      // Panels / cards: near-white panels with subtle borders instead of heavy shadows
+      bgTertiary: '#F9FAFB', // very light gray - for card content areas
+      // Panels / cards: white panels with visible borders for clear separation
       bgCard: '#FFFFFF',
-      bgNavbar: '#F9FAFB',
+      bgNavbar: '#FFFFFF',
       bgInput: '#FFFFFF',
-      // Text: neutral ink on light background
-      textPrimary: '#1F2937',
-      textSecondary: '#4B5563',
-      textMuted: '#6B7280',
-      // Borders: light slate instead of strong outlines
-      borderColor: 'rgba(15, 23, 42, 0.08)',
-      borderLight: 'rgba(15, 23, 42, 0.14)',
+      // Text: DARK colors for maximum visibility on white/light backgrounds
+      textPrimary: '#111827', // Very dark - almost black for main headings
+      textSecondary: '#374151', // Dark gray for secondary text
+      textMuted: '#6B7280', // Medium gray for muted text (still readable)
+      // Borders: more visible borders for better card definition
+      borderColor: 'rgba(15, 23, 42, 0.15)',
+      borderLight: 'rgba(15, 23, 42, 0.22)',
       // Accent: Cyan (brand color)
       accentPrimary: '#06b6d4',
       accentSecondary: '#22d3ee',
