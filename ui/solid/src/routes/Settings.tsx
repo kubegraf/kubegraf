@@ -100,9 +100,22 @@ const Settings: Component = () => {
     try {
       const data = await api.getPerfSummary(15); // 15 minute window
       setPerfSummaries(data.summaries || []);
-    } catch (err) {
-      console.error('Failed to load performance summaries:', err);
-      addNotification('Failed to load performance data', 'error');
+    } catch (err: any) {
+      // Handle 503 Service Unavailable gracefully - performance instrumentation is optional
+      const errorMessage = err?.message || '';
+      const isNotEnabled = errorMessage.includes('not enabled') || 
+                          errorMessage.includes('503') ||
+                          errorMessage.includes('Service Unavailable');
+      
+      if (isNotEnabled) {
+        // Performance instrumentation is not enabled - this is expected and not an error
+        console.log('Performance instrumentation not enabled (optional feature)');
+        setPerfSummaries([]); // Set empty array instead of showing error
+      } else {
+        // Only show error for unexpected failures
+        console.error('Failed to load performance summaries:', err);
+        addNotification('Failed to load performance data', 'error');
+      }
     } finally {
       setLoadingPerf(false);
     }
