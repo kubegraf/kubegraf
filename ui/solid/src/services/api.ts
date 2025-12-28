@@ -26,6 +26,8 @@ export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Prom
     defaultTimeout = 60000; // 60 seconds for brain endpoints (they scan cluster data)
   } else if (endpoint.includes('/incidents')) {
     defaultTimeout = 120000; // 120 seconds (2 minutes) for incidents (they scan cluster data)
+  } else if (endpoint.includes('/custom-apps/') || endpoint.includes('/apps/install')) {
+    defaultTimeout = 120000; // 2 minutes for custom app preview/deploy (dry-run against K8s API can be slow)
   }
   const timeout = (options as any)?.timeout || defaultTimeout;
   const controller = new AbortController();
