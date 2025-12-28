@@ -212,6 +212,29 @@ func (ws *WebServer) previewCustomAppManifests(ctx context.Context, manifests []
 	var errors []string
 	var normalizedManifests []string
 
+	// Create namespace if it doesn't exist (for preview validation)
+	// This ensures dry-run validation works even if namespace doesn't exist yet
+	if namespace != "" {
+		_, err := ws.app.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			// Namespace doesn't exist, create it temporarily for preview
+			// Note: We'll create it again during actual deployment, but this allows preview to work
+			newNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespace,
+					Labels: map[string]string{
+						"managed-by": "kubegraf-preview",
+					},
+				},
+			}
+			_, createErr := ws.app.clientset.CoreV1().Namespaces().Create(ctx, newNamespace, metav1.CreateOptions{})
+			if createErr != nil {
+				// If creation fails, add warning but continue (might be permission issue)
+				warnings = append(warnings, fmt.Sprintf("Namespace '%s' does not exist and could not be created for preview. It will be created during deployment. Some validations may fail.", namespace))
+			}
+		}
+	}
+
 	// Combine all YAML into one string for parsing
 	combinedYAML := strings.Join(manifests, "\n---\n")
 
@@ -453,19 +476,31 @@ func (ws *WebServer) validateResourceDryRun(ctx context.Context, obj runtime.Obj
 	}
 
 	// Check if resource is namespaced
+	var validationErr error
 	if ws.isNamespacedResource(gvk) {
 		// Perform server-side dry-run create
-		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Create(ctx, u, metav1.CreateOptions{
+		_, validationErr = dynamicClient.Resource(gvr).Namespace(namespace).Create(ctx, u, metav1.CreateOptions{
 			DryRun: []string{metav1.DryRunAll},
 		})
 	} else {
 		// Cluster-scoped resource
-		_, err = dynamicClient.Resource(gvr).Create(ctx, u, metav1.CreateOptions{
+		_, validationErr = dynamicClient.Resource(gvr).Create(ctx, u, metav1.CreateOptions{
 			DryRun: []string{metav1.DryRunAll},
 		})
 	}
 
-	return err
+	// Handle namespace not found errors gracefully - namespace will be created during deployment
+	if validationErr != nil {
+		errStr := validationErr.Error()
+		if strings.Contains(errStr, "not found") && strings.Contains(errStr, "namespaces") {
+			// This is expected if namespace doesn't exist - it will be created during deployment
+			// Return nil to allow preview to continue
+			return nil
+		}
+		return validationErr
+	}
+
+	return nil
 }
 
 // applyResource applies a resource to the cluster
