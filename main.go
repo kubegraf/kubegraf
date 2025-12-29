@@ -110,6 +110,9 @@ func main() {
 	app := NewApp(namespace)
 
 	if webMode {
+		// Check for update status from previous session
+		CheckUpdateStatus()
+
 		// In web mode, start server immediately and connect to cluster in background
 		fmt.Println("🚀 Starting KubeGraf Daemon...")
 

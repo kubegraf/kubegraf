@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -420,12 +421,25 @@ func performWindowsUpdate(execPath, newBinaryPath string) error {
 		return performScoopUpdate(execPath, newBinaryPath, scoopInfo)
 	}
 
+	// Get current process PID for reliable process detection
+	currentPID := os.Getpid()
+
 	// Get installation directory
 	installDir := windows.GetInstallDirectory(execPath)
 
 	// Determine app name and exe name
 	appName := "KubeGraf"
 	exeName := filepath.Base(execPath)
+
+	// Extract version from the new binary path or use "latest"
+	newVersion := "latest"
+	if strings.Contains(newBinaryPath, "kubegraf") {
+		// Try to extract version from filename (e.g., kubegraf_1.7.33_windows_amd64.exe)
+		parts := strings.Split(filepath.Base(newBinaryPath), "_")
+		if len(parts) > 1 {
+			newVersion = parts[1]
+		}
+	}
 
 	// Find icon file in installation directory
 	iconPath := filepath.Join(installDir, "kubegraf_color_icon.ico")
@@ -453,6 +467,8 @@ func performWindowsUpdate(execPath, newBinaryPath string) error {
 		AppExeName:    exeName,
 		InstallDir:    installDir,
 		IconPath:      iconPath,
+		ProcessPID:    currentPID,
+		NewVersion:    newVersion,
 	}
 
 	// Create the updater script
@@ -533,9 +549,12 @@ func performScoopUpdate(execPath, newBinaryPath string, scoopInfo *windows.Scoop
 		fmt.Printf("   Current Version: %s\n", scoopInfo.ScoopVersion)
 	}
 
+	// Get current process PID for reliable process detection
+	currentPID := os.Getpid()
+
 	// For Scoop installations, we update the actual version directory
 	// and let Scoop's symlink structure handle the rest
-	
+
 	// Get installation directory (Scoop app directory)
 	installDir := scoopInfo.ScoopAppDir
 	if installDir == "" {
@@ -545,6 +564,16 @@ func performScoopUpdate(execPath, newBinaryPath string, scoopInfo *windows.Scoop
 	// Determine app name and exe name
 	appName := "KubeGraf"
 	exeName := filepath.Base(execPath)
+
+	// Extract version from the new binary path or use "latest"
+	newVersion := "latest"
+	if strings.Contains(newBinaryPath, "kubegraf") {
+		// Try to extract version from filename
+		parts := strings.Split(filepath.Base(newBinaryPath), "_")
+		if len(parts) > 1 {
+			newVersion = parts[1]
+		}
+	}
 
 	// Resolve the actual executable path (might be a symlink)
 	realExecPath, err := filepath.EvalSymlinks(execPath)
@@ -578,6 +607,8 @@ func performScoopUpdate(execPath, newBinaryPath string, scoopInfo *windows.Scoop
 		AppExeName:    exeName,
 		InstallDir:    installDir,
 		IconPath:      iconPath,
+		ProcessPID:    currentPID,
+		NewVersion:    newVersion,
 	}
 
 	// Create the updater script
@@ -632,4 +663,59 @@ func RestartApplication() error {
 	os.Exit(0)
 
 	return nil
+}
+
+// CheckUpdateStatus checks for update status from previous session and reports it
+// This should be called on application startup to inform the user of update success/failure
+func CheckUpdateStatus() {
+	statusFile := filepath.Join(os.TempDir(), "kubegraf-update-status.json")
+	data, err := os.ReadFile(statusFile)
+	if err != nil {
+		// No status file, this is a normal startup (not after update)
+		return
+	}
+
+	// Parse status file
+	var status struct {
+		Success   bool   `json:"success"`
+		Error     string `json:"error,omitempty"`
+		Version   string `json:"version,omitempty"`
+		Timestamp string `json:"timestamp"`
+		Warning   string `json:"warning,omitempty"`
+		BackupPath string `json:"backupPath,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &status); err != nil {
+		log.Printf("⚠️  Failed to parse update status: %v", err)
+		os.Remove(statusFile)
+		return
+	}
+
+	// Report status to user
+	if status.Success {
+		if status.Version != "" {
+			fmt.Printf("✅ Update to version %s completed successfully!\n", status.Version)
+		} else {
+			fmt.Println("✅ Update completed successfully!")
+		}
+
+		if status.Warning != "" {
+			fmt.Printf("⚠️  Warning: %s\n", status.Warning)
+		}
+	} else {
+		fmt.Println("❌ Update failed:")
+		fmt.Printf("   %s\n", status.Error)
+
+		if status.BackupPath != "" {
+			fmt.Printf("   Backup available at: %s\n", status.BackupPath)
+		}
+
+		fmt.Println("\n   Please try updating again or download manually from:")
+		fmt.Println("   https://github.com/kubegraf/kubegraf/releases")
+	}
+
+	// Clean up status file
+	if err := os.Remove(statusFile); err != nil {
+		log.Printf("⚠️  Failed to remove status file: %v", err)
+	}
 }
