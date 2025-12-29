@@ -15,7 +15,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -28,7 +27,8 @@ import (
 
 	cli "github.com/kubegraf/kubegraf/cmd/cli"
 	"github.com/kubegraf/kubegraf/internal/cluster"
-	"github.com/kubegraf/kubegraf/pkg/telemetry"
+	"github.com/kubegraf/kubegraf/internal/telemetry"
+	oldtelemetry "github.com/kubegraf/kubegraf/pkg/telemetry"
 )
 
 func main() {
@@ -44,8 +44,8 @@ func main() {
 	// Suppress verbose Kubernetes client logs
 	os.Setenv("KUBE_LOG_LEVEL", "0")
 
-	// Check for telemetry CLI commands first
-	if telemetry.RunCLI(os.Args, GetVersion()) {
+	// Check for telemetry CLI commands first (using old telemetry for backward compat)
+	if oldtelemetry.RunCLI(os.Args, GetVersion()) {
 		return
 	}
 
@@ -88,12 +88,12 @@ func main() {
 		}
 	}
 
-	// Initialize telemetry (non-blocking, best-effort)
-	telemetryClient := telemetry.NewClient(GetVersion())
-	ctx := context.Background()
-	telemetryClient.Initialize(ctx)
-	telemetryClient.TrackInstall(ctx)
-	telemetryClient.TrackHeartbeat(ctx)
+	// FIRST-RUN TELEMETRY PROMPT (OPT-IN, ONE-TIME ONLY)
+	// This runs ONLY on first execution, prompts user for consent, and never runs again.
+	// It ONLY runs in interactive terminals (never in scripts or CI/CD).
+	// Default is NO if user doesn't respond within 10 seconds.
+	// No cluster data, no commands, no identifiers are ever collected.
+	telemetry.RunFirstTimeSetup(GetVersion())
 
 	// Parse namespace
 	namespace := "default"
