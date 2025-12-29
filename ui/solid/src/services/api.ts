@@ -1426,6 +1426,14 @@ export const api = {
     fetchAPI<{ success: boolean; status: ClusterManagerStatus }>('/clusters/disconnect', {
       method: 'POST',
     }),
+  openFileDialog: (title?: string, defaultPath?: string) =>
+    fetchAPI<{ success: boolean; path: string }>('/file/dialog', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: title || 'Select kubeconfig file',
+        defaultPath: defaultPath || '',
+      }),
+    }),
 
   // ============ AutoFix Engine ============
   getAutoFixRules: async () => {

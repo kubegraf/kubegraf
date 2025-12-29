@@ -68,6 +68,19 @@ const ClusterManager: Component = () => {
     setManualName('');
   };
 
+  const handleBrowseFile = async () => {
+    try {
+      const { api } = await import('../services/api');
+      const result = await api.openFileDialog('Select kubeconfig file', '~/.kube');
+      if (result.success && result.path) {
+        setManualPath(result.path);
+      }
+    } catch (err: any) {
+      console.error('File dialog error:', err);
+      addNotification(err?.message || 'Failed to open file dialog', 'error');
+    }
+  };
+
   const guideCards = [
     {
       title: 'Auto-detect kubeconfig',
@@ -577,18 +590,36 @@ const ClusterManager: Component = () => {
                   color: 'var(--text-primary)'
                 }}
               />
-              <input
-                type="text"
-                placeholder="/path/to/kubeconfig"
-                value={manualPath()}
-                onInput={(e) => setManualPath(e.currentTarget.value)}
-                class="w-full px-3 py-2 rounded-md text-sm"
-                style={{
-                  background: 'var(--bg-input)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)'
-                }}
-              />
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="/path/to/kubeconfig or click Browse"
+                  value={manualPath()}
+                  onInput={(e) => setManualPath(e.currentTarget.value)}
+                  class="flex-1 px-3 py-2 rounded-md text-sm"
+                  style={{
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)'
+                  }}
+                />
+                <button
+                  class="px-4 py-2 rounded-md text-sm flex items-center gap-2 transition-all"
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)'
+                  }}
+                  onClick={handleBrowseFile}
+                  disabled={clusterLoading()}
+                  title="Browse for kubeconfig file"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  Browse
+                </button>
+              </div>
               <select
                 class="w-full px-3 py-2 rounded-md text-sm"
                 value={manualProvider()}
