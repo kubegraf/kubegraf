@@ -147,6 +147,7 @@ jobs:
           ls -lh ${OUTPUT_NAME}
 
       - name: Create archive
+        id: archive
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
