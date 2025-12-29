@@ -2679,8 +2679,8 @@ func getAvailableWindowsShells() []struct {
 		args     []string
 		priority int
 	}{
-		{"pwsh.exe", "PowerShell Core (pwsh)", []string{"-NoProfile", "-NoExit", "-Command", "-"}, 1},
-		{"powershell.exe", "PowerShell", []string{"-NoProfile", "-NoExit", "-Command", "-"}, 2},
+		{"pwsh.exe", "PowerShell Core (pwsh)", []string{"-NoLogo", "-NoProfile", "-NoExit"}, 1},
+		{"powershell.exe", "PowerShell", []string{"-NoLogo", "-NoProfile", "-NoExit"}, 2},
 		{"wsl.exe", "WSL (Windows Subsystem for Linux)", []string{"-e", "bash", "-i"}, 3},
 		{"bash.exe", "Git Bash", []string{"--login", "-i"}, 4},
 		{"git-bash.exe", "Git Bash (alternative)", []string{"--login", "-i"}, 5},
@@ -3157,6 +3157,24 @@ func (ws *WebServer) handleWindowsTerminalWS(conn *websocket.Conn, r *http.Reque
 		}
 		cmd.Wait()
 	}()
+
+	// Send initial prompt/welcome message based on shell type
+	initialMsg := ""
+	if strings.Contains(shell, "powershell") || strings.Contains(shell, "pwsh") {
+		// PowerShell: Send a command to display welcome and prompt
+		initialMsg = "Write-Host 'KubeGraf Terminal Ready' -ForegroundColor Green; $host.UI.RawUI.WindowTitle = 'KubeGraf Terminal'\r\n"
+	} else if strings.Contains(shell, "cmd") {
+		// CMD: Send echo command
+		initialMsg = "@echo KubeGraf Terminal Ready\r\n"
+	}
+
+	if initialMsg != "" {
+		// Write initial command to stdin to trigger output
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			stdin.Write([]byte(initialMsg))
+		}()
+	}
 
 	// Use a channel to signal when the connection should close
 	done := make(chan bool, 1)
