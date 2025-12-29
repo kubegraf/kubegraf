@@ -3079,20 +3079,6 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 // This function is kept for backwards compatibility but should not be used.
 // Use execution-based terminal approach instead (via ExecutionPanel).
 func (ws *WebServer) handleWindowsTerminalWS(conn *websocket.Conn, r *http.Request) {
-	// Send deprecation warning to client
-	conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m⚠️  Windows terminal via WebSocket is deprecated and may not work correctly.\x1b[0m\r\n"))
-	conn.WriteMessage(websocket.TextMessage, []byte("\x1b[33m   Please use the execution-based terminal instead.\x1b[0m\r\n\r\n"))
-
-	// Close connection immediately with error message
-	conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[31m❌ Interactive shell unavailable on Windows.\x1b[0m\r\n"))
-	conn.WriteMessage(websocket.TextMessage, []byte("\x1b[33m   Falling back to command execution mode.\x1b[0m\r\n"))
-	conn.WriteMessage(websocket.TextMessage, []byte("\x1b[33m   Use the shell selector to choose your preferred shell.\x1b[0m\r\n\r\n"))
-	time.Sleep(2 * time.Second)
-	conn.Close()
-	return
-
-	// Original broken implementation commented out below
-	/*
 	// Get preferred shell from query parameter
 	preferredShell := r.URL.Query().Get("shell")
 
@@ -3288,7 +3274,6 @@ func (ws *WebServer) handleWindowsTerminalWS(conn *websocket.Conn, r *http.Reque
 			}
 		}
 	}
-	*/
 }
 
 // TerminalSize implements remotecommand.TerminalSizeQueue
