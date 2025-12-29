@@ -19,12 +19,24 @@ export default defineConfig({
   build: {
     target: 'esnext',
     outDir: 'dist',
-    minify: false, // Temporarily disable to debug
-    sourcemap: true,
+    minify: 'terser', // Re-enable minification for production
+    sourcemap: false, // Disable sourcemaps in production for smaller builds
+    terserOptions: {
+      compress: {
+        // Remove console.* calls in production (except console.error and console.warn)
+        drop_console: false, // We handle this in logger.ts based on environment
+        drop_debugger: true, // Remove debugger statements
+        pure_funcs: ['console.log', 'console.info', 'console.debug'], // Remove these specific calls
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks: undefined,
       },
     },
+  },
+  define: {
+    // Explicitly set production flag for logger
+    'import.meta.env.PROD': JSON.stringify(true),
   },
 });

@@ -1,5 +1,6 @@
 import { createSignal, createResource, createEffect, createMemo, onMount } from 'solid-js';
 import { api, type WorkspaceContextPayload } from '../services/api';
+import { logger } from '../utils/logger';
 
 // Types
 export interface ClusterContext {
@@ -134,7 +135,7 @@ async function loadWorkspaceContext(): Promise<void> {
     const ctx = await api.getWorkspaceContext();
     applyWorkspaceContextState(ctx || { selectedNamespaces: [] });
   } catch (err) {
-    console.error('Failed to load workspace context', err);
+    logger.error('Cluster', 'Failed to load workspace context', err);
     applyWorkspaceContextState({ selectedNamespaces: [] });
   } finally {
     setWorkspaceLoading(false);
@@ -150,13 +151,13 @@ createEffect(() => {
   if (connected) {
     // If workspaceVersion is 0, increment it to trigger resource fetching
     if (version === 0) {
-      console.log('[Cluster] Cluster connected, triggering resource fetch (workspaceVersion: 0 -> 1)');
+      logger.debug('Cluster', 'Cluster connected, triggering resource fetch (workspaceVersion: 0 -> 1)');
       setWorkspaceVersion(1);
     }
     // Also trigger immediate refetch to ensure data loads (with delay to let resources initialize)
     setTimeout(() => {
       if (clusterStatus().connected) {
-        console.log('[Cluster] Refetching resources after cluster connection');
+        logger.debug('Cluster', 'Refetching resources after cluster connection');
         refetchPods();
         refetchDeployments();
         refetchServices();
@@ -166,7 +167,7 @@ createEffect(() => {
   } else {
     // When disconnected, reset workspaceVersion to 0 so resources will fetch again when reconnected
     if (version > 0) {
-      console.log('[Cluster] Cluster disconnected, resetting workspaceVersion');
+      logger.debug('Cluster', 'Cluster disconnected, resetting workspaceVersion');
       setWorkspaceVersion(0);
     }
   }
@@ -181,7 +182,7 @@ async function persistWorkspaceContext(next: WorkspaceContextPayload): Promise<v
     });
     applyWorkspaceContextState(updated || next);
   } catch (err) {
-    console.error('Failed to update workspace context', err);
+    logger.error('Cluster', 'Failed to update workspace context', err);
     throw err;
   }
 }
@@ -230,7 +231,7 @@ async function setNamespace(value: string): Promise<void> {
       await setSelectedNamespaces([value], 'custom');
     }
   } catch (err) {
-    console.error('Failed to set namespace', err);
+    logger.error('Cluster', 'Failed to set namespace', err);
   }
 }
 
@@ -240,85 +241,85 @@ async function fetchNamespaces(): Promise<string[]> {
 }
 
 async function fetchPods(): Promise<Pod[]> {
-  console.log('[Cluster] Fetching pods from /api/pods');
+  logger.debug('Cluster', 'Fetching pods from /api/pods');
   try {
     const res = await fetch('/api/pods');
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('[Cluster] Failed to fetch pods:', res.status, res.statusText, errorText);
+      logger.error('Cluster', `Failed to fetch pods: ${res.status} ${res.statusText}`, { errorText });
       throw new Error(`Failed to fetch pods: ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
     const pods = Array.isArray(data) ? data : (data.pods || []);
-    console.log('[Cluster] Fetched pods:', pods.length, 'pods');
+    logger.debug('Cluster', `Fetched ${pods.length} pods`);
     if (pods.length > 0) {
-      console.log('[Cluster] Sample pod:', { name: pods[0].name, namespace: pods[0].namespace, status: pods[0].status });
+      logger.debug('Cluster', 'Sample pod', { name: pods[0].name, namespace: pods[0].namespace, status: pods[0].status });
     }
     return pods;
   } catch (error) {
-    console.error('[Cluster] Error fetching pods:', error);
+    logger.error('Cluster', 'Error fetching pods', error);
     throw error;
   }
 }
 
 async function fetchDeployments(): Promise<Deployment[]> {
-  console.log('[Cluster] Fetching deployments from /api/deployments');
+  logger.debug('Cluster', 'Fetching deployments from /api/deployments');
   try {
     const res = await fetch('/api/deployments');
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('[Cluster] Failed to fetch deployments:', res.status, res.statusText, errorText);
+      logger.error('Cluster', `Failed to fetch deployments: ${res.status} ${res.statusText}`, { errorText });
       throw new Error(`Failed to fetch deployments: ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
     const deployments = Array.isArray(data) ? data : (data.deployments || []);
-    console.log('[Cluster] Fetched deployments:', deployments.length, 'deployments');
+    logger.debug('Cluster', `Fetched ${deployments.length} deployments`);
     if (deployments.length > 0) {
-      console.log('[Cluster] Sample deployment:', { name: deployments[0].name, namespace: deployments[0].namespace, ready: deployments[0].ready });
+      logger.debug('Cluster', 'Sample deployment', { name: deployments[0].name, namespace: deployments[0].namespace, ready: deployments[0].ready });
     }
     return deployments;
   } catch (error) {
-    console.error('[Cluster] Error fetching deployments:', error);
+    logger.error('Cluster', 'Error fetching deployments', error);
     throw error;
   }
 }
 
 async function fetchServices(): Promise<Service[]> {
-  console.log('[Cluster] Fetching services from /api/services');
+  logger.debug('Cluster', 'Fetching services from /api/services');
   try {
     const res = await fetch('/api/services');
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('[Cluster] Failed to fetch services:', res.status, res.statusText, errorText);
+      logger.error('Cluster', `Failed to fetch services: ${res.status} ${res.statusText}`, { errorText });
       throw new Error(`Failed to fetch services: ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
     // Handle both old format (array) and new format (object with services array)
     const services = Array.isArray(data) ? data : (data.services || []);
-    console.log('[Cluster] Fetched services:', services.length, 'services');
+    logger.debug('Cluster', `Fetched ${services.length} services`);
     return services;
   } catch (error) {
-    console.error('[Cluster] Error fetching services:', error);
+    logger.error('Cluster', 'Error fetching services', error);
     throw error;
   }
 }
 
 async function fetchNodes(): Promise<Node[]> {
-  console.log('[Cluster] Fetching nodes from /api/nodes');
+  logger.debug('Cluster', 'Fetching nodes from /api/nodes');
   try {
     const res = await fetch('/api/nodes');
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('[Cluster] Failed to fetch nodes:', res.status, res.statusText, errorText);
+      logger.error('Cluster', `Failed to fetch nodes: ${res.status} ${res.statusText}`, { errorText });
       throw new Error(`Failed to fetch nodes: ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
     // Handle both old format (array) and new format (object with nodes array)
     const nodes = Array.isArray(data) ? data : (data.nodes || []);
-    console.log('[Cluster] Fetched nodes:', nodes.length, 'nodes');
+    logger.debug('Cluster', `Fetched ${nodes.length} nodes`);
     return nodes;
   } catch (error) {
-    console.error('[Cluster] Error fetching nodes:', error);
+    logger.error('Cluster', 'Error fetching nodes', error);
     throw error;
   }
 }
@@ -370,7 +371,7 @@ async function switchContext(contextName: string): Promise<void> {
     // Refresh namespaces after switching contexts
     api.getNamespaceNames()
       .then((ns) => setNamespaces(ns))
-      .catch((err) => console.error('Failed to refresh namespaces after context switch', err));
+      .catch((err) => logger.error('Cluster', 'Failed to refresh namespaces after context switch', err));
 
     setClusterSwitchMessage(`Connected to ${contextName}`);
     setTimeout(() => {
@@ -457,10 +458,10 @@ createEffect(() => {
 
 // Log any errors
 createEffect(() => {
-  if (statusResource.error) console.error('Status error:', statusResource.error);
-  if (namespacesResource.error) console.error('Namespaces error:', namespacesResource.error);
-  if (podsResource.error) console.error('Pods error:', podsResource.error);
-  if (nodesResource.error) console.error('Nodes error:', nodesResource.error);
+  if (statusResource.error) logger.error('Cluster', 'Status error', statusResource.error);
+  if (namespacesResource.error) logger.error('Cluster', 'Namespaces error', namespacesResource.error);
+  if (podsResource.error) logger.error('Cluster', 'Pods error', podsResource.error);
+  if (nodesResource.error) logger.error('Cluster', 'Nodes error', nodesResource.error);
 });
 
 // Global refresh event system for cluster switching
@@ -494,7 +495,7 @@ function refreshAll() {
     try {
       cb();
     } catch (e) {
-      console.error('Error in cluster switch callback:', e);
+      logger.error('Cluster', 'Error in cluster switch callback', e);
     }
   });
   

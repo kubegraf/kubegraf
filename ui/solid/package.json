@@ -1,6 +1,6 @@
 {
   "name": "kubegraf-ui",
-  "version": "1.7.29",
+  "version": "1.7.36",
   "description": "High-performance Kubernetes dashboard built with Solid.js",
   "author": "KubeGraf Contributors",
   "type": "module",
@@ -39,6 +39,7 @@
     "electron-builder": "^26.0.12",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
+    "terser": "^5.44.1",
     "typescript": "^5.4.5",
     "vite": "^5.4.21",
     "vite-plugin-solid": "^2.10.2"

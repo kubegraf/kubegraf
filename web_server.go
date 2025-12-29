@@ -56,6 +56,8 @@ import (
 	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/database"
 	"github.com/kubegraf/kubegraf/internal/security"
+	"github.com/kubegraf/kubegraf/internal/telemetry"
+	"github.com/kubegraf/kubegraf/internal/uilogger"
 	"github.com/kubegraf/kubegraf/mcp/server"
 	"github.com/kubegraf/kubegraf/pkg/capabilities"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
@@ -438,6 +440,14 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/terminal/shells", ws.handleGetAvailableShells)
 	http.HandleFunc("/api/terminal/preferences", ws.handleGetTerminalPreferences)
 	http.HandleFunc("/api/execution/stream", ws.handleExecutionStream)
+
+	// Telemetry consent APIs
+	http.HandleFunc("/api/telemetry/status", ws.handleTelemetryStatus)
+	http.HandleFunc("/api/telemetry/consent", ws.handleTelemetryConsent)
+
+	// UI Logger APIs (frontend logs to backend)
+	http.HandleFunc("/api/ui-logs/write", ws.handleUILogWrite)
+	http.HandleFunc("/api/ui-logs/stats", ws.handleUILogStats)
 	http.HandleFunc("/terminal", ws.handleLocalTerminalPage)
 	http.HandleFunc("/api/pod/restart", ws.handlePodRestart)
 	http.HandleFunc("/api/pod/delete", ws.handlePodDelete)
@@ -9083,4 +9093,148 @@ func (ws *WebServer) handleNamespaceDelete(w http.ResponseWriter, r *http.Reques
 		"success": true,
 		"message": fmt.Sprintf("Namespace %s deleted successfully", name),
 	})
+}
+
+// handleTelemetryStatus returns the current telemetry decision status
+func (ws *WebServer) handleTelemetryStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	config, err := telemetry.LoadConfig()
+	if err != nil {
+		// Error loading config, treat as first run
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"decided": false,
+			"enabled": false,
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"decided": config.Telemetry.Decided,
+		"enabled": config.Telemetry.Enabled,
+	})
+}
+
+// handleTelemetryConsent handles the user's telemetry consent decision
+func (ws *WebServer) handleTelemetryConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Save the decision
+	if err := telemetry.RecordDecision(request.Enabled); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save decision: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// If user opted in, send the install event
+	if request.Enabled {
+		telemetry.SendInstallEvent(version)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"enabled": request.Enabled,
+	})
+}
+
+// ============ UI Logger Handlers ============
+
+// handleUILogWrite handles frontend logs sent to backend
+// POST /api/ui-logs/write
+func (ws *WebServer) handleUILogWrite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get or initialize UI logger
+	uiLogger := uilogger.GetInstance()
+	if uiLogger == nil {
+		// Initialize if not already done
+		var err error
+		uiLogger, err = uilogger.Initialize()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to initialize logger: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Parse request body - can be single log or array of logs
+	var requestBody json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Try to parse as array first
+	var entries []uilogger.LogEntry
+	if err := json.Unmarshal(requestBody, &entries); err != nil {
+		// If array parsing fails, try single entry
+		var entry uilogger.LogEntry
+		if err := json.Unmarshal(requestBody, &entry); err != nil {
+			http.Error(w, "Invalid log entry format", http.StatusBadRequest)
+			return
+		}
+		entries = []uilogger.LogEntry{entry}
+	}
+
+	// Write logs
+	if err := uiLogger.WriteLogs(entries); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to write logs: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"count":   len(entries),
+	})
+}
+
+// handleUILogStats returns statistics about UI logs
+// GET /api/ui-logs/stats
+func (ws *WebServer) handleUILogStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get or initialize UI logger
+	uiLogger := uilogger.GetInstance()
+	if uiLogger == nil {
+		// Initialize if not already done
+		var err error
+		uiLogger, err = uilogger.Initialize()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to initialize logger: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Get stats
+	stats, err := uiLogger.GetLogStats()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }

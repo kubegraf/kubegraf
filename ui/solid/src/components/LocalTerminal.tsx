@@ -2,6 +2,7 @@ import { Component, createSignal, createEffect, onCleanup, Show, onMount } from 
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
+import { logger } from '../utils/logger';
 
 interface LocalTerminalProps {
   // Optional: if provided, will be called when terminal is ready
@@ -10,9 +11,17 @@ interface LocalTerminalProps {
   preferredShell?: string;
 }
 
+// Detect if the client is running on Windows
+const isWindows = (): boolean => {
+  const userAgent = navigator.userAgent.toLowerCase();
+  const platform = (navigator.platform || '').toLowerCase();
+  return platform.includes('win') || userAgent.includes('windows');
+};
+
 const LocalTerminal: Component<LocalTerminalProps> = (props) => {
   const [connected, setConnected] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [isWindowsPlatform] = createSignal(isWindows());
   let ws: WebSocket | null = null;
   let terminalContainer: HTMLDivElement | undefined;
   let term: any = null;
@@ -162,6 +171,13 @@ const LocalTerminal: Component<LocalTerminalProps> = (props) => {
   };
 
   onMount(() => {
+    // Check if Windows platform before initializing
+    if (isWindowsPlatform()) {
+      logger.warn('LocalTerminal', 'Windows platform detected - terminal not supported via WebSocket');
+      setError('windows-not-supported');
+      return;
+    }
+
     // Initialize terminal when component mounts
     setTimeout(() => {
       initializeTerminal();
@@ -222,42 +238,104 @@ const LocalTerminal: Component<LocalTerminalProps> = (props) => {
       </div>
 
       {/* Error message */}
-      <Show when={error()}>
+      <Show when={error() && error() !== 'windows-not-supported'}>
         <div class="mb-2 px-3 py-2 rounded-lg text-sm" style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error-color)' }}>
           {error()}
         </div>
       </Show>
 
-      {/* Terminal container */}
-      <div
-        ref={terminalContainer}
-        class="flex-1 rounded-lg overflow-hidden"
-        data-terminal="true"
-        tabindex="0"
-        style={{
-          background: '#0d1117',
-          border: '1px solid var(--border-color)',
-          padding: '8px',
-          minHeight: '500px',
-          height: '100%',
-          outline: 'none',
-        }}
-        onClick={(e) => {
-          console.log('Container clicked, focusing terminal...');
-          e.stopPropagation();
-          if (term) {
-            term.focus();
-            // Also focus the container
-            terminalContainer?.focus();
-            console.log('Terminal focused, element:', term.element, 'activeElement:', document.activeElement);
-          }
-        }}
-        onKeyDown={(e) => {
-          console.log('Container keydown:', e.key, 'target:', e.target);
-          // Let xterm handle it
-          e.stopPropagation();
-        }}
-      />
+      {/* Windows not supported message */}
+      <Show when={error() === 'windows-not-supported'}>
+        <div class="flex-1 flex flex-col items-center justify-center p-6 rounded-lg" style={{ background: '#0d1117', border: '1px solid var(--border-color)' }}>
+          <div class="max-w-2xl text-center space-y-4">
+            {/* Warning Icon */}
+            <div class="flex justify-center mb-4">
+              <svg class="w-16 h-16 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+
+            {/* Title */}
+            <h3 class="text-xl font-semibold text-white">
+              Interactive Terminal Not Available on Windows
+            </h3>
+
+            {/* Explanation */}
+            <p class="text-gray-400 text-sm">
+              Windows does not support interactive terminal sessions via WebSocket due to fundamental limitations
+              with Windows pipes (no PTY support). Interactive shells require a pseudo-terminal (PTY), which is
+              available on Unix-like systems but not in the Windows standard library.
+            </p>
+
+            {/* Alternative Solutions */}
+            <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-left space-y-3">
+              <h4 class="text-sm font-semibold text-blue-400 flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Alternative Solutions
+              </h4>
+              <ul class="text-sm text-gray-300 space-y-2 list-disc list-inside">
+                <li>Use Windows Terminal or PowerShell directly on your system</li>
+                <li>Use WSL (Windows Subsystem for Linux) for a full Linux terminal experience</li>
+                <li>For Kubernetes operations, use the pod terminal feature (works on all platforms)</li>
+                <li>Run commands via the execution panel in other parts of the application</li>
+              </ul>
+            </div>
+
+            {/* Technical Details Link */}
+            <details class="text-left">
+              <summary class="text-sm text-cyan-400 cursor-pointer hover:text-cyan-300">
+                Technical Details (for developers)
+              </summary>
+              <div class="mt-2 text-xs text-gray-400 space-y-2 bg-gray-900/50 p-3 rounded border border-gray-700">
+                <p><strong>Why this limitation exists:</strong></p>
+                <ul class="list-disc list-inside space-y-1 ml-2">
+                  <li>Windows PowerShell/CMD buffer output when stdout is a pipe (4KB buffer)</li>
+                  <li>Shells disable echo in pipe mode, causing no input feedback</li>
+                  <li>ANSI colors are not emitted to pipes</li>
+                  <li>Control signals (Ctrl+C) don't work through pipes</li>
+                </ul>
+                <p class="mt-2"><strong>Potential future solution:</strong></p>
+                <p class="ml-2">ConPTY (Windows 10 1809+) could provide PTY support, but requires external dependencies and is not yet implemented.</p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </Show>
+
+      {/* Terminal container - only show when not Windows */}
+      <Show when={!isWindowsPlatform()}>
+        <div
+          ref={terminalContainer}
+          class="flex-1 rounded-lg overflow-hidden"
+          data-terminal="true"
+          tabindex="0"
+          style={{
+            background: '#0d1117',
+            border: '1px solid var(--border-color)',
+            padding: '8px',
+            minHeight: '500px',
+            height: '100%',
+            outline: 'none',
+          }}
+          onClick={(e) => {
+            console.log('Container clicked, focusing terminal...');
+            e.stopPropagation();
+            if (term) {
+              term.focus();
+              // Also focus the container
+              terminalContainer?.focus();
+              console.log('Terminal focused, element:', term.element, 'activeElement:', document.activeElement);
+            }
+          }}
+          onKeyDown={(e) => {
+            console.log('Container keydown:', e.key, 'target:', e.target);
+            // Let xterm handle it
+            e.stopPropagation();
+          }}
+        />
+      </Show>
     </div>
   );
 };
