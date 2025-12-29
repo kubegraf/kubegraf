@@ -60,6 +60,7 @@ import (
 	"github.com/kubegraf/kubegraf/pkg/capabilities"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
+	windowsterminal "github.com/kubegraf/kubegraf/pkg/terminal/windows"
 )
 
 var (
@@ -2751,22 +2752,27 @@ func (ws *WebServer) handleGetAvailableShells(w http.ResponseWriter, r *http.Req
 	}
 
 	type ShellInfo struct {
-		Name     string `json:"name"`
-		Display  string `json:"display"`
-		Path     string `json:"path"`
-		Priority int    `json:"priority"`
+		Name        string `json:"name"`
+		Display     string `json:"display"`
+		Path        string `json:"path"`
+		Priority    int    `json:"priority"`
+		Recommended bool   `json:"recommended"`
+		Description string `json:"description"`
 	}
 
 	var shells []ShellInfo
 
 	if runtime.GOOS == "windows" {
-		availableShells := getAvailableWindowsShells()
+		// Use new shell detection module
+		availableShells := windowsterminal.GetAvailableShells()
 		for _, shell := range availableShells {
 			shells = append(shells, ShellInfo{
-				Name:     shell.name,
-				Display:  shell.display,
-				Path:     shell.path,
-				Priority: shell.priority,
+				Name:        shell.Path, // Use path as name for backwards compatibility
+				Display:     shell.Name,
+				Path:        shell.Path,
+				Priority:    shell.Priority,
+				Recommended: shell.Recommended,
+				Description: shell.Description,
 			})
 		}
 	} else {
@@ -2784,10 +2790,12 @@ func (ws *WebServer) handleGetAvailableShells(w http.ResponseWriter, r *http.Req
 		for _, candidate := range shellCandidates {
 			if path, err := exec.LookPath(candidate.name); err == nil {
 				shells = append(shells, ShellInfo{
-					Name:     candidate.name,
-					Display:  candidate.display,
-					Path:     path,
-					Priority: priority,
+					Name:        candidate.name,
+					Display:     candidate.display,
+					Path:        path,
+					Priority:    priority,
+					Recommended: priority == 1, // First shell is recommended
+					Description: fmt.Sprintf("%s shell", candidate.display),
 				})
 				priority++
 			}
@@ -2810,11 +2818,10 @@ func (ws *WebServer) handleGetTerminalPreferences(w http.ResponseWriter, r *http
 	// Get preferred shell from query parameter or use default
 	preferredShell := r.URL.Query().Get("shell")
 	if preferredShell == "" {
-		// Return default (first available shell)
+		// Return default (first available recommended shell)
 		if runtime.GOOS == "windows" {
-			shells := getAvailableWindowsShells()
-			if len(shells) > 0 {
-				preferredShell = shells[0].name
+			if shell := windowsterminal.GetPreferredShell(); shell != nil {
+				preferredShell = shell.Path
 			} else {
 				preferredShell = "powershell.exe"
 			}
@@ -3057,8 +3064,25 @@ func (ws *WebServer) handleLocalTerminalWS(w http.ResponseWriter, r *http.Reques
 }
 
 // handleWindowsTerminalWS handles terminal WebSocket connections on Windows
-// Since PTY doesn't work on Windows, we use pipes with PowerShell
+// DEPRECATED: This pipe-based approach is fundamentally broken on Windows.
+// PowerShell buffers output when stdout is a pipe, causing no prompt display.
+// This function is kept for backwards compatibility but should not be used.
+// Use execution-based terminal approach instead (via ExecutionPanel).
 func (ws *WebServer) handleWindowsTerminalWS(conn *websocket.Conn, r *http.Request) {
+	// Send deprecation warning to client
+	conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m⚠️  Windows terminal via WebSocket is deprecated and may not work correctly.\x1b[0m\r\n"))
+	conn.WriteMessage(websocket.TextMessage, []byte("\x1b[33m   Please use the execution-based terminal instead.\x1b[0m\r\n\r\n"))
+
+	// Close connection immediately with error message
+	conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[31m❌ Interactive shell unavailable on Windows.\x1b[0m\r\n"))
+	conn.WriteMessage(websocket.TextMessage, []byte("\x1b[33m   Falling back to command execution mode.\x1b[0m\r\n"))
+	conn.WriteMessage(websocket.TextMessage, []byte("\x1b[33m   Use the shell selector to choose your preferred shell.\x1b[0m\r\n\r\n"))
+	time.Sleep(2 * time.Second)
+	conn.Close()
+	return
+
+	// Original broken implementation commented out below
+	/*
 	// Get preferred shell from query parameter
 	preferredShell := r.URL.Query().Get("shell")
 
@@ -3254,6 +3278,7 @@ func (ws *WebServer) handleWindowsTerminalWS(conn *websocket.Conn, r *http.Reque
 			}
 		}
 	}
+	*/
 }
 
 // TerminalSize implements remotecommand.TerminalSizeQueue

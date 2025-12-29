@@ -32,6 +32,8 @@ type UpdateConfig struct {
 	AppExeName    string // Executable name (e.g., "kubegraf.exe")
 	InstallDir    string // Installation directory (e.g., "C:\Program Files\KubeGraf")
 	IconPath      string // Path to icon file (.ico) for shortcuts
+	ProcessPID    int    // Current process ID (for reliable process detection)
+	NewVersion    string // New version being installed (for status file)
 }
 
 // CreateUpdaterScript creates a PowerShell script that will handle the update
@@ -84,7 +86,8 @@ func CreateUpdaterScript(config UpdateConfig) (string, error) {
 	installDirEscaped := escapePowerShellString(installDir)
 	exeNameEscaped := escapePowerShellString(exeName)
 	appNameEscaped := escapePowerShellString(appName)
-	processNameEscaped := escapePowerShellString(strings.TrimSuffix(exeName, ".exe"))
+	newVersionEscaped := escapePowerShellString(config.NewVersion)
+	processPID := config.ProcessPID
 
 	// PowerShell script content
 	script := fmt.Sprintf(`# KubeGraf Windows Updater Script
@@ -97,38 +100,51 @@ $NewBinaryPath = "%s"
 $InstallDir = "%s"
 $ExeName = "%s"
 $AppName = "%s"
-$ProcessName = "%s"
+$ProcessPID = %d
+$NewVersion = "%s"
 $IconPath = "%s"
+$StatusFile = "$env:TEMP\kubegraf-update-status.json"
 
 Write-Host "🔄 KubeGraf Updater Starting..." -ForegroundColor Cyan
+Write-Host "   Target PID: $ProcessPID" -ForegroundColor Cyan
+Write-Host "   New Version: $NewVersion" -ForegroundColor Cyan
 
-# Wait for the main process to exit (max 30 seconds)
-$maxWait = 30
+# Wait for the main process to exit (max 60 seconds)
+$maxWait = 120  # 60 seconds (500ms intervals)
 $waited = 0
 while ($waited -lt $maxWait) {
-    $process = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+    $process = Get-Process -Id $ProcessPID -ErrorAction SilentlyContinue
     if ($null -eq $process) {
-        Write-Host "✓ Main process has exited" -ForegroundColor Green
+        Write-Host "✓ Main process (PID $ProcessPID) has exited" -ForegroundColor Green
         break
     }
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 500
     $waited++
-    Write-Host "⏳ Waiting for main process to exit... ($waited/$maxWait)" -ForegroundColor Yellow
+    if ($waited % 2 -eq 0) {  # Log every second
+        Write-Host "⏳ Waiting for process to exit... ($($waited/2)/60 seconds)" -ForegroundColor Yellow
+    }
 }
 
 if ($waited -ge $maxWait) {
-    Write-Host "⚠️  Main process did not exit in time, attempting to terminate..." -ForegroundColor Yellow
+    Write-Host "⚠️  Process did not exit in time, attempting to terminate PID $ProcessPID..." -ForegroundColor Yellow
     try {
-        Stop-Process -Name $ProcessName -Force -ErrorAction SilentlyContinue
+        Stop-Process -Id $ProcessPID -Force -ErrorAction Stop
         Start-Sleep -Seconds 2
+        Write-Host "✓ Process terminated forcefully" -ForegroundColor Yellow
     } catch {
         Write-Host "❌ Failed to terminate process: $_" -ForegroundColor Red
+        @{
+            success = $false
+            error = "Process did not exit and could not be terminated: $($_.Exception.Message)"
+            timestamp = (Get-Date -Format "o")
+        } | ConvertTo-Json | Out-File $StatusFile -Encoding UTF8
         exit 1
     }
 }
 
-# Additional wait to ensure file handles are released
-Start-Sleep -Seconds 2
+# Additional wait to ensure file handles are released (3 seconds for safety)
+Write-Host "⏳ Waiting for file handles to release..." -ForegroundColor Cyan
+Start-Sleep -Seconds 3
 
 # Step 1: Backup old binary
 $backupPath = "$ExecPath.old"
@@ -146,27 +162,69 @@ try {
     exit 1
 }
 
-# Step 2: Install new binary
-try {
-    Write-Host "📥 Installing new binary..." -ForegroundColor Cyan
-    if (-not (Test-Path $NewBinaryPath)) {
-        Write-Host "❌ New binary not found: $NewBinaryPath" -ForegroundColor Red
-        # Try to restore backup
-        if (Test-Path $backupPath) {
-            Move-Item -Path $backupPath -Destination $ExecPath -Force
-        }
-        exit 1
-    }
-    
-    Copy-Item -Path $NewBinaryPath -Destination $ExecPath -Force
-    Write-Host "✓ New binary installed" -ForegroundColor Green
-} catch {
-    Write-Host "❌ Failed to install new binary: $_" -ForegroundColor Red
+# Step 2: Install new binary with retry logic
+Write-Host "📥 Installing new binary..." -ForegroundColor Cyan
+if (-not (Test-Path $NewBinaryPath)) {
+    Write-Host "❌ New binary not found: $NewBinaryPath" -ForegroundColor Red
     # Try to restore backup
     if (Test-Path $backupPath) {
-        Write-Host "🔄 Restoring backup..." -ForegroundColor Yellow
         Move-Item -Path $backupPath -Destination $ExecPath -Force
     }
+    @{
+        success = $false
+        error = "New binary not found at: $NewBinaryPath"
+        timestamp = (Get-Date -Format "o")
+    } | ConvertTo-Json | Out-File $StatusFile -Encoding UTF8
+    exit 1
+}
+
+# Retry file replacement (5 attempts with exponential backoff)
+$maxRetries = 5
+$retryCount = 0
+$copySuccess = $false
+$lastError = $null
+
+while ($retryCount -lt $maxRetries) {
+    try {
+        Copy-Item -Path $NewBinaryPath -Destination $ExecPath -Force -ErrorAction Stop
+        $copySuccess = $true
+        Write-Host "✓ New binary installed successfully" -ForegroundColor Green
+        break
+    } catch {
+        $retryCount++
+        $lastError = $_.Exception.Message
+        if ($retryCount -lt $maxRetries) {
+            $waitTime = [Math]::Pow(2, $retryCount)  # Exponential backoff: 2, 4, 8, 16 seconds
+            Write-Host "⚠️  Copy failed (attempt $retryCount/$maxRetries): $lastError" -ForegroundColor Yellow
+            Write-Host "⏳ Retrying in $waitTime seconds..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $waitTime
+        } else {
+            Write-Host "❌ Failed to install new binary after $maxRetries attempts" -ForegroundColor Red
+            Write-Host "   Last error: $lastError" -ForegroundColor Red
+        }
+    }
+}
+
+if (-not $copySuccess) {
+    # Restore backup
+    if (Test-Path $backupPath) {
+        Write-Host "🔄 Restoring backup..." -ForegroundColor Yellow
+        try {
+            Move-Item -Path $backupPath -Destination $ExecPath -Force -ErrorAction Stop
+            Write-Host "✓ Backup restored successfully" -ForegroundColor Green
+        } catch {
+            Write-Host "❌ Failed to restore backup: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "   CRITICAL: Manual restore required from: $backupPath" -ForegroundColor Red
+        }
+    }
+
+    # Write failure status
+    @{
+        success = $false
+        error = "Failed to replace binary after $maxRetries attempts. Last error: $lastError"
+        timestamp = (Get-Date -Format "o")
+        backupPath = $backupPath
+    } | ConvertTo-Json | Out-File $StatusFile -Encoding UTF8
     exit 1
 }
 
@@ -234,23 +292,46 @@ Start-Job -ScriptBlock {
     }
 } | Out-Null
 
-# Step 5: Restart the application
+# Step 5: Write success status
+try {
+    Write-Host "✅ Writing success status..." -ForegroundColor Cyan
+    @{
+        success = $true
+        version = $NewVersion
+        timestamp = (Get-Date -Format "o")
+    } | ConvertTo-Json | Out-File $StatusFile -Encoding UTF8
+    Write-Host "✓ Status file written" -ForegroundColor Green
+} catch {
+    Write-Host "⚠️  Failed to write status file: $_" -ForegroundColor Yellow
+    # Non-critical, continue
+}
+
+# Step 6: Restart the application
 try {
     Write-Host "🚀 Restarting $AppName..." -ForegroundColor Cyan
     Start-Sleep -Seconds 1
-    
+
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = $ExecPath
     $startInfo.Arguments = "web"
     $startInfo.WorkingDirectory = $InstallDir
     $startInfo.UseShellExecute = $true
     $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
-    
+
     [System.Diagnostics.Process]::Start($startInfo) | Out-Null
     Write-Host "✓ $AppName restarted successfully" -ForegroundColor Green
 } catch {
     Write-Host "❌ Failed to restart application: $_" -ForegroundColor Red
     Write-Host "Please manually start $AppName from the Start Menu or Desktop shortcut" -ForegroundColor Yellow
+
+    # Update status file with restart failure (but update was successful)
+    @{
+        success = $true
+        version = $NewVersion
+        timestamp = (Get-Date -Format "o")
+        warning = "Update successful but app restart failed. Please start manually."
+    } | ConvertTo-Json | Out-File $StatusFile -Encoding UTF8
+
     exit 1
 }
 
@@ -262,7 +343,8 @@ Start-Sleep -Seconds 2
 		installDirEscaped,
 		exeNameEscaped,
 		appNameEscaped,
-		processNameEscaped,
+		processPID,
+		newVersionEscaped,
 		escapePowerShellString(config.IconPath),
 	)
 
