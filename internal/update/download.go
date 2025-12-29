@@ -324,6 +324,9 @@ func extractFromTarGz(archivePath, destPath string) error {
 		binaryName = "kubegraf.exe"
 	}
 
+	// Track all files found for debugging
+	var foundFiles []string
+
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -333,10 +336,20 @@ func extractFromTarGz(archivePath, destPath string) error {
 			return fmt.Errorf("failed to read tar: %w", err)
 		}
 
-		// Check if this is the kubegraf binary
+		// Track all regular files
+		if header.Typeflag == tar.TypeReg {
+			foundFiles = append(foundFiles, header.Name)
+		}
+
+		// Check if this is the kubegraf binary (case-insensitive)
 		name := filepath.Base(header.Name)
+		nameLower := strings.ToLower(name)
+		binaryNameLower := strings.ToLower(binaryName)
+
 		if header.Typeflag == tar.TypeReg &&
-			(name == binaryName || strings.HasSuffix(header.Name, "/"+binaryName)) {
+			(nameLower == binaryNameLower ||
+			 strings.HasSuffix(strings.ToLower(header.Name), "/"+binaryNameLower) ||
+			 nameLower == "kubegraf" || nameLower == "kubegraf.exe") {
 
 			out, err := os.Create(destPath)
 			if err != nil {
@@ -357,7 +370,8 @@ func extractFromTarGz(archivePath, destPath string) error {
 		}
 	}
 
-	return fmt.Errorf("kubegraf binary not found in archive")
+	// If we get here, binary was not found - provide helpful error message
+	return fmt.Errorf("kubegraf binary not found in archive (expected: %s, found: %v)", binaryName, foundFiles)
 }
 
 // extractFromZip extracts kubegraf binary from a zip archive
@@ -380,10 +394,24 @@ func extractFromZip(archivePath, destPath string) error {
 		binaryName = "kubegraf.exe"
 	}
 
+	// Track all files found for debugging
+	var foundFiles []string
+
 	for _, file := range zipReader.File {
+		// Track all regular files
+		if !file.FileInfo().IsDir() {
+			foundFiles = append(foundFiles, file.Name)
+		}
+
+		// Check if this is the kubegraf binary (case-insensitive)
 		name := filepath.Base(file.Name)
+		nameLower := strings.ToLower(name)
+		binaryNameLower := strings.ToLower(binaryName)
+
 		if !file.FileInfo().IsDir() &&
-			(name == binaryName || strings.HasSuffix(file.Name, "/"+binaryName)) {
+			(nameLower == binaryNameLower ||
+			 strings.HasSuffix(strings.ToLower(file.Name), "/"+binaryNameLower) ||
+			 nameLower == "kubegraf" || nameLower == "kubegraf.exe") {
 
 			rc, err := file.Open()
 			if err != nil {
@@ -412,7 +440,8 @@ func extractFromZip(archivePath, destPath string) error {
 		}
 	}
 
-	return fmt.Errorf("kubegraf binary not found in archive")
+	// If we get here, binary was not found - provide helpful error message
+	return fmt.Errorf("kubegraf binary not found in archive (expected: %s, found: %v)", binaryName, foundFiles)
 }
 
 // GetTempDownloadPath returns a temporary path for downloading updates
