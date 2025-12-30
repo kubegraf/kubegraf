@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -271,40 +272,29 @@ func findMatchingAsset(assets []struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Size               int64  `json:"size"`
 }, version string) string {
-	// Try to find a reasonable binary or archive
-	// The update handler in updates.go will extract the correct binary for the platform
+	// Get current OS and architecture
+	osName := runtime.GOOS
+	archName := runtime.GOARCH
+
+	// First pass: try to find exact match with version, OS, and arch
 	for _, asset := range assets {
 		assetName := strings.ToLower(asset.Name)
 
 		// Skip checksums and non-binary files
-		if strings.Contains(assetName, "checksum") || strings.Contains(assetName, ".txt") {
+		if strings.Contains(assetName, "checksum") || strings.Contains(assetName, ".txt") || strings.Contains(assetName, ".sha256") {
 			continue
 		}
 
-		// Return the first binary or archive file
-		// Prioritize .tar.gz for cross-platform compatibility
-		if strings.Contains(assetName, ".tar.gz") {
+		// Match: must contain OS name AND architecture
+		if osName != "" && archName != "" &&
+			strings.Contains(assetName, osName) && strings.Contains(assetName, archName) {
+			fmt.Printf("✓ Selected update asset: %s\n", asset.Name)
 			return asset.BrowserDownloadURL
 		}
 	}
 
-	// If no .tar.gz, try .zip
-	for _, asset := range assets {
-		assetName := strings.ToLower(asset.Name)
-		if strings.Contains(assetName, ".zip") {
-			return asset.BrowserDownloadURL
-		}
-	}
-
-	// If no archives, return the first binary-looking file
-	for _, asset := range assets {
-		assetName := strings.ToLower(asset.Name)
-		if strings.Contains(assetName, "kubegraf") && !strings.Contains(assetName, "checksum") {
-			return asset.BrowserDownloadURL
-		}
-	}
-
-	// If no match found, return empty string
+	// No platform-specific match found
+	fmt.Printf("⚠️  No platform-specific asset found for %s-%s\n", osName, archName)
 	return ""
 }
 
