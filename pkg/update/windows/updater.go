@@ -365,8 +365,9 @@ func LaunchUpdater(scriptPath string) error {
 	// Use Start-Process to launch a truly detached PowerShell process
 	// This ensures the script continues running after the main app exits
 	// -WindowStyle Normal shows the updater window so users can see progress
+	// -NoExit keeps the window open after script completes (for debugging)
 	launchScript := fmt.Sprintf(
-		`Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy", "Bypass", "-File", "%s" -WindowStyle Normal`,
+		`Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy", "Bypass", "-NoExit", "-File", "%s" -WindowStyle Normal`,
 		strings.ReplaceAll(scriptPath, `"`, `\"`),
 	)
 
