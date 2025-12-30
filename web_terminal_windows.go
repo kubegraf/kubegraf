@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
@@ -65,40 +66,41 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 		}
 	}
 
+	// Check ConPTY availability
+	if !conpty.IsConPtyAvailable() {
+		errMsg := "ConPTY not available. Windows 10 version 1809 (October 2018) or later required."
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31m%s\x1b[0m\r\n", errMsg)))
+		log.Printf("ConPTY unavailable on this Windows version")
+		return
+	}
+
 	// Get home directory for working directory
 	homeDir := os.Getenv("USERPROFILE")
 	if homeDir == "" {
 		homeDir = "C:\\"
 	}
 
-	// Create ConPTY with default size
-	cpty, err := conpty.New(80, 24)
+	// Build command line (shell + args)
+	commandLine := shellPath
+	for _, arg := range shellArgs {
+		commandLine += " " + arg
+	}
+
+	// Create and start ConPTY with options
+	cpty, err := conpty.Start(
+		commandLine,
+		conpty.ConPtyDimensions(80, 24),
+		conpty.ConPtyWorkDir(homeDir),
+		conpty.ConPtyEnv(os.Environ()),
+	)
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to create ConPTY: %v\x1b[0m\r\n", err)))
-		log.Printf("ConPTY creation failed: %v", err)
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to start ConPTY: %v\x1b[0m\r\n", err)))
+		log.Printf("ConPTY start failed: %v", err)
 		return
 	}
 	defer cpty.Close()
 
-	// Build command with args
-	cmdArgs := append(shellArgs)
-
-	// Spawn shell process in ConPTY
-	pid, _, err := cpty.Spawn(
-		shellPath,
-		cmdArgs,
-		&conpty.ConPtyOptions{
-			WorkDir: homeDir,
-			Env:     os.Environ(),
-		},
-	)
-	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n\x1b[31mFailed to spawn shell: %v\x1b[0m\r\n", err)))
-		log.Printf("Shell spawn failed: %v", err)
-		return
-	}
-
-	log.Printf("Started Windows terminal with ConPTY: shell=%s, pid=%d", shellPath, pid)
+	log.Printf("Started Windows terminal with ConPTY: shell=%s", shellPath)
 
 	// Use channels to signal when the connection should close
 	done := make(chan bool, 1)
@@ -186,7 +188,7 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 				}
 			case "resize":
 				// Resize ConPTY terminal
-				if err := cpty.Resize(msg.Cols, msg.Rows); err != nil {
+				if err := cpty.Resize(int(msg.Cols), int(msg.Rows)); err != nil {
 					log.Printf("Error resizing ConPTY: %v", err)
 				} else {
 					log.Printf("Terminal resized to %dx%d", msg.Cols, msg.Rows)
