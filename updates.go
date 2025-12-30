@@ -300,6 +300,15 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 
 	tr := tar.NewReader(gzr)
 
+	// Look for kubegraf binary (on Windows look for .exe)
+	binaryName := "kubegraf"
+	if runtime.GOOS == "windows" {
+		binaryName = "kubegraf.exe"
+	}
+
+	// Track all files found for debugging
+	var foundFiles []string
+
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -309,13 +318,24 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 			return fmt.Errorf("failed to read tar: %w", err)
 		}
 
-		// Look for kubegraf binary (on Windows look for .exe)
-		binaryName := "kubegraf"
-		if runtime.GOOS == "windows" {
-			binaryName = "kubegraf.exe"
+		// Track all regular files
+		if header.Typeflag == tar.TypeReg {
+			foundFiles = append(foundFiles, header.Name)
 		}
-		if header.Typeflag == tar.TypeReg &&
-			(filepath.Base(header.Name) == binaryName || strings.HasSuffix(header.Name, "/"+binaryName)) {
+
+		// Check if this is the kubegraf binary (case-insensitive matching)
+		baseName := filepath.Base(header.Name)
+		baseNameLower := strings.ToLower(baseName)
+		binaryNameLower := strings.ToLower(binaryName)
+
+		// Match: exact name, case-insensitive, or in subdirectory
+		isMatch := (baseNameLower == binaryNameLower ||
+			strings.HasSuffix(strings.ToLower(header.Name), "/"+binaryNameLower) ||
+			baseNameLower == "kubegraf" ||
+			baseNameLower == "kubegraf.exe") && header.Typeflag == tar.TypeReg
+
+		if isMatch {
+			fmt.Printf("📦 Found binary in archive: %s\n", header.Name)
 			out, err := os.Create(tmpFile)
 			if err != nil {
 				return fmt.Errorf("failed to create temp file: %w", err)
@@ -331,6 +351,8 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 			}
 			out.Close()
 
+			fmt.Printf("✓ Extracted binary to: %s\n", tmpFile)
+
 			// Install it
 			if runtime.GOOS == "windows" {
 				return performWindowsUpdate(execPath, tmpFile)
@@ -342,7 +364,8 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 		}
 	}
 
-	return fmt.Errorf("kubegraf binary not found in archive")
+	// Provide detailed error message showing what was found
+	return fmt.Errorf("kubegraf binary not found in archive (expected: %s, found files: %v)", binaryName, foundFiles)
 }
 
 // extractAndInstallFromZip extracts kubegraf binary from zip archive
@@ -366,11 +389,31 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 		binaryName = "kubegraf.exe"
 	}
 
+	// Track all files found for debugging
+	var foundFiles []string
+
 	for _, file := range zipReader.File {
+		// Track all regular files
+		if !file.FileInfo().IsDir() {
+			foundFiles = append(foundFiles, file.Name)
+		}
+
+		// Check if this is the kubegraf binary (case-insensitive matching)
 		baseName := filepath.Base(file.Name)
-		if (baseName == binaryName || strings.HasSuffix(file.Name, "/"+binaryName)) && !file.FileInfo().IsDir() {
+		baseNameLower := strings.ToLower(baseName)
+		binaryNameLower := strings.ToLower(binaryName)
+
+		// Match: exact name, case-insensitive, or in subdirectory
+		isMatch := (baseNameLower == binaryNameLower ||
+			strings.HasSuffix(strings.ToLower(file.Name), "/"+binaryNameLower) ||
+			baseNameLower == "kubegraf" ||
+			baseNameLower == "kubegraf.exe") && !file.FileInfo().IsDir()
+
+		if isMatch {
+			fmt.Printf("📦 Found binary in archive: %s\n", file.Name)
 			rc, err := file.Open()
 			if err != nil {
+				fmt.Printf("⚠️  Warning: Failed to open %s: %v\n", file.Name, err)
 				continue
 			}
 
@@ -392,6 +435,8 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 			rc.Close()
 			out.Close()
 
+			fmt.Printf("✓ Extracted binary to: %s\n", tmpFile)
+
 			// Install it
 			if runtime.GOOS == "windows" {
 				return performWindowsUpdate(execPath, tmpFile)
@@ -403,7 +448,8 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 		}
 	}
 
-	return fmt.Errorf("kubegraf binary not found in archive")
+	// Provide detailed error message showing what was found
+	return fmt.Errorf("kubegraf binary not found in archive (expected: %s, found files: %v)", binaryName, foundFiles)
 }
 
 // performWindowsUpdate handles Windows-specific update process
