@@ -49,9 +49,9 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 		} else {
 			// Fallback args based on shell type
 			if strings.Contains(preferredShell, "pwsh") || strings.Contains(preferredShell, "powershell") {
-				shellArgs = []string{"-NoLogo"}
+				shellArgs = []string{"-NoLogo", "-NoExit"}
 			} else if strings.Contains(preferredShell, "cmd") {
-				shellArgs = []string{"/K"}
+				shellArgs = []string{}
 			}
 		}
 	} else {
@@ -62,7 +62,7 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 		} else {
 			// Fallback to PowerShell
 			shellPath = "powershell.exe"
-			shellArgs = []string{"-NoLogo"}
+			shellArgs = []string{"-NoLogo", "-NoExit"}
 		}
 	}
 
@@ -86,6 +86,8 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 		commandLine += " " + arg
 	}
 
+	log.Printf("Starting ConPTY with command: %s, workdir: %s", commandLine, homeDir)
+
 	// Create and start ConPTY with options
 	cpty, err := conpty.Start(
 		commandLine,
@@ -100,7 +102,7 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 	}
 	defer cpty.Close()
 
-	log.Printf("Started Windows terminal with ConPTY: shell=%s", shellPath)
+	log.Printf("Started Windows terminal with ConPTY: shell=%s, pid=%d", shellPath, os.Getpid())
 
 	// Use channels to signal when the connection should close
 	done := make(chan bool, 1)
@@ -118,9 +120,11 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 	// Read from ConPTY output and send to WebSocket
 	go func() {
 		buf := make([]byte, 4096)
+		log.Printf("Started ConPTY output reader goroutine")
 		for {
 			select {
 			case <-done:
+				log.Printf("ConPTY output reader stopping (done signal)")
 				return
 			default:
 			}
@@ -138,11 +142,13 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 			}
 
 			if n > 0 {
+				log.Printf("Read %d bytes from ConPTY: %q", n, string(buf[:n]))
 				if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
 					log.Printf("WebSocket write error: %v", err)
 					done <- true
 					return
 				}
+				log.Printf("Sent %d bytes to WebSocket", n)
 			}
 		}
 	}()
@@ -181,11 +187,14 @@ func (ws *WebServer) handleWindowsConPTYTerminal(conn *websocket.Conn, r *http.R
 			switch msg.Type {
 			case "input":
 				// Write input data to ConPTY
-				if _, err := cpty.Write([]byte(msg.Data)); err != nil {
+				log.Printf("Received input: %q (len=%d, bytes=%v)", msg.Data, len(msg.Data), []byte(msg.Data))
+				n, err := cpty.Write([]byte(msg.Data))
+				if err != nil {
 					log.Printf("Error writing to ConPTY: %v", err)
 					done <- true
 					return
 				}
+				log.Printf("Wrote %d bytes to ConPTY", n)
 			case "resize":
 				// Resize ConPTY terminal
 				if err := cpty.Resize(int(msg.Cols), int(msg.Rows)); err != nil {

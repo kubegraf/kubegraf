@@ -42,7 +42,7 @@ func DetectShells() []Shell {
 		{
 			Name:        "PowerShell 7",
 			Path:        "pwsh.exe",
-			Args:        []string{"-NoLogo"},
+			Args:        []string{"-NoLogo", "-NoExit"},
 			Recommended: true,
 			Description: "Modern PowerShell (cross-platform)",
 			Priority:    1,
@@ -50,7 +50,7 @@ func DetectShells() []Shell {
 		{
 			Name:        "Windows PowerShell",
 			Path:        "powershell.exe",
-			Args:        []string{"-NoLogo"},
+			Args:        []string{"-NoLogo", "-NoExit"},
 			Recommended: true,
 			Description: "Built-in Windows PowerShell 5.1",
 			Priority:    2,
@@ -116,7 +116,7 @@ func GetPreferredShell() *Shell {
 	return &Shell{
 		Name:        "Windows PowerShell",
 		Path:        "powershell.exe",
-		Args:        []string{"-NoLogo"},
+		Args:        []string{"-NoLogo", "-NoExit"},
 		Available:   true,
 		Recommended: true,
 		Description: "Built-in Windows PowerShell 5.1",
