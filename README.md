@@ -17,7 +17,7 @@
 
 </div>
 
----
+-----
 
 ## 🎯 What is KubeGraf?
 
@@ -31,7 +31,7 @@ KubeGraf is a **local-first Kubernetes management platform** that helps you dete
 - **⚡ Fast & Lightweight** - Single binary, works over SSH, zero external dependencies
 - **🎨 Multiple Interfaces** - Choose the interface that fits your workflow
 
----
+-----
 
 ## 🚀 Quick Start
 
