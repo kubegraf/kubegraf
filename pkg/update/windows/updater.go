@@ -105,7 +105,7 @@ $NewVersion = "%s"
 $IconPath = "%s"
 $StatusFile = "$env:TEMP\kubegraf-update-status.json"
 
-Write-Host "🔄 KubeGraf Updater Starting..." -ForegroundColor Cyan
+Write-Host "[UPDATE] KubeGraf Updater Starting..." -ForegroundColor Cyan
 Write-Host "   Target PID: $ProcessPID" -ForegroundColor Cyan
 Write-Host "   New Version: $NewVersion" -ForegroundColor Cyan
 
@@ -115,24 +115,24 @@ $waited = 0
 while ($waited -lt $maxWait) {
     $process = Get-Process -Id $ProcessPID -ErrorAction SilentlyContinue
     if ($null -eq $process) {
-        Write-Host "✓ Main process (PID $ProcessPID) has exited" -ForegroundColor Green
+        Write-Host "[OK] Main process (PID $ProcessPID) has exited" -ForegroundColor Green
         break
     }
     Start-Sleep -Milliseconds 500
     $waited++
-    if ($waited % 2 -eq 0) {  # Log every second
-        Write-Host "⏳ Waiting for process to exit... ($($waited/2)/60 seconds)" -ForegroundColor Yellow
+    if ($waited %% 2 -eq 0) {  # Log every second
+        Write-Host "[WAIT] Waiting for process to exit... ($($waited/2)/60 seconds)" -ForegroundColor Yellow
     }
 }
 
 if ($waited -ge $maxWait) {
-    Write-Host "⚠️  Process did not exit in time, attempting to terminate PID $ProcessPID..." -ForegroundColor Yellow
+    Write-Host "[WARN] Process did not exit in time, attempting to terminate PID $ProcessPID..." -ForegroundColor Yellow
     try {
         Stop-Process -Id $ProcessPID -Force -ErrorAction Stop
         Start-Sleep -Seconds 2
-        Write-Host "✓ Process terminated forcefully" -ForegroundColor Yellow
+        Write-Host "[OK] Process terminated forcefully" -ForegroundColor Yellow
     } catch {
-        Write-Host "❌ Failed to terminate process: $_" -ForegroundColor Red
+        Write-Host "[ERROR] Failed to terminate process: $_" -ForegroundColor Red
         @{
             success = $false
             error = "Process did not exit and could not be terminated: $($_.Exception.Message)"
@@ -143,29 +143,29 @@ if ($waited -ge $maxWait) {
 }
 
 # Additional wait to ensure file handles are released (3 seconds for safety)
-Write-Host "⏳ Waiting for file handles to release..." -ForegroundColor Cyan
+Write-Host "[WAIT] Waiting for file handles to release..." -ForegroundColor Cyan
 Start-Sleep -Seconds 3
 
 # Step 1: Backup old binary
 $backupPath = "$ExecPath.old"
 try {
     if (Test-Path $ExecPath) {
-        Write-Host "📦 Backing up old binary..." -ForegroundColor Cyan
+        Write-Host "[BACKUP] Backing up old binary..." -ForegroundColor Cyan
         if (Test-Path $backupPath) {
             Remove-Item $backupPath -Force
         }
         Move-Item -Path $ExecPath -Destination $backupPath -Force
-        Write-Host "✓ Backup created: $backupPath" -ForegroundColor Green
+        Write-Host "[OK] Backup created: $backupPath" -ForegroundColor Green
     }
 } catch {
-    Write-Host "❌ Failed to backup old binary: $_" -ForegroundColor Red
+    Write-Host "[ERROR] Failed to backup old binary: $_" -ForegroundColor Red
     exit 1
 }
 
 # Step 2: Install new binary with retry logic
-Write-Host "📥 Installing new binary..." -ForegroundColor Cyan
+Write-Host "[INSTALL] Installing new binary..." -ForegroundColor Cyan
 if (-not (Test-Path $NewBinaryPath)) {
-    Write-Host "❌ New binary not found: $NewBinaryPath" -ForegroundColor Red
+    Write-Host "[ERROR] New binary not found: $NewBinaryPath" -ForegroundColor Red
     # Try to restore backup
     if (Test-Path $backupPath) {
         Move-Item -Path $backupPath -Destination $ExecPath -Force
@@ -188,18 +188,18 @@ while ($retryCount -lt $maxRetries) {
     try {
         Copy-Item -Path $NewBinaryPath -Destination $ExecPath -Force -ErrorAction Stop
         $copySuccess = $true
-        Write-Host "✓ New binary installed successfully" -ForegroundColor Green
+        Write-Host "[OK] New binary installed successfully" -ForegroundColor Green
         break
     } catch {
         $retryCount++
         $lastError = $_.Exception.Message
         if ($retryCount -lt $maxRetries) {
             $waitTime = [Math]::Pow(2, $retryCount)  # Exponential backoff: 2, 4, 8, 16 seconds
-            Write-Host "⚠️  Copy failed (attempt $retryCount/$maxRetries): $lastError" -ForegroundColor Yellow
-            Write-Host "⏳ Retrying in $waitTime seconds..." -ForegroundColor Yellow
+            Write-Host "[WARN] Copy failed (attempt $retryCount/$maxRetries): $lastError" -ForegroundColor Yellow
+            Write-Host "[WAIT] Retrying in $waitTime seconds..." -ForegroundColor Yellow
             Start-Sleep -Seconds $waitTime
         } else {
-            Write-Host "❌ Failed to install new binary after $maxRetries attempts" -ForegroundColor Red
+            Write-Host "[ERROR] Failed to install new binary after $maxRetries attempts" -ForegroundColor Red
             Write-Host "   Last error: $lastError" -ForegroundColor Red
         }
     }
@@ -208,12 +208,12 @@ while ($retryCount -lt $maxRetries) {
 if (-not $copySuccess) {
     # Restore backup
     if (Test-Path $backupPath) {
-        Write-Host "🔄 Restoring backup..." -ForegroundColor Yellow
+        Write-Host "[UPDATE] Restoring backup..." -ForegroundColor Yellow
         try {
             Move-Item -Path $backupPath -Destination $ExecPath -Force -ErrorAction Stop
-            Write-Host "✓ Backup restored successfully" -ForegroundColor Green
+            Write-Host "[OK] Backup restored successfully" -ForegroundColor Green
         } catch {
-            Write-Host "❌ Failed to restore backup: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "[ERROR] Failed to restore backup: $($_.Exception.Message)" -ForegroundColor Red
             Write-Host "   CRITICAL: Manual restore required from: $backupPath" -ForegroundColor Red
         }
     }
@@ -230,7 +230,7 @@ if (-not $copySuccess) {
 
 # Step 3: Create/Update shortcuts and add to PATH
 try {
-    Write-Host "🔗 Setting up shortcuts and PATH..." -ForegroundColor Cyan
+    Write-Host "[SETUP] Setting up shortcuts and PATH..." -ForegroundColor Cyan
     & {
         $ErrorActionPreference = "Continue"
 
@@ -252,7 +252,7 @@ try {
             $shortcut.IconLocation = "$IconPath,0"
         }
         $shortcut.Save()
-        Write-Host "✓ Start Menu shortcut created/updated" -ForegroundColor Green
+        Write-Host "[OK] Start Menu shortcut created/updated" -ForegroundColor Green
 
         # Desktop shortcut (always create/update for auto-update)
         $desktopPath = "$env:USERPROFILE\Desktop\$AppName.lnk"
@@ -265,21 +265,21 @@ try {
             $shortcut.IconLocation = "$IconPath,0"
         }
         $shortcut.Save()
-        Write-Host "✓ Desktop shortcut created/updated" -ForegroundColor Green
+        Write-Host "[OK] Desktop shortcut created/updated" -ForegroundColor Green
 
         # Add to User PATH (if not already present)
         $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
         if ($currentPath -notlike "*$InstallDir*") {
-            Write-Host "📁 Adding $InstallDir to User PATH..." -ForegroundColor Cyan
+            Write-Host "[PATH] Adding $InstallDir to User PATH..." -ForegroundColor Cyan
             $newPath = "$currentPath;$InstallDir"
             [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-            Write-Host "✓ Added to PATH (restart terminal to use 'kubegraf' command)" -ForegroundColor Green
+            Write-Host "[OK] Added to PATH (restart terminal to use 'kubegraf' command)" -ForegroundColor Green
         } else {
-            Write-Host "✓ Already in PATH" -ForegroundColor Green
+            Write-Host "[OK] Already in PATH" -ForegroundColor Green
         }
     }
 } catch {
-    Write-Host "⚠️  Failed to update shortcuts/PATH: $_" -ForegroundColor Yellow
+    Write-Host "[WARN] Failed to update shortcuts/PATH: $_" -ForegroundColor Yellow
     # Non-critical, continue
 }
 
@@ -294,21 +294,21 @@ Start-Job -ScriptBlock {
 
 # Step 5: Write success status
 try {
-    Write-Host "✅ Writing success status..." -ForegroundColor Cyan
+    Write-Host "[SUCCESS] Writing success status..." -ForegroundColor Cyan
     @{
         success = $true
         version = $NewVersion
         timestamp = (Get-Date -Format "o")
     } | ConvertTo-Json | Out-File $StatusFile -Encoding UTF8
-    Write-Host "✓ Status file written" -ForegroundColor Green
+    Write-Host "[OK] Status file written" -ForegroundColor Green
 } catch {
-    Write-Host "⚠️  Failed to write status file: $_" -ForegroundColor Yellow
+    Write-Host "[WARN] Failed to write status file: $_" -ForegroundColor Yellow
     # Non-critical, continue
 }
 
 # Step 6: Restart the application
 try {
-    Write-Host "🚀 Restarting $AppName..." -ForegroundColor Cyan
+    Write-Host "[START] Restarting $AppName..." -ForegroundColor Cyan
     Start-Sleep -Seconds 1
 
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -319,9 +319,9 @@ try {
     $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
 
     [System.Diagnostics.Process]::Start($startInfo) | Out-Null
-    Write-Host "✓ $AppName restarted successfully" -ForegroundColor Green
+    Write-Host "[OK] $AppName restarted successfully" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Failed to restart application: $_" -ForegroundColor Red
+    Write-Host "[ERROR] Failed to restart application: $_" -ForegroundColor Red
     Write-Host "Please manually start $AppName from the Start Menu or Desktop shortcut" -ForegroundColor Yellow
 
     # Update status file with restart failure (but update was successful)
@@ -335,7 +335,7 @@ try {
     exit 1
 }
 
-Write-Host "✅ Update completed successfully!" -ForegroundColor Green
+Write-Host "[SUCCESS] Update completed successfully!" -ForegroundColor Green
 Start-Sleep -Seconds 2
 `,
 		execPathEscaped,
