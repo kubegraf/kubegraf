@@ -155,17 +155,21 @@ func CheckForUpdates() (*UpdateInfo, error) {
 
 		for _, asset := range release.Assets {
 			if asset.Name == expectedName || asset.Name == expectedNameAlt ||
-				strings.Contains(asset.Name, osName) && strings.Contains(asset.Name, archName) {
+				(strings.Contains(asset.Name, osName) && strings.Contains(asset.Name, archName)) {
 				info.DownloadURL = asset.BrowserDownloadURL
+				fmt.Printf("✓ Selected update asset: %s\n", asset.Name)
 				break
 			}
 		}
 
-		// If no specific binary found, try to find any archive
+		// If no specific binary found, try to find platform-specific archive
 		if info.DownloadURL == "" {
 			for _, asset := range release.Assets {
-				if strings.Contains(asset.Name, ".tar.gz") || strings.Contains(asset.Name, ".zip") {
+				// Must contain BOTH os name AND arch name, not just any archive
+				if (strings.Contains(asset.Name, ".tar.gz") || strings.Contains(asset.Name, ".zip")) &&
+					strings.Contains(asset.Name, osName) && strings.Contains(asset.Name, archName) {
 					info.DownloadURL = asset.BrowserDownloadURL
+					fmt.Printf("✓ Selected update asset (fallback): %s\n", asset.Name)
 					break
 				}
 			}
