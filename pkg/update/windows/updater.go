@@ -372,14 +372,18 @@ func LaunchUpdater(scriptPath string) error {
 
 	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", launchScript)
 
-	// Don't wait for the script to complete - it will run after we exit
-	// Don't attach stdout/stderr since we're detaching
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Attach stdout/stderr for debugging (will show in console)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Printf("Launching updater script: %s\n", scriptPath)
+	fmt.Printf("Launch command: %s\n", launchScript)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch updater: %w", err)
 	}
+
+	fmt.Printf("Updater process started with PID: %d\n", cmd.Process.Pid)
 
 	// Give it a moment to start the detached process
 	time.Sleep(1 * time.Second)
