@@ -1,8 +1,8 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
-import { selectedNamespaces } from '../stores/globalStore';
+import { selectedNamespaces, setNamespaces } from '../stores/globalStore';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
 import Modal from '../components/Modal';
 import YAMLViewer from '../components/YAMLViewer';
@@ -50,6 +50,100 @@ const DaemonSets: Component = () => {
   // Bulk selection
   const bulk = useBulkSelection<DaemonSet>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+
+  // Focus handling from URL params
+  const [focusedDaemonSet, setFocusedDaemonSet] = createSignal<string | null>(null);
+  const [focusedRowRef, setFocusedRowRef] = createSignal<HTMLTableRowElement | null>(null);
+  const [previousNamespaces, setPreviousNamespaces] = createSignal<string[] | null>(null);
+
+  // Read URL params on mount and when they change
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const focusName = params.get('focus');
+    const focusNamespace = params.get('namespace');
+
+    // Apply namespace filter if provided (but store previous selection to restore later)
+    if (focusNamespace) {
+      const current = selectedNamespaces();
+      setPreviousNamespaces(current.length > 0 ? [...current] : null);
+      setNamespaces([focusNamespace]);
+      // Mark that namespace was set programmatically
+      sessionStorage.setItem('kubegraf:namespaceSetProgrammatically', 'true');
+    }
+
+    // Set focus target
+    if (focusName) {
+      setFocusedDaemonSet(focusName);
+    }
+  });
+
+  // Handle focus after daemonsets are loaded
+  createEffect(() => {
+    const focusName = focusedDaemonSet();
+    const allDs = filteredAndSorted();
+
+    if (focusName && allDs.length > 0) {
+      // Find the daemonset in filtered list
+      const ds = allDs.find(d => d.name === focusName);
+      if (ds) {
+        // Navigate to the correct page if needed
+        const dsIndex = allDs.findIndex(d => d.name === focusName);
+        if (dsIndex >= 0) {
+          const targetPage = Math.floor(dsIndex / pageSize()) + 1;
+          if (targetPage !== currentPage()) {
+            setCurrentPage(targetPage);
+            // Wait for page to update before focusing
+            setTimeout(() => focusDaemonSet(ds), 200);
+            return;
+          }
+        }
+
+        focusDaemonSet(ds);
+      }
+    }
+  });
+
+  const focusDaemonSet = (ds: DaemonSet) => {
+    // Set as selected and open details
+    setSelected(ds);
+    setShowDetails(true);
+
+    // Show notification
+    addNotification(`Viewing DaemonSet: ${ds.name}`, 'success');
+
+    // Scroll to row after a short delay to ensure DOM is ready
+    setTimeout(() => {
+      const row = focusedRowRef();
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+
+    // Clear focus after highlighting
+    setTimeout(() => {
+      setFocusedDaemonSet(null);
+      // Clean up URL params
+      const url = new URL(window.location.href);
+      url.searchParams.delete('focus');
+      const hadNamespaceParam = url.searchParams.has('namespace');
+      url.searchParams.delete('namespace');
+      window.history.replaceState({}, '', url.toString());
+
+      // Restore previous namespace selection if it was set programmatically
+      if (hadNamespaceParam) {
+        const previous = previousNamespaces();
+        if (previous !== null) {
+          setNamespaces(previous);
+        } else {
+          // If there was no previous selection, clear to show all namespaces
+          setNamespaces([]);
+        }
+        setPreviousNamespaces(null);
+        // Clear the programmatic flag
+        sessionStorage.removeItem('kubegraf:namespaceSetProgrammatically');
+      }
+    }, 2000);
+  };
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -520,8 +614,23 @@ const DaemonSets: Component = () => {
                 }>
                   {(ds: DaemonSet) => {
                     const textColor = '#0ea5e9';
+                    const isFocused = () => focusedDaemonSet() === ds.name;
+
                     return (
-                    <tr>
+                    <tr
+                      ref={(el) => {
+                        if (el && isFocused()) {
+                          setFocusedRowRef(el);
+                        }
+                      }}
+                      style={{
+                        ...(isFocused() ? {
+                          background: 'rgba(14, 165, 233, 0.15)',
+                          'border-left': '3px solid #0ea5e9',
+                          transition: 'background 0.3s ease, border-left 0.3s ease',
+                        } : {}),
+                      }}
+                    >
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'center',

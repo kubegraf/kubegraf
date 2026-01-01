@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -6,6 +6,7 @@ import {
   selectedNamespaces,
   globalLoading,
   setGlobalLoading,
+  setNamespaces,
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
@@ -53,6 +54,100 @@ const Jobs: Component = () => {
   // Bulk selection
   const bulk = useBulkSelection<Job>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+
+  // Focus handling from URL params
+  const [focusedJob, setFocusedJob] = createSignal<string | null>(null);
+  const [focusedRowRef, setFocusedRowRef] = createSignal<HTMLTableRowElement | null>(null);
+  const [previousNamespaces, setPreviousNamespaces] = createSignal<string[] | null>(null);
+
+  // Read URL params on mount and when they change
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const focusName = params.get('focus');
+    const focusNamespace = params.get('namespace');
+
+    // Apply namespace filter if provided (but store previous selection to restore later)
+    if (focusNamespace) {
+      const current = selectedNamespaces();
+      setPreviousNamespaces(current.length > 0 ? [...current] : null);
+      setNamespaces([focusNamespace]);
+      // Mark that namespace was set programmatically
+      sessionStorage.setItem('kubegraf:namespaceSetProgrammatically', 'true');
+    }
+
+    // Set focus target
+    if (focusName) {
+      setFocusedJob(focusName);
+    }
+  });
+
+  // Handle focus after jobs are loaded
+  createEffect(() => {
+    const focusName = focusedJob();
+    const allJobs = filteredAndSorted();
+
+    if (focusName && allJobs.length > 0) {
+      // Find the job in filtered list
+      const job = allJobs.find(j => j.name === focusName);
+      if (job) {
+        // Navigate to the correct page if needed
+        const jobIndex = allJobs.findIndex(j => j.name === focusName);
+        if (jobIndex >= 0) {
+          const targetPage = Math.floor(jobIndex / pageSize()) + 1;
+          if (targetPage !== currentPage()) {
+            setCurrentPage(targetPage);
+            // Wait for page to update before focusing
+            setTimeout(() => focusJob(job), 200);
+            return;
+          }
+        }
+
+        focusJob(job);
+      }
+    }
+  });
+
+  const focusJob = (job: Job) => {
+    // Set as selected and open details
+    setSelected(job);
+    setShowDetails(true);
+
+    // Show notification
+    addNotification(`Viewing Job: ${job.name}`, 'success');
+
+    // Scroll to row after a short delay to ensure DOM is ready
+    setTimeout(() => {
+      const row = focusedRowRef();
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+
+    // Clear focus after highlighting
+    setTimeout(() => {
+      setFocusedJob(null);
+      // Clean up URL params
+      const url = new URL(window.location.href);
+      url.searchParams.delete('focus');
+      const hadNamespaceParam = url.searchParams.has('namespace');
+      url.searchParams.delete('namespace');
+      window.history.replaceState({}, '', url.toString());
+
+      // Restore previous namespace selection if it was set programmatically
+      if (hadNamespaceParam) {
+        const previous = previousNamespaces();
+        if (previous !== null) {
+          setNamespaces(previous);
+        } else {
+          // If there was no previous selection, clear to show all namespaces
+          setNamespaces([]);
+        }
+        setPreviousNamespaces(null);
+        // Clear the programmatic flag
+        sessionStorage.removeItem('kubegraf:namespaceSetProgrammatically');
+      }
+    }, 2000);
+  };
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -483,8 +578,23 @@ const Jobs: Component = () => {
                 }>
                   {(job: Job) => {
                     const textColor = '#0ea5e9';
+                    const isFocused = () => focusedJob() === job.name;
+
                     return (
-                    <tr>
+                    <tr
+                      ref={(el) => {
+                        if (el && isFocused()) {
+                          setFocusedRowRef(el);
+                        }
+                      }}
+                      style={{
+                        ...(isFocused() ? {
+                          background: 'rgba(14, 165, 233, 0.15)',
+                          'border-left': '3px solid #0ea5e9',
+                          transition: 'background 0.3s ease, border-left 0.3s ease',
+                        } : {}),
+                      }}
+                    >
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'center',
