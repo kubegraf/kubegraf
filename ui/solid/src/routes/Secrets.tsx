@@ -779,8 +779,8 @@ const Secrets: Component = () => {
         size="sm"
       />
 
-      {/* Details Modal - Similar to ConfigMap modal with reveal secret values */}
-      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`Secret: ${selected()?.name}`} size="xl">
+      {/* Details Modal - Centrally aligned panel like Deployments */}
+      <Modal isOpen={showDetails()} onClose={() => { setShowDetails(false); setSelected(null); }} title={`Secret: ${selected()?.name || ''}`} size="xl">
         <Show when={selected()}>
           {(() => {
             const [secretDetails] = createResource(
@@ -790,7 +790,7 @@ const Secrets: Component = () => {
                 return api.getSecretDetails(params.name, params.ns);
               }
             );
-            
+
             // Get secret data from YAML for display
             const [secretData] = createResource(
               () => selected() ? { name: selected()!.name, ns: selected()!.namespace } : null,
@@ -858,7 +858,11 @@ const Secrets: Component = () => {
                     </div>
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Type</div>
-                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.type || '-'}</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <span class={`badge ${getTypeBadgeClass(selected()?.type || '')}`}>
+                          {selected()?.type || '-'}
+                        </span>
+                      </div>
                     </div>
                     <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
@@ -871,20 +875,10 @@ const Secrets: Component = () => {
                   </div>
                 </div>
 
-                {/* Related Resources Section */}
-                <Show when={secretDetails()}>
-                  <RelatedResources
-                    kind="secret"
-                    name={secretDetails()!.name}
-                    namespace={secretDetails()!.namespace}
-                    relatedData={secretDetails()}
-                  />
-                </Show>
-
-                {/* Data */}
+                {/* Data Section */}
                 <Show when={!secretData.loading && secretData() && Object.keys(secretData()!).length > 0}>
                   <div>
-                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Data</h3>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Data ({Object.keys(secretData()!).length})</h3>
                     <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
                       <table class="w-full">
                         <thead>
@@ -955,8 +949,8 @@ const Secrets: Component = () => {
                   </div>
                 </Show>
 
-                {/* Actions */}
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
+                {/* Actions - Matching Deployments 6-column layout */}
+                <div class="grid grid-cols-3 md:grid-cols-6 gap-2 pt-3">
                   <button
                     onClick={() => { setShowDetails(false); setShowYaml(true); setYamlKey(`${selected()!.name}|${selected()!.namespace}`); }}
                     class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
@@ -986,6 +980,42 @@ const Secrets: Component = () => {
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                     </svg>
                     <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelected(selected());
+                      copyDecodedValue(Object.values(secretData()!)[0] || '');
+                    }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Copy First Value"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    <span>Copy</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Toggle visibility of all secret values
+                      const allKeys = Object.keys(secretData()!).map(k => `${selected()!.name}/${k}`);
+                      const visible = new Set(visibleSecrets());
+                      const allVisible = allKeys.every(k => visible.has(k));
+                      if (allVisible) {
+                        allKeys.forEach(k => visible.delete(k));
+                      } else {
+                        allKeys.forEach(k => visible.add(k));
+                      }
+                      setVisibleSecrets(visible);
+                    }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Toggle All Values"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span>Toggle</span>
                   </button>
                   <button
                     onClick={(e) => {

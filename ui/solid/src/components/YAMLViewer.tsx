@@ -28,6 +28,7 @@ const YAMLViewer: Component<YAMLViewerProps> = (props) => {
 
   // Simple syntax highlighting for YAML
   const highlightYAML = (yaml: string) => {
+    if (!yaml) return '';
     return yaml
       .split('\n')
       .map((line) => {
