@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -89,11 +90,19 @@ func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, con
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 	rawConfig, err := kubeConfig.RawConfig()
 	if err != nil {
-		return fmt.Errorf("failed to get raw config: %w", err)
+		// Don't fail completely - just log and continue with empty contexts
+		fmt.Printf("Warning: Failed to load kubeconfig: %v\n", err)
+		a.connected = false
+		a.connectionError = fmt.Sprintf("No kubeconfig found: %v", err)
+		return nil // Allow app to start
 	}
 
 	if len(rawConfig.Contexts) == 0 {
-		return fmt.Errorf("no Kubernetes contexts found")
+		// Don't fail - allow app to start with no clusters
+		fmt.Println("No Kubernetes contexts found in kubeconfig")
+		a.connected = false
+		a.connectionError = "No Kubernetes contexts found"
+		return nil // Allow app to start
 	}
 
 	a.contextManager.CurrentContext = rawConfig.CurrentContext
@@ -151,20 +160,77 @@ func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, con
 
 			metricsClient, _ := metricsclientset.NewForConfig(config)
 
+			// Try to get server version to verify actual connectivity
 			serverVersion := ""
-			versionChan := make(chan string, 1)
+			connected := false
+			var connError string
+
+			versionChan := make(chan struct {
+				version string
+				err     error
+			}, 1)
+
 			go func() {
 				if versionInfo, err := clientset.Discovery().ServerVersion(); err == nil {
-					versionChan <- versionInfo.GitVersion
+					versionChan <- struct {
+						version string
+						err     error
+					}{version: versionInfo.GitVersion, err: nil}
 				} else {
-					versionChan <- ""
+					versionChan <- struct {
+						version string
+						err     error
+					}{version: "", err: err}
 				}
 			}()
 
+			// Determine timeout based on cluster type (local vs remote)
+			timeout := 5 * time.Second // Default for cloud clusters
+			if config.Host != "" {
+				// Check if this is a local cluster
+				if strings.Contains(config.Host, "localhost") ||
+					strings.Contains(config.Host, "127.0.0.1") ||
+					strings.Contains(config.Host, "::1") ||
+					strings.Contains(config.Host, "docker.internal") {
+					timeout = 3 * time.Second // Faster timeout for local clusters
+				}
+			}
+
 			select {
-			case serverVersion = <-versionChan:
-			case <-time.After(2 * time.Second):
-				serverVersion = ""
+			case result := <-versionChan:
+				if result.err == nil && result.version != "" {
+					serverVersion = result.version
+					connected = true
+				} else {
+					connected = false
+					if result.err != nil {
+						errStr := result.err.Error()
+						// Categorize errors for better user feedback
+						if strings.Contains(errStr, "connection refused") {
+							connError = "Connection refused - cluster may be down"
+						} else if strings.Contains(errStr, "no such host") ||
+							strings.Contains(errStr, "lookup") {
+							connError = "Network error - unable to resolve cluster address"
+						} else if strings.Contains(errStr, "certificate") ||
+							strings.Contains(errStr, "x509") {
+							connError = "Certificate error - check cluster certificates"
+						} else if strings.Contains(errStr, "Unauthorized") ||
+							strings.Contains(errStr, "Forbidden") ||
+							strings.Contains(errStr, "token") {
+							connError = "Authentication failed - credentials expired or invalid"
+						} else if strings.Contains(errStr, "timeout") ||
+							strings.Contains(errStr, "deadline exceeded") {
+							connError = "Connection timeout - cluster unreachable or slow network"
+						} else {
+							connError = fmt.Sprintf("Connection error: %v", result.err)
+						}
+					} else {
+						connError = "Unable to reach API server"
+					}
+				}
+			case <-time.After(timeout):
+				connected = false
+				connError = fmt.Sprintf("Connection timeout (%v) - cluster unreachable", timeout)
 			}
 
 			contextChan <- struct {
@@ -177,7 +243,8 @@ func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, con
 					Clientset:     clientset,
 					MetricsClient: metricsClient,
 					Config:        config,
-					Connected:     true,
+					Connected:     connected,
+					Error:         connError,
 					ServerVersion: serverVersion,
 				},
 			}

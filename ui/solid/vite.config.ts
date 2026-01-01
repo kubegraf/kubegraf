@@ -31,9 +31,28 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        manualChunks: undefined,
+        manualChunks: (id) => {
+          // Split node_modules into vendor chunks
+          if (id.includes('node_modules')) {
+            // Split large chart/visualization libraries
+            if (id.includes('d3') || id.includes('chart')) {
+              return 'charts';
+            }
+            // Split SolidJS core
+            if (id.includes('solid-js')) {
+              return 'solid';
+            }
+            // Split other large dependencies
+            if (id.includes('@solidjs/router')) {
+              return 'router';
+            }
+            // All other vendor dependencies
+            return 'vendor';
+          }
+        },
       },
     },
+    chunkSizeWarningLimit: 800, // Increase limit to 800kb (still warns, but less aggressive)
   },
   define: {
     // Explicitly set production flag for logger

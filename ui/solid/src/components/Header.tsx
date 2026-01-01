@@ -467,15 +467,18 @@ const Header: Component = () => {
             }}
           >
             <div class="flex items-center gap-2 text-left">
-              <Show when={cloudInfo() && !cloudInfo.loading} fallback={
-                <span class={`w-2 h-2 rounded-full ${clusterStatus().connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-              }>
-                <CloudProviderLogo provider={cloudInfo()?.provider} size={20} class="w-5 h-5" />
-              </Show>
+              <span class={`w-2 h-2 rounded-full ${(() => {
+                const currentCtx = contexts().find(c => c.isCurrent);
+                return currentCtx?.connected ? 'bg-green-500' : 'bg-red-500';
+              })()}`}></span>
               <div class="flex flex-col leading-tight">
                 <span class="text-sm font-medium truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
                 <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {clusterStatus().connected ? 'Connected' : 'Disconnected'}
+                  {(() => {
+                    // Get actual connectivity status from contexts list for current context
+                    const currentCtx = contexts().find(c => c.isCurrent);
+                    return currentCtx?.connected ? 'Connected' : 'Disconnected';
+                  })()}
                 </span>
               </div>
             </div>
@@ -577,14 +580,26 @@ const Header: Component = () => {
           <button
             class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
             style={{
-              background: (clusterManagerStatus()?.connected ?? clusterStatus().connected) ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-              color: (clusterManagerStatus()?.connected ?? clusterStatus().connected) ? '#10b981' : '#ef4444',
+              background: (() => {
+                const currentCtx = contexts().find(c => c.isCurrent);
+                return currentCtx?.connected ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
+              })(),
+              color: (() => {
+                const currentCtx = contexts().find(c => c.isCurrent);
+                return currentCtx?.connected ? '#10b981' : '#ef4444';
+              })(),
               border: '1px solid var(--border-color)',
             }}
             onClick={() => goToClusterManager()}
           >
-            <span class={`w-2 h-2 rounded-full ${(clusterManagerStatus()?.connected ?? clusterStatus().connected) ? 'bg-emerald-400' : 'bg-red-500'}`}></span>
-            {(clusterManagerStatus()?.connected ?? clusterStatus().connected) ? 'Cluster Connected' : 'Cluster Disconnected'}
+            <span class={`w-2 h-2 rounded-full ${(() => {
+              const currentCtx = contexts().find(c => c.isCurrent);
+              return currentCtx?.connected ? 'bg-emerald-400' : 'bg-red-500';
+            })()}`}></span>
+            {(() => {
+              const currentCtx = contexts().find(c => c.isCurrent);
+              return currentCtx?.connected ? 'Cluster Connected' : 'Cluster Disconnected';
+            })()}
           </button>
           <button
             class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"

@@ -19,10 +19,10 @@ const SidebarLogo: Component = () => {
       onClick={handleClick}
       class="group flex flex-col items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/60 rounded-md"
       title="KubēGraf Dashboard"
-      style={{ width: '100%', 'margin-top': '-8px' }}
+      style={{ width: '100%', 'margin-top': '-4px' }}
     >
       <LogoIcon class="w-16 h-auto object-contain" style={{ 'max-width': 'none' }} />
-      <span class="mt-0.5 text-[12px] tracking-wide font-bold" style={{ 'text-transform': 'none', color: 'var(--text-primary)', opacity: '0.95' }}>
+      <span class="mt-0.5 text-[12px] tracking-wide font-bold transition-colors duration-200 group-hover:text-[#f59e0b]" style={{ 'text-transform': 'none', color: 'var(--text-primary)', opacity: '0.95' }}>
         KubēGraf
       </span>
     </button>
