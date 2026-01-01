@@ -151,20 +151,46 @@ func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, con
 
 			metricsClient, _ := metricsclientset.NewForConfig(config)
 
+			// Try to get server version to verify actual connectivity
 			serverVersion := ""
-			versionChan := make(chan string, 1)
+			connected := false
+			var connError string
+
+			versionChan := make(chan struct {
+				version string
+				err     error
+			}, 1)
+
 			go func() {
 				if versionInfo, err := clientset.Discovery().ServerVersion(); err == nil {
-					versionChan <- versionInfo.GitVersion
+					versionChan <- struct {
+						version string
+						err     error
+					}{version: versionInfo.GitVersion, err: nil}
 				} else {
-					versionChan <- ""
+					versionChan <- struct {
+						version string
+						err     error
+					}{version: "", err: err}
 				}
 			}()
 
 			select {
-			case serverVersion = <-versionChan:
+			case result := <-versionChan:
+				if result.err == nil && result.version != "" {
+					serverVersion = result.version
+					connected = true
+				} else {
+					connected = false
+					if result.err != nil {
+						connError = fmt.Sprintf("Auth failed: %v", result.err)
+					} else {
+						connError = "Unable to reach API server"
+					}
+				}
 			case <-time.After(2 * time.Second):
-				serverVersion = ""
+				connected = false
+				connError = "Connection timeout (2s)"
 			}
 
 			contextChan <- struct {
@@ -177,7 +203,8 @@ func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, con
 					Clientset:     clientset,
 					MetricsClient: metricsClient,
 					Config:        config,
-					Connected:     true,
+					Connected:     connected,
+					Error:         connError,
 					ServerVersion: serverVersion,
 				},
 			}
