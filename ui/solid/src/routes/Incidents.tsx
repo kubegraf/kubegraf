@@ -6,9 +6,9 @@ import { Incident } from '../services/api';
 import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
 import { IncidentModalV2 } from '../components/intelligence';
 import { AutoRemediationPanel, LearningDashboard } from '../components/intelligence';
-import { 
-  getCachedIncidents, 
-  setCachedIncidentsData, 
+import {
+  getCachedIncidents,
+  setCachedIncidentsData,
   isCacheValid,
   getIsFetching,
   setFetching,
@@ -17,6 +17,7 @@ import {
 import { currentContext, onClusterSwitch } from '../stores/cluster';
 import { trackIncidentListLoad } from '../stores/performance';
 import { capabilities } from '../stores/capabilities';
+import { settings } from '../stores/settings';
 
 // Separate component for intelligence panels - conditionally rendered based on capabilities
 const IntelligencePanels: Component = () => {
@@ -103,7 +104,7 @@ const Incidents: Component = () => {
   // On mount: show cached data INSTANTLY, then refresh in background
   onMount(() => {
     const ctx = currentContext();
-    
+
     // Show cached data immediately if from same cluster
     const cached = getCachedIncidents();
     if (cached.length > 0 && isCacheValid(ctx)) {
@@ -113,7 +114,7 @@ const Incidents: Component = () => {
       // No cache or invalid cache - we're in initial load
       setIsInitialLoad(true);
     }
-    
+
     // Fetch fresh data in background (non-blocking)
     if (!isCacheValid(ctx)) {
       fetchIncidentsBackground();
@@ -121,10 +122,10 @@ const Incidents: Component = () => {
       // Even with valid cache, refresh after short delay
       setTimeout(fetchIncidentsBackground, 500);
     }
-    
+
     // Fetch namespaces in background
     fetchNamespacesBackground();
-    
+
     // Register for cluster switch notifications
     const unsubscribe = onClusterSwitch(() => {
       console.log('[Incidents] Cluster switched - refreshing data');
@@ -136,9 +137,26 @@ const Incidents: Component = () => {
       fetchIncidentsBackground();
       fetchNamespacesBackground();
     });
-    
+
+    // Setup auto-refresh interval (if enabled in settings)
+    let refreshIntervalId: number | undefined;
+    const currentSettings = settings();
+    if (currentSettings.enableAutoRefresh && currentSettings.refreshInterval > 0) {
+      console.log(`[Incidents] Auto-refresh enabled: every ${currentSettings.refreshInterval} seconds`);
+      refreshIntervalId = setInterval(() => {
+        console.log('[Incidents] Auto-refresh triggered');
+        fetchIncidentsBackground();
+      }, currentSettings.refreshInterval * 1000); // Convert seconds to milliseconds
+    }
+
     // Cleanup on unmount
-    onCleanup(unsubscribe);
+    onCleanup(() => {
+      unsubscribe();
+      if (refreshIntervalId) {
+        console.log('[Incidents] Clearing auto-refresh interval');
+        clearInterval(refreshIntervalId);
+      }
+    });
   });
 
   // Manual refresh

@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, createSignal, createResource } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
 import { api } from '../services/api';
 import { clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -6,6 +6,7 @@ import {
   selectedNamespaces,
   globalLoading,
   setGlobalLoading,
+  setNamespaces,
 } from '../stores/globalStore';
 import { createCachedResource } from '../utils/resourceCache';
 import { getThemeBackground, getThemeBorderColor } from '../utils/themeBackground';
@@ -54,6 +55,100 @@ const CronJobs: Component = () => {
   // Bulk selection
   const bulk = useBulkSelection<CronJob>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+
+  // Focus handling from URL params
+  const [focusedCronJob, setFocusedCronJob] = createSignal<string | null>(null);
+  const [focusedRowRef, setFocusedRowRef] = createSignal<HTMLTableRowElement | null>(null);
+  const [previousNamespaces, setPreviousNamespaces] = createSignal<string[] | null>(null);
+
+  // Read URL params on mount and when they change
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const focusName = params.get('focus');
+    const focusNamespace = params.get('namespace');
+
+    // Apply namespace filter if provided (but store previous selection to restore later)
+    if (focusNamespace) {
+      const current = selectedNamespaces();
+      setPreviousNamespaces(current.length > 0 ? [...current] : null);
+      setNamespaces([focusNamespace]);
+      // Mark that namespace was set programmatically
+      sessionStorage.setItem('kubegraf:namespaceSetProgrammatically', 'true');
+    }
+
+    // Set focus target
+    if (focusName) {
+      setFocusedCronJob(focusName);
+    }
+  });
+
+  // Handle focus after cronjobs are loaded
+  createEffect(() => {
+    const focusName = focusedCronJob();
+    const allCronJobs = filteredAndSorted();
+
+    if (focusName && allCronJobs.length > 0) {
+      // Find the cronjob in filtered list
+      const cj = allCronJobs.find(c => c.name === focusName);
+      if (cj) {
+        // Navigate to the correct page if needed
+        const cjIndex = allCronJobs.findIndex(c => c.name === focusName);
+        if (cjIndex >= 0) {
+          const targetPage = Math.floor(cjIndex / pageSize()) + 1;
+          if (targetPage !== currentPage()) {
+            setCurrentPage(targetPage);
+            // Wait for page to update before focusing
+            setTimeout(() => focusCronJob(cj), 200);
+            return;
+          }
+        }
+
+        focusCronJob(cj);
+      }
+    }
+  });
+
+  const focusCronJob = (cj: CronJob) => {
+    // Set as selected and open details
+    setSelected(cj);
+    setShowDetails(true);
+
+    // Show notification
+    addNotification(`Viewing CronJob: ${cj.name}`, 'success');
+
+    // Scroll to row after a short delay to ensure DOM is ready
+    setTimeout(() => {
+      const row = focusedRowRef();
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+
+    // Clear focus after highlighting
+    setTimeout(() => {
+      setFocusedCronJob(null);
+      // Clean up URL params
+      const url = new URL(window.location.href);
+      url.searchParams.delete('focus');
+      const hadNamespaceParam = url.searchParams.has('namespace');
+      url.searchParams.delete('namespace');
+      window.history.replaceState({}, '', url.toString());
+
+      // Restore previous namespace selection if it was set programmatically
+      if (hadNamespaceParam) {
+        const previous = previousNamespaces();
+        if (previous !== null) {
+          setNamespaces(previous);
+        } else {
+          // If there was no previous selection, clear to show all namespaces
+          setNamespaces([]);
+        }
+        setPreviousNamespaces(null);
+        // Clear the programmatic flag
+        sessionStorage.removeItem('kubegraf:namespaceSetProgrammatically');
+      }
+    }, 2000);
+  };
 
   const getFontFamilyCSS = (family: string): string => {
     switch (family) {
@@ -501,8 +596,23 @@ const CronJobs: Component = () => {
                 }>
                   {(cj: CronJob) => {
                     const textColor = '#0ea5e9';
+                    const isFocused = () => focusedCronJob() === cj.name;
+
                     return (
-                    <tr>
+                    <tr
+                      ref={(el) => {
+                        if (el && isFocused()) {
+                          setFocusedRowRef(el);
+                        }
+                      }}
+                      style={{
+                        ...(isFocused() ? {
+                          background: 'rgba(14, 165, 233, 0.15)',
+                          'border-left': '3px solid #0ea5e9',
+                          transition: 'background 0.3s ease, border-left 0.3s ease',
+        } : {}),
+                      }}
+                    >
                       <td style={{
                         padding: '0 8px',
                         'text-align': 'center',
