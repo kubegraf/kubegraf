@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kubegraf/kubegraf/internal/cli"
+	"github.com/kubegraf/kubegraf/cli/internal"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

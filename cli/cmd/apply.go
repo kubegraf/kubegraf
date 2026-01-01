@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kubegraf/kubegraf/internal/cli"
+	"github.com/kubegraf/kubegraf/cli/internal"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"

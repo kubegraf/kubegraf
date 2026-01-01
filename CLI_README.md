@@ -1,10 +1,24 @@
 # KubeGraf CLI Commands
 
-KubeGraf now includes a set of production-grade CLI commands for quick Kubernetes operations.
+KubeGraf includes a production-ready CLI for incident-first reliability analysis and Kubernetes operations.
 
 ## Overview
 
-The CLI provides five core commands for common Kubernetes tasks:
+### V1 Commands (Incident-First)
+
+The v1 CLI focuses on incident analysis and reliability:
+
+- **doctor** - Validate environment and connectivity
+- **incidents** - List and view incidents
+- **analyze** - Analyze incidents to determine root cause
+- **export** - Export incident data
+- **version** - Show version information
+- **completion** - Generate shell completion scripts
+
+### Legacy Commands
+
+Additional commands for Kubernetes operations:
+
 - **logs** - Stream pod logs
 - **shell** - Execute interactive shell in pods
 - **pf** - Port forward to pods or services
@@ -244,18 +258,46 @@ The CLI implementation follows clean architecture principles:
 
 ```
 cmd/cli/                    # Cobra command definitions
+├── analyze.go              # Analyze command (v1)
 ├── apply.go                # Apply command
+├── completion.go           # Completion command (v1)
+├── doctor.go               # Doctor command (v1)
+├── export.go               # Export command (v1)
+├── incidents.go            # Incidents commands (v1)
 ├── logs.go                 # Logs command
 ├── portforward.go          # Port forward command
 ├── restart.go              # Restart command
 ├── root.go                 # Root command setup
-└── shell.go                # Shell command
+├── shell.go                # Shell command
+├── tui.go                  # TUI command (experimental)
+└── version.go              # Version command (v1)
+
+internal/analyze/           # Analysis engine (v1)
+├── collectors.go           # Evidence collectors
+├── output.go               # Output formatters
+└── rules.go                # Deterministic rules engine
 
 internal/cli/               # Core Kubernetes operations
+├── incident_store.go       # Incident store interface (v1)
 └── kubeconfig.go           # Kubeconfig loading and client management
 ```
 
 All commands are integrated into the main `kubegraf` binary without affecting existing functionality.
+
+## V1 Command Examples
+
+### Quick Start
+
+```bash
+# Validate your environment
+kubegraf doctor
+
+# List recent incidents
+kubegraf incidents list --since 24h
+
+# Analyze an incident
+kubegraf analyze INC-abc123
+```
 
 ## Troubleshooting
 

@@ -46,21 +46,21 @@ type IncidentRecord struct {
 
 // FixRecord represents a stored fix execution record
 type FixRecord struct {
-	ID              string          `json:"id"`
-	IncidentID      string          `json:"incidentId"`
-	RunbookID       string          `json:"runbookId"`
-	RunbookName     string          `json:"runbookName"`
-	ExecutedAt      time.Time       `json:"executedAt"`
-	CompletedAt     *time.Time      `json:"completedAt,omitempty"`
-	InitiatedBy     string          `json:"initiatedBy"`
-	DryRun          bool            `json:"dryRun"`
-	Success         bool            `json:"success"`
-	Error           string          `json:"error,omitempty"`
-	Changes         []string        `json:"changes,omitempty"`
-	RollbackCmd     string          `json:"rollbackCmd,omitempty"`
-	RolledBack      bool            `json:"rolledBack"`
-	TargetResource  KubeResourceRef `json:"targetResource"`
-	VerificationOK  bool            `json:"verificationOk"`
+	ID             string          `json:"id"`
+	IncidentID     string          `json:"incidentId"`
+	RunbookID      string          `json:"runbookId"`
+	RunbookName    string          `json:"runbookName"`
+	ExecutedAt     time.Time       `json:"executedAt"`
+	CompletedAt    *time.Time      `json:"completedAt,omitempty"`
+	InitiatedBy    string          `json:"initiatedBy"`
+	DryRun         bool            `json:"dryRun"`
+	Success        bool            `json:"success"`
+	Error          string          `json:"error,omitempty"`
+	Changes        []string        `json:"changes,omitempty"`
+	RollbackCmd    string          `json:"rollbackCmd,omitempty"`
+	RolledBack     bool            `json:"rolledBack"`
+	TargetResource KubeResourceRef `json:"targetResource"`
+	VerificationOK bool            `json:"verificationOk"`
 }
 
 // UserFeedback represents user feedback on an incident or fix
@@ -86,10 +86,10 @@ type KnowledgePatternStats struct {
 
 // RunbookStats contains statistics for a runbook
 type RunbookStats struct {
-	RunbookID    string  `json:"runbookId"`
-	RunbookName  string  `json:"runbookName"`
-	ExecutionCount int   `json:"executionCount"`
-	SuccessCount   int   `json:"successCount"`
+	RunbookID      string  `json:"runbookId"`
+	RunbookName    string  `json:"runbookName"`
+	ExecutionCount int     `json:"executionCount"`
+	SuccessCount   int     `json:"successCount"`
 	SuccessRate    float64 `json:"successRate"`
 }
 
@@ -101,10 +101,17 @@ func NewKnowledgeBank(dataDir string) (*KnowledgeBank, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, "knowledge.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	// Use WAL mode and busy_timeout for better concurrent access
+	// This allows CLI reads while web UI writes without blocking
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Set connection pool settings for SQLite
+	db.SetMaxOpenConns(1) // SQLite works best with single connection per instance
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0) // Don't close connections
 
 	kb := &KnowledgeBank{
 		db:     db,
@@ -834,7 +841,7 @@ func (kb *KnowledgeBank) GetResolvedIncidents(limit int, namespace string, patte
 	WHERE resolved_at IS NOT NULL
 	`
 	args := []interface{}{}
-	
+
 	if namespace != "" {
 		query += " AND json_extract(resource_json, '$.namespace') = ?"
 		args = append(args, namespace)
@@ -847,7 +854,7 @@ func (kb *KnowledgeBank) GetResolvedIncidents(limit int, namespace string, patte
 		query += " AND severity = ?"
 		args = append(args, severity)
 	}
-	
+
 	query += " ORDER BY resolved_at DESC LIMIT ?"
 	args = append(args, limit)
 
@@ -859,4 +866,3 @@ func (kb *KnowledgeBank) GetResolvedIncidents(limit int, namespace string, patte
 
 	return kb.scanIncidentRows(rows)
 }
-

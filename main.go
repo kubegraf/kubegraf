@@ -25,7 +25,7 @@ import (
 
 	"github.com/fatih/color"
 
-	cli "github.com/kubegraf/kubegraf/cmd/cli"
+	cli "github.com/kubegraf/kubegraf/cli/cmd"
 	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/telemetry"
 	oldtelemetry "github.com/kubegraf/kubegraf/pkg/telemetry"
@@ -49,31 +49,14 @@ func main() {
 		return
 	}
 
-	// Check for CLI commands (logs, shell, pf, restart, apply)
+	// Check for special commands that should not go through Cobra
 	if len(os.Args) > 1 {
 		cmd := os.Args[1]
 		switch cmd {
-		case "logs", "shell", "pf", "restart", "apply":
-			// Route to Cobra CLI
-			cli.Execute()
-			return
-		}
-	}
-
-	// Check for flags first (before splash)
-	webMode := false
-	ephemeralMode := false
-	port := 3000 // Default to 3000 for web UI
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "--version", "-v":
-			fmt.Printf("KubeGraf %s - Advanced Kubernetes Visualization\n", GetVersion())
-			return
-		case "--help", "-h":
-			printHelp()
-			return
-		case "--web", "web":
-			webMode = true
+		case "web":
+			// Web UI mode - handle separately
+			ephemeralMode := false
+			port := 3000
 			// Check for custom port and ephemeral flag
 			for i := 2; i < len(os.Args); i++ {
 				arg := os.Args[i]
@@ -85,6 +68,27 @@ func main() {
 					ephemeralMode = true
 				}
 			}
+			launchWebUI(port, ephemeralMode)
+			return
+		case "tui":
+			// TUI mode - experimental, handle separately
+			fmt.Fprintf(os.Stderr, "⚠️  EXPERIMENTAL: TUI is not part of v1 stability guarantee.\n\n")
+			launchTUI()
+			return
+		}
+	}
+
+	// Check for legacy flags (before routing to Cobra)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v":
+			// Route to Cobra version command
+			cli.Execute()
+			return
+		case "--help", "-h":
+			// Route to Cobra help
+			cli.Execute()
+			return
 		}
 	}
 
@@ -95,139 +99,146 @@ func main() {
 	// No cluster data, no commands, no identifiers are ever collected.
 	telemetry.RunFirstTimeSetup(GetVersion())
 
-	// Parse namespace
-	namespace := "default"
-	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") && os.Args[1] != "web" {
-		namespace = os.Args[1]
+	// Default behavior: route all commands to Cobra CLI
+	// If no command provided, Cobra will show help
+	cli.Execute()
+}
+
+func launchWebUI(port int, ephemeralMode bool) {
+	// Check for update status from previous session
+	CheckUpdateStatus()
+
+	// In web mode, start server immediately and connect to cluster in background
+	fmt.Println("🚀 Starting KubeGraf Daemon...")
+
+	// Initialize cluster manager with auto-discovery (silently)
+	kubeconfigPaths, err := cluster.DiscoverKubeConfigs()
+	if err != nil {
+		log.Printf("⚠️  Failed to discover kubeconfigs: %v", err)
 	}
 
-	// Show splash screen only for TUI mode
-	if !webMode {
-		showSplash()
+	// Load contexts from discovered kubeconfigs (silently)
+	var clusterManager *cluster.ClusterManager
+	if len(kubeconfigPaths) > 0 {
+		contexts, err := cluster.LoadContextsFromFiles(kubeconfigPaths)
+		if err != nil {
+			log.Printf("⚠️  Failed to load contexts: %v", err)
+		} else {
+			// Create cluster manager with pre-warming (silently)
+			clusterManager, err = cluster.NewClusterManager(contexts)
+			if err != nil {
+				log.Printf("⚠️  Failed to create cluster manager: %v", err)
+			}
+		}
 	}
+
+	// Create and initialize application
+	app := NewApp("default")
+
+	// Start web server immediately (silently)
+	webServer := NewWebServer(app)
+	webServer.clusterManager = clusterManager
+
+	// Enable ephemeral mode if requested
+	if ephemeralMode {
+		webServer.ephemeralMode.Enable()
+		fmt.Println("🗑️  Ephemeral mode enabled - data will be wiped on exit")
+	}
+
+	// Setup signal handling for graceful shutdown (silently)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Initialize cluster connection in background (silently)
+	go func() {
+		initErr := app.Initialize()
+		if initErr != nil {
+			app.connectionError = initErr.Error()
+			app.connected = false
+			fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
+		} else {
+			app.connected = true
+		}
+	}()
+
+	// Start web server in a goroutine (silently)
+	serverErrChan := make(chan error, 1)
+	go func() {
+		if err := webServer.Start(port); err != nil {
+			fmt.Printf("❌ Web server error: %v\n", err)
+			serverErrChan <- err
+		}
+	}()
+
+	// Wait for signal or server error
+	select {
+	case sig := <-sigChan:
+		fmt.Printf("\n🛑 Received signal: %v\n", sig)
+		fmt.Println("💾 Updating last seen timestamp...")
+		// Update last_seen_at on clean shutdown
+		if webServer.stateManager != nil {
+			if err := webServer.stateManager.UpdateLastSeenAt(); err != nil {
+				fmt.Printf("⚠️  Failed to update state: %v\n", err)
+			} else {
+				fmt.Println("✅ State updated successfully")
+			}
+		}
+		// Cleanup ephemeral mode if enabled
+		if ephemeralMode && webServer.ephemeralMode != nil {
+			if err := webServer.ephemeralMode.Cleanup(); err != nil {
+				fmt.Printf("⚠️  Failed to cleanup ephemeral data: %v\n", err)
+			} else {
+				fmt.Println("🗑️  Ephemeral data cleaned up")
+			}
+		}
+		fmt.Println("👋 Shutting down gracefully...")
+		os.Exit(0)
+	case err := <-serverErrChan:
+		fmt.Fprintf(os.Stderr, "❌ Web server error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func launchTUI() {
+	// Parse namespace
+	namespace := "default"
+	if len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "--") {
+		namespace = os.Args[2]
+	}
+
+	// Show splash screen
+	showSplash()
 
 	// Create and initialize application
 	app := NewApp(namespace)
 
-	if webMode {
-		// Check for update status from previous session
-		CheckUpdateStatus()
+	// TUI mode - initialize cluster connection first
+	fmt.Println("🔌 Connecting to Kubernetes cluster...")
+	if err := app.Initialize(); err != nil {
+		fmt.Fprintf(os.Stderr, "\n❌ Failed to connect to cluster: %v\n\n", err)
+		fmt.Println("Please ensure:")
+		fmt.Println("  • kubeconfig is configured (~/.kube/config)")
+		fmt.Println("  • kubectl can access the cluster")
+		fmt.Println("  • You have proper permissions")
+		fmt.Println("\nTry running: kubectl cluster-info")
+		os.Exit(1)
+	}
+	fmt.Println("✅ Connected successfully!")
+	fmt.Println()
 
-		// In web mode, start server immediately and connect to cluster in background
-		fmt.Println("🚀 Starting KubeGraf Daemon...")
-
-		// Initialize cluster manager with auto-discovery (silently)
-		kubeconfigPaths, err := cluster.DiscoverKubeConfigs()
-		if err != nil {
-			log.Printf("⚠️  Failed to discover kubeconfigs: %v", err)
-		}
-
-		// Load contexts from discovered kubeconfigs (silently)
-		var clusterManager *cluster.ClusterManager
-		if len(kubeconfigPaths) > 0 {
-			contexts, err := cluster.LoadContextsFromFiles(kubeconfigPaths)
-			if err != nil {
-				log.Printf("⚠️  Failed to load contexts: %v", err)
-			} else {
-				// Create cluster manager with pre-warming (silently)
-				clusterManager, err = cluster.NewClusterManager(contexts)
-				if err != nil {
-					log.Printf("⚠️  Failed to create cluster manager: %v", err)
-				}
-			}
-		}
-
-		// Start web server immediately (silently)
-		webServer := NewWebServer(app)
-		webServer.clusterManager = clusterManager
-
-		// Enable ephemeral mode if requested
-		if ephemeralMode {
-			webServer.ephemeralMode.Enable()
-			fmt.Println("🗑️  Ephemeral mode enabled - data will be wiped on exit")
-		}
-
-		// Setup signal handling for graceful shutdown (silently)
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-		// Initialize cluster connection in background (silently)
-		go func() {
-			initErr := app.Initialize()
-			if initErr != nil {
-				app.connectionError = initErr.Error()
-				app.connected = false
-				fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
-			} else {
-				app.connected = true
-			}
-		}()
-
-		// Start web server in a goroutine (silently)
-		serverErrChan := make(chan error, 1)
-		go func() {
-			if err := webServer.Start(port); err != nil {
-				fmt.Printf("❌ Web server error: %v\n", err)
-				serverErrChan <- err
-			}
-		}()
-
-		// Wait for signal or server error
-		select {
-		case sig := <-sigChan:
-			fmt.Printf("\n🛑 Received signal: %v\n", sig)
-			fmt.Println("💾 Updating last seen timestamp...")
-			// Update last_seen_at on clean shutdown
-			if webServer.stateManager != nil {
-				if err := webServer.stateManager.UpdateLastSeenAt(); err != nil {
-					fmt.Printf("⚠️  Failed to update state: %v\n", err)
-				} else {
-					fmt.Println("✅ State updated successfully")
-				}
-			}
-			// Cleanup ephemeral mode if enabled
-			if ephemeralMode && webServer.ephemeralMode != nil {
-				if err := webServer.ephemeralMode.Cleanup(); err != nil {
-					fmt.Printf("⚠️  Failed to cleanup ephemeral data: %v\n", err)
-				} else {
-					fmt.Println("🗑️  Ephemeral data cleaned up")
-				}
-			}
-			fmt.Println("👋 Shutting down gracefully...")
-			os.Exit(0)
-		case err := <-serverErrChan:
-			fmt.Fprintf(os.Stderr, "❌ Web server error: %v\n", err)
+	// Run TUI application
+	if err := app.Run(); err != nil {
+		// Check if it's a TTY error
+		if strings.Contains(err.Error(), "/dev/tty") || strings.Contains(err.Error(), "device not configured") {
+			fmt.Fprintf(os.Stderr, "\n❌ Terminal UI requires an interactive terminal\n\n")
+			fmt.Println("TUI cannot run in background. Please run directly in your terminal:")
+			fmt.Println("  ./kubegraf tui")
+			fmt.Println("\nOr use web UI instead:")
+			fmt.Println("  ./kubegraf web --port=3001")
 			os.Exit(1)
 		}
-	} else {
-		// TUI mode - initialize cluster connection first
-		fmt.Println("🔌 Connecting to Kubernetes cluster...")
-		if err := app.Initialize(); err != nil {
-			fmt.Fprintf(os.Stderr, "\n❌ Failed to connect to cluster: %v\n\n", err)
-			fmt.Println("Please ensure:")
-			fmt.Println("  • kubeconfig is configured (~/.kube/config)")
-			fmt.Println("  • kubectl can access the cluster")
-			fmt.Println("  • You have proper permissions")
-			fmt.Println("\nTry running: kubectl cluster-info")
-			os.Exit(1)
-		}
-		fmt.Println("✅ Connected successfully!")
-		fmt.Println()
-
-		// Run TUI application
-		if err := app.Run(); err != nil {
-			// Check if it's a TTY error
-			if strings.Contains(err.Error(), "/dev/tty") || strings.Contains(err.Error(), "device not configured") {
-				fmt.Fprintf(os.Stderr, "\n❌ Terminal UI requires an interactive terminal\n\n")
-				fmt.Println("TUI cannot run in background. Please run directly in your terminal:")
-				fmt.Println("  ./kubegraf")
-				fmt.Println("\nOr use web UI instead:")
-				fmt.Println("  ./kubegraf web --port=3001")
-				os.Exit(1)
-			}
-			fmt.Fprintf(os.Stderr, "Application error: %v\n", err)
-			os.Exit(1)
-		}
+		fmt.Fprintf(os.Stderr, "Application error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
