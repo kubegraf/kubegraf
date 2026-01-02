@@ -580,6 +580,8 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/plugins/helm/release", ws.handleHelmReleaseDetails)
 	http.HandleFunc("/api/plugins/helm/history", ws.handleHelmReleaseHistory)
 	http.HandleFunc("/api/plugins/helm/rollback", ws.handleHelmRollback)
+	http.HandleFunc("/api/plugins/helm/describe", ws.handleHelmReleaseDescribe)
+	http.HandleFunc("/api/plugins/helm/yaml", ws.handleHelmReleaseYAML)
 
 	// Plugin endpoints - Kustomize (resources managed by kustomize)
 	http.HandleFunc("/api/plugins/kustomize/resources", ws.handleKustomizeResources)
@@ -589,6 +591,10 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/plugins/argocd/app", ws.handleArgoCDAppDetails)
 	http.HandleFunc("/api/plugins/argocd/sync", ws.handleArgoCDSync)
 	http.HandleFunc("/api/plugins/argocd/refresh", ws.handleArgoCDRefresh)
+	http.HandleFunc("/api/plugins/argocd/describe", ws.handleArgoCDAppDescribe)
+	http.HandleFunc("/api/plugins/argocd/yaml", ws.handleArgoCDAppYAML)
+	http.HandleFunc("/api/plugins/argocd/delete", ws.handleArgoCDAppDelete)
+	http.HandleFunc("/api/plugins/argocd/update", ws.handleArgoCDAppUpdate)
 
 	// Plugin endpoints - Flux
 	http.HandleFunc("/api/plugins/flux/resources", ws.handleFluxResources)

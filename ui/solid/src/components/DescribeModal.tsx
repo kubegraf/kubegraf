@@ -1,12 +1,14 @@
 import { Component, createResource, Show } from 'solid-js';
 import Modal from './Modal';
+import { api } from '../services/api';
 
 interface DescribeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  resourceType: 'pod' | 'deployment' | 'service' | 'node' | 'statefulset' | 'daemonset' | 'configmap' | 'secret' | 'ingress' | 'cronjob' | 'job';
+  resourceType: 'pod' | 'deployment' | 'service' | 'node' | 'statefulset' | 'daemonset' | 'configmap' | 'secret' | 'ingress' | 'cronjob' | 'job' | 'helmrelease' | 'argocdapp';
   name: string;
   namespace?: string;
+  getDescribe?: (name: string, namespace?: string) => Promise<{ describe: string; success: boolean }>;
 }
 
 const DescribeModal: Component<DescribeModalProps> = (props) => {
@@ -14,6 +16,27 @@ const DescribeModal: Component<DescribeModalProps> = (props) => {
     () => ({ type: props.resourceType, name: props.name, ns: props.namespace, open: props.isOpen }),
     async (params) => {
       if (!params.open || !params.name) return '';
+      
+      // Handle Helm and ArgoCD with custom API methods
+      if (params.type === 'helmrelease') {
+        if (!params.ns) throw new Error('Namespace is required for Helm releases');
+        const result = await api.getHelmReleaseDescribe(params.name, params.ns);
+        return result.describe || '';
+      }
+      
+      if (params.type === 'argocdapp') {
+        if (!params.ns) throw new Error('Namespace is required for ArgoCD apps');
+        const result = await api.getArgoCDAppDescribe(params.name, params.ns);
+        return result.describe || '';
+      }
+      
+      // Handle custom getDescribe function if provided
+      if (props.getDescribe) {
+        const result = await props.getDescribe(params.name, params.ns);
+        return result.describe || '';
+      }
+      
+      // Default behavior for standard Kubernetes resources
       const nsParam = params.ns ? `&namespace=${params.ns}` : '';
       const res = await fetch(`/api/${params.type}/describe?name=${params.name}${nsParam}`);
       if (!res.ok) throw new Error('Failed to fetch describe output');
