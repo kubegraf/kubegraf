@@ -4,44 +4,35 @@ import { setCurrentView } from '../stores/ui';
 
 const ClusterOverview: Component = () => {
   // Trigger data fetch when component mounts and when cluster connects
-  onMount(() => {
-    console.log('[ClusterOverview] Component mounted, cluster connected:', clusterStatus().connected);
-    // Always try to refetch, even if cluster status is uncertain
-    setTimeout(() => {
-      console.log('[ClusterOverview] onMount: Refetching all resources');
-      refetchPods();
-      refetchDeployments();
-      refetchServices();
-      refetchNodes();
-    }, 100);
-    
-    // Also refetch after a longer delay to ensure cluster is ready
-    setTimeout(() => {
-      if (clusterStatus().connected) {
-        console.log('[ClusterOverview] onMount (delayed): Refetching all resources again');
-        refetchPods();
-        refetchDeployments();
-        refetchServices();
-        refetchNodes();
-      }
-    }, 1000);
-  });
-
-  // Also refetch when cluster status changes to connected
+  // Resources will automatically fetch when cluster is connected via resourceTrigger
+  // Only manually refetch if cluster is connected but resources haven't loaded yet
   createEffect(() => {
     const connected = clusterStatus().connected;
     if (connected) {
-      console.log('[ClusterOverview] Cluster connected, refetching resources');
-      // Small delay to ensure cluster is fully ready
-      setTimeout(() => {
-        if (clusterStatus().connected) {
-          console.log('[ClusterOverview] Refetching pods, deployments, services, nodes');
+      // Small delay to ensure cluster is ready, then check if we need to refetch
+      const timeoutId = setTimeout(() => {
+        const pods = podsResource();
+        const deployments = deploymentsResource();
+        const services = servicesResource();
+        const nodes = nodesResource();
+        
+        // Only refetch if cluster is connected but we don't have data yet
+        if (!pods && !podsResource.loading && !podsResource.error) {
+          console.log('[ClusterOverview] Cluster connected but no pods data, refetching...');
           refetchPods();
+        }
+        if (!deployments && !deploymentsResource.loading && !deploymentsResource.error) {
           refetchDeployments();
+        }
+        if (!services && !servicesResource.loading && !servicesResource.error) {
           refetchServices();
+        }
+        if (!nodes && !nodesResource.loading && !nodesResource.error) {
           refetchNodes();
         }
-      }, 500);
+      }, 300);
+      
+      return () => clearTimeout(timeoutId);
     }
   });
 
@@ -151,22 +142,34 @@ const ClusterOverview: Component = () => {
   });
 
   const getHealthColor = (score: number) => {
-    if (score >= 90) return 'text-green-400';
-    if (score >= 70) return 'text-yellow-400';
-    return 'text-red-400';
+    if (score >= 90) return { color: 'var(--success-color)' };
+    if (score >= 70) return { color: 'var(--warning-color)' };
+    return { color: 'var(--error-color)' };
   };
 
   const getHealthBgColor = (score: number) => {
-    if (score >= 90) return 'bg-green-500/20 border-green-500/50';
-    if (score >= 70) return 'bg-yellow-500/20 border-yellow-500/50';
-    return 'bg-red-500/20 border-red-500/50';
+    if (score >= 90) return { 
+      background: 'rgba(34, 197, 94, 0.1)', 
+      borderColor: 'rgba(34, 197, 94, 0.3)',
+      border: '1px solid rgba(34, 197, 94, 0.3)'
+    };
+    if (score >= 70) return { 
+      background: 'rgba(245, 158, 11, 0.1)', 
+      borderColor: 'rgba(245, 158, 11, 0.3)',
+      border: '1px solid rgba(245, 158, 11, 0.3)'
+    };
+    return { 
+      background: 'rgba(239, 68, 68, 0.1)', 
+      borderColor: 'rgba(239, 68, 68, 0.3)',
+      border: '1px solid rgba(239, 68, 68, 0.3)'
+    };
   };
 
   return (
     <div class="p-6">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold mb-1">Cluster Overview</h1>
-        <p class="text-sm opacity-70">
+        <h1 class="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Cluster Overview</h1>
+        <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
           {clusterStatus().connected ? 'Real-time cluster health and resource summary' : 'Connect to a cluster to see overview'}
         </p>
       </div>
@@ -175,19 +178,69 @@ const ClusterOverview: Component = () => {
         when={clusterStatus().connected}
         fallback={
           <div class="text-center py-12">
-            <p class="text-sm opacity-70">No cluster connected</p>
+            <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>No cluster connected</p>
           </div>
         }
       >
         {(() => {
-          const isLoading = podsResource.loading || deploymentsResource.loading || servicesResource.loading || nodesResource.loading;
+          const pods = podsResource();
+          const deployments = deploymentsResource();
+          const services = servicesResource();
+          const nodes = nodesResource();
+          
+          const isLoading = (podsResource.loading && !pods) || 
+                           (deploymentsResource.loading && !deployments) || 
+                           (servicesResource.loading && !services) || 
+                           (nodesResource.loading && !nodes);
+          
+          const hasError = podsResource.error || deploymentsResource.error || servicesResource.error || nodesResource.error;
           const metrics = clusterMetrics();
           
-          if (isLoading || !metrics) {
+          // Show loading only if we don't have any data yet
+          if (isLoading && !pods && !deployments && !services && !nodes) {
             return (
               <div class="text-center py-12">
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                <p class="mt-4 text-sm opacity-70">Loading cluster metrics...</p>
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2" style={{ 'border-color': 'var(--accent-primary)' }}></div>
+                <p class="mt-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Loading cluster metrics...</p>
+                {hasError && (
+                  <p class="mt-2 text-xs" style={{ color: 'var(--error-color)' }}>
+                    Some resources failed to load. Showing available data...
+                  </p>
+                )}
+              </div>
+            );
+          }
+          
+          // Show error message if we have errors but no data
+          if (hasError && !pods && !deployments && !services && !nodes) {
+            return (
+              <div class="text-center py-12">
+                <p class="text-sm" style={{ color: 'var(--error-color)' }}>Failed to load cluster metrics</p>
+                <button 
+                  onClick={() => {
+                    refetchPods();
+                    refetchDeployments();
+                    refetchServices();
+                    refetchNodes();
+                  }}
+                  class="mt-4 px-4 py-2 rounded-lg text-sm"
+                  style={{ 
+                    background: 'var(--bg-secondary)', 
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)'
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            );
+          }
+          
+          // If we have some data, show it even if some resources are still loading
+          if (!metrics) {
+            return (
+              <div class="text-center py-12">
+                <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>No cluster data available</p>
               </div>
             );
           }
@@ -197,17 +250,17 @@ const ClusterOverview: Component = () => {
           return (
             <>
               {/* Health Score Card */}
-              <div class={`mb-6 p-6 rounded-lg border ${getHealthBgColor(score)}`}>
+              <div class="mb-6 p-6 rounded-lg" style={{ ...getHealthBgColor(score), border: getHealthBgColor(score).border || '1px solid var(--border-color)' }}>
                 <div class="flex items-center justify-between">
                   <div>
-                    <h2 class="text-lg font-semibold mb-1">Cluster Health Score</h2>
-                    <p class="text-sm opacity-70">Overall cluster health indicator</p>
+                    <h2 class="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Cluster Health Score</h2>
+                    <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>Overall cluster health indicator</p>
                   </div>
                   <div class="text-right">
-                    <div class={`text-4xl font-bold ${getHealthColor(score)}`}>
+                    <div class="text-4xl font-bold" style={getHealthColor(score)}>
                       {score}%
                     </div>
-                    <div class="text-xs opacity-70 mt-1">Health</div>
+                    <div class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Health</div>
                   </div>
                 </div>
               </div>
@@ -215,110 +268,138 @@ const ClusterOverview: Component = () => {
               {/* Resource Cards Grid */}
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 {/* Pods Card */}
-                <div class="bg-white/5 rounded-lg p-4 border border-white/10">
+                <div class="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                   <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-semibold text-sm">Pods</h3>
-                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <h3 class="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Pods</h3>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-secondary)' }}>
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
                   </div>
-                  <div class="text-2xl font-bold mb-1">{metrics.pods.total}</div>
-                  <div class="text-xs opacity-70 space-y-1">
+                  <div class="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{metrics.pods.total}</div>
+                  <div class="text-xs space-y-1">
                     <div class="flex justify-between">
-                      <span>Running:</span>
-                      <span class="text-green-400">{metrics.pods.running}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Running:</span>
+                      <span style={{ color: 'var(--success-color)' }}>{metrics.pods.running}</span>
                     </div>
                     <div class="flex justify-between">
-                      <span>Pending:</span>
-                      <span class="text-yellow-400">{metrics.pods.pending}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Pending:</span>
+                      <span style={{ color: 'var(--warning-color)' }}>{metrics.pods.pending}</span>
                     </div>
                     <div class="flex justify-between">
-                      <span>Failed:</span>
-                      <span class="text-red-400">{metrics.pods.failed}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Failed:</span>
+                      <span style={{ color: 'var(--error-color)' }}>{metrics.pods.failed}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Deployments Card */}
-                <div class="bg-white/5 rounded-lg p-4 border border-white/10">
+                <div class="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                   <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-semibold text-sm">Deployments</h3>
-                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <h3 class="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Deployments</h3>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-secondary)' }}>
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                     </svg>
                   </div>
-                  <div class="text-2xl font-bold mb-1">{metrics.deployments.total}</div>
-                  <div class="text-xs opacity-70 space-y-1">
+                  <div class="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{metrics.deployments.total}</div>
+                  <div class="text-xs space-y-1">
                     <div class="flex justify-between">
-                      <span>Ready:</span>
-                      <span class="text-green-400">{metrics.deployments.ready}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Ready:</span>
+                      <span style={{ color: 'var(--success-color)' }}>{metrics.deployments.ready}</span>
                     </div>
                     <div class="flex justify-between">
-                      <span>Not Ready:</span>
-                      <span class="text-red-400">{metrics.deployments.notReady}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Not Ready:</span>
+                      <span style={{ color: 'var(--error-color)' }}>{metrics.deployments.notReady}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Services Card */}
-                <div class="bg-white/5 rounded-lg p-4 border border-white/10">
+                <div class="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                   <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-semibold text-sm">Services</h3>
-                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <h3 class="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Services</h3>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-secondary)' }}>
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                     </svg>
                   </div>
-                  <div class="text-2xl font-bold mb-1">{metrics.services.total}</div>
-                  <div class="text-xs opacity-70">Total services</div>
+                  <div class="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{metrics.services.total}</div>
+                  <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Total services</div>
                 </div>
 
                 {/* Nodes Card */}
-                <div class="bg-white/5 rounded-lg p-4 border border-white/10">
+                <div class="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                   <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-semibold text-sm">Nodes</h3>
-                    <svg class="w-5 h-5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <h3 class="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Nodes</h3>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-secondary)' }}>
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                     </svg>
                   </div>
-                  <div class="text-2xl font-bold mb-1">{metrics.nodes.total}</div>
-                  <div class="text-xs opacity-70 space-y-1">
+                  <div class="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{metrics.nodes.total}</div>
+                  <div class="text-xs space-y-1">
                     <div class="flex justify-between">
-                      <span>Ready:</span>
-                      <span class="text-green-400">{metrics.nodes.ready}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Ready:</span>
+                      <span style={{ color: 'var(--success-color)' }}>{metrics.nodes.ready}</span>
                     </div>
                     <div class="flex justify-between">
-                      <span>Not Ready:</span>
-                      <span class="text-red-400">{metrics.nodes.notReady}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Not Ready:</span>
+                      <span style={{ color: 'var(--error-color)' }}>{metrics.nodes.notReady}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Quick Actions */}
-              <div class="bg-white/5 rounded-lg p-4 border border-white/10">
-                <h3 class="font-semibold mb-3">Quick Actions</h3>
+              <div class="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                <h3 class="font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Quick Actions</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                   <button 
                     onClick={() => setCurrentView('pods')}
-                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                    class="px-3 py-2 rounded text-sm text-center transition-colors cursor-pointer"
+                    style={{ 
+                      background: 'rgba(59, 130, 246, 0.1)', 
+                      color: 'var(--text-primary)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'}
                   >
                     View Pods
                   </button>
                   <button 
                     onClick={() => setCurrentView('deployments')}
-                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                    class="px-3 py-2 rounded text-sm text-center transition-colors cursor-pointer"
+                    style={{ 
+                      background: 'rgba(59, 130, 246, 0.1)', 
+                      color: 'var(--text-primary)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'}
                   >
                     View Deployments
                   </button>
                   <button 
                     onClick={() => setCurrentView('services')}
-                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                    class="px-3 py-2 rounded text-sm text-center transition-colors cursor-pointer"
+                    style={{ 
+                      background: 'rgba(59, 130, 246, 0.1)', 
+                      color: 'var(--text-primary)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'}
                   >
                     View Services
                   </button>
                   <button 
                     onClick={() => setCurrentView('nodes')}
-                    class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 rounded text-sm text-center transition-colors cursor-pointer"
+                    class="px-3 py-2 rounded text-sm text-center transition-colors cursor-pointer"
+                    style={{ 
+                      background: 'rgba(59, 130, 246, 0.1)', 
+                      color: 'var(--text-primary)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'}
                   >
                     View Nodes
                   </button>

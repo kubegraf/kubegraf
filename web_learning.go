@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,7 +39,7 @@ func (ws *WebServer) handleIncidentFeedbackLearning(w http.ResponseWriter, r *ht
 	// Parse request body
 	var req struct {
 		Outcome        string `json:"outcome"` // "worked", "not_worked", "unknown"
-		AppliedFixID  string `json:"appliedFixId,omitempty"`
+		AppliedFixID   string `json:"appliedFixId,omitempty"`
 		AppliedFixType string `json:"appliedFixType,omitempty"`
 		Notes          string `json:"notes,omitempty"`
 	}
@@ -85,7 +83,7 @@ func (ws *WebServer) handleIncidentFeedbackLearning(w http.ResponseWriter, r *ht
 		}
 		fingerprint = incidents.ComputeIncidentFingerprint(incident, containerName)
 	}
-	
+
 	snapshot, cached := ws.snapshotCache.Get(fingerprint)
 	if !cached {
 		// Snapshot not cached - will extract from incident directly
@@ -112,9 +110,9 @@ func (ws *WebServer) handleIncidentFeedbackLearning(w http.ResponseWriter, r *ht
 
 	// Build evidence pack from incident signals for feature extraction
 	evidencePack := &incidents.EvidencePack{
-		Logs:         []incidents.EvidenceItem{},
-		Events:       []incidents.EvidenceItem{},
-		MetricsFacts: []incidents.EvidenceItem{},
+		Logs:          []incidents.EvidenceItem{},
+		Events:        []incidents.EvidenceItem{},
+		MetricsFacts:  []incidents.EvidenceItem{},
 		ChangeHistory: []incidents.EvidenceItem{},
 	}
 	// Convert log signals to evidence items
@@ -177,9 +175,9 @@ func (ws *WebServer) handleIncidentFeedbackLearning(w http.ResponseWriter, r *ht
 
 	// Return response with explanation
 	response := map[string]interface{}{
-		"status":     "success",
-		"message":    "Learning updated locally",
-		"outcomeId":  outcome.ID,
+		"status":      "success",
+		"message":     "Learning updated locally",
+		"outcomeId":   outcome.ID,
 		"explanation": explanation,
 	}
 
@@ -250,36 +248,31 @@ func (ws *WebServer) handleLearningReset(w http.ResponseWriter, r *http.Request)
 }
 
 // getConfidenceLearner gets or creates the confidence learner
+// Uses the shared KnowledgeBank from IntelligenceSystem to ensure outcomes are stored in the same database
 func (ws *WebServer) getConfidenceLearner() *incidents.ConfidenceLearner {
 	if ws.app.incidentIntelligence == nil {
 		return nil
 	}
 
-	// Get knowledge bank from intelligence system
-	// Check if IntelligenceSystem is available (it has the knowledge bank)
-	var kb *incidents.KnowledgeBank
-	
-	// Try to get from IntelligenceSystem if it exists
-	// For now, we'll need to initialize the knowledge bank directly
-	// In a full implementation, IntelligenceSystem.GetKnowledgeBank() would be used
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = "."
+	// Get the shared KnowledgeBank from IntelligenceSystem
+	// This ensures we use the same database instance that stores incidents
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	if intelSys == nil {
+		return nil
 	}
-	kubegrafDir := filepath.Join(homeDir, ".kubegraf")
-	dataDir := filepath.Join(kubegrafDir, "incidents")
-	
-	kb, err = incidents.NewKnowledgeBank(dataDir)
-	if err != nil {
-		log.Printf("[Learning] Failed to initialize knowledge bank: %v", err)
+
+	kb := intelSys.GetKnowledgeBank()
+	if kb == nil {
+		log.Printf("[Learning] Knowledge bank not available in IntelligenceSystem")
 		return nil
 	}
 
 	// Check if learner already exists in WebServer
+	// If it exists but uses a different KB, recreate it
 	if ws.confidenceLearner == nil {
 		ws.confidenceLearner = incidents.NewConfidenceLearner(kb)
+		log.Printf("[Learning] Confidence learner initialized with shared KnowledgeBank")
 	}
 
 	return ws.confidenceLearner
 }
-

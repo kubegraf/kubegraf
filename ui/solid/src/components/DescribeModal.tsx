@@ -26,8 +26,9 @@ const DescribeModal: Component<DescribeModalProps> = (props) => {
     await navigator.clipboard.writeText(describe() || '');
   };
 
-  // Simple syntax highlighting for describe output
+  // Simple syntax highlighting for describe output - theme aware
   const highlightDescribe = (text: string) => {
+    if (!text) return '';
     return text
       .split('\n')
       .map((line) => {
@@ -35,15 +36,16 @@ const DescribeModal: Component<DescribeModalProps> = (props) => {
         const headerMatch = line.match(/^([A-Za-z][A-Za-z\s]+):\s*(.*)$/);
         if (headerMatch && line.indexOf(':') < 30) {
           const [, key, value] = headerMatch;
-          return `<span class="text-cyan-400">${escapeHtml(key)}:</span> <span class="text-amber-300">${escapeHtml(value)}</span>`;
+          return `<span style="color: var(--accent-primary)">${escapeHtml(key)}:</span> <span style="color: var(--text-primary) !important">${escapeHtml(value)}</span>`;
         }
         // Indented key-value pairs
         const kvMatch = line.match(/^(\s+)([A-Za-z][A-Za-z\s-]+):\s*(.*)$/);
         if (kvMatch) {
           const [, indent, key, value] = kvMatch;
-          return `${indent}<span class="text-blue-400">${escapeHtml(key)}:</span> ${escapeHtml(value)}`;
+          return `${indent}<span style="color: var(--accent-secondary)">${escapeHtml(key)}:</span> <span style="color: var(--text-primary) !important">${escapeHtml(value)}</span>`;
         }
-        return escapeHtml(line);
+        // Default: ensure all text has proper color
+        return `<span style="color: var(--text-primary) !important">${escapeHtml(line)}</span>`;
       })
       .join('\n');
   };
@@ -77,13 +79,13 @@ const DescribeModal: Component<DescribeModalProps> = (props) => {
         <div
           class="flex-1 font-mono text-sm p-4 rounded-lg overflow-auto"
           style={{
-            background: '#0d1117',
-            color: '#c9d1d9',
+            background: 'var(--bg-tertiary)',
+            color: 'var(--text-primary)',
             border: '1px solid var(--border-color)',
           }}
         >
           <Show
-            when={!describe.loading}
+            when={!describe.loading && describe() !== undefined}
             fallback={
               <div class="flex items-center justify-center h-full">
                 <div class="spinner" />
@@ -91,9 +93,18 @@ const DescribeModal: Component<DescribeModalProps> = (props) => {
             }
           >
             <Show when={describe.error}>
-              <div class="text-red-400">Error: {describe.error?.message}</div>
+              <div style={{ color: 'var(--error-color)' }}>Error: {describe.error?.message}</div>
             </Show>
-            <pre class="whitespace-pre-wrap" innerHTML={highlightDescribe(describe() || '')} />
+            <Show when={!describe.error && describe()}>
+              <pre 
+                class="whitespace-pre-wrap" 
+                style={{ color: 'var(--text-primary)' }}
+                innerHTML={highlightDescribe(describe() || '')} 
+              />
+            </Show>
+            <Show when={!describe.error && !describe() && !describe.loading}>
+              <div style={{ color: 'var(--text-secondary)' }}>No describe output available</div>
+            </Show>
           </Show>
         </div>
       </div>

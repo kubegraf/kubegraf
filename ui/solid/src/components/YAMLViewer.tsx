@@ -26,7 +26,7 @@ const YAMLViewer: Component<YAMLViewerProps> = (props) => {
     URL.revokeObjectURL(url);
   };
 
-  // Simple syntax highlighting for YAML
+  // Simple syntax highlighting for YAML - theme aware
   const highlightYAML = (yaml: string) => {
     if (!yaml) return '';
     return yaml
@@ -34,20 +34,21 @@ const YAMLViewer: Component<YAMLViewerProps> = (props) => {
       .map((line) => {
         // Comments
         if (line.trim().startsWith('#')) {
-          return `<span class="text-gray-500">${escapeHtml(line)}</span>`;
+          return `<span style="color: var(--text-muted)">${escapeHtml(line)}</span>`;
         }
         // Keys
         const keyMatch = line.match(/^(\s*)([a-zA-Z0-9_-]+)(:)/);
         if (keyMatch) {
           const [, indent, key, colon] = keyMatch;
           const value = line.slice(keyMatch[0].length);
-          return `${indent}<span class="text-cyan-400">${escapeHtml(key)}</span>${colon}<span class="text-amber-300">${escapeHtml(value)}</span>`;
+          return `${indent}<span style="color: var(--accent-secondary)">${escapeHtml(key)}</span>${colon}<span style="color: var(--text-primary)">${escapeHtml(value)}</span>`;
         }
         // List items
         if (line.trim().startsWith('-')) {
-          return `<span class="text-purple-400">${escapeHtml(line)}</span>`;
+          return `<span style="color: var(--accent-tertiary)">${escapeHtml(line)}</span>`;
         }
-        return escapeHtml(line);
+        // Default text - ensure it's visible in light theme
+        return `<span style="color: var(--text-primary)">${escapeHtml(line)}</span>`;
       })
       .join('\n');
   };
@@ -77,10 +78,10 @@ const YAMLViewer: Component<YAMLViewerProps> = (props) => {
               Copy
             </>
           }>
-            <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-4 h-4" style={{ color: 'var(--success-color)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
-            <span class="text-green-400">Copied!</span>
+            <span style={{ color: 'var(--success-color)' }}>Copied!</span>
           </Show>
         </button>
         <button
@@ -96,8 +97,24 @@ const YAMLViewer: Component<YAMLViewerProps> = (props) => {
       </div>
 
       {/* Code block */}
-      <div class="code-block overflow-auto max-h-[60vh]">
-        <pre class="text-sm leading-relaxed" innerHTML={highlightYAML(props.yaml)} />
+      <div 
+        class="code-block overflow-auto max-h-[60vh]"
+        style={{
+          background: 'var(--bg-tertiary)',
+          border: '1px solid var(--border-color)',
+          'border-radius': '8px',
+          padding: '1rem',
+        }}
+      >
+        <pre 
+          class="text-sm leading-relaxed" 
+          style={{ 
+            color: 'var(--text-primary)',
+            margin: 0,
+            'font-family': 'monospace',
+          }}
+          innerHTML={highlightYAML(props.yaml)} 
+        />
       </div>
     </div>
   );

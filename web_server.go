@@ -2860,7 +2860,7 @@ func (ws *WebServer) handleCapabilities(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(capabilities.GetCapabilities())
+	json.NewEncoder(w).Encode(capabilities.GetCapabilitiesJSON())
 }
 
 // handleTrainingJobs returns empty array for now (ML feature placeholder)

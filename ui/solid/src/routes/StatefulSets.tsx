@@ -1,4 +1,5 @@
-import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { api } from '../services/api';
 import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification } from '../stores/ui';
@@ -10,7 +11,6 @@ import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import RelatedResources from '../components/RelatedResources';
-import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
@@ -19,6 +19,7 @@ import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSiz
 
 interface StatefulSet {
   name: string;
+  uid?: string; // StatefulSet UID for stable keys
   namespace: string;
   ready: string;
   replicas: number;
@@ -47,6 +48,11 @@ const StatefulSets: Component = () => {
   const [deleting, setDeleting] = createSignal(false);
   const bulk = useBulkSelection<StatefulSet>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+
+  // Menu state management - moved to component level to survive row re-renders
+  const [openMenuStatefulSetUID, setOpenMenuStatefulSetUID] = createSignal<string | null>(null);
+  const [menuAnchorPosition, setMenuAnchorPosition] = createSignal<{ top: number; left: number } | null>(null);
+  const [menuHovering, setMenuHovering] = createSignal(false);
 
   // Focus handling from URL params
   const [focusedStatefulSet, setFocusedStatefulSet] = createSignal<string | null>(null);
@@ -426,6 +432,148 @@ const StatefulSets: Component = () => {
     setShowScale(true);
   };
 
+  // Action menu icons
+  const actionIcons: Record<string, string> = {
+    scale: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4',
+    restart: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+    delete: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
+    yaml: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4',
+    edit: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+  };
+
+  // Handle action menu open/close
+  const handleActionMenuClick = (e: MouseEvent, sts: StatefulSet) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    const stsUID = sts.uid || `${sts.namespace}/${sts.name}`;
+    
+    if (openMenuStatefulSetUID() === stsUID) {
+      setOpenMenuStatefulSetUID(null);
+      setMenuAnchorPosition(null);
+      setMenuHovering(false);
+      return;
+    }
+    
+    const button = e.currentTarget as HTMLElement;
+    const rect = button.getBoundingClientRect();
+    const menuHeight = 300;
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    let top = rect.bottom + 4;
+    if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+      top = rect.top - menuHeight - 4;
+    }
+    top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+    
+    setMenuAnchorPosition({
+      top,
+      left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)),
+    });
+    setOpenMenuStatefulSetUID(stsUID);
+    setMenuHovering(false);
+  };
+
+  const closeActionMenu = () => {
+    setOpenMenuStatefulSetUID(null);
+    setMenuAnchorPosition(null);
+    setMenuHovering(false);
+  };
+
+  const currentMenuStatefulSet = createMemo(() => {
+    const uid = openMenuStatefulSetUID();
+    if (!uid) return null;
+    const stsList = statefulsets() || [];
+    return stsList.find(s => (s.uid || `${s.namespace}/${s.name}`) === uid) || null;
+  });
+
+  createEffect(() => {
+    if (!openMenuStatefulSetUID()) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const menuElement = document.querySelector('[data-action-menu]');
+      if (menuElement && menuElement.contains(target)) return;
+      const actionButtons = document.querySelectorAll('[data-action-button]');
+      for (const btn of actionButtons) {
+        if (btn.contains(target)) return;
+      }
+      closeActionMenu();
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeActionMenu();
+    };
+
+    const timeout = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, true);
+      document.addEventListener('keydown', handleEscape, true);
+    }, 100);
+
+    onCleanup(() => {
+      clearTimeout(timeout);
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('keydown', handleEscape, true);
+    });
+  });
+
+  createEffect(() => {
+    const uid = openMenuStatefulSetUID();
+    if (!uid) return;
+    const sts = currentMenuStatefulSet();
+    if (!sts) {
+      addNotification('StatefulSet no longer available', 'warning');
+      closeActionMenu();
+    }
+  });
+
+  createEffect(() => {
+    if (!openMenuStatefulSetUID() || !menuAnchorPosition()) return;
+
+    const handleResize = () => {
+      const uid = openMenuStatefulSetUID();
+      if (!uid) return;
+      const stsList = statefulsets() || [];
+      const sts = stsList.find(s => (s.uid || `${s.namespace}/${s.name}`) === uid);
+      if (!sts) return;
+      
+      const buttons = document.querySelectorAll('[data-action-button]');
+      for (const btn of buttons) {
+        const btnUID = btn.getAttribute('data-statefulset-uid');
+        if (btnUID === uid) {
+          const rect = btn.getBoundingClientRect();
+          const menuHeight = 300;
+          const viewportHeight = window.innerHeight;
+          const spaceBelow = viewportHeight - rect.bottom;
+          const spaceAbove = rect.top;
+          
+          let top = rect.bottom + 4;
+          if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+            top = rect.top - menuHeight - 4;
+          }
+          top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+          
+          setMenuAnchorPosition({
+            top,
+            left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)),
+          });
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleResize, true);
+
+    onCleanup(() => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleResize, true);
+    });
+  });
+
   return (
     <div class="space-y-2 max-w-full -mt-4">
       <BulkActions
@@ -702,6 +850,8 @@ const StatefulSets: Component = () => {
                   <tr><td colspan="7" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No StatefulSets found</td></tr>
                 }>
                   {(sts: StatefulSet) => {
+                    // Use uid as stable key, fallback to name+namespace if uid not available
+                    const stsKey = sts.uid || `${sts.namespace}/${sts.name}`;
                     const textColor = '#0ea5e9';
                     const isFocused = () => focusedStatefulSet() === sts.name;
 
@@ -804,28 +954,23 @@ const StatefulSets: Component = () => {
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
                       }}>
-                        <ActionMenu
-                          actions={[
-                            { label: 'Scale', icon: 'scale', onClick: () => openScale(sts) },
-                            {
-                              label: 'Restart',
-                              icon: 'restart',
-                              onClick: () => restart(sts),
-                              loading: restarting() === `${sts.namespace}/${sts.name}`
-                            },
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { 
-                              setSelected(sts);
-                              setYamlKey(`${sts.name}|${sts.namespace}`);
-                              setShowYaml(true);
-                            } },
-                            { label: 'Edit YAML', icon: 'edit', onClick: () => { 
-                              setSelected(sts);
-                              setYamlKey(`${sts.name}|${sts.namespace}`);
-                              setShowEdit(true);
-                            } },
-                            { label: 'Delete', icon: 'delete', onClick: () => { setSelected(sts); deleteStatefulSet(sts); }, variant: 'danger', divider: true },
-                          ]}
-                        />
+                        <button
+                          data-action-button
+                          data-statefulset-uid={stsKey}
+                          onClick={(e) => handleActionMenuClick(e, sts)}
+                          class="flex items-center justify-center p-1 rounded transition-all hover:bg-opacity-80"
+                          style={{
+                            background: openMenuStatefulSetUID() === stsKey ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                          }}
+                          title="Actions"
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                          </svg>
+                        </button>
                       </td>
                     </tr>
                     );
@@ -893,6 +1038,130 @@ const StatefulSets: Component = () => {
           </Show>
         </Show>
       </div>
+
+      {/* Action Menu Portal - rendered outside table to survive row re-renders */}
+      <Show when={openMenuStatefulSetUID() && menuAnchorPosition() && currentMenuStatefulSet()}>
+        <Portal>
+          <div
+            data-action-menu
+            class="fixed py-2 rounded-lg shadow-xl min-w-[180px]"
+            style={{
+              top: `${menuAnchorPosition()!.top}px`,
+              left: `${menuAnchorPosition()!.left}px`,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)',
+              'box-shadow': '0 10px 40px rgba(0, 0, 0, 0.3)',
+              'z-index': 9998,
+            }}
+            onMouseEnter={() => setMenuHovering(true)}
+            onMouseLeave={() => setMenuHovering(false)}
+          >
+            <For each={[
+              { 
+                label: 'Scale', 
+                icon: 'scale', 
+                onClick: () => { 
+                  openScale(currentMenuStatefulSet()!); 
+                  closeActionMenu(); 
+                } 
+              },
+              {
+                label: 'Restart',
+                icon: 'restart',
+                onClick: () => { 
+                  restart(currentMenuStatefulSet()!); 
+                  closeActionMenu(); 
+                },
+                loading: restarting() === `${currentMenuStatefulSet()!.namespace}/${currentMenuStatefulSet()!.name}`
+              },
+              { 
+                label: 'View YAML', 
+                icon: 'yaml', 
+                onClick: () => { 
+                  setSelected(currentMenuStatefulSet()!);
+                  setYamlKey(`${currentMenuStatefulSet()!.name}|${currentMenuStatefulSet()!.namespace}`);
+                  setShowYaml(true);
+                  closeActionMenu();
+                } 
+              },
+              { 
+                label: 'Edit YAML', 
+                icon: 'edit', 
+                onClick: () => { 
+                  setSelected(currentMenuStatefulSet()!);
+                  setYamlKey(`${currentMenuStatefulSet()!.name}|${currentMenuStatefulSet()!.namespace}`);
+                  setShowEdit(true);
+                  closeActionMenu();
+                } 
+              },
+              { 
+                label: 'Delete', 
+                icon: 'delete', 
+                onClick: () => { 
+                  setSelected(currentMenuStatefulSet()!);
+                  deleteStatefulSet(currentMenuStatefulSet()!); 
+                  closeActionMenu(); 
+                }, 
+                variant: 'danger' as const, 
+                divider: true 
+              },
+            ]}>
+              {(action) => (
+                <>
+                  <Show when={action.divider}>
+                    <div class="my-1 border-t" style={{ 'border-color': 'var(--border-color)' }} />
+                  </Show>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!action.loading) {
+                        action.onClick();
+                      }
+                    }}
+                    disabled={action.loading}
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                    classList={{
+                      'opacity-50 cursor-not-allowed': action.loading,
+                    }}
+                    style={{
+                      color: action.variant === 'danger' ? 'var(--error-color)' : 'var(--text-primary)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: action.loading ? 'not-allowed' : 'pointer',
+                      'text-align': 'left',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!action.loading) {
+                        e.currentTarget.style.background = action.variant === 'danger'
+                          ? 'rgba(239, 68, 68, 0.1)'
+                          : 'var(--bg-tertiary)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <Show when={action.loading} fallback={
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d={actionIcons[action.icon] || actionIcons.scale}
+                        />
+                      </svg>
+                    }>
+                      <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                    </Show>
+                    {action.loading ? `${action.label}...` : action.label}
+                  </button>
+                </>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
 
       {/* YAML Modal */}
       <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">

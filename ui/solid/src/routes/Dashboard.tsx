@@ -720,7 +720,10 @@ const Dashboard: Component = () => {
           subtext={`${totalPods() > 0 ? ((runningPods() / totalPods()) * 100).toFixed(0) : 0}% healthy`}
           color="#22c55e"
           icon={PodIcon}
-          onClick={() => setCurrentView('pods')}
+          onClick={() => {
+            sessionStorage.setItem('kubegraf-previous-view', 'dashboard');
+            setCurrentView('pods');
+          }}
         />
         <MetricCard
           label="Nodes"
@@ -757,7 +760,10 @@ const Dashboard: Component = () => {
           <div
             class="p-4 rounded-lg text-center cursor-pointer hover:opacity-80 transition-opacity"
             style={{ background: 'var(--bg-tertiary)' }}
-            onClick={() => setCurrentView('pods')}
+            onClick={() => {
+            sessionStorage.setItem('kubegraf-previous-view', 'dashboard');
+            setCurrentView('pods');
+          }}
           >
             <div class="text-3xl font-bold" style={{ color: '#06b6d4' }}>{totalPods()}</div>
             <div class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Pods</div>

@@ -14,6 +14,7 @@ interface IncidentTableProps {
 // Inline FixPreviewModal with proper confirmation modal
 import { setExecutionStateFromResult } from '../stores/executionPanel';
 import { api } from '../services/api';
+import { capabilities } from '../stores/capabilities';
 
 const FixPreviewModalInline: Component<{
   isOpen: boolean;
@@ -729,23 +730,35 @@ const FixPreviewModalInline: Component<{
                dryRunStatus() === 'success' ? '✅ Dry Run OK' :
                dryRunStatus() === 'failed' ? '❌ Dry Run Failed' : '🧪 Dry Run'}
             </button>
-            <button 
-              onClick={handleApplyClick}
-              disabled={applying() || loading()}
-              style={{
-                padding: '8px 16px',
-                'border-radius': '6px',
-                border: 'none',
-                background: 'var(--accent-primary)',
-                color: '#000',
-                cursor: applying() ? 'not-allowed' : 'pointer',
+            <Show when={capabilities.isFixApplicationEnabled()}>
+              <button 
+                onClick={handleApplyClick}
+                disabled={applying() || loading()}
+                style={{
+                  padding: '8px 16px',
+                  'border-radius': '6px',
+                  border: 'none',
+                  background: 'var(--accent-primary)',
+                  color: '#000',
+                  cursor: applying() ? 'not-allowed' : 'pointer',
+                  'font-size': '13px',
+                  'font-weight': '600',
+                  opacity: applying() ? 0.6 : 1,
+                }}
+              >
+                {applying() && !applyResult()?.dryRun ? '⏳ Applying...' : '⚡ Apply Fix'}
+              </button>
+            </Show>
+            <Show when={!capabilities.isFixApplicationEnabled()}>
+              <div style={{ 
+                padding: '8px 16px', 
+                color: 'var(--text-secondary)', 
                 'font-size': '13px',
-                'font-weight': '600',
-                opacity: applying() ? 0.6 : 1,
-              }}
-            >
-              {applying() && !applyResult()?.dryRun ? '⏳ Applying...' : '⚡ Apply Fix'}
-            </button>
+                'font-style': 'italic'
+              }}>
+                Fix application is disabled. Only dry-run preview is available.
+              </div>
+            </Show>
           </div>
         </div>
 

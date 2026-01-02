@@ -19,6 +19,7 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
   const [activeTab, setActiveTab] = createSignal<string | null>(null);
   const [loadedTabs, setLoadedTabs] = createSignal<Set<string>>(new Set());
   const [resolving, setResolving] = createSignal(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = createSignal<string | null>(null);
 
   // Fetch snapshot when modal opens
   createEffect(async () => {
@@ -581,50 +582,80 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
           }}>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={() => {
-                  // Feedback buttons
-                  console.log('Feedback: worked');
+                onClick={async () => {
+                  if (!props.incident) return;
+                  setFeedbackSubmitting('worked');
+                  try {
+                    await api.submitIncidentFeedback(props.incident.id, 'worked');
+                    // Optionally show success notification or refresh learning status
+                  } catch (err: any) {
+                    console.error('Failed to submit feedback:', err);
+                  } finally {
+                    setFeedbackSubmitting(null);
+                  }
                 }}
+                disabled={feedbackSubmitting() !== null}
                 style={{
                   padding: '8px 12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
+                  background: feedbackSubmitting() === 'worked' ? 'var(--text-muted)' : '#22c55e',
+                  border: '1px solid #22c55e',
                   'border-radius': '6px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  'font-size': '12px'
+                  color: 'white',
+                  cursor: feedbackSubmitting() === 'worked' ? 'not-allowed' : 'pointer',
+                  'font-size': '12px',
+                  opacity: feedbackSubmitting() === 'worked' ? 0.6 : 1
                 }}
               >
                 ✅ Worked
               </button>
               <button
-                onClick={() => {
-                  console.log('Feedback: didn\'t work');
+                onClick={async () => {
+                  if (!props.incident) return;
+                  setFeedbackSubmitting('not_worked');
+                  try {
+                    await api.submitIncidentFeedback(props.incident.id, 'not_worked');
+                  } catch (err: any) {
+                    console.error('Failed to submit feedback:', err);
+                  } finally {
+                    setFeedbackSubmitting(null);
+                  }
                 }}
+                disabled={feedbackSubmitting() !== null}
                 style={{
                   padding: '8px 12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
+                  background: feedbackSubmitting() === 'not_worked' ? 'var(--text-muted)' : '#dc3545',
+                  border: '1px solid #dc3545',
                   'border-radius': '6px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  'font-size': '12px'
+                  color: 'white',
+                  cursor: feedbackSubmitting() === 'not_worked' ? 'not-allowed' : 'pointer',
+                  'font-size': '12px',
+                  opacity: feedbackSubmitting() === 'not_worked' ? 0.6 : 1
                 }}
               >
                 ❌ Didn't Work
               </button>
               <button
-                onClick={() => {
-                  console.log('Feedback: incorrect cause');
+                onClick={async () => {
+                  if (!props.incident) return;
+                  setFeedbackSubmitting('unknown');
+                  try {
+                    await api.submitIncidentFeedback(props.incident.id, 'unknown');
+                  } catch (err: any) {
+                    console.error('Failed to submit feedback:', err);
+                  } finally {
+                    setFeedbackSubmitting(null);
+                  }
                 }}
+                disabled={feedbackSubmitting() !== null}
                 style={{
                   padding: '8px 12px',
-                  background: 'var(--bg-secondary)',
+                  background: feedbackSubmitting() === 'unknown' ? 'var(--text-muted)' : 'var(--bg-secondary)',
                   border: '1px solid var(--border-color)',
                   'border-radius': '6px',
                   color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  'font-size': '12px'
+                  cursor: feedbackSubmitting() === 'unknown' ? 'not-allowed' : 'pointer',
+                  'font-size': '12px',
+                  opacity: feedbackSubmitting() === 'unknown' ? 0.6 : 1
                 }}
               >
                 ⚠️ Incorrect Cause

@@ -30,7 +30,7 @@ async function fetchCapabilities(): Promise<Capabilities> {
       similarIncidents: false,
       metricsCorrelation: false,
       bulkFixes: false,
-      fixApplication: false,
+      fixApplication: true,
     };
   }
   return await res.json();
@@ -50,7 +50,7 @@ export const capabilities = {
     similarIncidents: false,
     metricsCorrelation: false,
     bulkFixes: false,
-    fixApplication: false,
+    fixApplication: true,
   },
   isLoading: () => capabilitiesResource.loading,
   isAutoRemediationEnabled: () => capabilitiesResource()?.autoRemediation ?? false,

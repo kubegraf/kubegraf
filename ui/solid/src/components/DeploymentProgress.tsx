@@ -239,9 +239,11 @@ const DeploymentProgress: Component = () => {
     <Show when={deployments().length > 0}>
       <Portal>
         <div
-          class="fixed right-4 bottom-24 z-[10000] transition-all duration-300"
+          class="fixed z-[10000] transition-all duration-300"
           data-version="1.7.29"
           style={{
+            right: 'clamp(1rem, 1rem, 1rem)',
+            bottom: 'clamp(6rem, 6rem, 6rem)',
             width: isMinimized() ? '320px' : '420px',
             'max-width': 'calc(100vw - 2rem)',
             'max-height': isMinimized() ? '60px' : 'min(70vh, 600px)',
@@ -305,11 +307,12 @@ const DeploymentProgress: Component = () => {
                     toggleSound();
                   }}
                   title={soundEnabled() ? 'Disable sounds' : 'Enable sounds'}
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   <Show
                     when={soundEnabled()}
                     fallback={
-                      <svg class="w-4 h-4" style={{ color: 'var(--text-secondary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd" />
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
                       </svg>
@@ -322,21 +325,46 @@ const DeploymentProgress: Component = () => {
                 </button>
 
                 {/* Minimize/Maximize */}
-                <svg
-                  class="w-4 h-4 transition-transform"
-                  classList={{ 'rotate-180': !isMinimized() }}
+                <button
+                  class="p-1.5 rounded hover:opacity-70 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMinimized(!isMinimized());
+                  }}
+                  title={isMinimized() ? 'Maximize' : 'Minimize'}
                   style={{ color: 'var(--text-secondary)' }}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
                 >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
+                  <svg
+                    class="w-4 h-4 transition-transform"
+                    classList={{ 'rotate-180': !isMinimized() }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </button>
+
+                {/* Close Button */}
+                <button
+                  class="p-1.5 rounded hover:opacity-70 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Remove all deployments when closing
+                    deployments().forEach((dep) => removeDeployment(dep.id));
+                  }}
+                  title="Close"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             </div>
 
