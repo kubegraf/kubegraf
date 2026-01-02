@@ -22,6 +22,7 @@ const [sessionId, setSessionId] = createSignal<string | null>(null);
 const [messages, setMessages] = createSignal<AIMessage[]>([]);
 const [isLoading, setIsLoading] = createSignal(false);
 const [currentProvider, setCurrentProvider] = createSignal<string>('ollama');
+const [currentProviderName, setCurrentProviderName] = createSignal<string>('Ollama (Local)'); // Full provider name with model
 const [providers, setProviders] = createSignal<AIProvider[]>([
   { id: 'ollama', name: 'Ollama (Local)', icon: 'llama' },
   { id: 'openai', name: 'OpenAI GPT-4', icon: 'openai' },
@@ -35,8 +36,10 @@ async function fetchProviders() {
       const data = await res.json();
       // Update current provider based on backend status
       if (data.available && data.provider) {
-        const providerName = data.provider.split(' ')[0]; // e.g., "ollama (llama3.2)" -> "ollama"
+        const providerName = data.provider.split(' ')[0]; // e.g., "ollama (llama3.1)" -> "ollama"
         setCurrentProvider(providerName);
+        // Store the full provider name (e.g., "ollama (llama3.1)")
+        setCurrentProviderName(data.provider);
       }
     }
   } catch (error) {
@@ -143,6 +146,7 @@ export {
   messages,
   isLoading,
   currentProvider,
+  currentProviderName,
   providers,
   fetchProviders,
   createSession,
