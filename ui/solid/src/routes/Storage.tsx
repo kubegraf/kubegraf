@@ -15,6 +15,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface PersistentVolume {
   name: string;
@@ -67,41 +68,19 @@ const Storage: Component = () => {
   const bulkPVC = useBulkSelection<PersistentVolumeClaim>();
   const [showBulkDeleteModalPVC, setShowBulkDeleteModalPVC] = createSignal(false);
 
-  // Font size selector with localStorage persistence
-  const getInitialFontSize = (): number => {
-    const saved = localStorage.getItem('storage-font-size');
-    return saved ? parseInt(saved) : 14;
-  };
-  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('storage'));
 
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('storage-font-size', size.toString());
+    saveFontSize('storage', size);
   };
 
-  // Font family selector with localStorage persistence
-  const getInitialFontFamily = (): string => {
-    const saved = localStorage.getItem('storage-font-family');
-    return saved || 'Monospace';
-  };
-  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('storage'));
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('storage-font-family', family);
-  };
-
-  // Map font family option to actual font-family CSS value
-  const getFontFamilyCSS = (): string => {
-    const family = fontFamily();
-    switch (family) {
-      case 'Monospace': return '"Courier New", Monaco, monospace';
-      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
-      case 'Consolas': return 'Consolas, "Courier New", monospace';
-      case 'Courier': return 'Courier, "Courier New", monospace';
-      default: return '"Courier New", Monaco, monospace';
-    }
+    saveFontFamily('storage', family);
   };
 
   // Fetch PersistentVolumes
@@ -504,7 +483,7 @@ const Storage: Component = () => {
                 style={{
                   width: '100%',
                   'table-layout': 'auto',
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   background: getThemeBackground(),
                   'border-collapse': 'collapse',
                   margin: '0',
@@ -665,7 +644,7 @@ const Storage: Component = () => {
                 style={{
                   width: '100%',
                   'table-layout': 'auto',
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   background: getThemeBackground(),
                   'border-collapse': 'collapse',
                   margin: '0',
@@ -852,7 +831,7 @@ const Storage: Component = () => {
                 style={{
                   width: '100%',
                   'table-layout': 'auto',
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   background: getThemeBackground(),
                   'border-collapse': 'collapse',
                   margin: '0',

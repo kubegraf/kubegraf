@@ -20,6 +20,7 @@ import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import SecurityRecommendations from '../components/SecurityRecommendations';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface PDB {
   name: string;
@@ -49,15 +50,18 @@ const PDB: Component = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
 
-  const getInitialFontSize = (): number => {
-    const saved = localStorage.getItem('pdb-font-size');
-    return saved ? parseInt(saved) : 14;
-  };
-  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('pdb'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('pdb'));
 
   const updateFontSize = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('pdb-font-size', size.toString());
+    saveFontSize('pdb', size);
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    saveFontFamily('pdb', family);
   };
 
   const pdbsResource = createCachedResource<PDB[]>(

@@ -15,6 +15,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface StatefulSet {
   name: string;
@@ -141,41 +142,19 @@ const StatefulSets: Component = () => {
     }, 2000);
   };
 
-  // Font size selector with localStorage persistence
-  const getInitialFontSize = (): number => {
-    const saved = localStorage.getItem('statefulsets-font-size');
-    return saved ? parseInt(saved) : 14;
-  };
-  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('statefulsets'));
 
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('statefulsets-font-size', size.toString());
+    saveFontSize('statefulsets', size);
   };
 
-  // Font family selector with localStorage persistence
-  const getInitialFontFamily = (): string => {
-    const saved = localStorage.getItem('statefulsets-font-family');
-    return saved || 'Monaco';
-  };
-  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('statefulsets'));
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('statefulsets-font-family', family);
-  };
-
-  // Map font family option to actual font-family CSS value
-  const getFontFamilyCSS = (): string => {
-    const family = fontFamily();
-    switch (family) {
-      case 'Monospace': return '"Courier New", Monaco, monospace';
-      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
-      case 'Consolas': return 'Consolas, "Courier New", monospace';
-      case 'Courier': return 'Courier, "Courier New", monospace';
-      default: return '"Courier New", Monaco, monospace';
-    }
+    saveFontFamily('statefulsets', family);
   };
 
   // Determine namespace parameter from global store
@@ -625,7 +604,7 @@ const StatefulSets: Component = () => {
               style={{
                 width: '100%',
                 'table-layout': 'auto',
-                'font-family': getFontFamilyCSS(),
+                'font-family': getFontFamilyCSS(fontFamily()),
                 background: getThemeBackground(),
                 'border-collapse': 'collapse',
                 margin: '0',
@@ -635,7 +614,7 @@ const StatefulSets: Component = () => {
               <thead>
                 <tr style={{
                   height: `${Math.max(24, fontSize() * 1.7)}px`,
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   'font-weight': '900',
                   color: '#0ea5e9',
                   'font-size': `${fontSize()}px`,

@@ -31,6 +31,7 @@ import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
 import { WorkloadRef, kindAbbrev, formatWorkloadChain, workloadKindToView, navigateToWorkloadWithFocus } from '../utils/workload-navigation';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Pod {
   name: string;
@@ -109,40 +110,19 @@ const Pods: Component = () => {
   const [terminalView, setTerminalView] = createSignal(false);
 
   // Font size selector with localStorage persistence
-  const getInitialFontSize = (): number => {
-    const saved = localStorage.getItem('pods-font-size');
-    return saved ? parseInt(saved) : 14;
-  };
-  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('pods'));
 
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('pods-font-size', size.toString());
+    saveFontSize('pods', size);
   };
 
-  // Font family selector with localStorage persistence
-  const getInitialFontFamily = (): string => {
-    const saved = localStorage.getItem('pods-font-family');
-    return saved || 'Monospace';
-  };
-  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('pods'));
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('pods-font-family', family);
-  };
-
-  // Map font family option to actual font-family CSS value
-  const getFontFamilyCSS = (): string => {
-    const family = fontFamily();
-    switch (family) {
-      case 'Monospace': return '"Courier New", Monaco, monospace';
-      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
-      case 'Consolas': return 'Consolas, "Courier New", monospace';
-      case 'Courier': return 'Courier, "Courier New", monospace';
-      default: return '"Courier New", Monaco, monospace';
-    }
+    saveFontFamily('pods', family);
   };
 
   // Keyboard navigation
@@ -1220,7 +1200,7 @@ const Pods: Component = () => {
               style={{
                 width: '100%',
                 'table-layout': 'auto',
-                'font-family': getFontFamilyCSS(),
+                'font-family': getFontFamilyCSS(fontFamily()),
                 background: 'var(--bg-primary)',
                 'border-collapse': 'collapse',
                 margin: '0',
@@ -1230,7 +1210,7 @@ const Pods: Component = () => {
               <thead>
                 <tr style={{
                   height: `${Math.max(24, fontSize() * 1.7)}px`,
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   'font-weight': '900',
                   color: '#0ea5e9',
                   'font-size': `${fontSize()}px`,
@@ -1388,7 +1368,7 @@ const Pods: Component = () => {
                         color: textColor,
                         'font-weight': '900',
                         'font-size': `${fontSize()}px`,
-                        'font-family': getFontFamilyCSS(),
+                        'font-family': getFontFamilyCSS(fontFamily()),
                         padding: '0',
                         margin: '0',
                         border: isTerminating ? '1px solid rgba(168, 85, 247, 0.3)' : 'none',

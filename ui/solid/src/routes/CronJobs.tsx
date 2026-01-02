@@ -21,6 +21,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface CronJob {
   name: string;
@@ -49,8 +50,9 @@ const CronJobs: Component = () => {
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('cronjobs-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('cronjobs-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('cronjobs'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('cronjobs'));
 
   // Bulk selection
   const bulk = useBulkSelection<CronJob>();
@@ -150,25 +152,14 @@ const CronJobs: Component = () => {
     }, 2000);
   };
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
-  };
-
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('cronjobs-font-size', size.toString());
+    saveFontSize('cronjobs', size);
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('cronjobs-font-family', family);
+    saveFontFamily('cronjobs', family);
   };
 
   // Determine namespace parameter from global store
