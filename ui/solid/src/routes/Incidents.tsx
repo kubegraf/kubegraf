@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, Show, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, Show, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
 import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
@@ -17,7 +17,8 @@ import {
 import { currentContext, onClusterSwitch } from '../stores/cluster';
 import { trackIncidentListLoad } from '../stores/performance';
 import { capabilities } from '../stores/capabilities';
-import { settings } from '../stores/settings';
+import { settings, updateSetting } from '../stores/settings';
+import { extractNamespaceNames } from '../utils/namespaceResponse';
 
 // Separate component for intelligence panels - conditionally rendered based on capabilities
 const IntelligencePanels: Component = () => {
@@ -54,23 +55,34 @@ const Incidents: Component = () => {
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
   const [showSidePanels, setShowSidePanels] = createSignal(false);
   
-  // Initialize with cached data immediately - NO loading state blocking UI
-  const [localIncidents, setLocalIncidents] = createSignal<Incident[]>(getCachedIncidents());
+  // Initialize with empty array to show loading state
+  const [localIncidents, setLocalIncidents] = createSignal<Incident[]>([]);
   const [isRefreshing, setIsRefreshing] = createSignal(false); // Subtle indicator, doesn't block UI
-  const [isInitialLoad, setIsInitialLoad] = createSignal(true); // Track if this is the first load
+  const [isInitialLoad, setIsInitialLoad] = createSignal(true); // Track if this is the first load - MUST start as true
   const [namespaces, setNamespaces] = createSignal<string[]>([]);
+  
+  // Track if we've ever loaded incidents (to distinguish between "loading" and "no incidents")
+  const [hasLoadedOnce, setHasLoadedOnce] = createSignal(false);
 
   // Fast background fetch - never blocks UI
   const fetchIncidentsBackground = async () => {
-    if (getIsFetching()) return;
+    if (getIsFetching()) {
+      console.log('[Incidents] fetchIncidentsBackground: Already fetching, skipping');
+      return;
+    }
     
+    console.log('[Incidents] fetchIncidentsBackground: Starting fetch, setting loading states');
     setFetching(true);
     setIsRefreshing(true);
+    
+    // Ensure loading state is visible
+    setIsInitialLoad(true);
     
     // Track incident list load
     const endListLoad = trackIncidentListLoad();
     
     try {
+      console.log('[Incidents] fetchIncidentsBackground: Calling api.getIncidents');
       const data = await api.getIncidents(
         namespaceFilter() || undefined,
         patternFilter() || undefined,
@@ -78,12 +90,16 @@ const Incidents: Component = () => {
         statusFilter() || undefined
       );
       const incidents = data || [];
+      console.log(`[Incidents] fetchIncidentsBackground: Received ${incidents.length} incidents`);
       setLocalIncidents(incidents);
+      setHasLoadedOnce(true); // Mark that we've loaded at least once
       // Save with current cluster context for cache validation
       setCachedIncidentsData(incidents, currentContext());
     } catch (error) {
-      console.error('Error fetching incidents:', error);
+      console.error('[Incidents] fetchIncidentsBackground: Error fetching incidents:', error);
+      setHasLoadedOnce(true); // Even on error, we've attempted to load
     } finally {
+      console.log('[Incidents] fetchIncidentsBackground: Fetch complete, setting isInitialLoad=false');
       setIsRefreshing(false);
       setFetching(false);
       setIsInitialLoad(false); // Mark initial load as complete
@@ -95,33 +111,32 @@ const Incidents: Component = () => {
   const fetchNamespacesBackground = async () => {
     try {
       const ns = await api.getNamespaces();
-      setNamespaces(ns || []);
+      // Extract namespace names from the list items
+      const namespaceNames = extractNamespaceNames(ns || []);
+      setNamespaces(namespaceNames);
     } catch (e) {
       console.error('Error fetching namespaces:', e);
     }
   };
 
-  // On mount: show cached data INSTANTLY, then refresh in background
+  // On mount: Always trigger a fresh scan and show loading state
   onMount(() => {
     const ctx = currentContext();
 
-    // Show cached data immediately if from same cluster
-    const cached = getCachedIncidents();
-    if (cached.length > 0 && isCacheValid(ctx)) {
-      setLocalIncidents(cached);
-      setIsInitialLoad(false); // If we have cached data, we're not in initial load
-    } else {
-      // No cache or invalid cache - we're in initial load
-      setIsInitialLoad(true);
-    }
+    // CRITICAL: Set loading state BEFORE anything else
+    // This ensures the UI shows loading immediately
+    setIsInitialLoad(true);
+    setHasLoadedOnce(false);
+    
+    // Clear any cached incidents to show loading state
+    setLocalIncidents([]);
+    
+    console.log('[Incidents] onMount: Setting isInitialLoad=true, hasLoadedOnce=false, clearing incidents');
 
-    // Fetch fresh data in background (non-blocking)
-    if (!isCacheValid(ctx)) {
-      fetchIncidentsBackground();
-    } else {
-      // Even with valid cache, refresh after short delay
-      setTimeout(fetchIncidentsBackground, 500);
-    }
+    // Start fetch immediately - no delay needed since we've already set loading state
+    // Always trigger a fresh scan immediately on page load
+    console.log('[Incidents] onMount: Starting fetchIncidentsBackground immediately');
+    fetchIncidentsBackground();
 
     // Fetch namespaces in background
     fetchNamespacesBackground();
@@ -138,25 +153,39 @@ const Incidents: Component = () => {
       fetchNamespacesBackground();
     });
 
-    // Setup auto-refresh interval (if enabled in settings)
-    let refreshIntervalId: number | undefined;
+    // Cleanup on unmount
+    onCleanup(() => {
+      unsubscribe();
+    });
+  });
+
+  // Setup reactive auto-refresh that responds to settings changes
+  let refreshIntervalId: number | undefined;
+  createEffect(() => {
+    // Clear existing interval
+    if (refreshIntervalId) {
+      clearInterval(refreshIntervalId);
+      refreshIntervalId = undefined;
+    }
+
     const currentSettings = settings();
     if (currentSettings.enableAutoRefresh && currentSettings.refreshInterval > 0) {
       console.log(`[Incidents] Auto-refresh enabled: every ${currentSettings.refreshInterval} seconds`);
       refreshIntervalId = setInterval(() => {
         console.log('[Incidents] Auto-refresh triggered');
         fetchIncidentsBackground();
-      }, currentSettings.refreshInterval * 1000); // Convert seconds to milliseconds
+      }, currentSettings.refreshInterval * 1000);
+    } else {
+      console.log('[Incidents] Auto-refresh disabled');
     }
+  });
 
-    // Cleanup on unmount
-    onCleanup(() => {
-      unsubscribe();
-      if (refreshIntervalId) {
-        console.log('[Incidents] Clearing auto-refresh interval');
-        clearInterval(refreshIntervalId);
-      }
-    });
+  // Cleanup interval on unmount
+  onCleanup(() => {
+    if (refreshIntervalId) {
+      console.log('[Incidents] Clearing auto-refresh interval');
+      clearInterval(refreshIntervalId);
+    }
   });
 
   // Manual refresh
@@ -227,21 +256,49 @@ const Incidents: Component = () => {
             AI-powered detection with root cause analysis and remediation recommendations
           </p>
         </div>
-        <button
-          onClick={refetch}
-          disabled={isRefreshing()}
-          class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          style={{ 
-            background: 'var(--accent-primary)', 
-            color: '#000',
-            opacity: isRefreshing() ? 0.7 : 1
-          }}
-        >
-          <Show when={isRefreshing()}>
-            <span class="inline-block animate-spin">⟳</span>
-          </Show>
-          {isRefreshing() ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <div class="flex items-center gap-3">
+          {/* Auto-refresh interval selector */}
+          <div class="flex items-center gap-2">
+            <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>Auto-refresh:</span>
+            <select
+              value={settings().refreshInterval}
+              onChange={(e) => {
+                const newInterval = parseInt(e.currentTarget.value);
+                updateSetting('refreshInterval', newInterval);
+                updateSetting('enableAutoRefresh', newInterval > 0);
+              }}
+              class="px-2 py-1 rounded text-xs"
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="0">Off</option>
+              <option value="10">10s</option>
+              <option value="30">30s</option>
+              <option value="60">1m</option>
+              <option value="120">2m</option>
+              <option value="300">5m</option>
+            </select>
+          </div>
+          <button
+            onClick={refetch}
+            disabled={isRefreshing()}
+            class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+            style={{
+              background: 'var(--accent-primary)',
+              color: '#000',
+              opacity: isRefreshing() ? 0.7 : 1
+            }}
+          >
+            <Show when={isRefreshing()}>
+              <span class="inline-block animate-spin">⟳</span>
+            </Show>
+            {isRefreshing() ? 'Scanning...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Post-launch notice: compact, non-blocking */}
@@ -315,15 +372,15 @@ const Incidents: Component = () => {
       {/* Incidents Table - Always rendered, shows empty state or data */}
       <IncidentTable
         incidents={filteredIncidents()}
-        isLoading={isInitialLoad() || (isRefreshing() && localIncidents().length === 0)}
+        isLoading={isInitialLoad() || (!hasLoadedOnce() && isRefreshing())}
         onViewPod={handleViewPod}
         onViewLogs={handleViewLogs}
         onViewEvents={handleViewEvents}
         onViewDetails={handleViewDetails}
       />
 
-      {/* Info Banner - Only when no incidents and not refreshing */}
-      <Show when={filteredIncidents().length === 0 && !isRefreshing()}>
+      {/* Info Banner - Only when no incidents and not loading/refreshing */}
+      <Show when={filteredIncidents().length === 0 && !isRefreshing() && !isInitialLoad() && hasLoadedOnce()}>
         <div 
           class="p-4 rounded-lg"
           style={{ 
