@@ -555,7 +555,12 @@ const ServiceDetailsPanel: Component<ServiceDetailsPanelProps> = (props) => {
                           }
                         }
                       }}
-                      class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                      class="flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs font-medium transition-all hover:opacity-90"
+                      style={{
+                        background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                        color: '#ffffff',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                      }}
                       title="Delete"
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
