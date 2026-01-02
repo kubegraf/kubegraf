@@ -162,15 +162,15 @@ func DefaultAIConfig() *AIConfig {
 		Provider:            "ollama",
 		OllamaURL:           ollamaURL,
 		OllamaModel:         ollamaModel,
-		KeepAlive:            keepAlive,
-		AutoStart:            getAIEnvBoolOrDefault("KUBEGRAF_AI_AUTOSTART", false),
-		HealthCheckEndpoint:  getAIEnvOrDefault("KUBEGRAF_AI_HEALTHCHECK", "version"),
-		MaxIdleConns:         maxIdleConns,
-		IdleConnTimeout:      idleConnTimeout,
-		OpenAIKey:            os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel:          getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
-		ClaudeKey:            os.Getenv("ANTHROPIC_API_KEY"),
-		ClaudeModel:          getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
+		KeepAlive:           keepAlive,
+		AutoStart:           getAIEnvBoolOrDefault("KUBEGRAF_AI_AUTOSTART", false),
+		HealthCheckEndpoint: getAIEnvOrDefault("KUBEGRAF_AI_HEALTHCHECK", "version"),
+		MaxIdleConns:        maxIdleConns,
+		IdleConnTimeout:     idleConnTimeout,
+		OpenAIKey:           os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:         getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
+		ClaudeKey:           os.Getenv("ANTHROPIC_API_KEY"),
+		ClaudeModel:         getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
 	}
 }
 
@@ -229,14 +229,15 @@ func NewAIAssistant(config *AIConfig) *AIAssistant {
 
 // IsAvailable returns true if any AI provider is available
 // If provider is not initialized (AutoStart=false), performs a lazy check
+// and sets the provider if found (safe because we use /api/version, not /api/generate)
 func (a *AIAssistant) IsAvailable() bool {
 	// If provider is already set, it's available
 	if a.provider != nil {
 		return true
 	}
 
-	// Lazy check: try to find an available provider (but don't set it yet)
-	// This allows status checks without loading models
+	// Lazy check: try to find an available provider and set it
+	// This is safe because health checks use /api/version (doesn't load models)
 	providers := []AIProvider{
 		NewOllamaProvider(a.config.OllamaURL, a.config.OllamaModel, a.config.KeepAlive, a.config.MaxIdleConns, a.config.IdleConnTimeout),
 		NewOpenAIProvider(a.config.OpenAIKey, a.config.OpenAIModel),
@@ -245,6 +246,9 @@ func (a *AIAssistant) IsAvailable() bool {
 
 	for _, p := range providers {
 		if p.IsAvailable() {
+			// Set the provider so ProviderName() can return the correct name
+			// This is safe because IsAvailable() only calls /api/version (doesn't load models)
+			a.provider = p
 			return true
 		}
 	}
@@ -461,10 +465,10 @@ func getSharedOllamaClient(maxIdleConns int, idleConnTimeout time.Duration) *htt
 // NewOllamaProvider creates a new Ollama provider
 func NewOllamaProvider(url, model string, keepAlive time.Duration, maxIdleConns int, idleConnTimeout time.Duration) *OllamaProvider {
 	return &OllamaProvider{
-		url:        url,
-		model:      model,
-		client:     getSharedOllamaClient(maxIdleConns, idleConnTimeout),
-		keepAlive:  keepAlive,
+		url:         url,
+		model:       model,
+		client:      getSharedOllamaClient(maxIdleConns, idleConnTimeout),
+		keepAlive:   keepAlive,
 		lastRequest: time.Time{}, // Zero time means no requests yet
 	}
 }
@@ -503,9 +507,9 @@ func (o *OllamaProvider) unloadModel() error {
 	// For now, we'll use a simple approach: call generate with keep_alive=0
 	// This is a no-op that just unloads the model
 	payload := map[string]interface{}{
-		"model":     o.model,
-		"prompt":    "unload",
-		"stream":    false,
+		"model":      o.model,
+		"prompt":     "unload",
+		"stream":     false,
 		"keep_alive": "0", // Unload immediately after this request
 	}
 
