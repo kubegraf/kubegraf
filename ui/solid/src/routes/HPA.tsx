@@ -20,6 +20,7 @@ import RelatedResources from '../components/RelatedResources';
 import ActionMenu from '../components/ActionMenu';
 import SecurityRecommendations from '../components/SecurityRecommendations';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface HPA {
   name: string;
@@ -51,15 +52,18 @@ const HPA: Component = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
 
-  const getInitialFontSize = (): number => {
-    const saved = localStorage.getItem('hpa-font-size');
-    return saved ? parseInt(saved) : 14;
-  };
-  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('hpa'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('hpa'));
 
   const updateFontSize = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('hpa-font-size', size.toString());
+    saveFontSize('hpa', size);
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    saveFontFamily('hpa', family);
   };
 
   const hpasResource = createCachedResource<HPA[]>(

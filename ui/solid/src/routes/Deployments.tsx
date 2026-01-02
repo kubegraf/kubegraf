@@ -24,6 +24,7 @@ import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
 import CommandPreview from '../components/CommandPreview';
 import RelatedResources from '../components/RelatedResources';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Deployment {
   name: string;
@@ -679,7 +680,7 @@ const Deployments: Component = () => {
               style={{
                 width: '100%',
                 'table-layout': 'auto',
-                'font-family': getFontFamilyCSS(),
+                'font-family': getFontFamilyCSS(fontFamily()),
                 background: 'var(--bg-primary)',
                 'border-collapse': 'collapse',
                 margin: '0',
@@ -689,7 +690,7 @@ const Deployments: Component = () => {
               <thead>
                 <tr style={{
                   height: `${Math.max(24, fontSize() * 1.7)}px`,
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   'font-weight': '900',
                   color: '#0ea5e9',
                   'font-size': `${fontSize()}px`,

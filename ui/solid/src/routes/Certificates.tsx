@@ -10,6 +10,7 @@ import DescribeModal from '../components/DescribeModal';
 import ActionMenu from '../components/ActionMenu';
 import { getTableCellStyle, STANDARD_TEXT_COLOR } from '../utils/tableCellStyles';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Certificate {
   name: string;
@@ -38,18 +39,18 @@ const Certificates: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('certificates-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('certificates-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('certificates'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('certificates'));
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    saveFontSize('certificates', size);
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    saveFontFamily('certificates', family);
   };
 
   const [certificates, { refetch }] = createResource(namespace, api.getCertificates);

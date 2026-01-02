@@ -15,6 +15,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface DaemonSet {
   name: string;
@@ -44,8 +45,9 @@ const DaemonSets: Component = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
   const [restarting, setRestarting] = createSignal<string | null>(null);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('daemonsets-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('daemonsets-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('daemonsets'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('daemonsets'));
 
   // Bulk selection
   const bulk = useBulkSelection<DaemonSet>();
@@ -145,25 +147,14 @@ const DaemonSets: Component = () => {
     }, 2000);
   };
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
-  };
-
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('daemonsets-font-size', size.toString());
+    saveFontSize('daemonsets', size);
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('daemonsets-font-family', family);
+    saveFontFamily('daemonsets', family);
   };
 
   // Determine namespace parameter from global store

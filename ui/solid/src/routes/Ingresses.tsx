@@ -19,6 +19,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Ingress {
   name: string;
@@ -47,30 +48,20 @@ const Ingresses: Component = () => {
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('ingresses-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('ingresses-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('ingresses'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('ingresses'));
   const bulk = useBulkSelection<Ingress>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
-  };
-
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('ingresses-font-size', size.toString());
+    saveFontSize('ingresses', size);
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('ingresses-font-family', family);
+    saveFontFamily('ingresses', family);
   };
 
   // Determine namespace parameter from global store (same pattern as Services)

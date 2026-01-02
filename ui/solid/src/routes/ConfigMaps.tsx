@@ -20,6 +20,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface ConfigMap {
   name: string;
@@ -50,18 +51,18 @@ const ConfigMaps: Component = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('configmaps-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('configmaps-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('configmaps'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('configmaps'));
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    saveFontSize('configmaps', size);
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    saveFontFamily('configmaps', family);
   };
 
   // Determine namespace parameter from global store (same pattern as Services/Ingresses)

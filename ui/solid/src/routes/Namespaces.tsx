@@ -14,6 +14,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Namespace {
   name: string;
@@ -37,32 +38,22 @@ const Namespaces: Component = () => {
   const [showEdit, setShowEdit] = createSignal(false);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('namespaces-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('namespaces-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('namespaces'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('namespaces'));
 
   // Bulk selection
   const bulk = useBulkSelection<Namespace>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
-  };
-
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('namespaces-font-size', size.toString());
+    saveFontSize('namespaces', size);
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('namespaces-font-family', family);
+    saveFontFamily('namespaces', family);
   };
 
   // CACHED RESOURCE - Uses globalStore and cache

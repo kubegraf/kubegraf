@@ -20,6 +20,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Secret {
   name: string;
@@ -56,18 +57,18 @@ const Secrets: Component = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('secrets-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('secrets-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('secrets'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('secrets'));
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    saveFontSize('secrets', size);
+  };
+
+  const handleFontFamilyChange = (family: string) => {
+    setFontFamily(family);
+    saveFontFamily('secrets', family);
   };
 
   // Secret value visibility state - track which secrets are visible

@@ -2,6 +2,7 @@ import { Component, For, Show, createMemo, createSignal, Match, Switch, onMount,
 import { nodesResource, refetchNodes } from '../stores/cluster';
 import { searchQuery } from '../stores/ui';
 import DescribeModal from '../components/DescribeModal';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Node {
   name: string;
@@ -21,30 +22,20 @@ const Nodes: Component = () => {
   const [selected, setSelected] = createSignal<Node | null>(null);
   const [showDescribe, setShowDescribe] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('nodes-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('nodes-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('nodes'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('nodes'));
   const [autoRefresh, setAutoRefresh] = createSignal(true);
   const [refreshInterval, setRefreshInterval] = createSignal(30); // Default 30 seconds
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
-  };
-
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('nodes-font-size', size.toString());
+    saveFontSize('nodes', size);
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('nodes-font-family', family);
+    saveFontFamily('nodes', family);
   };
 
   const nodes = createMemo(() => {

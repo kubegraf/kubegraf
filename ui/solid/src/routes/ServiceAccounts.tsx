@@ -10,6 +10,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface ServiceAccount {
   name: string;
@@ -29,41 +30,19 @@ const ServiceAccounts: Component = () => {
   const bulk = useBulkSelection<ServiceAccount>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
 
-  // Font size selector with localStorage persistence
-  const getInitialFontSize = (): number => {
-    const saved = localStorage.getItem('serviceaccounts-font-size');
-    return saved ? parseInt(saved) : 14;
-  };
-  const [fontSize, setFontSize] = createSignal(getInitialFontSize());
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('serviceaccounts'));
 
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('serviceaccounts-font-size', size.toString());
+    saveFontSize('serviceaccounts', size);
   };
 
-  // Font family selector with localStorage persistence
-  const getInitialFontFamily = (): string => {
-    const saved = localStorage.getItem('serviceaccounts-font-family');
-    return saved || 'Monaco';
-  };
-  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily());
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('serviceaccounts'));
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('serviceaccounts-font-family', family);
-  };
-
-  // Map font family option to actual font-family CSS value
-  const getFontFamilyCSS = (): string => {
-    const family = fontFamily();
-    switch (family) {
-      case 'Monospace': return '"Courier New", Monaco, monospace';
-      case 'System-ui': return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      case 'Monaco': return 'Monaco, "Lucida Console", monospace';
-      case 'Consolas': return 'Consolas, "Courier New", monospace';
-      case 'Courier': return 'Courier, "Courier New", monospace';
-      default: return '"Courier New", Monaco, monospace';
-    }
+    saveFontFamily('serviceaccounts', family);
   };
   
   // Use createResource for automatic YAML loading like Deployments
@@ -320,7 +299,7 @@ const ServiceAccounts: Component = () => {
                 style={{
                   width: '100%',
                   'table-layout': 'auto',
-                  'font-family': getFontFamilyCSS(),
+                  'font-family': getFontFamilyCSS(fontFamily()),
                   background: 'var(--bg-primary)',
                   'border-collapse': 'collapse',
                   margin: '0',
@@ -330,7 +309,7 @@ const ServiceAccounts: Component = () => {
                 <thead>
                   <tr style={{
                     height: `${Math.max(24, fontSize() * 1.7)}px`,
-                    'font-family': getFontFamilyCSS(),
+                    'font-family': getFontFamilyCSS(fontFamily()),
                     'font-weight': '900',
                     color: '#0ea5e9',
                     'font-size': `${fontSize()}px`,

@@ -21,6 +21,7 @@ import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
 import { startExecution } from '../stores/executionPanel';
+import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Job {
   name: string;
@@ -48,8 +49,9 @@ const Jobs: Component = () => {
   const [yamlKey, setYamlKey] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
-  const [fontSize, setFontSize] = createSignal(parseInt(localStorage.getItem('jobs-font-size') || '14'));
-  const [fontFamily, setFontFamily] = createSignal(localStorage.getItem('jobs-font-family') || 'Monaco');
+  // Font size and family using shared utility with 14px and Monaco defaults
+  const [fontSize, setFontSize] = createSignal(getInitialFontSize('jobs'));
+  const [fontFamily, setFontFamily] = createSignal(getInitialFontFamily('jobs'));
 
   // Bulk selection
   const bulk = useBulkSelection<Job>();
@@ -149,25 +151,14 @@ const Jobs: Component = () => {
     }, 2000);
   };
 
-  const getFontFamilyCSS = (family: string): string => {
-    switch (family) {
-      case 'Monospace': return 'monospace';
-      case 'System-ui': return 'system-ui';
-      case 'Monaco': return 'Monaco, monospace';
-      case 'Consolas': return 'Consolas, monospace';
-      case 'Courier': return '"Courier New", monospace';
-      default: return 'Monaco, monospace';
-    }
-  };
-
   const handleFontSizeChange = (size: number) => {
     setFontSize(size);
-    localStorage.setItem('jobs-font-size', size.toString());
+    saveFontSize('jobs', size);
   };
 
   const handleFontFamilyChange = (family: string) => {
     setFontFamily(family);
-    localStorage.setItem('jobs-font-family', family);
+    saveFontFamily('jobs', family);
   };
 
   // Determine namespace parameter from global store
