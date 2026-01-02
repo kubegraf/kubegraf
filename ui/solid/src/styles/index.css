@@ -28,6 +28,16 @@
   --font-size-lg: clamp(1rem, 1.125rem, 1.25rem);
   --font-size-xl: clamp(1.125rem, 1.25rem, 1.5rem);
   
+  /* Responsive spacing using clamp() for zoom support - ensures proper alignment at all zoom levels */
+  /* Reduced spacing for normal mode to be less excessive while still being larger than compact mode */
+  --spacing-xs: clamp(0.2rem, 0.3rem, 0.4rem);
+  --spacing-sm: clamp(0.3rem, 0.4rem, 0.5rem);
+  --spacing-md: clamp(0.4rem, 0.5rem, 0.75rem);
+  --spacing-lg: clamp(0.5rem, 0.75rem, 1rem);
+  --spacing-xl: clamp(0.75rem, 1rem, 1.25rem);
+  --spacing-2xl: clamp(1rem, 1.25rem, 1.75rem);
+  --spacing-3xl: clamp(1.25rem, 1.5rem, 2rem);
+  
   /* Border colors */
   --border-color: rgba(100, 116, 139, 0.4);
   --border-light: rgba(148, 163, 184, 0.3);
@@ -111,6 +121,240 @@ body[data-theme="terminal"] ::-webkit-scrollbar-thumb {
 body[data-theme="terminal"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Responsive spacing overrides for common Tailwind classes - ensures proper alignment with zoom */
+/* These use clamp() to scale spacing appropriately at all zoom levels (80%-200%) */
+/* Note: These are for normal mode - compact mode has its own overrides below */
+.p-1 { padding: var(--spacing-xs) !important; }
+.p-2 { padding: var(--spacing-sm) !important; }
+.p-3 { padding: var(--spacing-md) !important; }
+.p-4 { padding: var(--spacing-lg) !important; }
+.p-6 { padding: var(--spacing-xl) !important; }
+.p-8 { padding: var(--spacing-2xl) !important; }
+
+.px-1 { padding-left: var(--spacing-xs) !important; padding-right: var(--spacing-xs) !important; }
+.px-2 { padding-left: var(--spacing-sm) !important; padding-right: var(--spacing-sm) !important; }
+.px-3 { padding-left: var(--spacing-md) !important; padding-right: var(--spacing-md) !important; }
+.px-4 { padding-left: var(--spacing-lg) !important; padding-right: var(--spacing-lg) !important; }
+.px-6 { padding-left: var(--spacing-xl) !important; padding-right: var(--spacing-xl) !important; }
+
+.py-1 { padding-top: var(--spacing-xs) !important; padding-bottom: var(--spacing-xs) !important; }
+.py-2 { padding-top: var(--spacing-sm) !important; padding-bottom: var(--spacing-sm) !important; }
+.py-3 { padding-top: var(--spacing-md) !important; padding-bottom: var(--spacing-md) !important; }
+.py-4 { padding-top: var(--spacing-lg) !important; padding-bottom: var(--spacing-lg) !important; }
+.py-6 { padding-top: var(--spacing-xl) !important; padding-bottom: var(--spacing-xl) !important; }
+
+.m-1 { margin: var(--spacing-xs) !important; }
+.m-2 { margin: var(--spacing-sm) !important; }
+.m-3 { margin: var(--spacing-md) !important; }
+.m-4 { margin: var(--spacing-lg) !important; }
+.m-6 { margin: var(--spacing-xl) !important; }
+
+.mx-1 { margin-left: var(--spacing-xs) !important; margin-right: var(--spacing-xs) !important; }
+.mx-2 { margin-left: var(--spacing-sm) !important; margin-right: var(--spacing-sm) !important; }
+.mx-3 { margin-left: var(--spacing-md) !important; margin-right: var(--spacing-md) !important; }
+.mx-4 { margin-left: var(--spacing-lg) !important; margin-right: var(--spacing-lg) !important; }
+.mx-6 { margin-left: var(--spacing-xl) !important; margin-right: var(--spacing-xl) !important; }
+
+.my-1 { margin-top: var(--spacing-xs) !important; margin-bottom: var(--spacing-xs) !important; }
+.my-2 { margin-top: var(--spacing-sm) !important; margin-bottom: var(--spacing-sm) !important; }
+.my-3 { margin-top: var(--spacing-md) !important; margin-bottom: var(--spacing-md) !important; }
+.my-4 { margin-top: var(--spacing-lg) !important; margin-bottom: var(--spacing-lg) !important; }
+.my-6 { margin-top: var(--spacing-xl) !important; margin-bottom: var(--spacing-xl) !important; }
+
+.gap-1 { gap: var(--spacing-xs) !important; }
+.gap-2 { gap: var(--spacing-sm) !important; }
+.gap-3 { gap: var(--spacing-md) !important; }
+.gap-4 { gap: var(--spacing-lg) !important; }
+.gap-6 { gap: var(--spacing-xl) !important; }
+.gap-8 { gap: var(--spacing-2xl) !important; }
+
+.space-y-1 > * + * { margin-top: var(--spacing-xs) !important; }
+.space-y-2 > * + * { margin-top: var(--spacing-sm) !important; }
+.space-y-3 > * + * { margin-top: var(--spacing-md) !important; }
+.space-y-4 > * + * { margin-top: var(--spacing-lg) !important; }
+.space-y-6 > * + * { margin-top: var(--spacing-xl) !important; }
+
+.space-x-1 > * + * { margin-left: var(--spacing-xs) !important; }
+.space-x-2 > * + * { margin-left: var(--spacing-sm) !important; }
+.space-x-3 > * + * { margin-left: var(--spacing-md) !important; }
+.space-x-4 > * + * { margin-left: var(--spacing-lg) !important; }
+.space-x-6 > * + * { margin-left: var(--spacing-xl) !important; }
+
+/* Compact Mode - Reduce spacing and padding throughout the entire page */
+body[data-compact="true"] {
+  --font-size-xs: clamp(0.5rem, 0.625rem, 0.75rem);
+  --font-size-sm: clamp(0.625rem, 0.75rem, 0.875rem);
+  --font-size-base: clamp(0.75rem, 0.875rem, 1rem);
+  --font-size-lg: clamp(0.875rem, 1rem, 1.125rem);
+  --font-size-xl: clamp(1rem, 1.125rem, 1.25rem);
+}
+
+/* Reduce spacing variables in compact mode */
+body[data-compact="true"] {
+  --spacing-xs: clamp(0.125rem, 0.25rem, 0.375rem);
+  --spacing-sm: clamp(0.25rem, 0.375rem, 0.5rem);
+  --spacing-md: clamp(0.375rem, 0.5rem, 0.75rem);
+  --spacing-lg: clamp(0.5rem, 0.75rem, 1rem);
+  --spacing-xl: clamp(0.75rem, 1rem, 1.25rem);
+  --spacing-2xl: clamp(1rem, 1.25rem, 1.75rem);
+  --spacing-3xl: clamp(1.25rem, 1.5rem, 2rem);
+}
+
+/* Compact mode for common elements */
+body[data-compact="true"] .card,
+body[data-compact="true"] [class*="p-"],
+body[data-compact="true"] [class*="px-"],
+body[data-compact="true"] [class*="py-"] {
+  padding: calc(var(--spacing, 1rem) * 0.6) !important;
+}
+
+body[data-compact="true"] [class*="gap-"] {
+  gap: calc(var(--gap, 1rem) * 0.6) !important;
+}
+
+body[data-compact="true"] [class*="space-y-"] > * + * {
+  margin-top: calc(var(--space-y, 1rem) * 0.6) !important;
+}
+
+body[data-compact="true"] [class*="space-x-"] > * + * {
+  margin-left: calc(var(--space-x, 1rem) * 0.6) !important;
+}
+
+/* Compact buttons */
+body[data-compact="true"] button {
+  padding: 0.375rem 0.75rem !important;
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+}
+
+body[data-compact="true"] button[class*="px-"] {
+  padding-left: calc(var(--px, 1rem) * 0.6) !important;
+  padding-right: calc(var(--px, 1rem) * 0.6) !important;
+}
+
+body[data-compact="true"] button[class*="py-"] {
+  padding-top: calc(var(--py, 1rem) * 0.6) !important;
+  padding-bottom: calc(var(--py, 1rem) * 0.6) !important;
+}
+
+/* Compact tables */
+body[data-compact="true"] table th,
+body[data-compact="true"] table td {
+  padding: 0.375rem 0.5rem !important;
+  font-size: 0.875rem !important;
+}
+
+body[data-compact="true"] table {
+  font-size: 0.875rem !important;
+}
+
+/* Compact headers */
+body[data-compact="true"] h1 {
+  font-size: 1.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+body[data-compact="true"] h2 {
+  font-size: 1.25rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+body[data-compact="true"] h3 {
+  font-size: 1.125rem !important;
+  margin-bottom: 0.375rem !important;
+}
+
+body[data-compact="true"] h4 {
+  font-size: 1rem !important;
+  margin-bottom: 0.375rem !important;
+}
+
+/* Compact lists */
+body[data-compact="true"] ul,
+body[data-compact="true"] ol {
+  margin: 0.5rem 0 !important;
+  padding-left: 1.25rem !important;
+}
+
+body[data-compact="true"] li {
+  margin-bottom: 0.25rem !important;
+}
+
+/* Compact form elements */
+body[data-compact="true"] input,
+body[data-compact="true"] select,
+body[data-compact="true"] textarea {
+  padding: 0.375rem 0.5rem !important;
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+}
+
+/* Compact badges and tags */
+body[data-compact="true"] [class*="badge"],
+body[data-compact="true"] [class*="tag"],
+body[data-compact="true"] span[class*="px-"] {
+  padding: 0.125rem 0.375rem !important;
+  font-size: 0.75rem !important;
+}
+
+/* Compact modals and dialogs */
+body[data-compact="true"] [role="dialog"],
+body[data-compact="true"] [class*="modal"] {
+  padding: 1rem !important;
+}
+
+body[data-compact="true"] [role="dialog"] [class*="p-"],
+body[data-compact="true"] [class*="modal"] [class*="p-"] {
+  padding: 0.75rem !important;
+}
+
+/* Compact navigation items */
+body[data-compact="true"] nav a,
+body[data-compact="true"] nav button {
+  padding: 0.375rem 0.5rem !important;
+  font-size: 0.875rem !important;
+}
+
+/* Compact sidebar */
+body[data-compact="true"] [class*="sidebar"] {
+  padding: 0.5rem !important;
+}
+
+body[data-compact="true"] [class*="sidebar"] [class*="p-"] {
+  padding: 0.375rem !important;
+}
+
+/* Compact header */
+body[data-compact="true"] header,
+body[data-compact="true"] [class*="header"] {
+  padding: 0.5rem 1rem !important;
+  min-height: 3rem !important;
+}
+
+/* Compact cards and panels */
+body[data-compact="true"] [class*="card"],
+body[data-compact="true"] [class*="panel"] {
+  padding: 0.75rem !important;
+  margin: 0.5rem 0 !important;
+}
+
+/* Compact spacing utilities override */
+body[data-compact="true"] .m-1 { margin: 0.25rem !important; }
+body[data-compact="true"] .m-2 { margin: 0.375rem !important; }
+body[data-compact="true"] .m-3 { margin: 0.5rem !important; }
+body[data-compact="true"] .m-4 { margin: 0.75rem !important; }
+body[data-compact="true"] .m-6 { margin: 1rem !important; }
+
+body[data-compact="true"] .p-1 { padding: 0.25rem !important; }
+body[data-compact="true"] .p-2 { padding: 0.375rem !important; }
+body[data-compact="true"] .p-3 { padding: 0.5rem !important; }
+body[data-compact="true"] .p-4 { padding: 0.75rem !important; }
+body[data-compact="true"] .p-6 { padding: 1rem !important; }
 
 code, pre, .font-mono {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;

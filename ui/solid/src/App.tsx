@@ -16,10 +16,22 @@ import { backgroundPrefetch } from './services/backgroundPrefetch';
 import { createResource } from 'solid-js';
 import { currentView, setCurrentView } from './stores/ui';
 import { autoReattachMostRecentRunning } from './stores/executionPanel';
+import { settings } from './stores/settings';
+import { createEffect } from 'solid-js';
 
 const App: Component = () => {
   const [connectionStatus, { refetch: refetchStatus }] = createResource(() => api.getStatus());
   const [wsConnected, setWsConnected] = createSignal(false);
+
+  // Apply compact mode to body
+  createEffect(() => {
+    const isCompact = settings().compactMode;
+    if (isCompact) {
+      document.body.setAttribute('data-compact', 'true');
+    } else {
+      document.body.removeAttribute('data-compact');
+    }
+  });
 
   onMount(() => {
     // Global keyboard shortcut for command palette (Cmd+K / Ctrl+K)
