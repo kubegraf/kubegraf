@@ -1,4 +1,5 @@
-import { Component, For, Show, createMemo } from 'solid-js';
+import { Component, For, Show, createMemo, createEffect, createSignal, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import type { NavSection } from '../../config/navSections';
 import { currentView, setCurrentView, setTerminalOpen } from '../../stores/ui';
 import { setActive, pinSection, isSectionActive, isSectionPinned, isSectionPinned as checkSectionPinned, unpinSection } from '../../stores/sidebarState';
@@ -87,6 +88,49 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
             const showInsightsPulse = () => section.title === 'Insights' && unreadInsightsEvents() > 0;
 
             let wrapperRef: HTMLDivElement | undefined;
+            let flyoutRef: HTMLDivElement | undefined;
+            const [flyoutPosition, setFlyoutPosition] = createSignal({ top: 0, left: 0 });
+            let closeTimeout: number | null = null;
+
+            // Update flyout position when active - use requestAnimationFrame to ensure DOM is ready
+            createEffect(() => {
+              if (active()) {
+                const updatePosition = () => {
+                  if (wrapperRef) {
+                    const rect = wrapperRef.getBoundingClientRect();
+                    setFlyoutPosition({
+                      top: rect.top,
+                      left: rect.right,
+                    });
+                  }
+                };
+                
+                // Use requestAnimationFrame to ensure DOM is updated
+                requestAnimationFrame(() => {
+                  updatePosition();
+                });
+                
+                // Update on scroll/resize
+                const handleScroll = () => updatePosition();
+                const handleResize = () => updatePosition();
+                
+                window.addEventListener('scroll', handleScroll, true);
+                window.addEventListener('resize', handleResize);
+                
+                // Cleanup listeners
+                onCleanup(() => {
+                  window.removeEventListener('scroll', handleScroll, true);
+                  window.removeEventListener('resize', handleResize);
+                });
+              }
+            });
+
+            // Cleanup timeout on unmount
+            onCleanup(() => {
+              if (closeTimeout !== null) {
+                clearTimeout(closeTimeout);
+              }
+            });
 
             return (
               // ✅ ONE wrapper that contains BOTH the button AND the flyout submenu
@@ -95,7 +139,12 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                 class="relative"
                 style={{ overflow: 'visible' }}
                 onMouseEnter={() => {
-                  // Cancel any pending close and activate section immediately on hover
+                  // Cancel any pending close
+                  if (closeTimeout !== null) {
+                    clearTimeout(closeTimeout);
+                    closeTimeout = null;
+                  }
+                  // Activate section immediately on hover
                   setActive(section.title);
                 }}
                 onMouseLeave={(e) => {
@@ -106,10 +155,41 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                     return;
                   }
                   
-                  // Mouse truly left the wrapper - close immediately if not pinned
+                  // Check if mouse is moving to the flyout (only if flyout is active)
+                  if (active() && next && flyoutRef && (flyoutRef.contains(next) || flyoutRef === next)) {
+                    // Mouse is moving to flyout, don't close
+                    return;
+                  }
+                  
+                  // Mouse truly left the wrapper - close with small delay to allow movement to flyout
                   if (!pinned()) {
-                    // Clear hover state immediately (no delay needed since we checked relatedTarget)
-                    setActive(null);
+                    // Clear any existing timeout
+                    if (closeTimeout !== null) {
+                      clearTimeout(closeTimeout);
+                    }
+                    // Add small delay to allow mouse to reach flyout (only if flyout is active)
+                    if (active()) {
+                      closeTimeout = window.setTimeout(() => {
+                        // Double-check that mouse is not over flyout before closing
+                        if (flyoutRef && document.elementFromPoint) {
+                          const mouseX = e.clientX;
+                          const mouseY = e.clientY;
+                          const elementAtPoint = document.elementFromPoint(mouseX, mouseY);
+                          if (elementAtPoint && flyoutRef.contains(elementAtPoint)) {
+                            // Mouse is over flyout, don't close
+                            return;
+                          }
+                        }
+                        // Only close if still active (might have been pinned or reactivated)
+                        if (!pinned() && active()) {
+                          setActive(null);
+                        }
+                        closeTimeout = null;
+                      }, 150); // 150ms delay to allow smooth transition to flyout
+                    } else {
+                      // Flyout not active, close immediately
+                      setActive(null);
+                    }
                   }
                 }}
               >
@@ -165,30 +245,59 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                   </Show>
                 </button>
 
-                {/* ✅ Flyout submenu - rendered as child of wrapper (NOT portaled) */}
+                {/* ✅ Flyout submenu - rendered via Portal with fixed positioning to avoid overflow clipping */}
                 <Show when={active()}>
-                  <div
-                    class="absolute left-full top-0 z-50"
-                    style={{ pointerEvents: 'auto' }}
-                  >
+                  <Portal mount={document.body}>
                     <div
-                      class="
-                        w-56
-                        max-h-[calc(100vh-2rem)]
-                        rounded-xl
-                        border border-border-subtle/50
-                        bg-bg-panel/95
-                        backdrop-blur-xl
-                        shadow-2xl
-                        flex flex-col
-                        animate-slideIn
-                        overflow-hidden
-                        ml-0
-                      "
+                      ref={flyoutRef}
+                      class="pointer-events-auto"
                       style={{
-                        'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+                        position: 'fixed',
+                        top: `${flyoutPosition().top}px`,
+                        left: `${flyoutPosition().left}px`,
+                        'z-index': 9999,
+                        'will-change': 'transform',
+                        'contain': 'none',
+                      }}
+                      onMouseEnter={() => {
+                        // Cancel any pending close when mouse enters flyout
+                        if (closeTimeout !== null) {
+                          clearTimeout(closeTimeout);
+                          closeTimeout = null;
+                        }
+                        // Keep flyout open when hovering over it
+                        setActive(section.title);
+                      }}
+                      onMouseLeave={() => {
+                        // Close if not pinned
+                        if (!checkSectionPinned(section.title)) {
+                          // Clear any existing timeout
+                          if (closeTimeout !== null) {
+                            clearTimeout(closeTimeout);
+                          }
+                          setActive(null);
+                          closeTimeout = null;
+                        }
                       }}
                     >
+                      <div
+                        class="
+                          w-56
+                          max-h-[calc(100dvh-2rem)]
+                          rounded-xl
+                          border border-border-subtle/50
+                          bg-bg-panel/95
+                          backdrop-blur-xl
+                          shadow-2xl
+                          flex flex-col
+                          animate-slideIn
+                          overflow-hidden
+                          min-h-0
+                        "
+                        style={{
+                          'box-shadow': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+                        }}
+                      >
                       {/* Header */}
                       <div class="px-3 py-2.5 border-b border-border-subtle/50 flex items-center justify-between bg-bg-sidebar/50">
                         <h2 class="text-xs font-bold text-text-primary uppercase tracking-wider">
@@ -212,8 +321,8 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                         </Show>
                       </div>
 
-                      {/* Navigation Items */}
-                      <nav class="overflow-y-auto py-1.5 px-1.5">
+                      {/* Navigation Items - scrollable with proper constraints */}
+                      <nav class="overflow-y-auto py-1.5 px-1.5 min-h-0 flex-1">
                         <For each={section.items}>
                           {(item) => {
                             const isActive = () => currentView() === item.id;
@@ -261,8 +370,9 @@ const SidebarRail: Component<SidebarRailProps> = (props) => {
                           }}
                         </For>
                       </nav>
+                      </div>
                     </div>
-                  </div>
+                  </Portal>
                 </Show>
               </div>
             );
