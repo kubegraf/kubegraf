@@ -4,6 +4,7 @@ import {
   messages,
   isLoading,
   currentProvider,
+  currentProviderName,
   providers,
   sendMessage,
   clearChat,
@@ -354,7 +355,7 @@ const AIChat: Component<AIChatProps> = (props) => {
           </button>
         </div>
         <p class="mt-2 text-xs text-center" style={{ color: 'var(--text-muted)' }}>
-          Using {providers().find(p => p.id === currentProvider())?.name || 'AI'}
+          Using {aiStatus()?.available && aiStatus()?.provider ? aiStatus().provider : (providers().find(p => p.id === currentProvider())?.name || 'AI')}
         </p>
       </form>
       </div>

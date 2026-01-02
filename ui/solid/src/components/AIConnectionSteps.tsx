@@ -19,9 +19,9 @@ const AIConnectionSteps: Component<AIConnectionStepsProps> = (props) => {
           description: 'Run AI models locally on your machine',
           setup: [
             'Install Ollama from https://ollama.ai',
-            'Run: ollama pull llama3.2',
+            'Pull a model: ollama pull llama3.1 (or llama3.2, mistral, etc.)',
             'Ensure Ollama is running: ollama serve',
-            'KubeGraf will automatically detect Ollama'
+            'KubeGraf will automatically detect Ollama and available models'
           ],
           envVars: []
         },

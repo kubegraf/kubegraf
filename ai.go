@@ -26,19 +26,107 @@ type AIProvider interface {
 type AIConfig struct {
 	Provider    string // "ollama", "openai", "claude"
 	OllamaURL   string // Default: http://localhost:11434
-	OllamaModel string // Default: llama3.2
+	OllamaModel string // Default: auto-detected or llama3.1
 	OpenAIKey   string
 	OpenAIModel string // Default: gpt-4o-mini
 	ClaudeKey   string
 	ClaudeModel string // Default: claude-3-haiku-20240307
 }
 
+// getAvailableOllamaModels fetches the list of available models from Ollama
+func getAvailableOllamaModels(url string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url+"/api/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	models := make([]string, 0, len(result.Models))
+	for _, m := range result.Models {
+		models = append(models, m.Name)
+	}
+
+	return models, nil
+}
+
+// detectOllamaModel attempts to auto-detect an available Ollama model
+// Returns the first available model, or empty string if none found
+func detectOllamaModel(url string) string {
+	models, err := getAvailableOllamaModels(url)
+	if err != nil || len(models) == 0 {
+		return ""
+	}
+
+	// Prefer llama3.1, llama3.2, or any llama model, otherwise return first available
+	preferredOrder := []string{"llama3.1:latest", "llama3.1", "llama3.2:latest", "llama3.2", "llama3:latest", "llama3"}
+
+	for _, preferred := range preferredOrder {
+		for _, model := range models {
+			if model == preferred {
+				return model
+			}
+		}
+	}
+
+	// Check for any llama model
+	for _, model := range models {
+		if strings.Contains(strings.ToLower(model), "llama") {
+			return model
+		}
+	}
+
+	// Return first available model
+	return models[0]
+}
+
 // DefaultAIConfig returns the default AI configuration
 func DefaultAIConfig() *AIConfig {
+	ollamaURL := getAIEnvOrDefault("KUBEGRAF_OLLAMA_URL", "http://localhost:11434")
+
+	// Get model from environment, or auto-detect, or use fallback
+	modelFromEnv := os.Getenv("KUBEGRAF_OLLAMA_MODEL")
+	var ollamaModel string
+
+	if modelFromEnv != "" {
+		ollamaModel = modelFromEnv
+	} else {
+		// Try to auto-detect available models
+		detectedModel := detectOllamaModel(ollamaURL)
+		if detectedModel != "" {
+			ollamaModel = detectedModel
+		} else {
+			// Fallback to llama3.1 (more common than llama3.2)
+			ollamaModel = "llama3.1"
+		}
+	}
+
 	return &AIConfig{
 		Provider:    "ollama",
-		OllamaURL:   getAIEnvOrDefault("KUBEGRAF_OLLAMA_URL", "http://localhost:11434"),
-		OllamaModel: getAIEnvOrDefault("KUBEGRAF_OLLAMA_MODEL", "llama3.2"),
+		OllamaURL:   ollamaURL,
+		OllamaModel: ollamaModel,
 		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
 		OpenAIModel: getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
 		ClaudeKey:   os.Getenv("ANTHROPIC_API_KEY"),
