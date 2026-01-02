@@ -966,8 +966,11 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                 <td colspan="8" style={{ padding: '40px', 'text-align': 'center' }}>
                   <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', gap: '16px' }}>
                     <div class="spinner" style={{ width: '32px', height: '32px' }} />
-                    <div style={{ color: 'var(--text-secondary)', 'font-size': '14px' }}>
-                      Loading incidents...
+                    <div style={{ color: 'var(--text-primary)', 'font-size': '14px', 'font-weight': '600' }}>
+                      Scanning cluster for incidents...
+                    </div>
+                    <div style={{ color: 'var(--text-secondary)', 'font-size': '12px' }}>
+                      Analyzing pods, events, and resource metrics
                     </div>
                   </div>
                 </td>
