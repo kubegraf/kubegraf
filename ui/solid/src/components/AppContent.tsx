@@ -45,6 +45,7 @@ export const AppContent: Component<AppContentProps> = (props) => {
   };
 
   return (
+    <>
     <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Viewport warning banner - shows when viewport is too small or zoom causes issues */}
       <ViewportWarningBanner />
@@ -185,8 +186,6 @@ export const AppContent: Component<AppContentProps> = (props) => {
         </div>
       </footer>
     </div>
-
-    <>
 
       {/* Update modal from footer check */}
       <Show when={updateModalOpen() && updateInfoState()}>

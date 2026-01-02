@@ -210,26 +210,30 @@ type WebServer struct {
 	// Security features
 	sessionTokenManager *security.SessionTokenManager
 	ephemeralMode       *security.EphemeralMode
-	secureMode          *security.SecureMode
+	// AI status cache - caches AI availability status for 30 seconds to avoid frequent checks
+	aiStatusCache     *AIAssistant
+	aiStatusCacheTime time.Time
+	aiStatusCacheMu   sync.RWMutex
+	secureMode        *security.SecureMode
 }
 
 // NewWebServer creates a new web server
 func NewWebServer(app *App) *WebServer {
 	ws := &WebServer{
-		app:           app,
-		clients:       make(map[*websocket.Conn]bool),
-		portForwards:  make(map[string]*PortForwardSession),
-		events:        make([]WebEvent, 0, 500),
-		stopCh:        make(chan struct{}),
-		costCache:            make(map[string]*ClusterCost),
-		costCacheTime:        make(map[string]time.Time),
-		customAppsCache:      make(map[string][]CustomAppInfo),
-		customAppsCacheTime:   make(map[string]time.Time),
-		executions:    make(map[string]*ExecutionRecord),
-		execLogs:      make(map[string][]ExecutionLogLine),
-		execLogLimit:  500,
-		incidentCache: NewIncidentCache(),
-		snapshotCache: incidents.NewSnapshotCache(1000, 5*time.Minute), // Cache 1000 snapshots for 5 minutes
+		app:                 app,
+		clients:             make(map[*websocket.Conn]bool),
+		portForwards:        make(map[string]*PortForwardSession),
+		events:              make([]WebEvent, 0, 500),
+		stopCh:              make(chan struct{}),
+		costCache:           make(map[string]*ClusterCost),
+		costCacheTime:       make(map[string]time.Time),
+		customAppsCache:     make(map[string][]CustomAppInfo),
+		customAppsCacheTime: make(map[string]time.Time),
+		executions:          make(map[string]*ExecutionRecord),
+		execLogs:            make(map[string][]ExecutionLogLine),
+		execLogLimit:        500,
+		incidentCache:       NewIncidentCache(),
+		snapshotCache:       incidents.NewSnapshotCache(1000, 5*time.Minute), // Cache 1000 snapshots for 5 minutes
 	}
 	// Initialize MCP server for AI agents
 	ws.mcpServer = server.NewMCPServer(app)
@@ -418,7 +422,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/apps/uninstall", ws.handleUninstallApp)
 	http.HandleFunc("/api/apps/local-clusters", ws.handleLocalClusters)
 	http.HandleFunc("/api/apps/local-clusters/delete", ws.handleDeleteLocalCluster)
-	
+
 	// Custom app deployment endpoints
 	http.HandleFunc("/api/custom-apps/preview", ws.handleCustomAppPreview)
 	http.HandleFunc("/api/custom-apps/deploy", ws.handleCustomAppDeploy)
@@ -3946,10 +3950,10 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 						replicas = *rs.Spec.Replicas
 					}
 					replicaSets = append(replicaSets, map[string]interface{}{
-						"name":      rs.Name,
-						"ready":     fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas),
-						"replicas":  replicas,
-						"age":       formatAge(time.Since(rs.CreationTimestamp.Time)),
+						"name":     rs.Name,
+						"ready":    fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas),
+						"replicas": replicas,
+						"age":      formatAge(time.Since(rs.CreationTimestamp.Time)),
 					})
 					break
 				}
@@ -3971,15 +3975,15 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 			for _, ics := range pod.Status.InitContainerStatuses {
 				restarts += ics.RestartCount
 			}
-			
+
 			pods = append(pods, map[string]interface{}{
-				"name":      pod.Name,
-				"status":    string(pod.Status.Phase),
-				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
-				"restarts":  restarts,
-				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-				"ip":        pod.Status.PodIP,
-				"node":      pod.Spec.NodeName,
+				"name":     pod.Name,
+				"status":   string(pod.Status.Phase),
+				"ready":    fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts": restarts,
+				"age":      formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":       pod.Status.PodIP,
+				"node":     pod.Spec.NodeName,
 			})
 		}
 	}
@@ -3988,10 +3992,10 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 	conditions := []map[string]interface{}{}
 	for _, cond := range dep.Status.Conditions {
 		conditions = append(conditions, map[string]interface{}{
-			"type":    cond.Type,
-			"status":  string(cond.Status),
-			"reason":  cond.Reason,
-			"message": cond.Message,
+			"type":               cond.Type,
+			"status":             string(cond.Status),
+			"reason":             cond.Reason,
+			"message":            cond.Message,
 			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
 		})
 	}
@@ -4006,7 +4010,7 @@ func (ws *WebServer) handleDeploymentDetails(w http.ResponseWriter, r *http.Requ
 		"name":        dep.Name,
 		"namespace":   dep.Namespace,
 		"ready":       fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, replicas),
-		"available":  fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, replicas),
+		"available":   fmt.Sprintf("%d/%d", dep.Status.AvailableReplicas, replicas),
 		"updated":     dep.Status.UpdatedReplicas,
 		"replicas":    replicas,
 		"strategy":    string(dep.Spec.Strategy.Type),
@@ -4207,26 +4211,26 @@ func (ws *WebServer) handleIngressDetails(w http.ResponseWriter, r *http.Request
 	rules := []map[string]interface{}{}
 	services := []map[string]interface{}{}
 	serviceMap := make(map[string]bool)
-	
+
 	for _, rule := range ing.Spec.Rules {
 		ruleData := map[string]interface{}{
 			"host":  rule.Host,
 			"paths": []map[string]interface{}{},
 		}
-		
+
 		if rule.HTTP != nil {
 			for _, path := range rule.HTTP.Paths {
 				pathData := map[string]interface{}{
 					"path":     path.Path,
 					"pathType": string(*path.PathType),
 				}
-				
+
 				if path.Backend.Service != nil {
 					pathData["service"] = map[string]interface{}{
 						"name": path.Backend.Service.Name,
 						"port": path.Backend.Service.Port.Number,
 					}
-					
+
 					// Add service to services list if not already added
 					serviceKey := fmt.Sprintf("%s/%s", namespace, path.Backend.Service.Name)
 					if !serviceMap[serviceKey] {
@@ -4238,14 +4242,14 @@ func (ws *WebServer) handleIngressDetails(w http.ResponseWriter, r *http.Request
 						serviceMap[serviceKey] = true
 					}
 				}
-				
+
 				ruleData["paths"] = append(ruleData["paths"].([]map[string]interface{}), pathData)
 			}
 		}
-		
+
 		rules = append(rules, ruleData)
 	}
-	
+
 	// Handle default backend
 	if ing.Spec.DefaultBackend != nil && ing.Spec.DefaultBackend.Service != nil {
 		serviceKey := fmt.Sprintf("%s/%s", namespace, ing.Spec.DefaultBackend.Service.Name)
@@ -5689,15 +5693,15 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 			for _, ics := range pod.Status.InitContainerStatuses {
 				restarts += ics.RestartCount
 			}
-			
+
 			pods = append(pods, map[string]interface{}{
-				"name":      pod.Name,
-				"status":    string(pod.Status.Phase),
-				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
-				"restarts":  restarts,
-				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-				"ip":        pod.Status.PodIP,
-				"node":      pod.Spec.NodeName,
+				"name":     pod.Name,
+				"status":   string(pod.Status.Phase),
+				"ready":    fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts": restarts,
+				"age":      formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":       pod.Status.PodIP,
+				"node":     pod.Spec.NodeName,
 			})
 		}
 	}
@@ -5706,10 +5710,10 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 	conditions := []map[string]interface{}{}
 	for _, cond := range ss.Status.Conditions {
 		conditions = append(conditions, map[string]interface{}{
-			"type":    cond.Type,
-			"status":  string(cond.Status),
-			"reason":  cond.Reason,
-			"message": cond.Message,
+			"type":               cond.Type,
+			"status":             string(cond.Status),
+			"reason":             cond.Reason,
+			"message":            cond.Message,
 			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
 		})
 	}
@@ -5724,8 +5728,8 @@ func (ws *WebServer) handleStatefulSetDetails(w http.ResponseWriter, r *http.Req
 		"name":        ss.Name,
 		"namespace":   ss.Namespace,
 		"ready":       fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
-		"available":  fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
-		"replicas":   replicas,
+		"available":   fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
+		"replicas":    replicas,
 		"serviceName": serviceName,
 		"selector":    selector,
 		"labels":      ss.Labels,
@@ -6079,15 +6083,15 @@ func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Reque
 			for _, ics := range pod.Status.InitContainerStatuses {
 				restarts += ics.RestartCount
 			}
-			
+
 			pods = append(pods, map[string]interface{}{
-				"name":      pod.Name,
-				"status":    string(pod.Status.Phase),
-				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
-				"restarts":  restarts,
-				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-				"ip":        pod.Status.PodIP,
-				"node":      pod.Spec.NodeName,
+				"name":     pod.Name,
+				"status":   string(pod.Status.Phase),
+				"ready":    fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts": restarts,
+				"age":      formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":       pod.Status.PodIP,
+				"node":     pod.Spec.NodeName,
 			})
 		}
 	}
@@ -6096,10 +6100,10 @@ func (ws *WebServer) handleDaemonSetDetails(w http.ResponseWriter, r *http.Reque
 	conditions := []map[string]interface{}{}
 	for _, cond := range ds.Status.Conditions {
 		conditions = append(conditions, map[string]interface{}{
-			"type":    cond.Type,
-			"status":  string(cond.Status),
-			"reason":  cond.Reason,
-			"message": cond.Message,
+			"type":               cond.Type,
+			"status":             string(cond.Status),
+			"reason":             cond.Reason,
+			"message":            cond.Message,
 			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
 		})
 	}
@@ -6385,15 +6389,15 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 								for _, ics := range pod.Status.InitContainerStatuses {
 									restarts += ics.RestartCount
 								}
-								
+
 								pods = append(pods, map[string]interface{}{
-									"name":      pod.Name,
-									"status":    string(pod.Status.Phase),
-									"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
-									"restarts":  restarts,
-									"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-									"ip":        pod.Status.PodIP,
-									"node":      pod.Spec.NodeName,
+									"name":     pod.Name,
+									"status":   string(pod.Status.Phase),
+									"ready":    fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+									"restarts": restarts,
+									"age":      formatAge(time.Since(pod.CreationTimestamp.Time)),
+									"ip":       pod.Status.PodIP,
+									"node":     pod.Spec.NodeName,
 								})
 								break
 							}
@@ -6407,7 +6411,7 @@ func (ws *WebServer) handleCronJobDetails(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":           true,
 		"name":              cj.Name,
-		"namespace":        cj.Namespace,
+		"namespace":         cj.Namespace,
 		"schedule":          cj.Spec.Schedule,
 		"suspend":           suspended,
 		"active":            len(cj.Status.Active),
@@ -6621,15 +6625,15 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 			for _, ics := range pod.Status.InitContainerStatuses {
 				restarts += ics.RestartCount
 			}
-			
+
 			pods = append(pods, map[string]interface{}{
-				"name":      pod.Name,
-				"status":    string(pod.Status.Phase),
-				"ready":     fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
-				"restarts":  restarts,
-				"age":       formatAge(time.Since(pod.CreationTimestamp.Time)),
-				"ip":        pod.Status.PodIP,
-				"node":      pod.Spec.NodeName,
+				"name":     pod.Name,
+				"status":   string(pod.Status.Phase),
+				"ready":    fmt.Sprintf("%d/%d", len(pod.Status.ContainerStatuses), len(pod.Spec.Containers)),
+				"restarts": restarts,
+				"age":      formatAge(time.Since(pod.CreationTimestamp.Time)),
+				"ip":       pod.Status.PodIP,
+				"node":     pod.Spec.NodeName,
 			})
 		}
 	}
@@ -6638,10 +6642,10 @@ func (ws *WebServer) handleJobDetails(w http.ResponseWriter, r *http.Request) {
 	conditions := []map[string]interface{}{}
 	for _, cond := range job.Status.Conditions {
 		conditions = append(conditions, map[string]interface{}{
-			"type":    cond.Type,
-			"status":  string(cond.Status),
-			"reason":  cond.Reason,
-			"message": cond.Message,
+			"type":               cond.Type,
+			"status":             string(cond.Status),
+			"reason":             cond.Reason,
+			"message":            cond.Message,
 			"lastTransitionTime": cond.LastTransitionTime.Format(time.RFC3339),
 		})
 	}
