@@ -195,8 +195,8 @@ const SidebarFlyout: Component<SidebarFlyoutProps> = (props) => {
             </Show>
           </div>
 
-          {/* Navigation Items */}
-          <nav class="overflow-y-auto py-1.5 px-1.5">
+          {/* Navigation Items - scrollable with proper constraints */}
+          <nav class="overflow-y-auto py-1.5 px-1.5 min-h-0 flex-1">
             <For each={section().items}>
               {(item, index) => {
                 const isActive = () => currentView() === item.id;

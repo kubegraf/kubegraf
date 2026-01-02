@@ -41,6 +41,7 @@ type AIConfig struct {
 }
 
 // getAvailableOllamaModels fetches the list of available models from Ollama
+// NOTE: This uses /api/tags which may trigger model loading. Only call when necessary.
 func getAvailableOllamaModels(url string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
