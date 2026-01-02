@@ -10,6 +10,7 @@ import { ConnectionOverlay } from './ConnectionOverlay';
 import ExecutionPanel from './ExecutionPanel';
 import { api } from '../services/api';
 import UpdateModal from './UpdateModal';
+import ViewportWarningBanner from './ViewportWarningBanner';
 
 import { noConnectionViews, views } from '../routes/viewRegistry';
 
@@ -44,10 +45,13 @@ export const AppContent: Component<AppContentProps> = (props) => {
   };
 
   return (
-    <>
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Viewport warning banner - shows when viewport is too small or zoom causes issues */}
+      <ViewportWarningBanner />
+
       {/* Connection status banner */}
       <Show when={!props.isConnected()}>
-        <div class="px-6 py-3 flex items-center gap-3" style={{
+        <div class="px-6 py-3 flex items-center gap-3 flex-shrink-0" style={{
           background: 'rgba(239, 68, 68, 0.1)',
           'border-bottom': '1px solid rgba(239, 68, 68, 0.2)',
         }}>
@@ -77,7 +81,7 @@ export const AppContent: Component<AppContentProps> = (props) => {
 
       {/* Cluster switching indicator */}
       <Show when={clusterSwitching()}>
-        <div class="px-4 py-2 flex items-center gap-3" style={{
+        <div class="px-4 py-2 flex items-center gap-3 flex-shrink-0" style={{
           background: 'rgba(6, 182, 212, 0.1)',
           'border-bottom': '1px solid rgba(6, 182, 212, 0.3)',
           color: 'var(--accent-primary)',
@@ -87,8 +91,8 @@ export const AppContent: Component<AppContentProps> = (props) => {
         </div>
       </Show>
 
-      {/* Main content area */}
-      <main class="flex-1 overflow-auto p-6 relative">
+      {/* Main content area - scrollable container with proper constraints */}
+      <main class="flex-1 overflow-auto p-6 relative min-h-0 min-w-0">
         {/* Always allow Cluster Manager to be shown, even when not connected */}
         <Show when={props.isConnected() || noConnectionViews.has(currentView())}>
           {(() => {
@@ -125,7 +129,7 @@ export const AppContent: Component<AppContentProps> = (props) => {
 
       {/* Status Footer - aligned with header/quick access bar */}
       <footer
-        class="header-glass px-6 py-2 border-t flex items-center justify-end text-xs"
+        class="header-glass px-6 py-2 border-t flex items-center justify-end text-xs flex-shrink-0"
         style={{
           background: 'var(--bg-secondary)',
           'border-color': 'var(--border-color)',
@@ -180,6 +184,9 @@ export const AppContent: Component<AppContentProps> = (props) => {
           </button>
         </div>
       </footer>
+    </div>
+
+    <>
 
       {/* Update modal from footer check */}
       <Show when={updateModalOpen() && updateInfoState()}>

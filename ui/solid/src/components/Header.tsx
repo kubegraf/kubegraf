@@ -269,7 +269,7 @@ const Header: Component = () => {
   return (
     <>
     <header
-      class="h-16 header-glass flex items-center justify-between px-6 relative"
+      class="h-16 header-glass flex items-center justify-between px-6 relative sticky top-0 flex-shrink-0"
       style={{ 'z-index': 100, 'margin-left': '0.75rem' }}
     >
       {/* Left side - Namespace selector & Search */}
