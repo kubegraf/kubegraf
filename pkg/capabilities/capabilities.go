@@ -41,7 +41,7 @@ var (
 		SimilarIncidents:   false,
 		MetricsCorrelation: false,
 		BulkFixes:          false,
-		FixApplication:     false, // Only dry-run preview, no actual application
+		FixApplication:     true, // Enable fix application by default
 	}
 
 	// globalCapabilities is the global capabilities instance

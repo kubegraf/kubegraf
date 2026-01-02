@@ -35,23 +35,50 @@ const icons: Record<string, string> = {
 const ActionMenu: Component<ActionMenuProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
   const [menuPosition, setMenuPosition] = createSignal({ top: 0, left: 0 });
+  const [isHovering, setIsHovering] = createSignal(false);
   let buttonRef: HTMLButtonElement | undefined;
   let menuRef: HTMLDivElement | undefined;
 
   const toggleMenu = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation();
     
     const newState = !isOpen();
     if (buttonRef && newState) {
       const rect = buttonRef.getBoundingClientRect();
+      const menuHeight = 300; // Approximate menu height
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      
+      // If not enough space below and more space above, show above
+      let top = rect.bottom + 4;
+      if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+        top = rect.top - menuHeight - 4;
+      }
+      
+      // Ensure menu stays within viewport
+      top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+      
       setMenuPosition({
-        top: rect.bottom + 4,
-        left: Math.max(10, rect.right - 180), // Menu width approximately 180px
+        top,
+        left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)), // Menu width approximately 180px
       });
     }
+    
+    // Set open state immediately
     setIsOpen(newState);
     props.onOpenChange?.(newState);
+    
+    // Mark that we just toggled to prevent immediate close
+    if (newState) {
+      // Set a flag to ignore the next click outside for a short time
+      (window as any).__actionMenuJustOpened = true;
+      setTimeout(() => {
+        (window as any).__actionMenuJustOpened = false;
+      }, 300);
+    }
   };
 
   const executeAction = (action: ActionItem) => {
@@ -67,25 +94,64 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
     }
   };
 
-  // Close menu when clicking outside
+  // Track close timeout for mouse leave
+  let closeTimeout: number | null = null;
+
+  // Close menu when clicking outside, but keep it open when hovering
   createEffect(() => {
-    if (!isOpen()) return;
+    if (!isOpen()) {
+      // Clear any pending close timeout when menu closes
+      if (closeTimeout) {
+        clearTimeout(closeTimeout);
+        closeTimeout = null;
+      }
+      return;
+    }
+
+    let timeoutId: number | null = null;
 
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       
-      // Don't close if clicking inside button or menu
-      if (buttonRef?.contains(target)) return;
-      if (menuRef?.contains(target)) return;
+      // Ignore if menu was just opened (within last 300ms)
+      if ((window as any).__actionMenuJustOpened) {
+        return;
+      }
       
-      setIsOpen(false);
-      props.onOpenChange?.(false);
+      // Always ignore clicks on the button itself
+      if (buttonRef?.contains(target)) {
+        return;
+      }
+      
+      // Don't close if clicking inside menu or hovering over it
+      if (menuRef?.contains(target) || isHovering()) {
+        return;
+      }
+      
+      // Clear any existing timeout
+      if (timeoutId) clearTimeout(timeoutId);
+      
+      // Use a delay to prevent rapid open/close cycles
+      // Only close if not hovering and not clicking on button
+      timeoutId = setTimeout(() => {
+        // Double-check we're not hovering and menu is still open
+        if (isOpen() && !isHovering() && !buttonRef?.contains(document.activeElement)) {
+          setIsOpen(false);
+          props.onOpenChange?.(false);
+        }
+      }, 150);
     };
 
-    // Use capture phase to handle before other handlers
-    document.addEventListener('click', handleClickOutside, true);
+    // Use click instead of mousedown to avoid conflicts
+    // Add a longer delay to ensure the button's click handler runs first and menu is fully rendered
+    const setupTimeout = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, true);
+    }, 200);
     
     onCleanup(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (closeTimeout) clearTimeout(closeTimeout);
+      clearTimeout(setupTimeout);
       document.removeEventListener('click', handleClickOutside, true);
     });
   });
@@ -121,6 +187,26 @@ const ActionMenu: Component<ActionMenuProps> = (props) => {
               border: '1px solid var(--border-color)',
               'box-shadow': '0 10px 40px rgba(0, 0, 0, 0.3)',
               'z-index': 9998,
+            }}
+            onMouseEnter={() => {
+              setIsHovering(true);
+              // Cancel any pending close timeout when mouse enters
+              if (closeTimeout) {
+                clearTimeout(closeTimeout);
+                closeTimeout = null;
+              }
+            }}
+            onMouseLeave={() => {
+              setIsHovering(false);
+              // Start a timeout to close when mouse leaves, but only if not clicking button
+              if (closeTimeout) clearTimeout(closeTimeout);
+              closeTimeout = setTimeout(() => {
+                if (!isHovering() && !buttonRef?.contains(document.activeElement)) {
+                  setIsOpen(false);
+                  props.onOpenChange?.(false);
+                }
+                closeTimeout = null;
+              }, 300);
             }}
           >
             <For each={props.actions}>

@@ -375,6 +375,351 @@ func (ws *WebServer) handleHelmRollback(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// handleHelmReleaseDescribe returns the describe output for a Helm release
+func (ws *WebServer) handleHelmReleaseDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
+		return
+	}
+
+	// Use helm get manifest and helm get values to create a describe-like output
+	cmd := exec.Command("helm", "get", "manifest", name, "-n", namespace)
+	manifestOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		// If helm command fails, try to get info from secrets
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to get Helm release: %s - %s", err.Error(), string(manifestOutput)),
+		})
+		return
+	}
+
+	// Get values
+	cmd = exec.Command("helm", "get", "values", name, "-n", namespace)
+	valuesOutput, _ := cmd.CombinedOutput()
+
+	// Get notes
+	cmd = exec.Command("helm", "get", "notes", name, "-n", namespace)
+	notesOutput, _ := cmd.CombinedOutput()
+
+	// Get all info
+	cmd = exec.Command("helm", "get", "all", name, "-n", namespace)
+	allOutput, _ := cmd.CombinedOutput()
+
+	// Combine into describe-like output
+	describe := fmt.Sprintf("Name: %s\nNamespace: %s\n\n", name, namespace)
+	describe += fmt.Sprintf("=== Manifest ===\n%s\n\n", string(manifestOutput))
+	if len(valuesOutput) > 0 {
+		describe += fmt.Sprintf("=== Values ===\n%s\n\n", string(valuesOutput))
+	}
+	if len(notesOutput) > 0 {
+		describe += fmt.Sprintf("=== Notes ===\n%s\n\n", string(notesOutput))
+	}
+	if len(allOutput) > 0 {
+		describe += fmt.Sprintf("=== All Info ===\n%s\n", string(allOutput))
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleHelmReleaseYAML returns the YAML manifest for a Helm release
+func (ws *WebServer) handleHelmReleaseYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
+		return
+	}
+
+	// Use helm get manifest to get the YAML
+	cmd := exec.Command("helm", "get", "manifest", name, "-n", namespace)
+	manifestOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to get Helm release manifest: %s - %s", err.Error(), string(manifestOutput)),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(manifestOutput),
+	})
+}
+
+// handleArgoCDAppDescribe returns the describe output for an ArgoCD Application
+func (ws *WebServer) handleArgoCDAppDescribe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
+		return
+	}
+
+	// Try to describe the ArgoCD Application CRD
+	// ArgoCD Applications are typically in the argocd namespace or the app's namespace
+	describe, err := runKubectlDescribe("application.argoproj.io", name, namespace)
+	if err != nil {
+		// Try without the API group
+		describe, err = runKubectlDescribe("application", name, namespace)
+		if err != nil {
+			// Try in argocd namespace
+			describe, err = runKubectlDescribe("application.argoproj.io", name, "argocd")
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"error":   fmt.Sprintf("Failed to describe ArgoCD Application: %v", err),
+				})
+				return
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"describe": describe,
+	})
+}
+
+// handleArgoCDAppYAML returns the YAML for an ArgoCD Application
+func (ws *WebServer) handleArgoCDAppYAML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and namespace are required",
+		})
+		return
+	}
+
+	// Try to get the ArgoCD Application CRD YAML
+	// Try in the app's namespace first, then argocd namespace
+	cmd := exec.Command("kubectl", "get", "application.argoproj.io", name, "-n", namespace, "-o", "yaml")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		cmd = exec.Command("kubectl", "get", "application.argoproj.io", name, "-n", "argocd", "-o", "yaml")
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			// Try without API group
+			cmd = exec.Command("kubectl", "get", "application", name, "-n", namespace, "-o", "yaml")
+			output, err = cmd.CombinedOutput()
+			if err != nil {
+				cmd = exec.Command("kubectl", "get", "application", name, "-n", "argocd", "-o", "yaml")
+				output, err = cmd.CombinedOutput()
+				if err != nil {
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"success": false,
+						"error":   fmt.Sprintf("Failed to get ArgoCD Application YAML: %v", err),
+					})
+					return
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"yaml":    string(output),
+	})
+}
+
+// handleArgoCDAppDelete deletes an ArgoCD Application
+func (ws *WebServer) handleArgoCDAppDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name is required",
+		})
+		return
+	}
+
+	// Default to argocd namespace if not specified
+	if req.Namespace == "" {
+		req.Namespace = "argocd"
+	}
+
+	// Delete using kubectl
+	cmd := exec.Command("kubectl", "delete", "application.argoproj.io", req.Name, "-n", req.Namespace)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Try without API group
+		cmd = exec.Command("kubectl", "delete", "application", req.Name, "-n", req.Namespace)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("Failed to delete ArgoCD Application: %s - %s", err.Error(), string(output)),
+			})
+			return
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("ArgoCD Application %s deleted successfully", req.Name),
+		"output":  string(output),
+	})
+}
+
+// handleArgoCDAppUpdate updates an ArgoCD Application YAML
+func (ws *WebServer) handleArgoCDAppUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	if ws.app.clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Not connected to cluster",
+		})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		YAML      string `json:"yaml"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Name == "" || req.YAML == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "name and yaml are required",
+		})
+		return
+	}
+
+	// Default to argocd namespace if not specified
+	if req.Namespace == "" {
+		req.Namespace = "argocd"
+	}
+
+	// Use kubectl apply to update
+	cmd := exec.Command("kubectl", "apply", "-f", "-", "-n", req.Namespace)
+	cmd.Stdin = strings.NewReader(req.YAML)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to update ArgoCD Application: %s - %s", err.Error(), string(output)),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("ArgoCD Application %s updated successfully", req.Name),
+		"output":  string(output),
+	})
+}
+
 // KustomizeResource represents a resource managed by Kustomize
 type KustomizeResource struct {
 	Kind      string            `json:"kind"`

@@ -134,7 +134,7 @@ const SETTINGS_VERSION = 4;
 const defaultSettings: AppSettings = {
   ...defaultFeatureFlags,
   theme: 'dark',
-  compactMode: false,
+  compactMode: true,
   sidebarCollapsed: false,
   defaultNamespace: '_all',
   itemsPerPage: 50,

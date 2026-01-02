@@ -1,4 +1,5 @@
 import { Component, For, Show, createMemo, createSignal, createResource, onMount, onCleanup, createEffect } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { api } from '../services/api';
 import { namespace, clusterStatus } from '../stores/cluster';
 import { addNotification, setCurrentView } from '../stores/ui';
@@ -19,7 +20,6 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import CommandPreview from '../components/CommandPreview';
 import DescribeModal from '../components/DescribeModal';
-import ActionMenu from '../components/ActionMenu';
 import ContainerStatusBadge from '../components/ContainerStatusBadge';
 import ContainerList from '../components/ContainerList';
 import ContainerTable from '../components/ContainerTable';
@@ -35,6 +35,7 @@ import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSiz
 
 interface Pod {
   name: string;
+  uid?: string; // Pod UID for stable keys
   namespace: string;
   status: string;
   ready: string;
@@ -84,8 +85,10 @@ const Pods: Component = () => {
   const [explainLoading, setExplainLoading] = createSignal(false);
   const [explainError, setExplainError] = createSignal<string | null>(null);
 
-  // Track if any action menu is open to pause auto-refresh
-  const [actionMenuOpen, setActionMenuOpen] = createSignal(false);
+  // Menu state management - moved to component level to survive row re-renders
+  const [openMenuPodUID, setOpenMenuPodUID] = createSignal<string | null>(null);
+  const [menuAnchorPosition, setMenuAnchorPosition] = createSignal<{ top: number; left: number } | null>(null);
+  const [menuHovering, setMenuHovering] = createSignal(false);
 
   // Port forward state
   const [localPort, setLocalPort] = createSignal(8080);
@@ -213,10 +216,10 @@ const Pods: Component = () => {
     ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
     
     // Auto-refresh pods every 2 seconds (silent background refresh)
-    // but pause when action menu is open to allow user interaction
+    // but pause when action menu is open or hovered to allow user interaction
     podsRefreshTimer = setInterval(() => {
-      // Only refresh if no action menu is open
-      if (!actionMenuOpen()) {
+      // Only refresh if no action menu is open and not hovering
+      if (!openMenuPodUID() && !menuHovering()) {
         podsCache.refetch().catch(err => console.error('Background refresh error:', err));
         fetchMetrics();
       }
@@ -271,6 +274,12 @@ const Pods: Component = () => {
         case 'Escape':
           setSelectedPodIndex(null);
           setSelectedIndex(null);
+          // Close action menu if open
+          if (openMenuPodUID()) {
+            setOpenMenuPodUID(null);
+            setMenuAnchorPosition(null);
+            setMenuHovering(false);
+          }
           break;
       }
     };
@@ -800,6 +809,171 @@ const Pods: Component = () => {
     </span>
   );
 
+  // Action menu icons
+  const actionIcons: Record<string, string> = {
+    shell: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+    portforward: 'M13 10V3L4 14h7v7l9-11h-7z',
+    logs: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    yaml: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4',
+    describe: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+    restart: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+    delete: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
+    edit: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+    info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  };
+
+  // Handle action menu open/close
+  const handleActionMenuClick = (e: MouseEvent, pod: Pod) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    const podUID = pod.uid || `${pod.namespace}/${pod.name}`;
+    
+    // If clicking the same pod's menu, close it
+    if (openMenuPodUID() === podUID) {
+      setOpenMenuPodUID(null);
+      setMenuAnchorPosition(null);
+      setMenuHovering(false);
+      return;
+    }
+    
+    // Get button position for menu anchor
+    const button = e.currentTarget as HTMLElement;
+    const rect = button.getBoundingClientRect();
+    const menuHeight = 300; // Approximate menu height
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    let top = rect.bottom + 4;
+    if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+      top = rect.top - menuHeight - 4;
+    }
+    top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+    
+    setMenuAnchorPosition({
+      top,
+      left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)),
+    });
+    setOpenMenuPodUID(podUID);
+    setMenuHovering(false);
+  };
+
+  const closeActionMenu = () => {
+    setOpenMenuPodUID(null);
+    setMenuAnchorPosition(null);
+    setMenuHovering(false);
+  };
+
+  // Get current pod for menu
+  const currentMenuPod = createMemo(() => {
+    const uid = openMenuPodUID();
+    if (!uid) return null;
+    const pods = podsCache.data() || [];
+    return pods.find(p => (p.uid || `${p.namespace}/${p.name}`) === uid) || null;
+  });
+
+  // Handle click outside and escape key
+  createEffect(() => {
+    if (!openMenuPodUID()) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // Don't close if clicking inside menu
+      const menuElement = document.querySelector('[data-action-menu]');
+      if (menuElement && menuElement.contains(target)) {
+        return;
+      }
+      // Don't close if clicking on action button
+      const actionButtons = document.querySelectorAll('[data-action-button]');
+      for (const btn of actionButtons) {
+        if (btn.contains(target)) {
+          return;
+        }
+      }
+      closeActionMenu();
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeActionMenu();
+      }
+    };
+
+    // Small delay to prevent immediate close
+    const timeout = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, true);
+      document.addEventListener('keydown', handleEscape, true);
+    }, 100);
+
+    onCleanup(() => {
+      clearTimeout(timeout);
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('keydown', handleEscape, true);
+    });
+  });
+
+  // Check if pod still exists after refresh - close menu if deleted
+  createEffect(() => {
+    const uid = openMenuPodUID();
+    if (!uid) return;
+    
+    const pod = currentMenuPod();
+    if (!pod) {
+      // Pod no longer exists
+      addNotification('Pod no longer available', 'warning');
+      closeActionMenu();
+    }
+  });
+
+  // Handle window resize and scroll for menu positioning
+  createEffect(() => {
+    if (!openMenuPodUID() || !menuAnchorPosition()) return;
+
+    const handleResize = () => {
+      // Recalculate position on resize
+      const uid = openMenuPodUID();
+      if (!uid) return;
+      const pods = podsCache.data() || [];
+      const pod = pods.find(p => (p.uid || `${p.namespace}/${p.name}`) === uid);
+      if (!pod) return;
+      
+      // Find the button for this pod
+      const buttons = document.querySelectorAll('[data-action-button]');
+      for (const btn of buttons) {
+        const btnUID = btn.getAttribute('data-pod-uid');
+        if (btnUID === uid) {
+          const rect = btn.getBoundingClientRect();
+          const menuHeight = 300;
+          const viewportHeight = window.innerHeight;
+          const spaceBelow = viewportHeight - rect.bottom;
+          const spaceAbove = rect.top;
+          
+          let top = rect.bottom + 4;
+          if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+            top = rect.top - menuHeight - 4;
+          }
+          top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+          
+          setMenuAnchorPosition({
+            top,
+            left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)),
+          });
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleResize, true);
+
+    onCleanup(() => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleResize, true);
+    });
+  });
+
   const openModal = (pod: Pod, modal: 'yaml' | 'describe' | 'logs' | 'details' | 'shell' | 'portforward') => {
     setSelectedPod(pod);
     switch (modal) {
@@ -972,6 +1146,7 @@ const Pods: Component = () => {
         throw new Error(errorText || `Failed to explain pod: ${response.statusText}`);
       }
       const data = await response.json();
+      console.log('Explain Pod response:', data); // Debug log
       setExplainData(data);
     } catch (err: any) {
       setExplainError(err.message || 'Failed to explain pod');
@@ -1000,13 +1175,48 @@ const Pods: Component = () => {
   };
 
 
+  // Check if we came from dashboard
+  const previousView = () => {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem('kubegraf-previous-view') || null;
+    }
+    return null;
+  };
+
+  const handleBack = () => {
+    const prev = previousView();
+    if (prev) {
+      sessionStorage.removeItem('kubegraf-previous-view');
+      setCurrentView(prev as any);
+    }
+  };
+
   return (
     <div class="space-y-2 max-w-full -mt-4">
       {/* Header - reduced size */}
       <div class="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Pods</h1>
-          <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Manage and monitor your Kubernetes pods</p>
+        <div class="flex items-center gap-3">
+          <Show when={previousView() === 'dashboard'}>
+            <button
+              onClick={handleBack}
+              class="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors"
+              style={{
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+              title="Back to Dashboard"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span class="text-sm">Back</span>
+            </button>
+          </Show>
+          <div>
+            <h1 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Pods</h1>
+            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Manage and monitor your Kubernetes pods</p>
+          </div>
         </div>
         <div class="flex items-center gap-3">
           <button
@@ -1333,6 +1543,8 @@ const Pods: Component = () => {
                   <tr><td colspan="11" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No pods found</td></tr>
                 }>
                   {(pod: Pod, index) => {
+                    // Use uid as stable key, fallback to name+namespace if uid not available
+                    const podKey = pod.uid || `${pod.namespace}/${pod.name}`;
                     const isSelected = () => selectedIndex() === index();
                     const isHovered = () => hoveredRowIndex() === index();
                     const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
@@ -1577,19 +1789,23 @@ const Pods: Component = () => {
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
                       }}>
-                        <ActionMenu
-                          actions={[
-                            { label: 'Shell', icon: 'shell', onClick: () => openShellInNewTab(pod) },
-                            { label: 'Port Forward', icon: 'portforward', onClick: () => openModal(pod, 'portforward') },
-                            { label: 'View Logs', icon: 'logs', onClick: () => openModal(pod, 'logs') },
-                            { label: 'View YAML', icon: 'yaml', onClick: () => openModal(pod, 'yaml') },
-                            { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPod(pod); setShowEdit(true); } },
-                            { label: 'Describe', icon: 'describe', onClick: () => openModal(pod, 'describe') },
-                            { label: 'Explain Pod', icon: 'info', onClick: () => openExplain(pod), divider: true },
-                            { label: 'Delete', icon: 'delete', onClick: () => openDeleteConfirm(pod), variant: 'danger' },
-                          ]}
-                          onOpenChange={setActionMenuOpen}
-                        />
+                        <button
+                          data-action-button
+                          data-pod-uid={podKey}
+                          onClick={(e) => handleActionMenuClick(e, pod)}
+                          class="flex items-center justify-center p-1 rounded transition-all hover:bg-opacity-80"
+                          style={{
+                            background: openMenuPodUID() === podKey ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                          }}
+                          title="Actions"
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                          </svg>
+                        </button>
                       </td>
                     </tr>
                     );
@@ -1656,6 +1872,78 @@ const Pods: Component = () => {
           </Show>
         </Show>
       </div>
+
+      {/* Action Menu Portal - rendered outside table to survive row re-renders */}
+      <Show when={openMenuPodUID() && menuAnchorPosition() && currentMenuPod()}>
+        <Portal>
+          <div
+            data-action-menu
+            class="fixed py-2 rounded-lg shadow-xl min-w-[180px]"
+            style={{
+              top: `${menuAnchorPosition()!.top}px`,
+              left: `${menuAnchorPosition()!.left}px`,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)',
+              'box-shadow': '0 10px 40px rgba(0, 0, 0, 0.3)',
+              'z-index': 9998,
+            }}
+            onMouseEnter={() => setMenuHovering(true)}
+            onMouseLeave={() => setMenuHovering(false)}
+          >
+            <For each={[
+              { label: 'Shell', icon: 'shell', onClick: () => { openShellInNewTab(currentMenuPod()!); closeActionMenu(); } },
+              { label: 'Port Forward', icon: 'portforward', onClick: () => { openModal(currentMenuPod()!, 'portforward'); closeActionMenu(); } },
+              { label: 'View Logs', icon: 'logs', onClick: () => { openModal(currentMenuPod()!, 'logs'); closeActionMenu(); } },
+              { label: 'View YAML', icon: 'yaml', onClick: () => { openModal(currentMenuPod()!, 'yaml'); closeActionMenu(); } },
+              { label: 'Edit YAML', icon: 'edit', onClick: () => { setSelectedPod(currentMenuPod()!); setShowEdit(true); closeActionMenu(); } },
+              { label: 'Describe', icon: 'describe', onClick: () => { openModal(currentMenuPod()!, 'describe'); closeActionMenu(); } },
+              { label: 'Explain Pod', icon: 'info', onClick: () => { openExplain(currentMenuPod()!); closeActionMenu(); }, divider: true },
+              { label: 'Delete', icon: 'delete', onClick: () => { openDeleteConfirm(currentMenuPod()!); closeActionMenu(); }, variant: 'danger' as const },
+            ]}>
+              {(action) => (
+                <>
+                  <Show when={action.divider}>
+                    <div class="my-1 border-t" style={{ 'border-color': 'var(--border-color)' }} />
+                  </Show>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      action.onClick();
+                    }}
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                    style={{
+                      color: action.variant === 'danger' ? 'var(--error-color)' : 'var(--text-primary)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      'text-align': 'left',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = action.variant === 'danger'
+                        ? 'rgba(239, 68, 68, 0.1)'
+                        : 'var(--bg-tertiary)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d={actionIcons[action.icon] || actionIcons.info}
+                      />
+                    </svg>
+                    {action.label}
+                  </button>
+                </>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
 
       {/* YAML Modal */}
       <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`YAML: ${selectedPod()?.name}`} size="xl">
@@ -2177,12 +2465,12 @@ const Pods: Component = () => {
                 📋 Summary
               </h4>
               <p style={{ margin: 0, color: 'var(--text-primary)', 'font-size': '13px', 'line-height': '1.5' }}>
-                {explainData()?.Summary || 'No summary available'}
+                {explainData()?.summary || explainData()?.Summary || 'No summary available'}
               </p>
             </div>
 
             {/* Key Findings */}
-            <Show when={explainData()?.KeyFindings && explainData()?.KeyFindings.length > 0}>
+            <Show when={(explainData()?.keyFindings || explainData()?.KeyFindings) && (explainData()?.keyFindings || explainData()?.KeyFindings).length > 0}>
               <div style={{
                 background: 'var(--bg-card)',
                 border: '1px solid var(--border-color)',
@@ -2194,24 +2482,38 @@ const Pods: Component = () => {
                   🔍 Key Findings
                 </h4>
                 <ul style={{ margin: 0, 'padding-left': '20px' }}>
-                  <For each={explainData()?.KeyFindings || []}>
-                    {(finding: string) => (
-                      <li style={{ 
-                        'font-size': '13px', 
-                        color: 'var(--text-secondary)', 
-                        'margin-bottom': '6px',
-                        'line-height': '1.4'
-                      }}>
-                        {finding}
-                      </li>
-                    )}
+                  <For each={(explainData()?.keyFindings || explainData()?.KeyFindings || [])}>
+                    {(finding: any) => {
+                      // Handle both object format (with description) and string format
+                      const text = typeof finding === 'string' ? finding : (finding?.description || finding?.Description || '');
+                      const severity = finding?.severity || finding?.Severity || 'info';
+                      const category = finding?.category || finding?.Category || '';
+                      return (
+                        <li style={{ 
+                          'font-size': '13px', 
+                          color: severity === 'error' ? 'var(--error-color)' : 
+                                 severity === 'warning' ? 'var(--warning-color)' : 
+                                 'var(--text-secondary)', 
+                          'margin-bottom': '6px',
+                          'line-height': '1.4'
+                        }}>
+                          {category && <span style={{ 'font-weight': 'bold', 'margin-right': '6px' }}>[{category}]</span>}
+                          {text}
+                          {finding?.suggestion && (
+                            <div style={{ 'font-size': '12px', color: 'var(--text-muted)', 'margin-top': '4px', 'font-style': 'italic' }}>
+                              💡 {finding.suggestion}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    }}
                   </For>
                 </ul>
               </div>
             </Show>
 
             {/* Timeline */}
-            <Show when={explainData()?.Timeline && explainData()?.Timeline.length > 0}>
+            <Show when={(explainData()?.timeline || explainData()?.Timeline) && (explainData()?.timeline || explainData()?.Timeline).length > 0}>
               <div style={{
                 background: 'var(--bg-card)',
                 border: '1px solid var(--border-color)',
@@ -2231,19 +2533,49 @@ const Pods: Component = () => {
                   'font-size': '11px',
                   'line-height': '1.6'
                 }}>
-                  <For each={explainData()?.Timeline || []}>
-                    {(event: string, index) => (
-                      <div style={{ 
-                        color: event.includes('Error') || event.includes('Failed') ? 'var(--error-color)' :
-                               event.includes('Warning') ? 'var(--warning-color)' :
-                               'var(--text-secondary)',
-                        'padding-bottom': '4px',
-                        'border-bottom': index() < (explainData()?.Timeline.length - 1) ? '1px dashed var(--border-color)' : 'none',
-                        'margin-bottom': '4px'
-                      }}>
-                        {event}
-                      </div>
-                    )}
+                  <For each={(explainData()?.timeline || explainData()?.Timeline || [])}>
+                    {(event: any, index) => {
+                      // Handle both object format (with event/description) and string format
+                      let eventText = '';
+                      let severity = 'info';
+                      let timestamp = '';
+                      
+                      if (typeof event === 'string') {
+                        eventText = event;
+                        severity = event.includes('Error') || event.includes('Failed') ? 'error' :
+                                  event.includes('Warning') ? 'warning' : 'info';
+                      } else {
+                        eventText = event?.event || event?.Event || event?.description || event?.Description || '';
+                        const desc = event?.description || event?.Description || '';
+                        if (desc && desc !== eventText) {
+                          eventText = `${eventText}: ${desc}`;
+                        }
+                        severity = event?.severity || event?.Severity || 'info';
+                        if (event?.timestamp) {
+                          try {
+                            const ts = new Date(event.timestamp);
+                            timestamp = ts.toLocaleString();
+                          } catch (e) {
+                            // Ignore timestamp parsing errors
+                          }
+                        }
+                      }
+                      
+                      const timeline = explainData()?.timeline || explainData()?.Timeline || [];
+                      return (
+                        <div style={{ 
+                          color: severity === 'error' ? 'var(--error-color)' :
+                                 severity === 'warning' ? 'var(--warning-color)' :
+                                 'var(--text-secondary)',
+                          'padding-bottom': '4px',
+                          'border-bottom': index() < (timeline.length - 1) ? '1px dashed var(--border-color)' : 'none',
+                          'margin-bottom': '4px'
+                        }}>
+                          {timestamp && <span style={{ 'font-size': '10px', 'opacity': '0.7', 'margin-right': '8px' }}>{timestamp}</span>}
+                          {eventText}
+                        </div>
+                      );
+                    }}
                   </For>
                 </div>
               </div>

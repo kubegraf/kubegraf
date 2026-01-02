@@ -62,8 +62,9 @@ const CommandPreview: Component<CommandPreviewProps> = (props) => {
           <Show when={props.badge}>
             <span class="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
               style={{
-                background: 'rgba(148, 163, 184, 0.16)',
+                background: 'var(--bg-tertiary)',
                 color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
               }}
             >
               {props.badge}
@@ -91,13 +92,16 @@ const CommandPreview: Component<CommandPreviewProps> = (props) => {
           <div
             class="relative rounded-md overflow-hidden font-mono text-[11px]"
             style={{
-              background: '#020617',
-              border: '1px solid rgba(15, 23, 42, 0.7)',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-color)',
             }}
           >
             <pre
               class="m-0 p-3 whitespace-pre-wrap overflow-x-auto"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ 
+                color: 'var(--text-primary)',
+                'font-family': 'monospace',
+              }}
             >
 {props.command || '# Command preview will appear here'}
             </pre>
@@ -105,11 +109,11 @@ const CommandPreview: Component<CommandPreviewProps> = (props) => {
             <button
               type="button"
               onClick={handleCopy}
-              class="absolute top-1 right-1 px-2 py-1 rounded text-[11px] flex items-center gap-1"
+              class="absolute top-1 right-1 px-2 py-1 rounded text-[11px] flex items-center gap-1 transition-colors hover:opacity-80"
               style={{
-                background: 'rgba(15, 23, 42, 0.85)',
-                color: 'var(--text-secondary)',
-                border: '1px solid rgba(148, 163, 184, 0.5)',
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
               }}
             >
               <Show when={!copied()} fallback="Copied">

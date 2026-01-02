@@ -82,7 +82,7 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 	// Pre-fetch ReplicaSets and Jobs to avoid N+1 queries
 	replicaSetMap := make(map[string]*appsv1.ReplicaSet)
 	jobMap := make(map[string]*batchv1.Job)
-	
+
 	if namespace != "" {
 		// Fetch all ReplicaSets in namespace
 		if rss, err := ws.app.clientset.AppsV1().ReplicaSets(namespace).List(ws.app.ctx, metav1.ListOptions{}); err == nil {
@@ -297,6 +297,7 @@ func (ws *WebServer) handlePods(w http.ResponseWriter, r *http.Request) {
 
 		podData := map[string]interface{}{
 			"name":       pod.Name,
+			"uid":        string(pod.UID),
 			"status":     status,
 			"ready":      readyState,
 			"restarts":   restarts,
@@ -392,6 +393,7 @@ func (ws *WebServer) handleDeployments(w http.ResponseWriter, r *http.Request) {
 			}
 			allDeployments = append(allDeployments, map[string]interface{}{
 				"name":      dep.Name,
+				"uid":       string(dep.UID),
 				"ready":     fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, replicas),
 				"upToDate":  dep.Status.UpdatedReplicas,
 				"available": dep.Status.AvailableReplicas,
@@ -455,6 +457,7 @@ func (ws *WebServer) handleStatefulSets(w http.ResponseWriter, r *http.Request) 
 		}
 		ssList = append(ssList, map[string]interface{}{
 			"name":      ss.Name,
+			"uid":       string(ss.UID),
 			"ready":     fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
 			"available": ss.Status.ReadyReplicas,
 			"age":       formatAge(time.Since(ss.CreationTimestamp.Time)),
@@ -506,6 +509,7 @@ func (ws *WebServer) handleDaemonSets(w http.ResponseWriter, r *http.Request) {
 	for _, ds := range allDaemonSets {
 		dsList = append(dsList, map[string]interface{}{
 			"name":      ds.Name,
+			"uid":       string(ds.UID),
 			"desired":   ds.Status.DesiredNumberScheduled,
 			"current":   ds.Status.CurrentNumberScheduled,
 			"ready":     fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled),
@@ -590,6 +594,7 @@ func (ws *WebServer) handleServices(w http.ResponseWriter, r *http.Request) {
 
 		svcList = append(svcList, map[string]interface{}{
 			"name":       svc.Name,
+			"uid":        string(svc.UID),
 			"type":       string(svc.Spec.Type),
 			"clusterIP":  svc.Spec.ClusterIP,
 			"externalIP": externalIP,
@@ -834,6 +839,7 @@ func (ws *WebServer) handleIngresses(w http.ResponseWriter, r *http.Request) {
 
 		ingList = append(ingList, map[string]interface{}{
 			"name":      ing.Name,
+			"uid":       string(ing.UID),
 			"hosts":     hosts,
 			"age":       formatAge(time.Since(ing.CreationTimestamp.Time)),
 			"namespace": ing.Namespace,
@@ -952,6 +958,7 @@ func (ws *WebServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
 
 		cjList = append(cjList, map[string]interface{}{
 			"name":         cj.Name,
+			"uid":          string(cj.UID),
 			"schedule":     cj.Spec.Schedule,
 			"suspend":      cj.Spec.Suspend != nil && *cj.Spec.Suspend,
 			"active":       activeJobs,
@@ -1016,6 +1023,7 @@ func (ws *WebServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 
 		jobList = append(jobList, map[string]interface{}{
 			"name":        job.Name,
+			"uid":         string(job.UID),
 			"status":      status,
 			"completions": fmt.Sprintf("%d/%s", job.Status.Succeeded, completions),
 			"duration":    duration,

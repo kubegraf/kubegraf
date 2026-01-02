@@ -26,10 +26,50 @@ import (
 // AI Assistant handlers
 
 // handleAIStatus returns the AI provider status
+// Uses caching (30s TTL) to avoid frequent checks that might trigger model loading
+// IMPORTANT: When AutoStart is false, we return "not available" without making any API calls
+// to prevent any possibility of triggering model loading
 func (ws *WebServer) handleAIStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	assistant := NewAIAssistant(nil)
+	config := DefaultAIConfig()
+
+	// If AutoStart is false, don't make any API calls to Ollama at all
+	// This prevents any possibility of triggering model loading
+	if !config.AutoStart {
+		response := map[string]interface{}{
+			"available": false,
+			"provider":  "none",
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// AutoStart is enabled - safe to check availability
+	// Check cache first (30 second TTL to avoid frequent checks)
+	ws.aiStatusCacheMu.RLock()
+	cachedAssistant := ws.aiStatusCache
+	cacheTime := ws.aiStatusCacheTime
+	hasCache := cachedAssistant != nil && time.Since(cacheTime) < 30*time.Second
+	ws.aiStatusCacheMu.RUnlock()
+
+	var assistant *AIAssistant
+	if hasCache {
+		// Use cached assistant
+		assistant = cachedAssistant
+	} else {
+		// Cache miss or expired - create new assistant
+		// IsAvailable() uses /api/version which is safe and doesn't trigger model loading
+		assistant = NewAIAssistant(nil)
+		// Check availability (safe - uses /api/version, not /api/tags or /api/generate)
+		assistant.IsAvailable()
+
+		// Update cache
+		ws.aiStatusCacheMu.Lock()
+		ws.aiStatusCache = assistant
+		ws.aiStatusCacheTime = time.Now()
+		ws.aiStatusCacheMu.Unlock()
+	}
 
 	response := map[string]interface{}{
 		"available": assistant.IsAvailable(),
@@ -1414,21 +1454,21 @@ func (ws *WebServer) handlePVDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":          true,
-		"name":             pv.Name,
-		"capacity":         capacity,
-		"accessModes":      accessModes,
-		"reclaimPolicy":    string(pv.Spec.PersistentVolumeReclaimPolicy),
-		"status":           string(pv.Status.Phase),
-		"storageClass":     pv.Spec.StorageClassName,
-		"claim":            claim,
-		"claimNamespace":   claimNamespace,
-		"volumeMode":       string(*pv.Spec.VolumeMode),
-		"nodeAffinity":     nodeAffinity,
-		"labels":           pv.Labels,
-		"annotations":      pv.Annotations,
-		"age":              formatAge(time.Since(pv.CreationTimestamp.Time)),
-		"createdAt":        pv.CreationTimestamp.Format(time.RFC3339),
+		"success":        true,
+		"name":           pv.Name,
+		"capacity":       capacity,
+		"accessModes":    accessModes,
+		"reclaimPolicy":  string(pv.Spec.PersistentVolumeReclaimPolicy),
+		"status":         string(pv.Status.Phase),
+		"storageClass":   pv.Spec.StorageClassName,
+		"claim":          claim,
+		"claimNamespace": claimNamespace,
+		"volumeMode":     string(*pv.Spec.VolumeMode),
+		"nodeAffinity":   nodeAffinity,
+		"labels":         pv.Labels,
+		"annotations":    pv.Annotations,
+		"age":            formatAge(time.Since(pv.CreationTimestamp.Time)),
+		"createdAt":      pv.CreationTimestamp.Format(time.RFC3339),
 	})
 }
 
@@ -1493,9 +1533,9 @@ func (ws *WebServer) handlePVCDetails(w http.ResponseWriter, r *http.Request) {
 		"requestedCapacity": requestedCapacity,
 		"accessModes":       accessModes,
 		"storageClass":      pvc.Spec.StorageClassName,
-		"volumeMode":       volumeMode,
-		"labels":           pvc.Labels,
-		"annotations":      pvc.Annotations,
+		"volumeMode":        volumeMode,
+		"labels":            pvc.Labels,
+		"annotations":       pvc.Annotations,
 		"age":               formatAge(time.Since(pvc.CreationTimestamp.Time)),
 		"createdAt":         pvc.CreationTimestamp.Format(time.RFC3339),
 	})

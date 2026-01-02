@@ -1,4 +1,5 @@
-import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, createResource, onMount, createEffect, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { api } from '../services/api';
 import { clusterStatus } from '../stores/cluster';
 import { addNotification, setCurrentView } from '../stores/ui';
@@ -17,7 +18,6 @@ import YAMLViewer from '../components/YAMLViewer';
 import YAMLEditor from '../components/YAMLEditor';
 import DescribeModal from '../components/DescribeModal';
 import ConfirmationModal from '../components/ConfirmationModal';
-import ActionMenu from '../components/ActionMenu';
 import { BulkActions, SelectionCheckbox, SelectAllCheckbox } from '../components/BulkActions';
 import { BulkDeleteModal } from '../components/BulkDeleteModal';
 import { useBulkSelection } from '../hooks/useBulkSelection';
@@ -28,6 +28,7 @@ import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSiz
 
 interface Deployment {
   name: string;
+  uid?: string; // Deployment UID for stable keys
   namespace: string;
   ready: string;
   upToDate: number;
@@ -60,6 +61,11 @@ const Deployments: Component = () => {
   // Bulk selection
   const bulk = useBulkSelection<Deployment>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+
+  // Menu state management - moved to component level to survive row re-renders
+  const [openMenuDeploymentUID, setOpenMenuDeploymentUID] = createSignal<string | null>(null);
+  const [menuAnchorPosition, setMenuAnchorPosition] = createSignal<{ top: number; left: number } | null>(null);
+  const [menuHovering, setMenuHovering] = createSignal(false);
 
   // Focus handling from URL params
   const [focusedDeployment, setFocusedDeployment] = createSignal<string | null>(null);
@@ -225,11 +231,19 @@ const Deployments: Component = () => {
   const deployments = createMemo(() => deploymentsCache.data() || []);
 
   // Lightweight silent polling (2s) while page is open
-  createEffect(() => {
-    const interval = setInterval(() => {
-      deploymentsCache.refetch();
+  // but pause when action menu is open or hovered to allow user interaction
+  let deploymentsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  onMount(() => {
+    deploymentsRefreshTimer = setInterval(() => {
+      // Only refresh if no action menu is open and not hovering
+      if (!openMenuDeploymentUID() && !menuHovering()) {
+        deploymentsCache.refetch().catch(err => console.error('Background refresh error:', err));
+      }
     }, 2000);
-    return () => clearInterval(interval);
+  });
+
+  onCleanup(() => {
+    if (deploymentsRefreshTimer) clearInterval(deploymentsRefreshTimer);
   });
   const [yamlContent] = createResource(
     () => yamlKey(),
@@ -502,6 +516,167 @@ const Deployments: Component = () => {
     setScaleReplicas(parseInt(parts[1]) || 1);
     setShowScale(true);
   };
+
+  // Action menu icons
+  const actionIcons: Record<string, string> = {
+    scale: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4',
+    restart: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+    delete: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
+    yaml: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4',
+    edit: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+  };
+
+  // Handle action menu open/close
+  const handleActionMenuClick = (e: MouseEvent, dep: Deployment) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    const depUID = dep.uid || `${dep.namespace}/${dep.name}`;
+    
+    // If clicking the same deployment's menu, close it
+    if (openMenuDeploymentUID() === depUID) {
+      setOpenMenuDeploymentUID(null);
+      setMenuAnchorPosition(null);
+      setMenuHovering(false);
+      return;
+    }
+    
+    // Get button position for menu anchor
+    const button = e.currentTarget as HTMLElement;
+    const rect = button.getBoundingClientRect();
+    const menuHeight = 300; // Approximate menu height
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    let top = rect.bottom + 4;
+    if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+      top = rect.top - menuHeight - 4;
+    }
+    top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+    
+    setMenuAnchorPosition({
+      top,
+      left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)),
+    });
+    setOpenMenuDeploymentUID(depUID);
+    setMenuHovering(false);
+  };
+
+  const closeActionMenu = () => {
+    setOpenMenuDeploymentUID(null);
+    setMenuAnchorPosition(null);
+    setMenuHovering(false);
+  };
+
+  // Get current deployment for menu
+  const currentMenuDeployment = createMemo(() => {
+    const uid = openMenuDeploymentUID();
+    if (!uid) return null;
+    const deps = deploymentsCache.data() || [];
+    return deps.find(d => (d.uid || `${d.namespace}/${d.name}`) === uid) || null;
+  });
+
+  // Handle click outside and escape key
+  createEffect(() => {
+    if (!openMenuDeploymentUID()) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // Don't close if clicking inside menu
+      const menuElement = document.querySelector('[data-action-menu]');
+      if (menuElement && menuElement.contains(target)) {
+        return;
+      }
+      // Don't close if clicking on action button
+      const actionButtons = document.querySelectorAll('[data-action-button]');
+      for (const btn of actionButtons) {
+        if (btn.contains(target)) {
+          return;
+        }
+      }
+      closeActionMenu();
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeActionMenu();
+      }
+    };
+
+    // Small delay to prevent immediate close
+    const timeout = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, true);
+      document.addEventListener('keydown', handleEscape, true);
+    }, 100);
+
+    onCleanup(() => {
+      clearTimeout(timeout);
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('keydown', handleEscape, true);
+    });
+  });
+
+  // Check if deployment still exists after refresh - close menu if deleted
+  createEffect(() => {
+    const uid = openMenuDeploymentUID();
+    if (!uid) return;
+    
+    const dep = currentMenuDeployment();
+    if (!dep) {
+      // Deployment no longer exists
+      addNotification('Deployment no longer available', 'warning');
+      closeActionMenu();
+    }
+  });
+
+  // Handle window resize and scroll for menu positioning
+  createEffect(() => {
+    if (!openMenuDeploymentUID() || !menuAnchorPosition()) return;
+
+    const handleResize = () => {
+      // Recalculate position on resize
+      const uid = openMenuDeploymentUID();
+      if (!uid) return;
+      const deps = deploymentsCache.data() || [];
+      const dep = deps.find(d => (d.uid || `${d.namespace}/${d.name}`) === uid);
+      if (!dep) return;
+      
+      // Find the button for this deployment
+      const buttons = document.querySelectorAll('[data-action-button]');
+      for (const btn of buttons) {
+        const btnUID = btn.getAttribute('data-deployment-uid');
+        if (btnUID === uid) {
+          const rect = btn.getBoundingClientRect();
+          const menuHeight = 300;
+          const viewportHeight = window.innerHeight;
+          const spaceBelow = viewportHeight - rect.bottom;
+          const spaceAbove = rect.top;
+          
+          let top = rect.bottom + 4;
+          if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+            top = rect.top - menuHeight - 4;
+          }
+          top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+          
+          setMenuAnchorPosition({
+            top,
+            left: Math.max(10, Math.min(rect.right - 180, window.innerWidth - 190)),
+          });
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleResize, true);
+
+    onCleanup(() => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleResize, true);
+    });
+  });
 
   return (
     <div class="space-y-2 max-w-full -mt-4">
@@ -785,6 +960,8 @@ const Deployments: Component = () => {
                   <tr><td colspan="8" class="text-center py-8" style={{ color: 'var(--text-muted)' }}>No deployments found</td></tr>
                 }>
                   {(dep: Deployment) => {
+                    // Use uid as stable key, fallback to name+namespace if uid not available
+                    const depKey = dep.uid || `${dep.namespace}/${dep.name}`;
                     const textColor = '#0ea5e9';
                     const isFocused = () => focusedDeployment() === dep.name;
                     
@@ -895,28 +1072,23 @@ const Deployments: Component = () => {
                         'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                         border: 'none'
                       }}>
-                        <ActionMenu
-                          actions={[
-                            { label: 'Scale', icon: 'scale', onClick: () => openScale(dep) },
-                            {
-                              label: 'Restart',
-                              icon: 'restart',
-                              onClick: () => restart(dep),
-                              loading: restarting() === `${dep.namespace}/${dep.name}`
-                            },
-                            { label: 'View YAML', icon: 'yaml', onClick: () => { 
-                              setSelected(dep);
-                              setYamlKey(`${dep.name}|${dep.namespace}`);
-                              setShowYaml(true);
-                            } },
-                            { label: 'Edit YAML', icon: 'edit', onClick: () => { 
-                              setSelected(dep);
-                              setYamlKey(`${dep.name}|${dep.namespace}`);
-                              setShowEdit(true);
-                            } },
-                            { label: 'Delete', icon: 'delete', onClick: () => deleteDeployment(dep), variant: 'danger', divider: true },
-                          ]}
-                        />
+                        <button
+                          data-action-button
+                          data-deployment-uid={depKey}
+                          onClick={(e) => handleActionMenuClick(e, dep)}
+                          class="flex items-center justify-center p-1 rounded transition-all hover:bg-opacity-80"
+                          style={{
+                            background: openMenuDeploymentUID() === depKey ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                          }}
+                          title="Actions"
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                          </svg>
+                        </button>
                       </td>
                     </tr>
                     );
@@ -984,6 +1156,129 @@ const Deployments: Component = () => {
           </Show>
         </Show>
       </div>
+
+      {/* Action Menu Portal - rendered outside table to survive row re-renders */}
+      <Show when={openMenuDeploymentUID() && menuAnchorPosition() && currentMenuDeployment()}>
+        <Portal>
+          <div
+            data-action-menu
+            class="fixed py-2 rounded-lg shadow-xl min-w-[180px]"
+            style={{
+              top: `${menuAnchorPosition()!.top}px`,
+              left: `${menuAnchorPosition()!.left}px`,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)',
+              'box-shadow': '0 10px 40px rgba(0, 0, 0, 0.3)',
+              'z-index': 9998,
+            }}
+            onMouseEnter={() => setMenuHovering(true)}
+            onMouseLeave={() => setMenuHovering(false)}
+          >
+            <For each={[
+              { 
+                label: 'Scale', 
+                icon: 'scale', 
+                onClick: () => { 
+                  openScale(currentMenuDeployment()!); 
+                  closeActionMenu(); 
+                } 
+              },
+              {
+                label: 'Restart',
+                icon: 'restart',
+                onClick: () => { 
+                  restart(currentMenuDeployment()!); 
+                  closeActionMenu(); 
+                },
+                loading: restarting() === `${currentMenuDeployment()!.namespace}/${currentMenuDeployment()!.name}`
+              },
+              { 
+                label: 'View YAML', 
+                icon: 'yaml', 
+                onClick: () => { 
+                  setSelected(currentMenuDeployment()!);
+                  setYamlKey(`${currentMenuDeployment()!.name}|${currentMenuDeployment()!.namespace}`);
+                  setShowYaml(true);
+                  closeActionMenu();
+                } 
+              },
+              { 
+                label: 'Edit YAML', 
+                icon: 'edit', 
+                onClick: () => { 
+                  setSelected(currentMenuDeployment()!);
+                  setYamlKey(`${currentMenuDeployment()!.name}|${currentMenuDeployment()!.namespace}`);
+                  setShowEdit(true);
+                  closeActionMenu();
+                } 
+              },
+              { 
+                label: 'Delete', 
+                icon: 'delete', 
+                onClick: () => { 
+                  deleteDeployment(currentMenuDeployment()!); 
+                  closeActionMenu(); 
+                }, 
+                variant: 'danger' as const, 
+                divider: true 
+              },
+            ]}>
+              {(action) => (
+                <>
+                  <Show when={action.divider}>
+                    <div class="my-1 border-t" style={{ 'border-color': 'var(--border-color)' }} />
+                  </Show>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!action.loading) {
+                        action.onClick();
+                      }
+                    }}
+                    disabled={action.loading}
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                    classList={{
+                      'opacity-50 cursor-not-allowed': action.loading,
+                    }}
+                    style={{
+                      color: action.variant === 'danger' ? 'var(--error-color)' : 'var(--text-primary)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: action.loading ? 'not-allowed' : 'pointer',
+                      'text-align': 'left',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!action.loading) {
+                        e.currentTarget.style.background = action.variant === 'danger'
+                          ? 'rgba(239, 68, 68, 0.1)'
+                          : 'var(--bg-tertiary)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <Show when={action.loading} fallback={
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d={actionIcons[action.icon] || actionIcons.scale}
+                        />
+                      </svg>
+                    }>
+                      <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                    </Show>
+                    {action.loading ? `${action.label}...` : action.label}
+                  </button>
+                </>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
 
       {/* YAML Modal */}
       <Modal isOpen={showYaml()} onClose={() => { setShowYaml(false); setSelected(null); setYamlKey(null); }} title={`YAML: ${selected()?.name || ''}`} size="xl">

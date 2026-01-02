@@ -1,5 +1,6 @@
 import { Component, createSignal, createEffect, Show } from 'solid-js';
 import { api, FixPreviewResponse, FixApplyResponse } from '../services/api';
+import { capabilities } from '../stores/capabilities';
 
 interface FixPreviewModalProps {
   isOpen: boolean;
@@ -189,10 +190,13 @@ const FixPreviewModal: Component<FixPreviewModalProps> = (props) => {
             </Show>
 
             {/* Memory Change Summary - Show prominently if memory limit change */}
-            <Show when={preview()!.changes && preview()!.changes.some(c => c.path?.includes('memory') && c.oldValue && c.newValue)}>
-              {() => {
-                const memoryChange = preview()!.changes!.find(c => c.path?.includes('memory') && c.oldValue && c.newValue);
-                if (!memoryChange) return null;
+            <Show when={preview()?.changes?.some(c => c.path?.includes('memory') && c.oldValue && c.newValue)}>
+              <div>
+                {(() => {
+                  const p = preview();
+                  if (!p?.changes) return null;
+                  const memoryChange = p.changes.find(c => c.path?.includes('memory') && c.oldValue && c.newValue);
+                  if (!memoryChange) return null;
                 
                 // Calculate increase amount
                 const parseMemory = (val: string): number => {
@@ -300,7 +304,8 @@ const FixPreviewModal: Component<FixPreviewModalProps> = (props) => {
                     </div>
                   </div>
                 );
-              }}
+                })()}
+              </div>
             </Show>
 
             {/* Description */}
@@ -509,19 +514,31 @@ const FixPreviewModal: Component<FixPreviewModalProps> = (props) => {
             }}>
               {applying() ? 'Running...' : '🧪 Dry Run'}
             </button>
-            <button onClick={handleApply} disabled={applying()} style={{
-              padding: '8px 16px',
-              'border-radius': '6px',
-              border: 'none',
-              background: 'var(--accent-primary)',
-              color: '#000',
-              cursor: applying() ? 'not-allowed' : 'pointer',
-              'font-size': '13px',
-              'font-weight': '600',
-              opacity: applying() ? 0.6 : 1,
-            }}>
-              {applying() ? 'Applying...' : '⚡ Apply Fix'}
-            </button>
+            <Show when={capabilities.isFixApplicationEnabled()}>
+              <button onClick={handleApply} disabled={applying()} style={{
+                padding: '8px 16px',
+                'border-radius': '6px',
+                border: 'none',
+                background: 'var(--accent-primary)',
+                color: '#000',
+                cursor: applying() ? 'not-allowed' : 'pointer',
+                'font-size': '13px',
+                'font-weight': '600',
+                opacity: applying() ? 0.6 : 1,
+              }}>
+                {applying() ? 'Applying...' : '⚡ Apply Fix'}
+              </button>
+            </Show>
+            <Show when={!capabilities.isFixApplicationEnabled()}>
+              <div style={{ 
+                padding: '8px 16px', 
+                color: 'var(--text-secondary)', 
+                'font-size': '13px',
+                'font-style': 'italic'
+              }}>
+                Fix application is disabled. Only dry-run preview is available.
+              </div>
+            </Show>
           </Show>
         </div>
       </div>

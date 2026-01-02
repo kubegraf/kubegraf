@@ -895,6 +895,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name, namespace, revision }),
     }),
+  getHelmReleaseDescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string; success: boolean }>(`/plugins/helm/describe?name=${name}&namespace=${namespace}`),
+  getHelmReleaseYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string; success: boolean }>(`/plugins/helm/yaml?name=${name}&namespace=${namespace}`),
+  deleteHelmRelease: (name: string, namespace: string) =>
+    fetchAPI<{ status: string; message: string }>('/plugins/helm/delete', {
+      method: 'POST',
+      body: JSON.stringify({ name, namespace }),
+    }),
 
   // ArgoCD
   getArgoCDApps: async () => {
@@ -910,6 +919,15 @@ export const api = {
     }),
   refreshArgoCDApp: (name: string, namespace: string) =>
     fetchAPI<{ status: string; message: string }>('/plugins/argocd/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ name, namespace }),
+    }),
+  getArgoCDAppDescribe: (name: string, namespace: string) =>
+    fetchAPI<{ describe: string; success: boolean }>(`/plugins/argocd/describe?name=${name}&namespace=${namespace}`),
+  getArgoCDAppYAML: (name: string, namespace: string) =>
+    fetchAPI<{ yaml: string; success: boolean }>(`/plugins/argocd/yaml?name=${name}&namespace=${namespace}`),
+  deleteArgoCDApp: (name: string, namespace: string) =>
+    fetchAPI<{ status: string; message: string }>('/plugins/argocd/delete', {
       method: 'POST',
       body: JSON.stringify({ name, namespace }),
     }),

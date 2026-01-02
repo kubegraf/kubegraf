@@ -1,7 +1,10 @@
-import { Component, For, Show, createMemo, createSignal, Match, Switch, onMount, onCleanup, createEffect } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, Match, Switch, onMount, onCleanup, createEffect, createResource } from 'solid-js';
 import { nodesResource, refetchNodes } from '../stores/cluster';
 import { searchQuery } from '../stores/ui';
+import { api } from '../services/api';
+import Modal from '../components/Modal';
 import DescribeModal from '../components/DescribeModal';
+import YAMLViewer from '../components/YAMLViewer';
 import { getInitialFontSize, getInitialFontFamily, getFontFamilyCSS, saveFontSize, saveFontFamily } from '../utils/resourceTableFontDefaults';
 
 interface Node {
@@ -21,6 +24,8 @@ type ViewMode = 'card' | 'list' | 'grid';
 const Nodes: Component = () => {
   const [selected, setSelected] = createSignal<Node | null>(null);
   const [showDescribe, setShowDescribe] = createSignal(false);
+  const [showDetails, setShowDetails] = createSignal(false);
+  const [showYaml, setShowYaml] = createSignal(false);
   const [viewMode, setViewMode] = createSignal<ViewMode>('card');
   // Font size and family using shared utility with 14px and Monaco defaults
   const [fontSize, setFontSize] = createSignal(getInitialFontSize('nodes'));
@@ -170,7 +175,7 @@ const Nodes: Component = () => {
                   </div>
                   <div>
                     <button
-                      onClick={() => { setSelected(node); setShowDescribe(true); }}
+                      onClick={() => { setSelected(node); setShowDetails(true); }}
                       class="font-semibold hover:underline text-left"
                       style={{ color: 'var(--text-primary)' }}
                     >
@@ -219,13 +224,13 @@ const Nodes: Component = () => {
 
   // List View Component (Table)
   const ListView = () => (
-    <div class="overflow-hidden rounded-lg" style={{ background: '#000000' }}>
+    <div class="overflow-hidden rounded-lg" style={{ background: 'var(--bg-primary)' }}>
       <div class="overflow-x-auto">
-        <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: '#0ea5e9', 'font-weight': '900' }}>
+        <table class="data-table terminal-table" style={{ 'font-size': `${fontSize()}px`, 'font-family': getFontFamilyCSS(fontFamily()), color: 'var(--accent-primary)', 'font-weight': '900' }}>
           <style>{`
             table { width: 100%; border-collapse: collapse; }
-            thead { background: #000000; position: sticky; top: 0; z-index: 10; }
-            tbody tr:hover { background: rgba(14, 165, 233, 0.1); }
+            thead { background: var(--bg-primary); position: sticky; top: 0; z-index: 10; }
+            tbody tr:hover { background: var(--bg-secondary); }
           `}</style>
           <thead>
             <tr>
@@ -247,7 +252,7 @@ const Nodes: Component = () => {
                 const isReady = status.includes('Ready') && !status.includes('NotReady');
                 const isSchedulable = node.isSchedulable !== undefined ? node.isSchedulable : !status.includes('SchedulingDisabled');
                 const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
-                const textColor = '#0ea5e9';
+                const textColor = 'var(--accent-primary)';
                 
                 // Determine badge class
                 let badgeClass = 'badge-error';
@@ -270,13 +275,13 @@ const Nodes: Component = () => {
                       border: 'none'
                     }}>
                       <div class="flex items-center gap-2">
-                        <div class={`p-1 rounded ${isControlPlane ? 'bg-cyan-500/20' : 'bg-k8s-dark'}`}>
-                          <svg class={`w-4 h-4 ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div class="p-1 rounded" style={{ background: isControlPlane ? 'rgba(6, 182, 212, 0.2)' : 'var(--bg-secondary)' }}>
+                          <svg class="w-4 h-4" style={{ color: isControlPlane ? '#06b6d4' : 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                           </svg>
                         </div>
                         <button
-                          onClick={() => { setSelected(node); setShowDescribe(true); }}
+                          onClick={() => { setSelected(node); setShowDetails(true); }}
                           class="font-medium hover:underline text-left"
                           style={{ color: 'var(--accent-primary)' }}
                         >
@@ -308,7 +313,7 @@ const Nodes: Component = () => {
                       'line-height': `${Math.max(24, fontSize() * 1.7)}px`,
                       border: 'none'
                     }}>
-                      <span class={`text-sm ${isControlPlane ? 'text-cyan-400' : 'text-gray-400'}`}>
+                      <span class="text-sm" style={{ color: isControlPlane ? '#06b6d4' : 'var(--text-secondary)' }}>
                         {node.roles || 'worker'}
                       </span>
                     </td>
@@ -371,7 +376,7 @@ const Nodes: Component = () => {
           const isControlPlane = node.roles.includes('control-plane') || node.roles.includes('master');
           return (
             <button
-              onClick={() => { setSelected(node); setShowDescribe(true); }}
+              onClick={() => { setSelected(node); setShowDetails(true); }}
               class="border rounded-lg p-4 text-left transition-colors hover:opacity-80"
               style={{ 
                 background: 'var(--bg-card)', 
@@ -416,8 +421,8 @@ const Nodes: Component = () => {
       {/* Header */}
       <div class="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 class="text-2xl font-bold text-white">Nodes</h1>
-          <p class="text-gray-400 mt-1">Cluster node management</p>
+          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Nodes</h1>
+          <p class="mt-1" style={{ color: 'var(--text-secondary)' }}>Cluster node management</p>
         </div>
         <div class="flex items-center gap-3">
           <select
@@ -456,11 +461,23 @@ const Nodes: Component = () => {
               {(mode) => (
                 <button
                   onClick={() => setViewMode(mode)}
-                  class={`px-3 py-2 flex items-center gap-2 text-sm transition-colors ${
-                    viewMode() === mode
-                      ? 'bg-k8s-blue text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-k8s-dark'
-                  }`}
+                  class="px-3 py-2 flex items-center gap-2 text-sm transition-colors"
+                  style={{
+                    background: viewMode() === mode ? 'var(--accent-primary)' : 'transparent',
+                    color: viewMode() === mode ? '#000' : 'var(--text-secondary)',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (viewMode() !== mode) {
+                      e.currentTarget.style.background = 'var(--bg-tertiary)';
+                      e.currentTarget.style.color = 'var(--text-primary)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (viewMode() !== mode) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = 'var(--text-secondary)';
+                    }
+                  }}
                   title={`${mode.charAt(0).toUpperCase() + mode.slice(1)} View`}
                 >
                   <ViewIcon mode={mode} />
@@ -500,31 +517,31 @@ const Nodes: Component = () => {
 
       {/* Node summary */}
       <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div class="bg-k8s-card border border-k8s-border rounded-lg p-4">
-          <div class="text-gray-400 text-sm">Total Nodes</div>
-          <div class="text-2xl font-bold text-white">{nodeSummary().total}</div>
+        <div class="rounded-lg p-4 border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Total Nodes</div>
+          <div class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{nodeSummary().total}</div>
         </div>
-        <div class="bg-k8s-card border border-green-500/30 rounded-lg p-4">
-          <div class="text-gray-400 text-sm">Ready</div>
-          <div class="text-2xl font-bold text-green-400">{nodeSummary().ready}</div>
+        <div class="rounded-lg p-4 border" style={{ background: 'var(--bg-card)', borderColor: 'rgba(34, 197, 94, 0.3)' }}>
+          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Ready</div>
+          <div class="text-2xl font-bold" style={{ color: 'var(--success-color, #22c55e)' }}>{nodeSummary().ready}</div>
         </div>
-        <div class="bg-k8s-card border border-green-500/30 rounded-lg p-4">
-          <div class="text-gray-400 text-sm">Schedulable</div>
-          <div class="text-2xl font-bold text-green-400">{nodeSummary().schedulable}</div>
-          <div class="text-xs text-gray-500 mt-1">Can schedule pods</div>
+        <div class="rounded-lg p-4 border" style={{ background: 'var(--bg-card)', borderColor: 'rgba(34, 197, 94, 0.3)' }}>
+          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Schedulable</div>
+          <div class="text-2xl font-bold" style={{ color: 'var(--success-color, #22c55e)' }}>{nodeSummary().schedulable}</div>
+          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Can schedule pods</div>
         </div>
-        <div class="bg-k8s-card border border-yellow-500/30 rounded-lg p-4">
-          <div class="text-gray-400 text-sm">Cordoned/Drained</div>
-          <div class="text-2xl font-bold text-yellow-400">{nodeSummary().unschedulable}</div>
-          <div class="text-xs text-gray-500 mt-1">SchedulingDisabled</div>
+        <div class="rounded-lg p-4 border" style={{ background: 'var(--bg-card)', borderColor: 'rgba(251, 191, 36, 0.3)' }}>
+          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Cordoned/Drained</div>
+          <div class="text-2xl font-bold" style={{ color: 'var(--warning-color, #fbbf24)' }}>{nodeSummary().unschedulable}</div>
+          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>SchedulingDisabled</div>
         </div>
-        <div class="bg-k8s-card border border-red-500/30 rounded-lg p-4">
-          <div class="text-gray-400 text-sm">Not Ready</div>
-          <div class="text-2xl font-bold text-red-400">{nodeSummary().notReady}</div>
+        <div class="rounded-lg p-4 border" style={{ background: 'var(--bg-card)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Not Ready</div>
+          <div class="text-2xl font-bold" style={{ color: 'var(--error-color, #dc3545)' }}>{nodeSummary().notReady}</div>
         </div>
-        <div class="bg-k8s-card border border-cyan-500/30 rounded-lg p-4">
-          <div class="text-gray-400 text-sm">Control Plane</div>
-          <div class="text-2xl font-bold text-cyan-400">{nodeSummary().controlPlane}</div>
+        <div class="rounded-lg p-4 border" style={{ background: 'var(--bg-card)', borderColor: 'rgba(6, 182, 212, 0.3)' }}>
+          <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Control Plane</div>
+          <div class="text-2xl font-bold" style={{ color: '#06b6d4' }}>{nodeSummary().controlPlane}</div>
         </div>
       </div>
 
@@ -532,8 +549,8 @@ const Nodes: Component = () => {
       <Show
         when={!nodesResource.loading}
         fallback={
-          <div class="p-8 text-center text-gray-500">
-            <svg class="w-8 h-8 animate-spin mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+          <div class="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>
+            <svg class="w-8 h-8 animate-spin mx-auto mb-2" fill="none" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
@@ -552,6 +569,271 @@ const Nodes: Component = () => {
             <GridView />
           </Match>
         </Switch>
+      </Show>
+
+      {/* Details Modal */}
+      <Modal isOpen={showDetails()} onClose={() => setShowDetails(false)} title={`Node: ${selected()?.name || ''}`} size="xl">
+        <Show when={selected()}>
+          {(() => {
+            const [nodeDetails] = createResource(
+              () => selected()?.name || null,
+              async (name) => {
+                if (!name) return null;
+                return api.getNodeDetails(name);
+              }
+            );
+            return (
+              <div class="space-y-6">
+                {/* Basic Info */}
+                <div>
+                  <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Basic Information</h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Status</div>
+                      <div>
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => {
+                            const status = details().status || selected()?.status || 'Unknown';
+                            const isReady = status.includes('Ready') && !status.includes('NotReady');
+                            return (
+                              <span class={`badge ${isReady ? 'badge-success' : 'badge-error'}`}>
+                                {status}
+                              </span>
+                            );
+                          }}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Roles</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => details().roles || selected()?.roles || 'worker'}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Version</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => details().version || selected()?.version || '-'}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Age</div>
+                      <div style={{ color: 'var(--text-primary)' }}>{selected()?.age || '-'}</div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>CPU</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => details().cpu || selected()?.cpu || '-'}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Memory</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => details().memory || selected()?.memory || '-'}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Pods Capacity</div>
+                      <div style={{ color: 'var(--text-primary)' }}>
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => details().pods || '-'}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div class="text-xs" style={{ color: 'var(--text-muted)' }}>OS Image</div>
+                      <div style={{ color: 'var(--text-primary)' }} class="text-xs break-all">
+                        <Show when={!nodeDetails.loading && nodeDetails()}>
+                          {(details) => details().osImage || '-'}
+                        </Show>
+                        <Show when={nodeDetails.loading}>
+                          <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* System Info */}
+                <Show when={!nodeDetails.loading && nodeDetails()}>
+                  {(details) => (
+                    <div>
+                      <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>System Information</h3>
+                      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Kernel Version</div>
+                          <div style={{ color: 'var(--text-primary)' }} class="text-xs break-all">
+                            {details().kernelVersion || '-'}
+                          </div>
+                        </div>
+                        <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Container Runtime</div>
+                          <div style={{ color: 'var(--text-primary)' }} class="text-xs break-all">
+                            {details().containerRuntime || '-'}
+                          </div>
+                        </div>
+                        <div class="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                          <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Kubelet Version</div>
+                          <div style={{ color: 'var(--text-primary)' }} class="text-xs break-all">
+                            {details().version || '-'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </Show>
+
+                {/* Addresses */}
+                <Show when={!nodeDetails.loading && nodeDetails()?.addresses && Array.isArray(nodeDetails()!.addresses) && nodeDetails()!.addresses.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Addresses</h3>
+                    <div class="rounded-lg border overflow-x-auto" style={{ 'border-color': 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+                      <table class="w-full">
+                        <thead>
+                          <tr style={{ background: 'var(--bg-tertiary)' }}>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Type</th>
+                            <th class="px-4 py-2 text-left text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Address</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={nodeDetails()!.addresses}>
+                            {(addr: any) => (
+                              <tr class="border-b" style={{ 'border-color': 'var(--border-color)' }}>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{addr.type || '-'}</td>
+                                <td class="px-4 py-2 text-sm" style={{ color: 'var(--text-primary)' }}>{addr.address || '-'}</td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Conditions */}
+                <Show when={!nodeDetails.loading && nodeDetails()?.conditions && Array.isArray(nodeDetails()!.conditions) && nodeDetails()!.conditions.length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Conditions</h3>
+                    <div class="space-y-2">
+                      <For each={nodeDetails()!.conditions}>
+                        {(condition: any) => (
+                          <div class="p-3 rounded-lg border" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{condition.type || '-'}</span>
+                              <span class={`badge ${condition.status === 'True' ? 'badge-success' : condition.status === 'False' ? 'badge-error' : 'badge-warning'}`}>
+                                {condition.status || '-'}
+                              </span>
+                            </div>
+                            <Show when={condition.reason}>
+                              <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>Reason: {condition.reason}</div>
+                            </Show>
+                            <Show when={condition.message}>
+                              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{condition.message}</div>
+                            </Show>
+                            <Show when={condition.lastTransitionTime}>
+                              <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                                Last transition: {new Date(condition.lastTransitionTime).toLocaleString()}
+                              </div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Labels */}
+                <Show when={!nodeDetails.loading && nodeDetails()?.labels && Object.keys(nodeDetails()!.labels).length > 0}>
+                  <div>
+                    <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Labels</h3>
+                    <div class="rounded-lg border p-3" style={{ background: 'var(--bg-secondary)', 'border-color': 'var(--border-color)' }}>
+                      <div class="flex flex-wrap gap-2">
+                        <For each={Object.entries(nodeDetails()!.labels)}>
+                          {([key, value]) => (
+                            <span class="px-2 py-1 rounded text-xs" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+                              {key}={String(value)}
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Actions */}
+                <div class="grid grid-cols-3 md:grid-cols-4 gap-2 pt-3">
+                  <button
+                    onClick={() => { setShowDetails(false); setShowYaml(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="YAML"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>YAML</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDetails(false); setShowDescribe(true); }}
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    title="Describe"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Describe</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
+      </Modal>
+
+      {/* YAML Modal */}
+      <Show when={showYaml() && selected()}>
+        {(() => {
+          const [yaml] = createResource(
+            () => selected()?.name || null,
+            async (name) => {
+              if (!name) return null;
+              const result = await api.getNodeYAML(name);
+              return result?.yaml || '';
+            }
+          );
+          return (
+            <Modal isOpen={showYaml()} onClose={() => setShowYaml(false)} title={`Node YAML: ${selected()?.name || ''}`} size="xl">
+              <Show when={!yaml.loading && yaml()} fallback={<div class="spinner" />}>
+                <YAMLViewer yaml={yaml() || ''} />
+              </Show>
+            </Modal>
+          );
+        })()}
       </Show>
 
       {/* Describe Modal */}
