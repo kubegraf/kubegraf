@@ -11,7 +11,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,13 +26,18 @@ type AIProvider interface {
 
 // AIConfig holds AI configuration
 type AIConfig struct {
-	Provider    string // "ollama", "openai", "claude"
-	OllamaURL   string // Default: http://localhost:11434
-	OllamaModel string // Default: auto-detected or llama3.1
-	OpenAIKey   string
-	OpenAIModel string // Default: gpt-4o-mini
-	ClaudeKey   string
-	ClaudeModel string // Default: claude-3-haiku-20240307
+	Provider            string        // "ollama", "openai", "claude"
+	OllamaURL           string        // Default: http://localhost:11434
+	OllamaModel         string        // Default: auto-detected or llama3.1
+	KeepAlive           time.Duration // Default: 5m - how long to keep model loaded after last request
+	AutoStart           bool          // Default: false - do NOT preload on app startup
+	HealthCheckEndpoint string        // Default: "version" - use /api/version for health checks
+	MaxIdleConns        int           // Default: 2 - max idle connections in HTTP client
+	IdleConnTimeout     time.Duration // Default: 30s - timeout for idle connections
+	OpenAIKey           string
+	OpenAIModel         string // Default: gpt-4o-mini
+	ClaudeKey           string
+	ClaudeModel         string // Default: claude-3-haiku-20240307
 }
 
 // getAvailableOllamaModels fetches the list of available models from Ollama
@@ -105,7 +112,7 @@ func detectOllamaModel(url string) string {
 
 // DefaultAIConfig returns the default AI configuration
 func DefaultAIConfig() *AIConfig {
-	ollamaURL := getAIEnvOrDefault("KUBEGRAF_OLLAMA_URL", "http://localhost:11434")
+	ollamaURL := getAIEnvOrDefault("KUBEGRAF_OLLAMA_URL", "http://127.0.0.1:11434")
 
 	// Get model from environment, or auto-detect, or use fallback
 	modelFromEnv := os.Getenv("KUBEGRAF_OLLAMA_MODEL")
@@ -114,33 +121,67 @@ func DefaultAIConfig() *AIConfig {
 	if modelFromEnv != "" {
 		ollamaModel = modelFromEnv
 	} else {
-		// Only auto-detect if AUTOSTART is enabled to avoid triggering model loading
-		// Otherwise use fallback model name (will be loaded on first query)
-		autostart := os.Getenv("KUBEGRAF_AI_AUTOSTART")
-		if autostart == "true" {
-			// Try to auto-detect available models
+		// Try to auto-detect available models (only if AUTOSTART is enabled)
+		// Otherwise, just use fallback to avoid loading models on startup
+		autoStart := getAIEnvBoolOrDefault("KUBEGRAF_AI_AUTOSTART", false)
+		if autoStart {
 			detectedModel := detectOllamaModel(ollamaURL)
 			if detectedModel != "" {
 				ollamaModel = detectedModel
 			} else {
-				// Fallback to llama3.1 (more common than llama3.2)
-				ollamaModel = "llama3.1"
+				ollamaModel = "llama3.1:latest"
 			}
 		} else {
-			// Use fallback model name without auto-detection to avoid triggering model loading
-			ollamaModel = "llama3.1"
+			// Don't call detectOllamaModel on startup - just use fallback
+			ollamaModel = getAIEnvOrDefault("KUBEGRAF_AI_MODEL", "llama3.1:latest")
+		}
+	}
+
+	// Parse keep-alive duration (default: 5m)
+	keepAliveStr := getAIEnvOrDefault("KUBEGRAF_AI_KEEP_ALIVE", "5m")
+	keepAlive, err := time.ParseDuration(keepAliveStr)
+	if err != nil {
+		keepAlive = 5 * time.Minute
+	}
+
+	// Parse idle connection timeout (default: 30s)
+	idleConnTimeoutStr := getAIEnvOrDefault("KUBEGRAF_AI_IDLE_CONN_TIMEOUT", "30s")
+	idleConnTimeout, err := time.ParseDuration(idleConnTimeoutStr)
+	if err != nil {
+		idleConnTimeout = 30 * time.Second
+	}
+
+	// Parse max idle connections (default: 2)
+	maxIdleConns := 2
+	if val := os.Getenv("KUBEGRAF_AI_MAX_IDLE_CONNS"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+			maxIdleConns = parsed
 		}
 	}
 
 	return &AIConfig{
-		Provider:    "ollama",
-		OllamaURL:   ollamaURL,
-		OllamaModel: ollamaModel,
-		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel: getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
-		ClaudeKey:   os.Getenv("ANTHROPIC_API_KEY"),
-		ClaudeModel: getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
+		Provider:            "ollama",
+		OllamaURL:           ollamaURL,
+		OllamaModel:         ollamaModel,
+		KeepAlive:           keepAlive,
+		AutoStart:           getAIEnvBoolOrDefault("KUBEGRAF_AI_AUTOSTART", false),
+		HealthCheckEndpoint: getAIEnvOrDefault("KUBEGRAF_AI_HEALTHCHECK", "version"),
+		MaxIdleConns:        maxIdleConns,
+		IdleConnTimeout:     idleConnTimeout,
+		OpenAIKey:           os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:         getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
+		ClaudeKey:           os.Getenv("ANTHROPIC_API_KEY"),
+		ClaudeModel:         getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
 	}
+}
+
+func getAIEnvBoolOrDefault(key string, defaultVal bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if parsed, err := strconv.ParseBool(val); err == nil {
+			return parsed
+		}
+	}
+	return defaultVal
 }
 
 func getAIEnvOrDefault(key, defaultVal string) string {
@@ -166,25 +207,54 @@ func NewAIAssistant(config *AIConfig) *AIAssistant {
 
 	// Try providers in order: Ollama (local), OpenAI, Claude
 	providers := []AIProvider{
-		NewOllamaProvider(config.OllamaURL, config.OllamaModel),
+		NewOllamaProvider(config.OllamaURL, config.OllamaModel, config.KeepAlive, config.MaxIdleConns, config.IdleConnTimeout),
 		NewOpenAIProvider(config.OpenAIKey, config.OpenAIModel),
 		NewClaudeProvider(config.ClaudeKey, config.ClaudeModel),
 	}
 
 	// Select the first available provider
-	for _, p := range providers {
-		if p.IsAvailable() {
-			assistant.provider = p
-			break
+	// Only check availability if AUTOSTART is enabled, otherwise defer until first query
+	if config.AutoStart {
+		for _, p := range providers {
+			if p.IsAvailable() {
+				assistant.provider = p
+				break
+			}
 		}
 	}
+	// If AutoStart is false, provider remains nil until first query
+	// This prevents any API calls (including /api/version) on startup
 
 	return assistant
 }
 
 // IsAvailable returns true if any AI provider is available
+// If provider is not initialized (AutoStart=false), performs a lazy check
+// and sets the provider if found (safe because we use /api/version, not /api/generate)
 func (a *AIAssistant) IsAvailable() bool {
-	return a.provider != nil
+	// If provider is already set, it's available
+	if a.provider != nil {
+		return true
+	}
+
+	// Lazy check: try to find an available provider and set it
+	// This is safe because health checks use /api/version (doesn't load models)
+	providers := []AIProvider{
+		NewOllamaProvider(a.config.OllamaURL, a.config.OllamaModel, a.config.KeepAlive, a.config.MaxIdleConns, a.config.IdleConnTimeout),
+		NewOpenAIProvider(a.config.OpenAIKey, a.config.OpenAIModel),
+		NewClaudeProvider(a.config.ClaudeKey, a.config.ClaudeModel),
+	}
+
+	for _, p := range providers {
+		if p.IsAvailable() {
+			// Set the provider so ProviderName() can return the correct name
+			// This is safe because IsAvailable() only calls /api/version (doesn't load models)
+			a.provider = p
+			return true
+		}
+	}
+
+	return false
 }
 
 // ProviderName returns the name of the active provider
@@ -197,6 +267,22 @@ func (a *AIAssistant) ProviderName() string {
 
 // Query sends a query to the AI provider
 func (a *AIAssistant) Query(ctx context.Context, prompt string) (string, error) {
+	// Lazy initialization - if provider is not set, find one now (only when user makes a query)
+	if a.provider == nil {
+		providers := []AIProvider{
+			NewOllamaProvider(a.config.OllamaURL, a.config.OllamaModel, a.config.KeepAlive, a.config.MaxIdleConns, a.config.IdleConnTimeout),
+			NewOpenAIProvider(a.config.OpenAIKey, a.config.OpenAIModel),
+			NewClaudeProvider(a.config.ClaudeKey, a.config.ClaudeModel),
+		}
+
+		for _, p := range providers {
+			if p.IsAvailable() {
+				a.provider = p
+				break
+			}
+		}
+	}
+
 	if a.provider == nil {
 		return "", fmt.Errorf("no AI provider available")
 	}
@@ -345,19 +431,46 @@ func buildOptimizationPrompt(input OptimizationInput) string {
 
 // OllamaProvider implements the AIProvider interface for Ollama
 type OllamaProvider struct {
-	url    string
-	model  string
-	client *http.Client
+	url         string
+	model       string
+	client      *http.Client
+	keepAlive   time.Duration
+	lastRequest time.Time
+	idleTimer   *time.Timer
+	idleMu      sync.Mutex
+	unloadFunc  func() error // Function to unload the model
+}
+
+var (
+	// Shared HTTP client for all Ollama providers to avoid connection leaks
+	sharedOllamaClient *http.Client
+	sharedClientOnce   sync.Once
+)
+
+// getSharedOllamaClient returns a shared HTTP client for Ollama connections
+func getSharedOllamaClient(maxIdleConns int, idleConnTimeout time.Duration) *http.Client {
+	sharedClientOnce.Do(func() {
+		transport := &http.Transport{
+			MaxIdleConns:        maxIdleConns,
+			MaxIdleConnsPerHost: maxIdleConns,
+			IdleConnTimeout:     idleConnTimeout,
+		}
+		sharedOllamaClient = &http.Client{
+			Transport: transport,
+			Timeout:   60 * time.Second,
+		}
+	})
+	return sharedOllamaClient
 }
 
 // NewOllamaProvider creates a new Ollama provider
-func NewOllamaProvider(url, model string) *OllamaProvider {
+func NewOllamaProvider(url, model string, keepAlive time.Duration, maxIdleConns int, idleConnTimeout time.Duration) *OllamaProvider {
 	return &OllamaProvider{
-		url:   url,
-		model: model,
-		client: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		url:         url,
+		model:       model,
+		client:      getSharedOllamaClient(maxIdleConns, idleConnTimeout),
+		keepAlive:   keepAlive,
+		lastRequest: time.Time{}, // Zero time means no requests yet
 	}
 }
 
@@ -369,8 +482,8 @@ func (o *OllamaProvider) IsAvailable() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Use /api/version instead of /api/tags to avoid triggering model loading
-	// /api/version is a lightweight endpoint that doesn't load models
+	// Use /api/version for health checks - this does NOT load models
+	// /api/tags can trigger model loading in some Ollama versions
 	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/version", nil)
 	if err != nil {
 		return false
@@ -385,11 +498,95 @@ func (o *OllamaProvider) IsAvailable() bool {
 	return resp.StatusCode == 200
 }
 
-func (o *OllamaProvider) Query(ctx context.Context, prompt string) (string, error) {
+// unloadModel unloads the model from Ollama's memory
+func (o *OllamaProvider) unloadModel() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Use Ollama's API to stop/unload the model
+	// POST /api/generate with keep_alive=0 or use /api/ps and then stop
+	// For now, we'll use a simple approach: call generate with keep_alive=0
+	// This is a no-op that just unloads the model
 	payload := map[string]interface{}{
-		"model":  o.model,
-		"prompt": prompt,
-		"stream": false,
+		"model":      o.model,
+		"prompt":     "unload",
+		"stream":     false,
+		"keep_alive": "0", // Unload immediately after this request
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", o.url+"/api/generate", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Use a short timeout for unload
+	unloadClient := &http.Client{Timeout: 3 * time.Second}
+	resp, err := unloadClient.Do(req)
+	if err != nil {
+		// Ignore errors during unload - model might already be unloaded
+		return nil
+	}
+	defer resp.Body.Close()
+
+	// Read and discard response
+	io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+// resetIdleTimer resets the idle timer to unload the model after keepAlive duration
+func (o *OllamaProvider) resetIdleTimer() {
+	o.idleMu.Lock()
+	defer o.idleMu.Unlock()
+
+	// Stop existing timer if any
+	if o.idleTimer != nil {
+		o.idleTimer.Stop()
+	}
+
+	// If keepAlive is 0 or negative, don't set up unload timer
+	if o.keepAlive <= 0 {
+		return
+	}
+
+	// Set up new timer
+	o.idleTimer = time.AfterFunc(o.keepAlive, func() {
+		// Unload model after idle period
+		if err := o.unloadModel(); err != nil {
+			// Log but don't fail - unload is best-effort
+			// Using fmt.Printf instead of log to avoid import
+			fmt.Printf("⚠️  Failed to unload Ollama model after idle period: %v\n", err)
+		}
+	})
+}
+
+func (o *OllamaProvider) Query(ctx context.Context, prompt string) (string, error) {
+	// Update last request time and reset idle timer
+	o.idleMu.Lock()
+	o.lastRequest = time.Now()
+	o.idleMu.Unlock()
+	o.resetIdleTimer()
+
+	// Build keep_alive parameter
+	keepAliveStr := "0" // Default: unload immediately
+	if o.keepAlive > 0 {
+		// Convert duration to seconds for Ollama API
+		keepAliveStr = fmt.Sprintf("%.0fs", o.keepAlive.Seconds())
+	} else if o.keepAlive < 0 {
+		// Negative means never unload
+		keepAliveStr = "-1"
+	}
+
+	payload := map[string]interface{}{
+		"model":      o.model,
+		"prompt":     prompt,
+		"stream":     false,
+		"keep_alive": keepAliveStr, // Tell Ollama to keep model loaded for this duration
 		"options": map[string]interface{}{
 			"temperature": 0.7,
 			"num_predict": 1000,
