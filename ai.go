@@ -34,6 +34,7 @@ type AIConfig struct {
 }
 
 // getAvailableOllamaModels fetches the list of available models from Ollama
+// NOTE: This uses /api/tags which may trigger model loading. Only call when necessary.
 func getAvailableOllamaModels(url string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -113,12 +114,20 @@ func DefaultAIConfig() *AIConfig {
 	if modelFromEnv != "" {
 		ollamaModel = modelFromEnv
 	} else {
-		// Try to auto-detect available models
-		detectedModel := detectOllamaModel(ollamaURL)
-		if detectedModel != "" {
-			ollamaModel = detectedModel
+		// Only auto-detect if AUTOSTART is enabled to avoid triggering model loading
+		// Otherwise use fallback model name (will be loaded on first query)
+		autostart := os.Getenv("KUBEGRAF_AI_AUTOSTART")
+		if autostart == "true" {
+			// Try to auto-detect available models
+			detectedModel := detectOllamaModel(ollamaURL)
+			if detectedModel != "" {
+				ollamaModel = detectedModel
+			} else {
+				// Fallback to llama3.1 (more common than llama3.2)
+				ollamaModel = "llama3.1"
+			}
 		} else {
-			// Fallback to llama3.1 (more common than llama3.2)
+			// Use fallback model name without auto-detection to avoid triggering model loading
 			ollamaModel = "llama3.1"
 		}
 	}
@@ -360,7 +369,9 @@ func (o *OllamaProvider) IsAvailable() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/tags", nil)
+	// Use /api/version instead of /api/tags to avoid triggering model loading
+	// /api/version is a lightweight endpoint that doesn't load models
+	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/version", nil)
 	if err != nil {
 		return false
 	}
