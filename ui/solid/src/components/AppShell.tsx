@@ -1,9 +1,11 @@
-import { Component, JSX, Show } from 'solid-js';
+import { Component, JSX, Show, createResource, onMount } from 'solid-js';
 import SidebarV2 from './SidebarV2';
 import Header from './Header';
 import UpdateBanner from './UpdateNotification';
+import PolicyModal from './PolicyModal';
 import { useWebSocket } from '../providers/WebSocketProvider';
-import { sidebarCollapsed } from '../stores/ui';
+import { sidebarCollapsed, addNotification } from '../stores/ui';
+import { api } from '../services/api';
 
 interface AppShellProps {
   children: JSX.Element;
@@ -31,6 +33,25 @@ interface AppShellProps {
 const AppShell: Component<AppShellProps> = (props) => {
   const ws = useWebSocket();
 
+  // Check policy status on mount
+  const [policyStatus, { refetch: refetchPolicyStatus }] = createResource(
+    () => api.getPolicyStatus()
+  );
+
+  const handlePolicyAccepted = () => {
+    refetchPolicyStatus();
+    addNotification('Policy accepted. You can now access cluster features.', 'success');
+  };
+
+  // Listen for policy-required events from API interceptor
+  onMount(() => {
+    const handlePolicyRequired = () => {
+      refetchPolicyStatus();
+    };
+    window.addEventListener('policy-required', handlePolicyRequired);
+    return () => window.removeEventListener('policy-required', handlePolicyRequired);
+  });
+
   return (
     <div 
       class="flex flex-col overflow-hidden" 
@@ -42,6 +63,16 @@ const AppShell: Component<AppShellProps> = (props) => {
     >
       {/* Update Banner - fixed position overlay */}
       <UpdateBanner />
+
+      {/* Policy Modal - blocking overlay */}
+      <Show when={policyStatus()}>
+        {(status) => (
+          <PolicyModal
+            policyStatus={status()}
+            onAccept={handlePolicyAccepted}
+          />
+        )}
+      </Show>
 
       {/* Body: Sidebar + Main Content */}
       <div class="flex flex-1 min-h-0 overflow-hidden">

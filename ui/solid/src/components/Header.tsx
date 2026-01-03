@@ -21,6 +21,7 @@ import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManag
 import { setNamespaces } from '../stores/globalStore';
 import { toggleBrainPanel, brainPanelOpen } from '../stores/brain';
 import ThemeToggle from './ThemeToggle';
+import NotificationCenter from './NotificationCenter';
 import { api } from '../services/api';
 import { DOCS_URL, BUG_URL, FEATURE_URL, CONTACT_EMAIL } from '../config/links';
 import LocalTerminalModal from './LocalTerminalModal';
@@ -768,6 +769,9 @@ const Header: Component = () => {
             </div>
           </Show>
         </div>
+
+        {/* Notification bell */}
+        <NotificationCenter />
 
         {/* Theme toggle */}
         <ThemeToggle />

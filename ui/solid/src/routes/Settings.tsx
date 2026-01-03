@@ -55,6 +55,8 @@ const Settings: Component = () => {
   const [perfSummaries, setPerfSummaries] = createSignal<PerformanceSummary[]>([]);
   const [loadingPerf, setLoadingPerf] = createSignal(false);
   const [clearingPerf, setClearingPerf] = createSignal(false);
+  const [announcementsStatus, setAnnouncementsStatus] = createSignal<any>(null);
+  const [fetchingAnnouncements, setFetchingAnnouncements] = createSignal(false);
 
   // Load current version from status
   createEffect(async () => {
@@ -91,6 +93,16 @@ const Settings: Component = () => {
       setLearningStatus(status);
     } catch (err) {
       console.error('Failed to get learning status:', err);
+    }
+  });
+
+  // Load announcements status
+  createEffect(async () => {
+    try {
+      const status = await api.getAnnouncementsStatus();
+      setAnnouncementsStatus(status);
+    } catch (err) {
+      console.error('Failed to get announcements status:', err);
     }
   });
 
@@ -255,6 +267,13 @@ const Settings: Component = () => {
           type: 'toggle',
         },
       ],
+    },
+    {
+      title: 'Announcements',
+      description: 'Opt-in to receive KubeGraf announcements (privacy-first, no telemetry)',
+      icon: 'M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z',
+      items: [],
+      isAnnouncementsSection: true, // Special flag for custom rendering
     },
     {
       title: 'Security & Diagnostics',
@@ -1064,11 +1083,132 @@ const Settings: Component = () => {
                   </Show>
                 </div>
               </Show>
-              <Show when={!(section as any).isBackupSection && !(section as any).isLearningSection}>
+              <Show when={!(section as any).isBackupSection && !(section as any).isLearningSection && !(section as any).isAnnouncementsSection}>
                 <div class="space-y-3">
                   <For each={section.items}>
                     {(item) => <SettingItemComponent item={item} />}
                   </For>
+                </div>
+              </Show>
+              <Show when={(section as any).isAnnouncementsSection}>
+                {/* Announcements Section */}
+                <div class="space-y-4">
+                  {/* Privacy Banner */}
+                  <div class="card p-4 mb-4" style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                    <div class="flex items-start gap-3">
+                      <div class="text-2xl flex-shrink-0">🔒</div>
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          Privacy First - No Telemetry
+                        </div>
+                        <div class="text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <p>Announcements are completely optional and privacy-safe:</p>
+                          <ul class="list-disc list-inside ml-2 space-y-0.5">
+                            <li><strong>Opt-in only:</strong> Disabled by default, you must explicitly enable</li>
+                            <li><strong>No identifiers:</strong> No user ID, device ID, or tracking data sent</li>
+                            <li><strong>No telemetry:</strong> Simple GET request to fetch a static JSON file</li>
+                            <li><strong>Rate limited:</strong> Fetches at most once per 24 hours</li>
+                            <li><strong>Public endpoint:</strong> Same announcements for all users</li>
+                          </ul>
+                          <p class="mt-2">When enabled, KubeGraf will check once daily for new announcements about releases, security updates, and important information.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="card p-6">
+                    <div class="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 class="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                          Receive Announcements
+                        </h3>
+                        <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
+                          Get notified about new releases, security updates, and important announcements
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const currentOptIn = announcementsStatus()?.opt_in ?? false;
+                          const newOptIn = !currentOptIn;
+
+                          try {
+                            await api.updateAnnouncementsOptIn(newOptIn);
+                            const status = await api.getAnnouncementsStatus();
+                            setAnnouncementsStatus(status);
+                            addNotification(
+                              newOptIn
+                                ? 'Announcements enabled. You will now receive updates (checked daily).'
+                                : 'Announcements disabled. You will no longer receive updates.',
+                              'success'
+                            );
+                          } catch (err: any) {
+                            addNotification(`Failed to update announcements setting: ${err.message}`, 'error');
+                          }
+                        }}
+                        class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                          announcementsStatus()?.opt_in ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-tertiary)]'
+                        }`}
+                        style={{ outline: 'none' }}
+                        title={announcementsStatus()?.opt_in ? 'Enabled' : 'Disabled'}
+                      >
+                        <span
+                          class={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform pointer-events-none ${
+                            announcementsStatus()?.opt_in ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <Show when={announcementsStatus()?.opt_in}>
+                      <div class="mt-4 space-y-4">
+                        <Show when={announcementsStatus()?.last_fetch_at}>
+                          <div>
+                            <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                              Last Checked
+                            </div>
+                            <div class="text-sm" style={{ color: 'var(--text-primary)' }}>
+                              {new Date(announcementsStatus()!.last_fetch_at!).toLocaleString()}
+                            </div>
+                          </div>
+                        </Show>
+
+                        <div>
+                          <button
+                            onClick={async () => {
+                              setFetchingAnnouncements(true);
+                              try {
+                                await api.fetchAnnouncements();
+                                const status = await api.getAnnouncementsStatus();
+                                setAnnouncementsStatus(status);
+                                addNotification('Announcements fetched successfully', 'success');
+                              } catch (err: any) {
+                                const errorMsg = err.message || 'Unknown error';
+                                if (errorMsg.includes('rate limit') || errorMsg.includes('24 hours')) {
+                                  addNotification('Announcements can only be fetched once every 24 hours', 'warning');
+                                } else {
+                                  addNotification(`Failed to fetch announcements: ${errorMsg}`, 'error');
+                                }
+                              } finally {
+                                setFetchingAnnouncements(false);
+                              }
+                            }}
+                            disabled={fetchingAnnouncements()}
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                            style={{ background: 'var(--accent-primary)', color: '#000' }}
+                          >
+                            <Show when={fetchingAnnouncements()}>
+                              <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                            </Show>
+                            {fetchingAnnouncements() ? 'Fetching...' : 'Check for Announcements Now'}
+                          </button>
+                          <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                            Manually check for new announcements (limited to once per 24 hours)
+                          </p>
+                        </div>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               </Show>
               <Show when={(section as any).isLearningSection}>
