@@ -53,7 +53,29 @@ export async function fetchAPI<T>(endpoint: string, options?: RequestInit): Prom
       if (contentType && contentType.includes('text/html')) {
         throw new Error(`API endpoint not found (${response.status}). The server returned an HTML error page. Check that the endpoint exists.`);
       }
-      
+
+      // Check for policy gate error (403 POLICY_NOT_ACCEPTED)
+      if (response.status === 403 && contentType?.includes('application/json')) {
+        try {
+          const errorData = JSON.parse(error);
+          if (errorData.error_code === 'POLICY_NOT_ACCEPTED') {
+            // Dispatch event to trigger PolicyModal in AppShell
+            window.dispatchEvent(new CustomEvent('policy-required', {
+              detail: { policyVersion: errorData.policy_version }
+            }));
+            throw new Error(errorData.message || 'Policy acceptance required before accessing cluster features.');
+          }
+        } catch (parseErr) {
+          // If JSON parse fails, fall through to regular error handling
+          if (parseErr instanceof SyntaxError) {
+            // Continue to throw regular error below
+          } else {
+            // Re-throw our custom error
+            throw parseErr;
+          }
+        }
+      }
+
       // For 503 Service Unavailable, preserve the original error message if it's descriptive
       // This helps identify optional features that aren't enabled
       if (response.status === 503 && error) {
@@ -1603,6 +1625,60 @@ export const api = {
   // ============ Terminal ============
   getAvailableShells: () => fetchAPI<{ shells: Array<{ name: string; display: string; path: string; priority: number }> }>('/terminal/shells'),
   getTerminalPreferences: () => fetchAPI<{ preferredShell: string }>('/terminal/preferences'),
+
+  // ============ Notifications ============
+  getNotifications: (filter?: 'all' | 'unread', severity?: string) => {
+    const params = new URLSearchParams();
+    if (filter) params.append('filter', filter);
+    if (severity) params.append('severity', severity);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchAPI<{ notifications: Notification[] }>(`/notifications${query}`);
+  },
+
+  markNotificationRead: (id: string) =>
+    fetchAPI<{ success: boolean }>('/notifications/mark-read', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+
+  markAllNotificationsRead: () =>
+    fetchAPI<{ success: boolean }>('/notifications/mark-all-read', {
+      method: 'POST',
+    }),
+
+  getUnreadNotificationCount: () =>
+    fetchAPI<{ unread_count: number }>('/notifications/unread-count'),
+
+  deleteNotification: (id: string) =>
+    fetchAPI<{ success: boolean }>('/notifications/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+
+  // ============ Policy ============
+  getPolicyStatus: () =>
+    fetchAPI<PolicyStatus>('/policy/status'),
+
+  acceptPolicy: (policyVersion: string) =>
+    fetchAPI<{ success: boolean; message: string }>('/policy/accept', {
+      method: 'POST',
+      body: JSON.stringify({ policy_version: policyVersion }),
+    }),
+
+  // ============ Announcements ============
+  getAnnouncementsStatus: () =>
+    fetchAPI<AnnouncementsStatus>('/announcements/status'),
+
+  setAnnouncementsOptIn: (optIn: boolean) =>
+    fetchAPI<{ success: boolean; opt_in: boolean }>('/announcements/opt-in', {
+      method: 'POST',
+      body: JSON.stringify({ opt_in: optIn }),
+    }),
+
+  checkAnnouncements: () =>
+    fetchAPI<{ success: boolean; message: string }>('/announcements/check', {
+      method: 'POST',
+    }),
 };
 
 interface Connector {
@@ -1989,4 +2065,30 @@ export interface CustomAppInfo {
   deploymentType?: string; // "manifest" or "helm"
   chartName?: string; // For Helm deployments
   chartVersion?: string; // For Helm deployments
+}
+
+// ============ Notifications, Policy & Announcements ============
+export interface Notification {
+  id: string;
+  created_at: string;
+  severity: 'info' | 'success' | 'warning' | 'error' | 'security' | 'policy';
+  title: string;
+  body: string;
+  source: 'local' | 'release' | 'policy' | 'announcements';
+  link_url?: string;
+  is_read: boolean;
+  dedupe_key: string;
+  expires_at?: string;
+  metadata_json?: string;
+}
+
+export interface PolicyStatus {
+  policy_required: boolean;
+  policy_version: string;
+  accepted_policy_version: string;
+}
+
+export interface AnnouncementsStatus {
+  opt_in: boolean;
+  last_fetch_at?: string;
 }

@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/creack/pty/v2"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -215,6 +216,9 @@ type WebServer struct {
 	aiStatusCacheTime time.Time
 	aiStatusCacheMu   sync.RWMutex
 	secureMode        *security.SecureMode
+	// Policy and notification services
+	policyService        *PolicyService
+	announcementsService *AnnouncementsService
 }
 
 // NewWebServer creates a new web server
@@ -328,6 +332,17 @@ func NewWebServer(app *App) *WebServer {
 		ws.iam = NewIAM(ws.db, iamEnabled)
 	}
 
+	// Initialize policy and announcements services
+	if ws.db != nil {
+		ws.policyService = NewPolicyService(ws.db)
+		ws.announcementsService = NewAnnouncementsService(ws.db)
+
+		// Check policy on startup
+		if err := ws.policyService.CheckPolicyOnStartup(); err != nil {
+			fmt.Printf("⚠️  Failed to check policy on startup: %v\n", err)
+		}
+	}
+
 	// Initialize state manager for continuity tracking
 	stateMgr, err := NewStateManager()
 	if err != nil {
@@ -344,6 +359,23 @@ func (ws *WebServer) Start(port int) error {
 	// Read state on startup (last_seen_at) - silently
 	if ws.stateManager != nil {
 		ws.stateManager.ReadState()
+	}
+
+	// Check for version upgrade and create notification
+	if ws.db != nil {
+		ws.checkVersionUpgrade()
+	}
+
+	// Fetch announcements on startup (if opted in and 24h passed)
+	if ws.announcementsService != nil {
+		canFetch, err := ws.announcementsService.CanFetch()
+		if err == nil && canFetch {
+			go func() {
+				if err := ws.announcementsService.FetchAnnouncements(); err != nil {
+					// Silent failure - announcements are optional
+				}
+			}()
+		}
 	}
 
 	// Get the embedded web UI filesystem
@@ -387,6 +419,22 @@ func (ws *WebServer) Start(port int) error {
 
 	// Capabilities endpoint
 	http.HandleFunc("/api/capabilities", ws.handleCapabilities)
+
+	// Notification endpoints
+	http.HandleFunc("/api/notifications", ws.handleNotificationsList)
+	http.HandleFunc("/api/notifications/mark-read", ws.handleNotificationMarkRead)
+	http.HandleFunc("/api/notifications/mark-all-read", ws.handleNotificationMarkAllRead)
+	http.HandleFunc("/api/notifications/unread-count", ws.handleNotificationUnreadCount)
+	http.HandleFunc("/api/notifications/delete", ws.handleNotificationDelete)
+
+	// Policy endpoints
+	http.HandleFunc("/api/policy/status", ws.handlePolicyStatus)
+	http.HandleFunc("/api/policy/accept", ws.handlePolicyAccept)
+
+	// Announcements endpoints
+	http.HandleFunc("/api/announcements/status", ws.handleAnnouncementsStatus)
+	http.HandleFunc("/api/announcements/opt-in", ws.handleAnnouncementsOptIn)
+	http.HandleFunc("/api/announcements/check", ws.handleAnnouncementsCheck)
 
 	// Cluster manager endpoints
 	// Legacy cluster endpoints (keep for backward compatibility)
@@ -9253,4 +9301,50 @@ func (ws *WebServer) handleUILogStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Version Upgrade Detection
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// checkVersionUpgrade checks if the app version has changed and creates a notification
+func (ws *WebServer) checkVersionUpgrade() {
+	currentVersion := GetVersion()
+
+	// Get last seen version
+	lastSeenVersion, err := ws.db.GetAppState("last_seen_app_version")
+	if err != nil {
+		fmt.Printf("⚠️  Failed to get last seen version: %v\n", err)
+		return
+	}
+
+	// If version changed (and not first run)
+	if lastSeenVersion != "" && lastSeenVersion != currentVersion {
+		// Create release notification
+		notification := &database.Notification{
+			ID:        uuid.New().String(),
+			CreatedAt: time.Now(),
+			Severity:  "info",
+			Title:     fmt.Sprintf("Updated to v%s", currentVersion),
+			Body:      "KubeGraf has been updated. Check the release notes to see what's new.",
+			Source:    "release",
+			LinkURL:   stringPtr(fmt.Sprintf("https://github.com/kubegraf/kubegraf/releases/tag/v%s", currentVersion)),
+			IsRead:    false,
+			DedupeKey: fmt.Sprintf("release:%s", currentVersion),
+		}
+
+		if err := ws.db.CreateNotificationIfNotExists(notification); err != nil {
+			fmt.Printf("⚠️  Failed to create upgrade notification: %v\n", err)
+		}
+	}
+
+	// Update last seen version
+	if err := ws.db.SetAppState("last_seen_app_version", currentVersion); err != nil {
+		fmt.Printf("⚠️  Failed to update last seen version: %v\n", err)
+	}
+}
+
+// Helper function to create string pointer
+func stringPtr(s string) *string {
+	return &s
 }

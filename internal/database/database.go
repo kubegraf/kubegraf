@@ -58,6 +58,21 @@ type CloudCredential struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// Notification represents a persistent in-app notification
+type Notification struct {
+	ID           string     `json:"id"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Severity     string     `json:"severity"` // info, success, warning, error, security, policy
+	Title        string     `json:"title"`
+	Body         string     `json:"body"`
+	Source       string     `json:"source"` // local, release, policy, announcements
+	LinkURL      *string    `json:"link_url,omitempty"`
+	IsRead       bool       `json:"is_read"`
+	DedupeKey    string     `json:"dedupe_key"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	MetadataJSON *string    `json:"metadata_json,omitempty"`
+}
+
 // NewDatabase creates or opens the SQLite database
 func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 	// Create directory if not exists
@@ -198,6 +213,25 @@ func (d *Database) initSchema() error {
 		updated_at DATETIME NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS notifications (
+		id TEXT PRIMARY KEY,
+		created_at DATETIME NOT NULL,
+		severity TEXT NOT NULL, -- info, success, warning, error, security, policy
+		title TEXT NOT NULL,
+		body TEXT NOT NULL,
+		source TEXT NOT NULL, -- local, release, policy, announcements
+		link_url TEXT,
+		is_read BOOLEAN NOT NULL DEFAULT 0,
+		dedupe_key TEXT UNIQUE NOT NULL,
+		expires_at DATETIME,
+		metadata_json TEXT
+	);
+
+	CREATE TABLE IF NOT EXISTS app_state (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	);
+
 	CREATE TABLE IF NOT EXISTS monitored_events (
 		id TEXT PRIMARY KEY,
 		timestamp DATETIME NOT NULL,
@@ -244,6 +278,11 @@ func (d *Database) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_log_errors_status_code ON log_errors(status_code);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_namespace ON log_errors(namespace);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_method ON log_errors(method);
+	CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+	CREATE INDEX IF NOT EXISTS idx_notifications_severity ON notifications(severity);
+	CREATE INDEX IF NOT EXISTS idx_notifications_expires_at ON notifications(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_notifications_dedupe_key ON notifications(dedupe_key);
 
 	INSERT OR IGNORE INTO workspace_context (id, payload, updated_at)
 	VALUES (1, '{"selectedNamespaces":[],"selectedCluster":"","filters":{}}', CURRENT_TIMESTAMP);
@@ -787,4 +826,141 @@ func (d *Database) cleanupOldBackups(backupDir string, olderThan time.Duration) 
 			os.Remove(filepath.Join(backupDir, file.Name()))
 		}
 	}
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Notification Management
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// CreateNotificationIfNotExists creates a notification only if the dedupe_key doesn't exist
+func (d *Database) CreateNotificationIfNotExists(notification *Notification) error {
+	query := `
+		INSERT OR IGNORE INTO notifications (
+			id, created_at, severity, title, body, source, link_url,
+			is_read, dedupe_key, expires_at, metadata_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := d.db.Exec(
+		query,
+		notification.ID,
+		notification.CreatedAt,
+		notification.Severity,
+		notification.Title,
+		notification.Body,
+		notification.Source,
+		notification.LinkURL,
+		notification.IsRead,
+		notification.DedupeKey,
+		notification.ExpiresAt,
+		notification.MetadataJSON,
+	)
+	return err
+}
+
+// ListNotifications retrieves notifications with optional filtering
+func (d *Database) ListNotifications(filterRead *bool, severity *string) ([]*Notification, error) {
+	query := `
+		SELECT id, created_at, severity, title, body, source, link_url,
+		       is_read, dedupe_key, expires_at, metadata_json
+		FROM notifications
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if filterRead != nil {
+		query += " AND is_read = ?"
+		args = append(args, *filterRead)
+	}
+
+	if severity != nil && *severity != "" {
+		query += " AND severity = ?"
+		args = append(args, *severity)
+	}
+
+	query += " ORDER BY created_at DESC"
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notifications []*Notification
+	for rows.Next() {
+		n := &Notification{}
+		err := rows.Scan(
+			&n.ID,
+			&n.CreatedAt,
+			&n.Severity,
+			&n.Title,
+			&n.Body,
+			&n.Source,
+			&n.LinkURL,
+			&n.IsRead,
+			&n.DedupeKey,
+			&n.ExpiresAt,
+			&n.MetadataJSON,
+		)
+		if err != nil {
+			return nil, err
+		}
+		notifications = append(notifications, n)
+	}
+
+	return notifications, rows.Err()
+}
+
+// MarkNotificationRead marks a single notification as read
+func (d *Database) MarkNotificationRead(id string) error {
+	_, err := d.db.Exec("UPDATE notifications SET is_read = 1 WHERE id = ?", id)
+	return err
+}
+
+// MarkAllNotificationsRead marks all notifications as read
+func (d *Database) MarkAllNotificationsRead() error {
+	_, err := d.db.Exec("UPDATE notifications SET is_read = 1")
+	return err
+}
+
+// UnreadNotificationCount returns the count of unread notifications
+func (d *Database) UnreadNotificationCount() (int, error) {
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM notifications WHERE is_read = 0").Scan(&count)
+	return count, err
+}
+
+// DeleteExpiredNotifications removes notifications past their expiration date
+func (d *Database) DeleteExpiredNotifications() error {
+	_, err := d.db.Exec("DELETE FROM notifications WHERE expires_at IS NOT NULL AND expires_at < ?", time.Now())
+	return err
+}
+
+// DeleteNotification removes a single notification
+func (d *Database) DeleteNotification(id string) error {
+	_, err := d.db.Exec("DELETE FROM notifications WHERE id = ?", id)
+	return err
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// App State Management
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// GetAppState retrieves a value from app_state
+func (d *Database) GetAppState(key string) (string, error) {
+	var value string
+	err := d.db.QueryRow("SELECT value FROM app_state WHERE key = ?", key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+// SetAppState sets a value in app_state (upsert)
+func (d *Database) SetAppState(key, value string) error {
+	_, err := d.db.Exec(`
+		INSERT INTO app_state (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value
+	`, key, value)
+	return err
 }

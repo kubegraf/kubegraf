@@ -5,7 +5,6 @@ import { setUpdateInfo } from '../stores/globalStore';
 import { clusterSwitching, clusterSwitchMessage } from '../stores/cluster';
 import DeploymentProgress from './DeploymentProgress';
 import DockedTerminal from './DockedTerminal';
-import NotificationCenter from './NotificationCenter';
 import { ConnectionOverlay } from './ConnectionOverlay';
 import ExecutionPanel from './ExecutionPanel';
 import { api } from '../services/api';
@@ -140,7 +139,6 @@ export const AppContent: Component<AppContentProps> = (props) => {
         }}
       >
         <div class="flex items-center gap-4 w-full justify-end">
-          <NotificationCenter />
           <button
             onClick={handleFooterUpdateCheck}
             disabled={checkingUpdate()}
