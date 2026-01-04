@@ -128,7 +128,7 @@ const ExplainPodPanel: Component<ExplainPodPanelProps> = (props) => {
         'align-items': 'center',
       }}>
         <div>
-          <h2 style={{ margin: 0, 'font-size': '16px', color: 'var(--text-primary)' }}>
+          <h2 style={{ margin: 0, 'font-size': '16px', 'font-weight': '700', color: 'var(--text-primary)' }}>
             🧠 Explain Pod
           </h2>
           <div style={{ 'font-size': '12px', color: 'var(--text-muted)', 'margin-top': '4px' }}>
@@ -219,14 +219,15 @@ const ExplainPodPanel: Component<ExplainPodPanelProps> = (props) => {
               <div>
                 <div style={{
                   'font-size': '14px',
-                  'font-weight': '600',
+                  'font-weight': '700',
                   color: getStatusColor(explanation()!.status),
                   'text-transform': 'capitalize',
                 }}>
-                  {explanation()!.status}
+                  📋 {explanation()!.status}
                 </div>
                 <div style={{
                   'font-size': '12px',
+                  'font-weight': '600',
                   color: 'var(--text-secondary)',
                   'margin-top': '4px',
                 }}>
@@ -292,8 +293,8 @@ const ExplainPodPanel: Component<ExplainPodPanelProps> = (props) => {
           <Show when={activeTab() === 'summary'}>
             {/* Key Findings */}
             <div style={{ 'margin-bottom': '20px' }}>
-              <h4 style={{ margin: '0 0 12px', 'font-size': '13px', color: 'var(--text-primary)' }}>
-                Key Findings
+              <h4 style={{ margin: '0 0 12px', 'font-size': '13px', 'font-weight': '700', color: 'var(--text-primary)' }}>
+                🔍 Key Findings
               </h4>
               <For each={explanation()!.keyFindings}>
                 {(finding) => (
@@ -347,7 +348,7 @@ const ExplainPodPanel: Component<ExplainPodPanelProps> = (props) => {
                 padding: '16px',
                 'margin-bottom': '20px',
               }}>
-                <h4 style={{ margin: '0 0 12px', 'font-size': '13px', color: 'var(--text-primary)' }}>
+                <h4 style={{ margin: '0 0 12px', 'font-size': '13px', 'font-weight': '700', color: 'var(--text-primary)' }}>
                   🔄 Restart Analysis
                 </h4>
                 <div style={{
@@ -414,7 +415,7 @@ const ExplainPodPanel: Component<ExplainPodPanelProps> = (props) => {
                 'border-radius': '8px',
                 padding: '16px',
               }}>
-                <h4 style={{ margin: '0 0 8px', 'font-size': '13px', color: '#ef4444' }}>
+                <h4 style={{ margin: '0 0 8px', 'font-size': '13px', 'font-weight': '700', color: '#ef4444' }}>
                   ⚠️ Resource Pressure Detected
                 </h4>
                 <div style={{ 'font-size': '12px', color: 'var(--text-primary)' }}>
@@ -457,7 +458,7 @@ const ExplainPodPanel: Component<ExplainPodPanelProps> = (props) => {
                     </div>
                     <div style={{
                       'font-size': '12px',
-                      'font-weight': '500',
+                      'font-weight': '700',
                       color: 'var(--text-primary)',
                     }}>
                       {event.event}

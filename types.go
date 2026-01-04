@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubegraf/kubegraf/internal/health"
 	"github.com/rivo/tview"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -107,6 +108,8 @@ type App struct {
 	sreAgent *SREAgent
 	// Incident Intelligence
 	incidentIntelligence *IncidentIntelligence
+	// Cluster Health Monitor
+	healthMonitor *health.ClusterHealthMonitor
 }
 
 // TableData holds the current table information

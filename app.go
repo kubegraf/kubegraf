@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubegraf/kubegraf/internal/health"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -299,6 +300,59 @@ func (a *App) loadContexts(loadingRules *clientcmd.ClientConfigLoadingRules, con
 	a.metricsClient, _ = metricsclientset.NewForConfig(config)
 	a.connected = true
 	a.connectionError = ""
+
+	// Stop existing health monitor if any
+	if a.healthMonitor != nil {
+		a.healthMonitor.Stop()
+	}
+
+	// Initialize and start health monitor for the new connection
+	a.healthMonitor = health.NewClusterHealthMonitor(
+		clientset,
+		30*time.Second, // Check every 30 seconds
+		5*time.Second,  // 5 second timeout
+	)
+
+	// Set callback to update connection status on health changes
+	a.healthMonitor.SetStatusChangeCallback(func(status *health.ClusterHealthStatus) {
+		if !status.Healthy {
+			a.connected = false
+			a.connectionError = status.ErrorMessage
+			fmt.Printf("⚠️  Cluster connection lost: %s\n", status.ErrorMessage)
+
+			// Update context manager's cached connection status
+			if a.contextManager != nil {
+				currentCtx := a.GetCurrentContext()
+				if ctx := a.GetContextInfo(currentCtx); ctx != nil {
+					a.contextManager.mu.Lock()
+					ctx.Connected = false
+					ctx.Error = status.ErrorMessage
+					a.contextManager.mu.Unlock()
+				}
+			}
+		} else {
+			a.connected = true
+			a.connectionError = ""
+			fmt.Printf("✅ Cluster connection restored\n")
+
+			// Update context manager's cached connection status
+			if a.contextManager != nil {
+				currentCtx := a.GetCurrentContext()
+				if ctx := a.GetContextInfo(currentCtx); ctx != nil {
+					a.contextManager.mu.Lock()
+					ctx.Connected = true
+					ctx.Error = ""
+					if status.ServerVersion != "" {
+						ctx.ServerVersion = status.ServerVersion
+					}
+					a.contextManager.mu.Unlock()
+				}
+			}
+		}
+	})
+
+	a.healthMonitor.Start()
+
 	return nil
 }
 

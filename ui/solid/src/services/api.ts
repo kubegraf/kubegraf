@@ -1679,6 +1679,15 @@ export const api = {
     fetchAPI<{ success: boolean; message: string }>('/announcements/check', {
       method: 'POST',
     }),
+
+  // ============ Cluster Health ============
+  getClusterHealth: () =>
+    fetchAPI<ClusterHealthStatus>('/clusters/health'),
+
+  forceHealthCheck: () =>
+    fetchAPI<{ success: boolean; status: ClusterHealthStatus }>('/clusters/health/check', {
+      method: 'POST',
+    }),
 };
 
 interface Connector {
@@ -2091,4 +2100,14 @@ export interface PolicyStatus {
 export interface AnnouncementsStatus {
   opt_in: boolean;
   last_fetch_at?: string;
+}
+
+// ============ Cluster Health ============
+export interface ClusterHealthStatus {
+  healthy: boolean;
+  lastCheck: string;
+  lastSuccess?: string;
+  errorMessage?: string;
+  responseTimeMs?: number;
+  serverVersion?: string;
 }
