@@ -442,6 +442,8 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/clusters/connect", ws.handleClusterConnect)
 	http.HandleFunc("/api/clusters/disconnect", ws.handleClusterDisconnect)
 	http.HandleFunc("/api/clusters/status", ws.handleClusterStatus)
+	http.HandleFunc("/api/clusters/health", ws.handleClusterHealth)
+	http.HandleFunc("/api/clusters/health/check", ws.handleClusterHealthCheck)
 
 	// New cluster manager endpoints (fast, pre-warmed)
 	http.HandleFunc("/api/clusters/list", ws.handleListClustersNew)
