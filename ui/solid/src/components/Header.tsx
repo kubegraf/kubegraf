@@ -872,25 +872,6 @@ const Header: Component = () => {
         {/* Theme toggle */}
         <ThemeToggle />
 
-        {/* Compact mode toggle */}
-        <button
-          onClick={() => updateSetting('compactMode', !settings().compactMode)}
-          class="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors"
-          style={{
-            background: settings().compactMode ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-            color: settings().compactMode ? '#fff' : 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-          }}
-          title={settings().compactMode ? 'Compact Mode ON - Click to switch to Normal' : 'Normal Mode - Click to switch to Compact'}
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={settings().compactMode 
-              ? "M4 6h16M4 12h16M4 18h16" 
-              : "M4 6h16M4 10h16M4 14h16M4 18h16"} />
-          </svg>
-          <span class="text-sm">{settings().compactMode ? 'Normal' : 'Compact'}</span>
-        </button>
-
         {/* Brain button */}
         <button
           onClick={toggleBrainPanel}

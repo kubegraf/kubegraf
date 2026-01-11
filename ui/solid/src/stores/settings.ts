@@ -128,13 +128,13 @@ const defaultFeatureFlags: FeatureFlags = {
 };
 
 // Settings version - increment this when defaults change to force update
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 
 // Default settings
 const defaultSettings: AppSettings = {
   ...defaultFeatureFlags,
   theme: 'dark',
-  compactMode: true,
+  compactMode: false, // Normal mode as default (compact mode removed)
   sidebarCollapsed: false,
   defaultNamespace: '_all',
   itemsPerPage: 50,

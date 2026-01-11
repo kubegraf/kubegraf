@@ -195,12 +195,6 @@ const Settings: Component = () => {
           })),
         },
         {
-          id: 'compactMode',
-          label: 'Compact Mode',
-          description: 'Reduce spacing and padding for a more compact view',
-          type: 'toggle',
-        },
-        {
           id: 'sidebarCollapsed',
           label: 'Collapsed Sidebar by Default',
           description: 'Start with sidebar in collapsed state',

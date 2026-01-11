@@ -462,22 +462,41 @@ func (ecm *EnhancedClusterManager) generateClusterIDFromContext(contextName stri
 }
 
 // guessEnvironment guesses the environment from context name and provider
+// Uses heuristics based on common naming patterns:
+// - prod/production → prod
+// - staging/stage/uat/test → staging (UAT is typically a staging-like environment)
+// - dev/development → dev
+// - local/kind/minikube/k3d → local
+// - Defaults to "unknown" if no pattern matches (more honest than guessing)
 func (ecm *EnhancedClusterManager) guessEnvironment(contextName, provider string) string {
 	lower := strings.ToLower(contextName)
+	
+	// Production environments
 	if strings.Contains(lower, "prod") || strings.Contains(lower, "production") {
 		return "prod"
 	}
-	if strings.Contains(lower, "staging") || strings.Contains(lower, "stage") {
+	
+	// Staging/UAT/Test environments (UAT = User Acceptance Testing, typically staging-like)
+	if strings.Contains(lower, "staging") || strings.Contains(lower, "stage") ||
+		strings.Contains(lower, "uat") || strings.Contains(lower, "test") ||
+		strings.Contains(lower, "qa") || strings.Contains(lower, "preprod") ||
+		strings.Contains(lower, "pre-prod") {
 		return "staging"
 	}
+	
+	// Development environments
 	if strings.Contains(lower, "dev") || strings.Contains(lower, "development") {
 		return "dev"
 	}
+	
+	// Local environments
 	if strings.Contains(lower, "local") || strings.Contains(lower, "kind") ||
 		strings.Contains(lower, "minikube") || strings.Contains(lower, "k3d") {
 		return "local"
 	}
-	return "dev" // Default
+	
+	// Unknown - don't guess, let user know we couldn't determine
+	return "unknown"
 }
 
 // registerClusterForHealthCheck registers a cluster with the health checker

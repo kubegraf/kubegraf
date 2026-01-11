@@ -36,7 +36,7 @@ const ClusterManager: Component = () => {
   });
 
   return (
-    <div class="space-y-6">
+    <div class="space-y-6" style={{ background: 'var(--bg-primary)' }}>
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div>
@@ -47,14 +47,24 @@ const ClusterManager: Component = () => {
           </div>
           <div class="flex items-center gap-3">
             <div
-              class={`px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-2 ${hasActiveCluster() ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}
+              class="px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-2"
+              style={{
+                background: hasActiveCluster() ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                color: hasActiveCluster() ? 'var(--success-color)' : 'var(--error-color)'
+              }}
             >
-              <span class={`w-2 h-2 rounded-full ${hasActiveCluster() ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
+              <span 
+                class="w-2 h-2 rounded-full"
+                style={{ background: hasActiveCluster() ? 'var(--success-color)' : 'var(--error-color)' }}
+              ></span>
               {hasActiveCluster() ? 'Cluster Connected' : 'Cluster Disconnected'}
             </div>
             <button
-              class="px-3 py-1.5 rounded-md text-sm flex items-center gap-2"
-              style={{ background: '#22c55e', color: '#000' }}
+              class="px-3 py-1.5 rounded-md text-sm flex items-center gap-2 transition-colors"
+              style={{ 
+                background: 'var(--success-color)', 
+                color: '#000' 
+              }}
               onClick={() => {
                 // Set filter and tab preference - use category ID for consistency
                 sessionStorage.setItem('kubegraf-auto-filter', 'local-cluster');
@@ -217,8 +227,11 @@ const ClusterManager: Component = () => {
                 }}
               >
                 <div class="flex items-center gap-3 mb-4">
-                  <div class="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: '#22c55e' }}>
+                  <div 
+                    class="w-12 h-12 rounded-lg flex items-center justify-center"
+                    style={{ background: 'rgba(16, 185, 129, 0.1)' }}
+                  >
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--success-color)' }}>
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
                   </div>
@@ -252,7 +265,7 @@ const ClusterManager: Component = () => {
                     setCurrentView('apps');
                   }}
                   class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 flex items-center justify-center gap-2"
-                  style={{ background: '#22c55e', color: '#000' }}
+                  style={{ background: 'var(--success-color)', color: '#000' }}
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -297,17 +310,17 @@ const ClusterManager: Component = () => {
 
       {/* Enhanced Cluster Manager - Primary view (always visible) */}
       <div class="mt-8 p-6 rounded-xl border" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-        <div class="flex items-center justify-between mb-4">
-          <div>
+          <div class="flex items-center justify-between mb-4">
+            <div>
             <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Enhanced Cluster Manager</h2>
             <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
               Clusters with health status tracking and source management
             </p>
           </div>
-          <button
+                      <button
             class="px-3 py-1.5 text-sm rounded-md transition-colors"
-            style={{ 
-              border: '1px solid var(--border-color)', 
+                        style={{
+                          border: '1px solid var(--border-color)',
               background: 'var(--bg-tertiary)', 
               color: 'var(--text-primary)', 
             }}
@@ -318,8 +331,8 @@ const ClusterManager: Component = () => {
             disabled={enhancedLoading()}
           >
             Refresh
-          </button>
-        </div>
+                      </button>
+                    </div>
 
         {/* Sources */}
         <Show when={sources().length > 0}>
@@ -328,7 +341,7 @@ const ClusterManager: Component = () => {
             <div class="space-y-2">
               <For each={sources()}>
                 {(source) => (
-                  <div class="p-2 rounded border text-xs" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                  <div class="p-2 rounded border text-xs" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
                     <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{source.name}</span>
                     <span class="ml-2 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)' }}>
                       {source.type}
@@ -340,22 +353,22 @@ const ClusterManager: Component = () => {
                 )}
               </For>
             </div>
-          </div>
-        </Show>
+            </div>
+          </Show>
 
         {/* Enhanced Clusters */}
         <Show when={enhancedClusters().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>No enhanced clusters found.</p>}>
-          <div class="space-y-3">
+          <div class="space-y-1.5">
               <For each={enhancedClusters()}>
                 {(cluster) => {
                   const statusColor = () => {
                     switch (cluster.status) {
-                      case 'CONNECTED': return '#10b981';
-                      case 'DEGRADED': return '#f59e0b';
-                      case 'CONNECTING': return '#3b82f6';
-                      case 'AUTH_ERROR': return '#ef4444';
-                      case 'DISCONNECTED': return '#ef4444';
-                      default: return '#6b7280';
+                      case 'CONNECTED': return 'var(--success-color)';
+                      case 'DEGRADED': return 'var(--warning-color)';
+                      case 'CONNECTING': return 'var(--info-color)';
+                      case 'AUTH_ERROR': return 'var(--error-color)';
+                      case 'DISCONNECTED': return 'var(--error-color)';
+                      default: return 'var(--text-muted)';
                     }
                   };
                   const statusLabel = () => {
@@ -369,13 +382,28 @@ const ClusterManager: Component = () => {
                     }
                   };
                   return (
-                    <div class="p-4 rounded-lg border flex flex-col gap-3" style={{ border: '1px solid var(--border-color)', background: cluster.active ? 'rgba(6, 182, 212, 0.05)' : 'var(--bg-secondary)' }}>
+                    <div 
+                      class="p-2.5 rounded-lg border flex flex-col gap-1.5" 
+                      style={{ 
+                        border: '1px solid var(--border-color)', 
+                        background: cluster.active ? 'rgba(6, 182, 212, 0.05)' : 'var(--bg-card)' 
+                      }}
+                    >
                       <div class="flex items-center justify-between gap-4">
                         <div class="flex-1 min-w-0">
-                          <div class="flex items-center gap-2 mb-1" style={{ 'flex-wrap': 'nowrap', 'overflow-x': 'auto' }}>
+                          <div class="flex items-center gap-2 mb-0.5" style={{ 'flex-wrap': 'nowrap', 'overflow-x': 'auto' }}>
                             <span class="text-base font-semibold" style={{ color: 'var(--text-primary)', 'white-space': 'nowrap' }}>{cluster.name}</span>
                             <Show when={cluster.active}>
-                              <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', 'white-space': 'nowrap' }}>Active</span>
+                              <span 
+                                class="px-2 py-0.5 text-xs rounded-full" 
+                                style={{ 
+                                  background: 'rgba(16, 185, 129, 0.15)', 
+                                  color: 'var(--success-color)', 
+                                  'white-space': 'nowrap' 
+                                }}
+                              >
+                                Active
+                              </span>
                             </Show>
                             <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)', 'white-space': 'nowrap' }}>
                               {cluster.provider}
@@ -409,12 +437,12 @@ const ClusterManager: Component = () => {
                                 Select
                               </button>
                             </Show>
-                            <button
+              <button
                               class="px-3 py-1.5 text-sm rounded-md transition-all"
-                              style={{
-                                border: '1px solid var(--border-color)',
-                                background: 'var(--bg-tertiary)',
-                                color: 'var(--text-primary)',
+                style={{ 
+                  border: '1px solid var(--border-color)', 
+                  background: 'var(--bg-tertiary)', 
+                  color: 'var(--text-primary)', 
                                 'white-space': 'nowrap',
                                 'flex-shrink': 0
                               }}
@@ -431,13 +459,13 @@ const ClusterManager: Component = () => {
                               }}
                             >
                               Reconnect
-                            </button>
-                          </div>
-                          <p class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+              </button>
+            </div>
+                          <p class="text-xs mb-0.5" style={{ color: 'var(--text-muted)' }}>
                             {cluster.contextName} • {cluster.kubeconfigPath}
                           </p>
                           <Show when={cluster.lastError}>
-                            <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>{cluster.lastError}</p>
+                            <p class="text-xs mt-0.5" style={{ color: 'var(--error-color)' }}>{cluster.lastError}</p>
                           </Show>
                         </div>
                         <div class="flex items-center gap-2 flex-shrink-0">
@@ -458,13 +486,13 @@ const ClusterManager: Component = () => {
                             }
                           }}
                         />
-                      </Show>
+            </Show>
                     </div>
                   );
                 }}
               </For>
-          </div>
-        </Show>
+            </div>
+          </Show>
       </div>
     </div>
   );
