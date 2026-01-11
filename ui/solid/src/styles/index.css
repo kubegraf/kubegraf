@@ -504,7 +504,7 @@ code, pre, .font-mono {
 
 /* Header glass */
 .header-glass {
-  background: var(--bg-card);
+  background: var(--bg-secondary);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
   transition: background-color 0.3s ease;

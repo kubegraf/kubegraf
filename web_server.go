@@ -416,6 +416,7 @@ func (ws *WebServer) Start(port int) error {
 	// Serve static files with SPA routing (must be registered last)
 	staticHandler := ws.handleStaticFiles(webFS)
 	http.HandleFunc("/api/status", ws.handleConnectionStatus)
+	http.HandleFunc("/api/cache/stats", ws.handleCacheStats) // Production monitoring endpoint
 	http.HandleFunc("/api/updates/check", ws.handleCheckUpdates)
 	http.HandleFunc("/api/updates/install", ws.handleInstallUpdate)
 	// New update endpoints

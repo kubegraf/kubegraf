@@ -372,19 +372,51 @@ func (ii *IncidentIntelligence) Start(ctx context.Context) {
 
 // periodicScanAndIngest periodically scans Kubernetes resources and feeds findings into v2 manager
 func (ii *IncidentIntelligence) periodicScanAndIngest(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second) // Scan every 30 seconds
-	defer ticker.Stop()
+	// Production-ready: Scan every 2 minutes (reduce cluster API load)
+	scanTicker := time.NewTicker(2 * time.Minute)
+	defer scanTicker.Stop()
+
+	// Production-ready: Cleanup old incidents daily (30 day retention)
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	defer cleanupTicker.Stop()
 
 	// Do an initial scan
 	ii.scanAndIngestIncidents(ctx)
+
+	// Do initial cleanup on startup
+	go ii.cleanupOldIncidents()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-scanTicker.C:
 			ii.scanAndIngestIncidents(ctx)
+		case <-cleanupTicker.C:
+			go ii.cleanupOldIncidents()
 		}
+	}
+}
+
+// cleanupOldIncidents removes incidents older than 30 days
+func (ii *IncidentIntelligence) cleanupOldIncidents() {
+	if ii.intelligenceSys == nil {
+		return
+	}
+
+	kb := ii.intelligenceSys.GetKnowledgeBank()
+	if kb == nil {
+		return
+	}
+
+	deleted, err := kb.CleanupOldIncidents(30)
+	if err != nil {
+		log.Printf("[AutoFix] Failed to cleanup old incidents: %v", err)
+		return
+	}
+
+	if deleted > 0 {
+		log.Printf("[AutoFix] Cleaned up %d incidents older than 30 days", deleted)
 	}
 }
 

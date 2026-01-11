@@ -1,8 +1,14 @@
 /**
- * Realtime CPU and Memory Chart
- * Uses SVG for fast incremental updates
+ * Realtime CPU and Memory Charts - Separated
+ * Professional monitoring style with individual graphs for CPU and Memory
+ *
+ * Configuration:
+ * - Shows 30 minutes of data (360 points at 5s intervals) for slower, smoother movement
+ * - Minimum 20% Y-axis range for better visibility
+ * - 6 time labels on X-axis
+ * - Updates every 5 seconds via WebSocket
  */
-import { Component, createMemo, createEffect, onMount, onCleanup, Show } from 'solid-js';
+import { Component, createMemo, createSignal, Show, For } from 'solid-js';
 import { points, MetricPoint } from '../../stores/metricsStore';
 
 interface CpuMemChartProps {
@@ -12,12 +18,38 @@ interface CpuMemChartProps {
   class?: string;
 }
 
+interface TooltipData {
+  x: number;
+  y: number;
+  timestamp: string;
+  value: number;
+  type: 'cpu' | 'mem';
+}
+
 const CpuMemChart: Component<CpuMemChartProps> = (props) => {
-  const height = props.height || 200;
-  const maxPoints = props.maxPoints || 180;
+  const totalHeight = props.height || 400;
+  const maxPoints = props.maxPoints || 360; // 30 minutes at 5s intervals for slower movement
   const showLegend = props.showLegend ?? true;
 
-  // Get the data points (limited to maxPoints)
+  // Each chart gets half the height minus spacing
+  const chartHeight = (totalHeight - 60) / 2; // 60px for spacing and labels
+
+  // Tooltip state
+  const [tooltip, setTooltip] = createSignal<TooltipData | null>(null);
+  const [hovering, setHovering] = createSignal(false);
+  let cpuSvgRef: SVGSVGElement | undefined;
+  let memSvgRef: SVGSVGElement | undefined;
+
+  // Professional colors
+  const CPU_COLOR = '#ff6b35'; // Orange
+  const MEM_COLOR = '#4a90e2'; // Blue
+
+  // Chart dimensions with proper margins
+  const MARGIN = { top: 10, right: 15, bottom: 25, left: 50 };
+  const chartWidth = 100 - MARGIN.left - MARGIN.right;
+  const chartInnerHeight = chartHeight - MARGIN.top - MARGIN.bottom;
+
+  // Get the data points
   const data = createMemo(() => {
     const pts = points();
     if (pts.length > maxPoints) {
@@ -26,17 +58,74 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
     return pts;
   });
 
-  // Calculate path for a series
-  const createPath = (getData: (p: MetricPoint) => number) => {
+  // Calculate dynamic min/max for CPU - WIDER RANGE FOR BETTER VISIBILITY
+  const cpuRange = createMemo(() => {
+    const pts = data();
+    if (pts.length === 0) return { min: 0, max: 100 };
+
+    const cpuValues = pts.map(p => p.cluster.cpuPct);
+    const min = Math.min(...cpuValues);
+    const max = Math.max(...cpuValues);
+
+    let range = max - min;
+
+    // Use minimum 20% range for better visibility
+    if (range < 20) {
+      const center = (min + max) / 2;
+      return {
+        min: Math.max(0, center - 10),
+        max: Math.min(100, center + 10)
+      };
+    }
+
+    // Add 20% padding to the range
+    const padding = range * 0.2;
+    return {
+      min: Math.max(0, min - padding),
+      max: Math.min(100, max + padding)
+    };
+  });
+
+  // Calculate dynamic min/max for Memory - WIDER RANGE FOR BETTER VISIBILITY
+  const memRange = createMemo(() => {
+    const pts = data();
+    if (pts.length === 0) return { min: 0, max: 100 };
+
+    const memValues = pts.map(p => p.cluster.memPct);
+    const min = Math.min(...memValues);
+    const max = Math.max(...memValues);
+
+    let range = max - min;
+
+    // Use minimum 20% range for better visibility
+    if (range < 20) {
+      const center = (min + max) / 2;
+      return {
+        min: Math.max(0, center - 10),
+        max: Math.min(100, center + 10)
+      };
+    }
+
+    // Add 20% padding to the range
+    const padding = range * 0.2;
+    return {
+      min: Math.max(0, min - padding),
+      max: Math.min(100, max + padding)
+    };
+  });
+
+  // Create path for a metric
+  const createPath = (getData: (p: MetricPoint) => number, range: { min: number; max: number }) => {
     const pts = data();
     if (pts.length < 2) return '';
 
-    const width = 100; // percentage-based
-    const h = height - 40; // leave room for labels
-    const padding = 5;
-
-    const xScale = (i: number) => padding + (i / (pts.length - 1)) * (width - padding * 2);
-    const yScale = (v: number) => h - (Math.min(v, 100) / 100) * (h - padding * 2);
+    const xScale = (i: number) => MARGIN.left + (i / (pts.length - 1)) * chartWidth;
+    const yScale = (v: number) => {
+      const rangeSize = range.max - range.min;
+      if (rangeSize === 0) return MARGIN.top + chartInnerHeight / 2;
+      const normalized = (v - range.min) / rangeSize;
+      return MARGIN.top + chartInnerHeight - normalized * chartInnerHeight;
+    };
 
     let path = `M ${xScale(0)} ${yScale(getData(pts[0]))}`;
     for (let i = 1; i < pts.length; i++) {
@@ -45,191 +134,487 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
     return path;
   };
 
-  // Create area path (filled under the line)
-  const createAreaPath = (getData: (p: MetricPoint) => number) => {
-    const pts = data();
-    if (pts.length < 2) return '';
+  const cpuPath = createMemo(() => createPath(p => p.cluster.cpuPct, cpuRange()));
+  const memPath = createMemo(() => createPath(p => p.cluster.memPct, memRange()));
 
-    const width = 100;
-    const h = height - 40;
-    const padding = 5;
-
-    const xScale = (i: number) => padding + (i / (pts.length - 1)) * (width - padding * 2);
-    const yScale = (v: number) => h - (Math.min(v, 100) / 100) * (h - padding * 2);
-
-    let path = `M ${xScale(0)} ${h}`;
-    path += ` L ${xScale(0)} ${yScale(getData(pts[0]))}`;
-    for (let i = 1; i < pts.length; i++) {
-      path += ` L ${xScale(i)} ${yScale(getData(pts[i]))}`;
-    }
-    path += ` L ${xScale(pts.length - 1)} ${h}`;
-    path += ' Z';
-    return path;
-  };
-
-  const cpuPath = createMemo(() => createPath(p => p.cluster.cpuPct));
-  const memPath = createMemo(() => createPath(p => p.cluster.memPct));
-  const cpuAreaPath = createMemo(() => createAreaPath(p => p.cluster.cpuPct));
-  const memAreaPath = createMemo(() => createAreaPath(p => p.cluster.memPct));
-
-  // Latest values for display
+  // Latest values
   const latestCpu = createMemo(() => {
     const pts = data();
-    if (pts.length === 0) return 0;
-    return pts[pts.length - 1].cluster.cpuPct;
+    return pts.length > 0 ? pts[pts.length - 1].cluster.cpuPct : 0;
   });
 
   const latestMem = createMemo(() => {
     const pts = data();
-    if (pts.length === 0) return 0;
-    return pts[pts.length - 1].cluster.memPct;
+    return pts.length > 0 ? pts[pts.length - 1].cluster.memPct : 0;
   });
 
-  // Time range display
-  const timeRange = createMemo(() => {
+  // Time labels for x-axis - show more labels for 30-minute window
+  const timeLabels = createMemo(() => {
     const pts = data();
-    if (pts.length < 2) return '';
-    const startTs = pts[0].ts;
-    const endTs = pts[pts.length - 1].ts;
-    const duration = endTs - startTs;
-    if (duration < 60) return `${duration}s`;
-    if (duration < 3600) return `${Math.floor(duration / 60)}m`;
-    return `${Math.floor(duration / 3600)}h`;
+    if (pts.length === 0) return [];
+
+    const labels = [];
+    // Show 6 time labels across the axis for better time visibility
+    const numLabels = 6;
+
+    for (let i = 0; i < numLabels; i++) {
+      const idx = Math.floor((i / (numLabels - 1)) * (pts.length - 1));
+      if (idx < pts.length) {
+        const point = pts[idx];
+        const date = new Date(point.ts * 1000);
+        const timeStr = date.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const x = MARGIN.left + (idx / (pts.length - 1)) * chartWidth;
+        labels.push({ x, label: timeStr });
+      }
+    }
+    return labels;
   });
+
+  // Y-axis labels generator
+  const getYAxisLabels = (range: { min: number; max: number }) => {
+    return [
+      { value: range.max, y: MARGIN.top },
+      { value: range.max - (range.max - range.min) * 0.25, y: MARGIN.top + chartInnerHeight * 0.25 },
+      { value: range.max - (range.max - range.min) * 0.5, y: MARGIN.top + chartInnerHeight * 0.5 },
+      { value: range.max - (range.max - range.min) * 0.75, y: MARGIN.top + chartInnerHeight * 0.75 },
+      { value: range.min, y: MARGIN.top + chartInnerHeight },
+    ];
+  };
+
+  // Mouse handlers for CPU chart
+  const handleCpuMouseMove = (e: MouseEvent) => {
+    if (!cpuSvgRef) return;
+    const rect = cpuSvgRef.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * 100;
+    const pts = data();
+    if (pts.length < 2) return;
+
+    const dataIndex = Math.round(((mouseX - MARGIN.left) / chartWidth) * (pts.length - 1));
+    if (dataIndex >= 0 && dataIndex < pts.length) {
+      const point = pts[dataIndex];
+      const xPos = MARGIN.left + (dataIndex / (pts.length - 1)) * chartWidth;
+      const cpuRng = cpuRange();
+      const rangeSize = cpuRng.max - cpuRng.min;
+      const normalized = rangeSize > 0 ? (point.cluster.cpuPct - cpuRng.min) / rangeSize : 0.5;
+      const yPos = MARGIN.top + chartInnerHeight - normalized * chartInnerHeight;
+
+      const date = new Date(point.ts * 1000);
+      const timeStr = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      setTooltip({
+        x: xPos,
+        y: yPos,
+        timestamp: timeStr,
+        value: point.cluster.cpuPct,
+        type: 'cpu'
+      });
+    }
+  };
+
+  // Mouse handlers for Memory chart
+  const handleMemMouseMove = (e: MouseEvent) => {
+    if (!memSvgRef) return;
+    const rect = memSvgRef.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * 100;
+    const pts = data();
+    if (pts.length < 2) return;
+
+    const dataIndex = Math.round(((mouseX - MARGIN.left) / chartWidth) * (pts.length - 1));
+    if (dataIndex >= 0 && dataIndex < pts.length) {
+      const point = pts[dataIndex];
+      const xPos = MARGIN.left + (dataIndex / (pts.length - 1)) * chartWidth;
+      const memRng = memRange();
+      const rangeSize = memRng.max - memRng.min;
+      const normalized = rangeSize > 0 ? (point.cluster.memPct - memRng.min) / rangeSize : 0.5;
+      const yPos = MARGIN.top + chartInnerHeight - normalized * chartInnerHeight;
+
+      const date = new Date(point.ts * 1000);
+      const timeStr = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      setTooltip({
+        x: xPos,
+        y: yPos,
+        timestamp: timeStr,
+        value: point.cluster.memPct,
+        type: 'mem'
+      });
+    }
+  };
+
+  const handleMouseEnter = () => setHovering(true);
+  const handleMouseLeave = () => {
+    setHovering(false);
+    setTooltip(null);
+  };
 
   return (
     <div class={`relative ${props.class || ''}`}>
       {/* Legend */}
       <Show when={showLegend}>
-        <div class="flex items-center justify-between mb-2 px-2">
-          <div class="flex items-center gap-4">
+        <div class="flex items-center justify-between mb-3 px-2">
+          <div class="flex items-center gap-6">
             <div class="flex items-center gap-2">
-              <div class="w-3 h-3 rounded-full" style={{ background: '#f59e0b' }} />
-              <span class="text-xs" style={{ color: 'var(--text-muted)' }}>CPU</span>
-              <span class="text-sm font-semibold" style={{ color: '#f59e0b' }}>
+              <div class="w-3 h-3 rounded-full" style={{ background: CPU_COLOR }} />
+              <span class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>CPU</span>
+              <span class="text-sm font-semibold" style={{ color: CPU_COLOR }}>
                 {latestCpu().toFixed(1)}%
               </span>
             </div>
             <div class="flex items-center gap-2">
-              <div class="w-3 h-3 rounded-full" style={{ background: '#3b82f6' }} />
-              <span class="text-xs" style={{ color: 'var(--text-muted)' }}>Memory</span>
-              <span class="text-sm font-semibold" style={{ color: '#3b82f6' }}>
+              <div class="w-3 h-3 rounded-full" style={{ background: MEM_COLOR }} />
+              <span class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Memory</span>
+              <span class="text-sm font-semibold" style={{ color: MEM_COLOR }}>
                 {latestMem().toFixed(1)}%
               </span>
             </div>
           </div>
-          <Show when={timeRange()}>
-            <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Last {timeRange()}
-            </span>
-          </Show>
         </div>
       </Show>
 
-      {/* Chart */}
-      <svg
-        width="100%"
-        height={height}
-        viewBox={`0 0 100 ${height}`}
-        preserveAspectRatio="none"
-        class="overflow-visible"
-      >
-        <defs>
-          {/* CPU gradient */}
-          <linearGradient id="cpu-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.3" />
-            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.05" />
-          </linearGradient>
-          {/* Memory gradient */}
-          <linearGradient id="mem-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3" />
-            <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.05" />
-          </linearGradient>
-          {/* Glow filters */}
-          <filter id="cpu-glow">
-            <feGaussianBlur stdDeviation="1" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id="mem-glow">
-            <feGaussianBlur stdDeviation="1" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+      {/* CPU Chart */}
+      <div class="relative mb-4">
+        <div class="text-xs font-semibold mb-1 px-2" style={{ color: CPU_COLOR }}>
+          CPU Usage
+        </div>
+        <svg
+          ref={cpuSvgRef}
+          width="100%"
+          height={chartHeight}
+          viewBox={`0 0 100 ${chartHeight}`}
+          preserveAspectRatio="none"
+          class="overflow-visible cursor-crosshair"
+          onMouseMove={handleCpuMouseMove}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          <defs>
+            <filter id="cpu-shadow">
+              <feGaussianBlur stdDeviation="0.5" result="blur" />
+              <feOffset in="blur" dx="0" dy="0.5" result="offsetBlur" />
+              <feMerge>
+                <feMergeNode in="offsetBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-        {/* Grid lines */}
-        <g opacity="0.15" stroke="currentColor" stroke-width="0.2">
-          <line x1="5" y1={height * 0.25} x2="95" y2={height * 0.25} />
-          <line x1="5" y1={height * 0.5} x2="95" y2={height * 0.5} />
-          <line x1="5" y1={height * 0.75} x2="95" y2={height * 0.75} />
-        </g>
-
-        {/* Y-axis labels */}
-        <text x="2" y={height * 0.25} font-size="3" fill="currentColor" opacity="0.4">75%</text>
-        <text x="2" y={height * 0.5} font-size="3" fill="currentColor" opacity="0.4">50%</text>
-        <text x="2" y={height * 0.75} font-size="3" fill="currentColor" opacity="0.4">25%</text>
-
-        {/* Memory area (behind CPU) */}
-        <path
-          d={memAreaPath()}
-          fill="url(#mem-gradient)"
-          class="transition-all duration-500"
-        />
-
-        {/* CPU area */}
-        <path
-          d={cpuAreaPath()}
-          fill="url(#cpu-gradient)"
-          class="transition-all duration-500"
-        />
-
-        {/* Memory line */}
-        <path
-          d={memPath()}
-          fill="none"
-          stroke="#3b82f6"
-          stroke-width="0.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          filter="url(#mem-glow)"
-          class="transition-all duration-500"
-        />
-
-        {/* CPU line */}
-        <path
-          d={cpuPath()}
-          fill="none"
-          stroke="#f59e0b"
-          stroke-width="0.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          filter="url(#cpu-glow)"
-          class="transition-all duration-500"
-        />
-
-        {/* Latest point indicators */}
-        <Show when={data().length > 0}>
-          <circle
-            cx="95"
-            cy={(height - 40) - (Math.min(latestCpu(), 100) / 100) * (height - 40 - 10)}
-            r="1.5"
-            fill="#f59e0b"
-            class="animate-pulse"
+          {/* Background */}
+          <rect
+            x={MARGIN.left}
+            y={MARGIN.top}
+            width={chartWidth}
+            height={chartInnerHeight}
+            fill="var(--bg-card)"
+            opacity="0.2"
+            rx="1"
           />
-          <circle
-            cx="95"
-            cy={(height - 40) - (Math.min(latestMem(), 100) / 100) * (height - 40 - 10)}
-            r="1.5"
-            fill="#3b82f6"
-            class="animate-pulse"
+
+          {/* Grid lines */}
+          <g opacity="0.12" stroke="currentColor" stroke-width="0.15" stroke-dasharray="3,3">
+            <For each={[0.25, 0.5, 0.75]}>
+              {(ratio) => (
+                <line
+                  x1={MARGIN.left}
+                  y1={MARGIN.top + chartInnerHeight * ratio}
+                  x2={MARGIN.left + chartWidth}
+                  y2={MARGIN.top + chartInnerHeight * ratio}
+                />
+              )}
+            </For>
+            <For each={[0.25, 0.5, 0.75]}>
+              {(ratio) => (
+                <line
+                  x1={MARGIN.left + chartWidth * ratio}
+                  y1={MARGIN.top}
+                  x2={MARGIN.left + chartWidth * ratio}
+                  y2={MARGIN.top + chartInnerHeight}
+                />
+              )}
+            </For>
+          </g>
+
+          {/* Axes */}
+          <g stroke="currentColor" stroke-width="0.3" opacity="0.5">
+            <line x1={MARGIN.left} y1={MARGIN.top} x2={MARGIN.left} y2={MARGIN.top + chartInnerHeight} />
+            <line x1={MARGIN.left} y1={MARGIN.top + chartInnerHeight} x2={MARGIN.left + chartWidth} y2={MARGIN.top + chartInnerHeight} />
+          </g>
+
+          {/* Y-axis labels */}
+          <Show when={data().length > 0}>
+            <For each={getYAxisLabels(cpuRange())}>
+              {({ value, y }) => (
+                <g>
+                  <line x1={MARGIN.left - 1} y1={y} x2={MARGIN.left} y2={y} stroke="currentColor" stroke-width="0.2" opacity="0.5" />
+                  <text x={MARGIN.left - 2} y={y + 1} font-size="3" fill="currentColor" opacity="0.6" text-anchor="end">
+                    {value.toFixed(1)}%
+                  </text>
+                </g>
+              )}
+            </For>
+          </Show>
+
+          {/* CPU line */}
+          <path
+            d={cpuPath()}
+            fill="none"
+            stroke={CPU_COLOR}
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            filter="url(#cpu-shadow)"
+            opacity="0.95"
+            style={{ transition: 'd 0.5s ease-in-out' }}
           />
-        </Show>
-      </svg>
+
+          {/* Tooltip indicator */}
+          <Show when={hovering() && tooltip()?.type === 'cpu'}>
+            {(() => {
+              const t = tooltip();
+              if (!t) return null;
+              return (
+                <g>
+                  <line
+                    x1={t.x}
+                    y1={MARGIN.top}
+                    x2={t.x}
+                    y2={MARGIN.top + chartInnerHeight}
+                    stroke="currentColor"
+                    stroke-width="0.2"
+                    stroke-dasharray="2,2"
+                    opacity="0.4"
+                  />
+                  <circle cx={t.x} cy={t.y} r="2.5" fill={CPU_COLOR} stroke="white" stroke-width="1.5" />
+                </g>
+              );
+            })()}
+          </Show>
+
+          {/* Latest point */}
+          <Show when={data().length > 0}>
+            <circle
+              cx={MARGIN.left + chartWidth}
+              cy={(() => {
+                const cpuRng = cpuRange();
+                const rangeSize = cpuRng.max - cpuRng.min;
+                if (rangeSize === 0) return MARGIN.top + chartInnerHeight / 2;
+                const normalized = (latestCpu() - cpuRng.min) / rangeSize;
+                return MARGIN.top + chartInnerHeight - normalized * chartInnerHeight;
+              })()}
+              r="2"
+              fill={CPU_COLOR}
+              stroke="white"
+              stroke-width="1"
+            />
+          </Show>
+        </svg>
+      </div>
+
+      {/* Memory Chart */}
+      <div class="relative">
+        <div class="text-xs font-semibold mb-1 px-2" style={{ color: MEM_COLOR }}>
+          Memory Usage
+        </div>
+        <svg
+          ref={memSvgRef}
+          width="100%"
+          height={chartHeight}
+          viewBox={`0 0 100 ${chartHeight}`}
+          preserveAspectRatio="none"
+          class="overflow-visible cursor-crosshair"
+          onMouseMove={handleMemMouseMove}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          <defs>
+            <filter id="mem-shadow">
+              <feGaussianBlur stdDeviation="0.5" result="blur" />
+              <feOffset in="blur" dx="0" dy="0.5" result="offsetBlur" />
+              <feMerge>
+                <feMergeNode in="offsetBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Background */}
+          <rect
+            x={MARGIN.left}
+            y={MARGIN.top}
+            width={chartWidth}
+            height={chartInnerHeight}
+            fill="var(--bg-card)"
+            opacity="0.2"
+            rx="1"
+          />
+
+          {/* Grid lines */}
+          <g opacity="0.12" stroke="currentColor" stroke-width="0.15" stroke-dasharray="3,3">
+            <For each={[0.25, 0.5, 0.75]}>
+              {(ratio) => (
+                <line
+                  x1={MARGIN.left}
+                  y1={MARGIN.top + chartInnerHeight * ratio}
+                  x2={MARGIN.left + chartWidth}
+                  y2={MARGIN.top + chartInnerHeight * ratio}
+                />
+              )}
+            </For>
+            <For each={[0.25, 0.5, 0.75]}>
+              {(ratio) => (
+                <line
+                  x1={MARGIN.left + chartWidth * ratio}
+                  y1={MARGIN.top}
+                  x2={MARGIN.left + chartWidth * ratio}
+                  y2={MARGIN.top + chartInnerHeight}
+                />
+              )}
+            </For>
+          </g>
+
+          {/* Axes */}
+          <g stroke="currentColor" stroke-width="0.3" opacity="0.5">
+            <line x1={MARGIN.left} y1={MARGIN.top} x2={MARGIN.left} y2={MARGIN.top + chartInnerHeight} />
+            <line x1={MARGIN.left} y1={MARGIN.top + chartInnerHeight} x2={MARGIN.left + chartWidth} y2={MARGIN.top + chartInnerHeight} />
+          </g>
+
+          {/* Y-axis labels */}
+          <Show when={data().length > 0}>
+            <For each={getYAxisLabels(memRange())}>
+              {({ value, y }) => (
+                <g>
+                  <line x1={MARGIN.left - 1} y1={y} x2={MARGIN.left} y2={y} stroke="currentColor" stroke-width="0.2" opacity="0.5" />
+                  <text x={MARGIN.left - 2} y={y + 1} font-size="3" fill="currentColor" opacity="0.6" text-anchor="end">
+                    {value.toFixed(1)}%
+                  </text>
+                </g>
+              )}
+            </For>
+          </Show>
+
+          {/* X-axis time labels (only on bottom chart) */}
+          <Show when={timeLabels().length > 0}>
+            <For each={timeLabels()}>
+              {({ x, label }) => (
+                <g>
+                  <line x1={x} y1={MARGIN.top + chartInnerHeight} x2={x} y2={MARGIN.top + chartInnerHeight + 1} stroke="currentColor" stroke-width="0.2" opacity="0.5" />
+                  <text x={x} y={MARGIN.top + chartInnerHeight + 5} font-size="2.8" fill="currentColor" opacity="0.6" text-anchor="middle">
+                    {label}
+                  </text>
+                </g>
+              )}
+            </For>
+          </Show>
+
+          {/* Memory line */}
+          <path
+            d={memPath()}
+            fill="none"
+            stroke={MEM_COLOR}
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            filter="url(#mem-shadow)"
+            opacity="0.95"
+            style={{ transition: 'd 0.5s ease-in-out' }}
+          />
+
+          {/* Tooltip indicator */}
+          <Show when={hovering() && tooltip()?.type === 'mem'}>
+            {(() => {
+              const t = tooltip();
+              if (!t) return null;
+              return (
+                <g>
+                  <line
+                    x1={t.x}
+                    y1={MARGIN.top}
+                    x2={t.x}
+                    y2={MARGIN.top + chartInnerHeight}
+                    stroke="currentColor"
+                    stroke-width="0.2"
+                    stroke-dasharray="2,2"
+                    opacity="0.4"
+                  />
+                  <circle cx={t.x} cy={t.y} r="2.5" fill={MEM_COLOR} stroke="white" stroke-width="1.5" />
+                </g>
+              );
+            })()}
+          </Show>
+
+          {/* Latest point */}
+          <Show when={data().length > 0}>
+            <circle
+              cx={MARGIN.left + chartWidth}
+              cy={(() => {
+                const memRng = memRange();
+                const rangeSize = memRng.max - memRng.min;
+                if (rangeSize === 0) return MARGIN.top + chartInnerHeight / 2;
+                const normalized = (latestMem() - memRng.min) / rangeSize;
+                return MARGIN.top + chartInnerHeight - normalized * chartInnerHeight;
+              })()}
+              r="2"
+              fill={MEM_COLOR}
+              stroke="white"
+              stroke-width="1"
+            />
+          </Show>
+        </svg>
+      </div>
+
+      {/* Floating tooltip */}
+      <Show when={hovering() && tooltip()}>
+        {(() => {
+          const t = tooltip();
+          if (!t) return null;
+          const color = t.type === 'cpu' ? CPU_COLOR : MEM_COLOR;
+          const label = t.type === 'cpu' ? 'CPU' : 'Memory';
+
+          return (
+            <div
+              class="absolute pointer-events-none z-10"
+              style={{
+                left: `${(t.x / 100) * 100}%`,
+                top: t.type === 'cpu' ? `${t.y}px` : `${chartHeight + 30 + t.y}px`,
+                transform: 'translate(-50%, -100%)',
+                'margin-top': '-10px'
+              }}
+            >
+              <div
+                class="rounded-lg px-3 py-2 shadow-xl border"
+                style={{
+                  background: 'var(--bg-card)',
+                  'border-color': 'var(--border-color)',
+                  'min-width': '120px'
+                }}
+              >
+                <div class="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                  {t.timestamp}
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full" style={{ background: color }} />
+                    <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                  </div>
+                  <span class="text-sm font-bold" style={{ color }}>
+                    {t.value.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </Show>
 
       {/* No data message */}
       <Show when={data().length === 0}>
@@ -244,4 +629,3 @@ const CpuMemChart: Component<CpuMemChartProps> = (props) => {
 };
 
 export default CpuMemChart;
-

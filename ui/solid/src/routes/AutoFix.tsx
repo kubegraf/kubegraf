@@ -1,4 +1,4 @@
-import { Component, createSignal, createResource, For, Show, createMemo } from 'solid-js';
+import { Component, createSignal, createResource, For, Show, createMemo, onCleanup, createEffect } from 'solid-js';
 import { api, type AutoFixRule, type AutoFixRuleSettings, type Incident } from '../services/api';
 import { addNotification } from '../stores/ui';
 import { filterOOMEvents, getOOMEventSummary, type OOMEvent } from '../utils/autofix-events/oom-events';
@@ -20,6 +20,8 @@ const AutoFix: Component = () => {
   const [selectedType, setSelectedType] = createSignal<string>('all');
   const [editingRule, setEditingRule] = createSignal<string | null>(null);
   const [ruleSettings, setRuleSettings] = createSignal<Record<string, AutoFixRuleSettings>>({});
+  const [lastRefresh, setLastRefresh] = createSignal<Date>(new Date());
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = createSignal<boolean>(true);
 
   // Fetch auto-fix rules
   const [rules, { refetch: refetchRules }] = createResource(async () => {
@@ -87,6 +89,19 @@ const AutoFix: Component = () => {
       addNotification('Failed to load incidents for AutoFix. Please check your cluster connection.', 'error');
       return [];
     }
+  });
+
+  // Production-ready: Auto-refresh every 60 seconds
+  createEffect(() => {
+    if (!autoRefreshEnabled()) return;
+
+    const interval = setInterval(() => {
+      refetchIncidents();
+      refetchActions();
+      setLastRefresh(new Date());
+    }, 60000); // 60 seconds
+
+    onCleanup(() => clearInterval(interval));
   });
 
   // Filter events by type
@@ -222,19 +237,36 @@ const AutoFix: Component = () => {
           <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Automated remediation for OOM, HPA max, security, and drift issues
           </p>
+          <p class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            🔄 Scanner: Every 2 minutes | 📦 Retention: 30 days | Last refresh: {lastRefresh().toLocaleTimeString()}
+          </p>
         </div>
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={autoFixEnabledState() ?? false}
-            onChange={(e) => handleToggleAutoFix(e.currentTarget.checked)}
-            class="w-4 h-4 rounded"
-            style={{ accentColor: 'var(--accent-primary)' }}
-          />
-          <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            Enable AutoFix
-          </span>
-        </label>
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoRefreshEnabled()}
+              onChange={(e) => setAutoRefreshEnabled(e.currentTarget.checked)}
+              class="w-4 h-4 rounded"
+              style={{ accentColor: 'var(--accent-primary)' }}
+            />
+            <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Auto-refresh (60s)
+            </span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoFixEnabledState() ?? false}
+              onChange={(e) => handleToggleAutoFix(e.currentTarget.checked)}
+              class="w-4 h-4 rounded"
+              style={{ accentColor: 'var(--accent-primary)' }}
+            />
+            <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Enable AutoFix
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -711,7 +743,7 @@ const AutoFix: Component = () => {
           </div>
         </Show>
 
-        {/* No Events Message */}
+        {/* No Filtered Events - Show All Incidents */}
         <Show when={
           !incidents.loading &&
           filteredEvents().oom.length === 0 &&
@@ -719,26 +751,101 @@ const AutoFix: Component = () => {
           filteredEvents().security.length === 0 &&
           filteredEvents().drift.length === 0
         }>
-          <div
-            class="p-8 text-center rounded-lg border"
-            style={{
-              background: 'var(--bg-secondary)',
-              'border-color': 'var(--border-color)',
-            }}
-          >
-            <div class="text-4xl mb-4">📊</div>
-            <h3 class="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-              No {selectedType() === 'all' ? '' : selectedType().toUpperCase() + ' '}Events Detected
-            </h3>
-            <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-              {selectedType() === 'all' 
-                ? 'No OOM, HPA Max, security, or drift events found in recent incidents.'
-                : `No ${selectedType().toUpperCase()} events found in recent incidents.`}
-            </p>
-            <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Total incidents checked: {incidents()?.length || 0}
-            </p>
-          </div>
+          <Show when={(incidents()?.length || 0) > 0}>
+            <div class="mb-4">
+              <div class="p-4 rounded-lg border mb-4" style={{
+                background: 'var(--bg-tertiary)',
+                'border-color': 'var(--border-color)',
+              }}>
+                <div class="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                  ℹ️ No specific {selectedType() === 'all' ? 'OOM/HPA/Security/Drift' : selectedType().toUpperCase()} patterns found
+                </div>
+                <p class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  Showing all {incidents()?.length || 0} incidents from your cluster. These may contain issues that could be auto-fixed.
+                </p>
+              </div>
+
+              <h3 class="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
+                All Cluster Incidents ({incidents()?.length || 0})
+              </h3>
+              <div class="space-y-2 max-h-96 overflow-y-auto">
+                <For each={incidents() || []}>
+                  {(incident) => (
+                    <div
+                      class="p-3 rounded-lg border"
+                      style={{
+                        background: 'var(--bg-secondary)',
+                        'border-color': 'var(--border-color)',
+                        'border-left': `3px solid ${incident.severity === 'critical' ? '#ef4444' : incident.severity === 'high' ? '#f59e0b' : '#3b82f6'}`,
+                      }}
+                    >
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2 mb-1">
+                            <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                              {incident.resource?.name || incident.resourceName || 'Unknown Resource'}
+                            </span>
+                            <Show when={incident.pattern || incident.type}>
+                              <span class="px-2 py-0.5 rounded text-xs border" style={{
+                                background: 'var(--bg-tertiary)',
+                                color: 'var(--text-muted)',
+                                'border-color': 'var(--border-color)'
+                              }}>
+                                {incident.pattern || incident.type}
+                              </span>
+                            </Show>
+                            <span class={`px-2 py-0.5 rounded text-xs ${
+                              incident.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                              incident.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                              'bg-blue-500/20 text-blue-400'
+                            }`}>
+                              {incident.severity || 'unknown'}
+                            </span>
+                          </div>
+                          <div class="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                            {incident.message || incident.description || 'No description available'}
+                          </div>
+                          <div class="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            <span>{incident.resource?.namespace || incident.namespace || 'default'}</span>
+                            <Show when={incident.resource?.kind || incident.resourceKind}>
+                              <span>{incident.resource?.kind || incident.resourceKind}</span>
+                            </Show>
+                            <Show when={incident.occurrences || incident.count}>
+                              <span>Count: {incident.occurrences || incident.count}</span>
+                            </Show>
+                            <Show when={incident.lastSeen}>
+                              <span>Last: {new Date(incident.lastSeen).toLocaleString()}</span>
+                            </Show>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={(incidents()?.length || 0) === 0}>
+            <div
+              class="p-8 text-center rounded-lg border"
+              style={{
+                background: 'var(--bg-secondary)',
+                'border-color': 'var(--border-color)',
+              }}
+            >
+              <div class="text-4xl mb-4">✅</div>
+              <h3 class="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                No Issues Detected
+              </h3>
+              <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                Your cluster appears healthy! No incidents found.
+              </p>
+              <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                AutoFix will automatically detect and remediate issues when they occur.
+              </p>
+            </div>
+          </Show>
         </Show>
       </div>
 
