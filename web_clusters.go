@@ -48,11 +48,23 @@ func (ws *WebServer) handleClusters(w http.ResponseWriter, r *http.Request) {
 	contexts := ws.clusterService.RuntimeContexts()
 	status := ws.clusterService.Status()
 
+	// Also include enhanced clusters if available
+	enhancedClusters := []interface{}{}
+	if ws.enhancedClusterManager != nil {
+		enhanced, err := ws.enhancedClusterManager.ListClusters()
+		if err == nil {
+			for _, cluster := range enhanced {
+				enhancedClusters = append(enhancedClusters, cluster)
+			}
+		}
+	}
+
 	response := map[string]interface{}{
-		"clusters":   clusters,
-		"discovered": discovered,
-		"contexts":   contexts,
-		"status":     status,
+		"clusters":        clusters,
+		"discovered":      discovered,
+		"contexts":        contexts,
+		"status":          status,
+		"enhancedClusters": enhancedClusters,
 	}
 
 	json.NewEncoder(w).Encode(response)

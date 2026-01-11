@@ -63,18 +63,14 @@ const App: Component = () => {
     // Prime cluster manager status for header indicator (in parallel)
     refreshClusterStatus();
 
-    // Simple: If not connected and viewing a view that requires connection, redirect to Cluster Manager
-    setTimeout(() => {
-      const status = connectionStatus();
+    // Enhanced routing guards based on cluster state
+    setTimeout(async () => {
       const view = currentView();
-
-      // If connected, no need to redirect
-      if (status?.connected) {
-        return;
-      }
+      const status = connectionStatus();
 
       // Views that don't require cluster connection (work offline)
       const noConnectionViews = [
+        'connect',
         'clustermanager',
         'settings',
         'logs',
@@ -85,10 +81,56 @@ const App: Component = () => {
         'uidemo', // allow UI demo (including ExecutionPanel) even when not connected
       ];
 
-      // If not connected and viewing a view that requires connection, redirect to Cluster Manager
-      if (!noConnectionViews.includes(view)) {
-        console.log('[App] Not connected - redirecting to Cluster Manager');
-        setCurrentView('clustermanager');
+      // Skip routing guard for views that don't need connection
+      if (noConnectionViews.includes(view)) {
+        return;
+      }
+
+      try {
+        // Check for sources first
+        const sourcesData = await api.getClusterSources();
+        const hasSources = sourcesData.sources && sourcesData.sources.length > 0;
+
+        // If no sources, redirect to /connect
+        if (!hasSources) {
+          console.log('[App] No kubeconfig sources - redirecting to Connect');
+          setCurrentView('connect');
+          return;
+        }
+
+        // Check for active cluster
+        const activeData = await api.getActiveCluster();
+        const hasActiveCluster = activeData.cluster && activeData.cluster.active;
+
+        // If no active cluster, redirect to /clusters
+        if (!hasActiveCluster) {
+          console.log('[App] No active cluster - redirecting to Cluster Manager');
+          setCurrentView('clustermanager');
+          return;
+        }
+
+        // Check if active cluster is healthy
+        const activeCluster = activeData.cluster;
+        const isHealthy = activeCluster.status === 'CONNECTED' || activeCluster.status === 'DEGRADED';
+
+        // If cluster is not healthy (AUTH_ERROR or DISCONNECTED), redirect to /clusters
+        if (!isHealthy && (activeCluster.status === 'AUTH_ERROR' || activeCluster.status === 'DISCONNECTED')) {
+          console.log(`[App] Cluster ${activeCluster.status} - redirecting to Cluster Manager`);
+          setCurrentView('clustermanager');
+          return;
+        }
+
+        // If connected via legacy status, allow access
+        if (status?.connected) {
+          return;
+        }
+      } catch (err) {
+        console.error('[App] Error checking cluster state:', err);
+        // Fallback to legacy check
+        if (!status?.connected) {
+          console.log('[App] Fallback: Not connected - redirecting to Cluster Manager');
+          setCurrentView('clustermanager');
+        }
       }
     }, 500);
 

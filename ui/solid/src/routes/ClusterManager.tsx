@@ -1,40 +1,31 @@
-import { Component, For, Show, createMemo, createSignal, onMount } from 'solid-js';
+import { Component, For, Show, createMemo, onMount } from 'solid-js';
 import {
-  clusters,
-  discoveredClusters,
-  runtimeContexts,
   clusterManagerStatus,
-  clusterLoading,
-  refreshClusterData,
   refreshClusterStatus,
-  connectToCluster,
   disconnectActiveCluster,
-  setDefaultCluster,
 } from '../stores/clusterManager';
-import { switchContext, clusterStatus } from '../stores/cluster';
+import {
+  enhancedClusters,
+  activeCluster,
+  sources,
+  loading as enhancedLoading,
+  refreshEnhancedClusters,
+  refreshSources,
+  selectCluster,
+  reconnectCluster,
+} from '../stores/clusterEnhanced';
+import { clusterStatus } from '../stores/cluster';
 import { addNotification, setCurrentView } from '../stores/ui';
-
-const providerOptions = [
-  { id: 'generic', label: 'Generic / Other' },
-  { id: 'gke', label: 'Google Kubernetes Engine (GKE)' },
-  { id: 'eks', label: 'Amazon EKS' },
-  { id: 'aks', label: 'Azure AKS' },
-  { id: 'kind', label: 'kind (local)' },
-  { id: 'minikube', label: 'Minikube' },
-  { id: 'k3s', label: 'K3s / K3d' },
-  { id: 'docker-desktop', label: 'Docker Desktop' },
-];
+import AuthErrorHelper from '../components/AuthErrorHelper';
+import { api } from '../services/api';
 
 const ClusterManager: Component = () => {
-  const [manualPath, setManualPath] = createSignal('');
-  const [manualName, setManualName] = createSignal('');
-  const [manualProvider, setManualProvider] = createSignal('generic');
-
   onMount(() => {
-    // Refresh both cluster data and status to ensure accurate connection state
-    refreshClusterData();
-    // Also refresh cluster status to sync with header
+    // Refresh cluster status to sync with header
     refreshClusterStatus();
+    // Refresh enhanced clusters and sources
+    refreshEnhancedClusters();
+    refreshSources();
   });
 
   // Use same logic as header: check clusterManagerStatus first, then fallback to clusterStatus
@@ -43,77 +34,6 @@ const ClusterManager: Component = () => {
     const status = clusterStatus().connected;
     return Boolean(managerStatus ?? status);
   });
-
-  const handleSwitchContext = async (contextName: string) => {
-    try {
-      await switchContext(contextName);
-      addNotification(`Switched to ${contextName}`, 'success');
-      refreshClusterData();
-    } catch (err: any) {
-      console.error('Failed to switch context', err);
-      addNotification(err?.message || `Failed to switch to ${contextName}`, 'error');
-    }
-  };
-
-  const connectManual = async () => {
-    if (!manualPath().trim()) {
-      return;
-    }
-    await connectToCluster({
-      name: manualName() || undefined,
-      provider: manualProvider(),
-      kubeconfigPath: manualPath(),
-    });
-    setManualPath('');
-    setManualName('');
-  };
-
-  const handleBrowseFile = async () => {
-    try {
-      const { api } = await import('../services/api');
-      const result = await api.openFileDialog('Select kubeconfig file', '~/.kube');
-      if (result.success && result.path) {
-        setManualPath(result.path);
-      }
-    } catch (err: any) {
-      console.error('File dialog error:', err);
-      addNotification(err?.message || 'Failed to open file dialog', 'error');
-    }
-  };
-
-  const guideCards = [
-    {
-      title: 'Auto-detect kubeconfig',
-      description: 'Scan common locations (~/.kube, $KUBECONFIG) and reused files.',
-      action: () => refreshClusterData(),
-      button: 'Run auto-detect',
-    },
-    {
-      title: 'Connect to GKE',
-      description: 'Use `gcloud container clusters get-credentials` to generate kubeconfig, then auto-detect.',
-      link: 'https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl',
-      button: 'Open GKE guide',
-    },
-    {
-      title: 'Connect to EKS',
-      description: 'Run `aws eks update-kubeconfig --name <cluster>` and auto-detect the generated kubeconfig.',
-      link: 'https://docs.aws.amazon.com/eks/latest/userguide/create-kubeconfig.html',
-      button: 'Open EKS guide',
-    },
-    {
-      title: 'Connect to AKS',
-      description: 'Use `az aks get-credentials --name <cluster> --resource-group <rg>` to pull credentials.',
-      link: 'https://learn.microsoft.com/azure/aks/learn/quick-kubernetes-deploy-portal',
-      button: 'Open AKS guide',
-    },
-    {
-      title: 'Import manually',
-      description: 'Paste the kubeconfig path from any location and connect instantly.',
-      action: connectManual,
-      button: 'Connect from path',
-      primary: true,
-    },
-  ];
 
   return (
     <div class="space-y-6">
@@ -154,10 +74,19 @@ const ClusterManager: Component = () => {
                 border: '1px solid var(--border-color)', 
                 background: 'var(--bg-tertiary)', 
                 color: 'var(--text-primary)', 
-                boxShadow: '0 1px 2px rgba(0,0,0,0.08)' 
+                'box-shadow': '0 1px 2px rgba(0,0,0,0.08)' 
               }}
-              disabled={clusterLoading()}
-              onClick={() => refreshClusterData()}
+              disabled={enhancedLoading()}
+              onClick={async () => {
+                try {
+                  await api.refreshClusterCatalog();
+                  await refreshEnhancedClusters();
+                  await refreshSources();
+                  addNotification('Cluster catalog refreshed', 'success');
+                } catch (err: any) {
+                  addNotification(err?.message || 'Failed to refresh catalog', 'error');
+                }
+              }}
             >
               Auto-detect
             </button>
@@ -165,7 +94,7 @@ const ClusterManager: Component = () => {
               <button
                 class="px-3 py-1.5 rounded-md text-sm"
                 style={{ background: 'var(--error-color)', color: '#fff' }}
-                disabled={clusterLoading()}
+                disabled={enhancedLoading()}
                 onClick={() => disconnectActiveCluster()}
               >
                 Disconnect
@@ -175,8 +104,8 @@ const ClusterManager: Component = () => {
         </div>
       </div>
 
-      {/* Show "Choose your cluster" message when kubeconfig files are found */}
-      <Show when={!hasActiveCluster() && (discoveredClusters().length > 0 || clusters().length > 0)}>
+      {/* Show "Choose your cluster" message when enhanced clusters are found */}
+      <Show when={!hasActiveCluster() && (enhancedClusters().length > 0 || sources().length > 0)}>
         <div class="p-6 rounded-xl border mb-6" style={{ 
           border: '1px solid var(--border-color)', 
           background: 'var(--bg-card)',
@@ -193,19 +122,19 @@ const ClusterManager: Component = () => {
                 Choose your cluster to connect
               </h2>
               <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-                {discoveredClusters().length > 0 && clusters().length > 0
-                  ? `Found ${discoveredClusters().length} discovered kubeconfig${discoveredClusters().length > 1 ? 's' : ''} and ${clusters().length} saved cluster${clusters().length > 1 ? 's' : ''}. Select one below to connect.`
-                  : discoveredClusters().length > 0
-                  ? `Found ${discoveredClusters().length} kubeconfig${discoveredClusters().length > 1 ? 's' : ''}. Select one below to connect.`
-                  : `You have ${clusters().length} saved cluster${clusters().length > 1 ? 's' : ''}. Select one below to connect.`}
+                {enhancedClusters().length > 0
+                  ? `Found ${enhancedClusters().length} cluster${enhancedClusters().length > 1 ? 's' : ''}. Select one below to connect.`
+                  : sources().length > 0
+                  ? `Found ${sources().length} kubeconfig source${sources().length > 1 ? 's' : ''}. Use the Enhanced Cluster Manager below to connect.`
+                  : 'Use the Enhanced Cluster Manager below to add and connect to clusters.'}
               </p>
             </div>
           </div>
         </div>
       </Show>
 
-      {/* Show ConnectionOverlay-style content when NO kubeconfig files are found */}
-      <Show when={!hasActiveCluster() && discoveredClusters().length === 0 && clusters().length === 0 && !clusterLoading()}>
+      {/* Show ConnectionOverlay-style content when NO enhanced clusters are found */}
+      <Show when={!hasActiveCluster() && enhancedClusters().length === 0 && sources().length === 0 && !enhancedLoading()}>
         <div class="flex items-center justify-center min-h-[60vh] p-8">
           <div class="max-w-3xl w-full">
             <div class="text-center mb-8">
@@ -228,7 +157,8 @@ const ClusterManager: Component = () => {
               <div class="card p-6 hover:border-cyan-500/50 transition-all cursor-pointer" style={{ border: '2px solid var(--border-color)' }}
                 onClick={() => {
                   // Show instructions for connecting via kubeconfig
-                  alert('To connect to an existing cluster:\n\n1. Ensure your kubeconfig is set up (~/.kube/config)\n2. Verify access: kubectl cluster-info\n3. Click "Auto-detect" button above or refresh the page\n\nKubeGraf will automatically detect and connect to your cluster.');
+                  const message = 'To connect to an existing cluster:\n\n1. Ensure your kubeconfig is set up (~/.kube/config)\n2. Verify access: kubectl cluster-info\n3. Click "Auto-detect" button above or refresh the page\n\nKubeGraf will automatically detect and connect to your cluster.';
+                  alert(message);
                 }}
               >
                 <div class="flex items-center gap-3 mb-4">
@@ -261,7 +191,8 @@ const ClusterManager: Component = () => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    refreshClusterData();
+                    refreshEnhancedClusters();
+                    refreshSources();
                   }}
                   class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 relative overflow-hidden"
                   style={{ 
@@ -333,7 +264,10 @@ const ClusterManager: Component = () => {
             
             <div class="flex items-center justify-center gap-3">
               <button
-                onClick={() => refreshClusterData()}
+                onClick={() => {
+                  refreshEnhancedClusters();
+                  refreshSources();
+                }}
                 class="px-5 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2"
                 style={{ 
                   background: 'var(--accent-primary)', 
@@ -361,288 +295,176 @@ const ClusterManager: Component = () => {
         </div>
       </Show>
 
-      <div class="grid gap-6 lg:grid-cols-2">
-        <div class="p-4 rounded-xl border" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Connected Clusters</h2>
-              <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>Track every cluster KubeGraf knows about.</p>
-            </div>
+      {/* Enhanced Cluster Manager - Primary view (always visible) */}
+      <div class="mt-8 p-6 rounded-xl border" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Enhanced Cluster Manager</h2>
+            <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Clusters with health status tracking and source management
+            </p>
           </div>
-
-          <Show when={clusters().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>No clusters saved yet.</p>}>
-            <div class="space-y-3">
-              <For each={clusters()}>
-                {(cluster) => (
-                  <div class="p-3 rounded-lg border flex flex-col gap-2" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
-                    <div class="flex items-center justify-between">
-                      <div>
-                        <div class="flex items-center gap-2">
-                          <span class="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{cluster.name}</span>
-                          <Show when={cluster.isDefault}>
-                            <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(59,130,246,0.15)', color: '#3b82f6' }}>Default</span>
-                          </Show>
-                        </div>
-                        <p class="text-xs" style={{ color: 'var(--text-muted)' }}>{cluster.provider} • {cluster.kubeconfigPath}</p>
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span 
-                          class="w-2 h-2 rounded-full" 
-                          style={{ background: cluster.connected ? 'var(--success-color)' : 'var(--text-muted)' }}
-                        ></span>
-                        <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{cluster.connected ? 'Connected' : 'Disconnected'}</span>
-                      </div>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                      <button
-                        class="px-3 py-1.5 text-sm rounded-md transition-all"
-                        style={{
-                          background: cluster.connected || clusterLoading() ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
-                          color: cluster.connected || clusterLoading() ? 'var(--text-muted)' : '#000',
-                          cursor: cluster.connected || clusterLoading() ? 'not-allowed' : 'pointer',
-                          opacity: cluster.connected || clusterLoading() ? 0.5 : 1
-                        }}
-                        disabled={cluster.connected || clusterLoading()}
-                        onClick={() => {
-                          console.log('Connect button clicked:', cluster.name);
-                          connectToCluster({ name: cluster.name, provider: cluster.provider, kubeconfigPath: cluster.kubeconfigPath });
-                        }}
-                      >
-                        Connect
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm rounded-md transition-all"
-                        style={{
-                          border: '1px solid var(--border-color)',
-                          cursor: !cluster.connected || clusterLoading() ? 'not-allowed' : 'pointer',
-                          opacity: !cluster.connected || clusterLoading() ? 0.5 : 1
-                        }}
-                        disabled={!cluster.connected || clusterLoading()}
-                        onClick={() => disconnectActiveCluster()}
-                      >
-                        Disconnect
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm rounded-md transition-all"
-                        style={{
-                          border: '1px solid var(--border-color)',
-                          cursor: cluster.isDefault || clusterLoading() ? 'not-allowed' : 'pointer',
-                          opacity: cluster.isDefault || clusterLoading() ? 0.5 : 1
-                        }}
-                        disabled={cluster.isDefault || clusterLoading()}
-                        onClick={() => setDefaultCluster(cluster)}
-                      >
-                        Set Default
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <div class="mt-6 border-t pt-4" style={{ borderColor: 'var(--border-color)' }}>
-            <div class="flex items-center justify-between mb-3">
-              <div>
-                <h3 class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Runtime kubeconfig contexts</h3>
-                <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Direct view of every context available in your local kubeconfig.</p>
-              </div>
-              <button
-                class="px-3 py-1 text-xs rounded-md transition-colors"
-                style={{ 
-                  border: '1px solid var(--border-color)', 
-                  background: 'var(--bg-tertiary)', 
-                  color: 'var(--text-primary)', 
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)' 
-                }}
-                onClick={() => refreshClusterData()}
-                disabled={clusterLoading()}
-              >
-                Refresh
-              </button>
-            </div>
-            <Show when={runtimeContexts().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>No contexts detected. Import a kubeconfig to get started.</p>}>
-              <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
-                <For each={runtimeContexts()}>
-                  {(ctx) => (
-                    <div class="p-3 rounded-lg border flex items-center justify-between gap-3" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)' }}>
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                          <p class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{ctx.name}</p>
-                          <Show when={ctx.current}>
-                            <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>Active</span>
-                          </Show>
-                        </div>
-                        <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          Provider: {ctx.provider || 'generic'} • {ctx.serverVersion ? `Kubernetes ${ctx.serverVersion}` : 'version unknown'}
-                        </p>
-                        <p class="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{ctx.kubeconfigPath}</p>
-                        <Show when={ctx.error}>
-                          <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>{ctx.error}</p>
-                        </Show>
-                      </div>
-                      <div class="flex flex-col items-end gap-2">
-                        <div class="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          <span class={`w-2 h-2 rounded-full ${ctx.connected ? 'bg-emerald-400' : 'bg-red-500'}`}></span>
-                          {ctx.connected ? 'Reachable' : 'Unavailable'}
-                        </div>
-                        <button
-                          class="px-4 py-2 text-sm rounded-md font-semibold transition-all"
-                          style={{ 
-                            border: ctx.current ? '1px solid var(--border-color)' : '2px solid var(--accent-primary)', 
-                            background: ctx.current 
-                              ? 'var(--bg-secondary)' 
-                              : 'var(--accent-primary)',
-                            color: ctx.current 
-                              ? 'var(--text-secondary)' 
-                              : '#000000',
-                            opacity: ctx.current || clusterLoading() ? 0.6 : 1,
-                            cursor: ctx.current || clusterLoading() ? 'not-allowed' : 'pointer',
-                            'box-shadow': ctx.current 
-                              ? 'none' 
-                              : '0 2px 4px rgba(6, 182, 212, 0.2)',
-                            'font-weight': '600'
-                          }}
-                          disabled={ctx.current || clusterLoading()}
-                          onClick={() => handleSwitchContext(ctx.name)}
-                          onMouseEnter={(e) => {
-                            if (!ctx.current && !clusterLoading()) {
-                              e.currentTarget.style.background = 'var(--accent-primary)';
-                              e.currentTarget.style.borderColor = 'var(--accent-primary)';
-                              e.currentTarget.style.opacity = '0.9';
-                              e.currentTarget.style.boxShadow = '0 4px 8px rgba(6, 182, 212, 0.3)';
-                              e.currentTarget.style.transform = 'translateY(-1px)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!ctx.current && !clusterLoading()) {
-                              e.currentTarget.style.background = 'var(--accent-primary)';
-                              e.currentTarget.style.borderColor = 'var(--accent-primary)';
-                              e.currentTarget.style.opacity = '1';
-                              e.currentTarget.style.boxShadow = '0 2px 4px rgba(6, 182, 212, 0.2)';
-                              e.currentTarget.style.transform = 'translateY(0)';
-                            }
-                          }}
-                        >
-                          Switch
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
+          <button
+            class="px-3 py-1.5 text-sm rounded-md transition-colors"
+            style={{ 
+              border: '1px solid var(--border-color)', 
+              background: 'var(--bg-tertiary)', 
+              color: 'var(--text-primary)', 
+            }}
+            onClick={() => {
+              refreshEnhancedClusters();
+              refreshSources();
+            }}
+            disabled={enhancedLoading()}
+          >
+            Refresh
+          </button>
         </div>
 
-        <div class="p-4 rounded-xl border" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Auto-detected kubeconfigs</h2>
-              <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>One click connect to any discovered file.</p>
-            </div>
-          </div>
-
-          <Show when={discoveredClusters().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>Nothing detected yet. Try running auto-detect.</p>}>
-            <div class="space-y-3 max-h-80 overflow-y-auto pr-1">
-              <For each={discoveredClusters()}>
-                {(item) => (
-                  <div class="p-3 rounded-lg border flex items-center justify-between gap-3" style={{ border: '1px solid var(--border-color)' }}>
-                    <div>
-                      <p class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{item.name}</p>
-                      <p class="text-xs" style={{ color: 'var(--text-muted)' }}>{item.path}</p>
-                      <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>Contexts: {item.contexts.join(', ')}</p>
-                    </div>
-                    <button
-                      class="px-3 py-1.5 text-sm rounded-md transition-all hover:opacity-90"
-                      style={{
-                        background: clusterLoading() ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
-                        color: clusterLoading() ? 'var(--text-muted)' : '#000',
-                        cursor: clusterLoading() ? 'not-allowed' : 'pointer',
-                        opacity: clusterLoading() ? 0.5 : 1
-                      }}
-                      disabled={clusterLoading()}
-                      onClick={() => {
-                        console.log('Connect button clicked (discovered):', item.name, item.path);
-                        connectToCluster({ name: item.name, provider: item.provider, kubeconfigPath: item.path });
-                      }}
-                    >
-                      Connect
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <div class="mt-5 border-t pt-4" style={{ borderColor: 'var(--border-color)' }}>
-            <h3 class="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Manual import</h3>
+        {/* Sources */}
+        <Show when={sources().length > 0}>
+          <div class="mb-6">
+            <h3 class="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Kubeconfig Sources</h3>
             <div class="space-y-2">
-              <input
-                type="text"
-                placeholder="Cluster name (optional)"
-                value={manualName()}
-                onInput={(e) => setManualName(e.currentTarget.value)}
-                class="w-full px-3 py-2 rounded-md text-sm"
-                style={{
-                  background: 'var(--bg-input)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)'
-                }}
-              />
-              <div class="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="/path/to/kubeconfig or click Browse"
-                  value={manualPath()}
-                  onInput={(e) => setManualPath(e.currentTarget.value)}
-                  class="flex-1 px-3 py-2 rounded-md text-sm"
-                  style={{
-                    background: 'var(--bg-input)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <button
-                  class="px-4 py-2 rounded-md text-sm flex items-center gap-2 transition-all"
-                  style={{
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-primary)'
-                  }}
-                  onClick={handleBrowseFile}
-                  disabled={clusterLoading()}
-                  title="Browse for kubeconfig file"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
-                  Browse
-                </button>
-              </div>
-              <select
-                class="w-full px-3 py-2 rounded-md text-sm"
-                value={manualProvider()}
-                onInput={(e) => setManualProvider(e.currentTarget.value)}
-                style={{
-                  background: 'var(--bg-input)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)'
-                }}
-              >
-                <For each={providerOptions}>{(option) => <option value={option.id}>{option.label}</option>}</For>
-              </select>
-              <button
-                class="w-full px-3 py-2 rounded-md text-sm"
-                style={{ background: 'var(--accent-primary)', color: '#000' }}
-                disabled={!manualPath().trim() || clusterLoading()}
-                onClick={connectManual}
-              >
-                Connect cluster
-              </button>
+              <For each={sources()}>
+                {(source) => (
+                  <div class="p-2 rounded border text-xs" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                    <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{source.name}</span>
+                    <span class="ml-2 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)' }}>
+                      {source.type}
+                    </span>
+                    <Show when={source.path}>
+                      <span class="ml-2" style={{ color: 'var(--text-muted)' }}>{source.path}</span>
+                    </Show>
+                  </div>
+                )}
+              </For>
             </div>
           </div>
-        </div>
+        </Show>
+
+        {/* Enhanced Clusters */}
+        <Show when={enhancedClusters().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>No enhanced clusters found.</p>}>
+          <div class="space-y-3">
+              <For each={enhancedClusters()}>
+                {(cluster) => {
+                  const statusColor = () => {
+                    switch (cluster.status) {
+                      case 'CONNECTED': return '#10b981';
+                      case 'DEGRADED': return '#f59e0b';
+                      case 'CONNECTING': return '#3b82f6';
+                      case 'AUTH_ERROR': return '#ef4444';
+                      case 'DISCONNECTED': return '#ef4444';
+                      default: return '#6b7280';
+                    }
+                  };
+                  const statusLabel = () => {
+                    switch (cluster.status) {
+                      case 'CONNECTED': return 'Connected';
+                      case 'DEGRADED': return 'Degraded';
+                      case 'CONNECTING': return 'Connecting';
+                      case 'AUTH_ERROR': return 'Auth Required';
+                      case 'DISCONNECTED': return 'Disconnected';
+                      default: return 'Unknown';
+                    }
+                  };
+                  return (
+                    <div class="p-4 rounded-lg border flex flex-col gap-3" style={{ border: '1px solid var(--border-color)', background: cluster.active ? 'rgba(6, 182, 212, 0.05)' : 'var(--bg-secondary)' }}>
+                      <div class="flex items-center justify-between gap-4">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2 mb-1" style={{ 'flex-wrap': 'nowrap', 'overflow-x': 'auto' }}>
+                            <span class="text-base font-semibold" style={{ color: 'var(--text-primary)', 'white-space': 'nowrap' }}>{cluster.name}</span>
+                            <Show when={cluster.active}>
+                              <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', 'white-space': 'nowrap' }}>Active</span>
+                            </Show>
+                            <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)', 'white-space': 'nowrap' }}>
+                              {cluster.provider}
+                            </span>
+                            <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', 'white-space': 'nowrap' }}>
+                              {cluster.environment}
+                            </span>
+                            <Show when={!cluster.active}>
+                              <button
+                                class="px-3 py-1.5 text-sm rounded-md transition-all"
+                                style={{
+                                  background: 'var(--accent-primary)',
+                                  color: '#000',
+                                  'white-space': 'nowrap',
+                                  'flex-shrink': 0
+                                }}
+                                disabled={enhancedLoading()}
+                                onClick={async () => {
+                                  try {
+                                    console.log('Selecting cluster:', cluster.clusterId, cluster.name);
+                                    await selectCluster(cluster.clusterId);
+                                    addNotification(`Switched to ${cluster.name}`, 'success');
+                                    // Refresh to get updated status
+                                    await refreshEnhancedClusters();
+                                  } catch (err: any) {
+                                    console.error('Select cluster error:', err);
+                                    addNotification(err?.message || 'Failed to select cluster', 'error');
+                                  }
+                                }}
+                              >
+                                Select
+                              </button>
+                            </Show>
+                            <button
+                              class="px-3 py-1.5 text-sm rounded-md transition-all"
+                              style={{
+                                border: '1px solid var(--border-color)',
+                                background: 'var(--bg-tertiary)',
+                                color: 'var(--text-primary)',
+                                'white-space': 'nowrap',
+                                'flex-shrink': 0
+                              }}
+                              disabled={enhancedLoading()}
+                              onClick={async () => {
+                                try {
+                                  await reconnectCluster(cluster.clusterId);
+                                  addNotification(`Reconnecting to ${cluster.name}...`, 'info');
+                                  // Refresh to get updated status
+                                  await refreshEnhancedClusters();
+                                } catch (err: any) {
+                                  addNotification(err?.message || 'Failed to reconnect', 'error');
+                                }
+                              }}
+                            >
+                              Reconnect
+                            </button>
+                          </div>
+                          <p class="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                            {cluster.contextName} • {cluster.kubeconfigPath}
+                          </p>
+                          <Show when={cluster.lastError}>
+                            <p class="text-xs mt-1" style={{ color: 'var(--error-color)' }}>{cluster.lastError}</p>
+                          </Show>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                          <span class="w-2 h-2 rounded-full" style={{ background: statusColor() }}></span>
+                          <span class="text-xs font-medium" style={{ color: statusColor(), 'white-space': 'nowrap' }}>{statusLabel()}</span>
+                        </div>
+                      </div>
+                      <Show when={cluster.status === 'AUTH_ERROR'}>
+                        <AuthErrorHelper
+                          provider={cluster.provider}
+                          clusterName={cluster.name}
+                          onRetry={async () => {
+                            try {
+                              await reconnectCluster(cluster.clusterId);
+                              addNotification(`Reconnecting to ${cluster.name}...`, 'info');
+                            } catch (err: any) {
+                              addNotification(err?.message || 'Failed to reconnect', 'error');
+                            }
+                          }}
+                        />
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
+          </div>
+        </Show>
       </div>
     </div>
   );

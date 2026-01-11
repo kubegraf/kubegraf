@@ -206,6 +206,8 @@ type WebServer struct {
 	confidenceLearner *incidents.ConfidenceLearner
 	// Cluster manager for multi-cluster support
 	clusterManager *cluster.ClusterManager
+	// Enhanced cluster manager with sources and health checking
+	enhancedClusterManager *EnhancedClusterManager
 	// Performance instrumentation store
 	perfStore instrumentation.PerformanceStore
 	// Security features
@@ -290,32 +292,59 @@ func NewWebServer(app *App) *WebServer {
 		encryptionKey = encryptionKey[:32]
 	}
 
-	// Initialize database
-	normalDbPath := filepath.Join(kubegrafDir, "db.sqlite")
-	dbPath := ws.ephemeralMode.GetDBPath(normalDbPath)
-	db, err := NewDatabase(dbPath, encryptionKey)
-	if err != nil {
-		// Silent failure for production
-	} else {
-		ws.db = db
-		// Initialize cluster service if database is available
-		if ws.db != nil {
-			ws.clusterService = NewClusterService(app, ws.db)
-
-			// Initialize backup configuration
-			backupDir = filepath.Join(kubegrafDir, "backups")
-			backupInterval = 6 * time.Hour
-			backupEnabled = true
-
-			// Start automatic database backups
-			ctx, cancel := context.WithCancel(context.Background())
-			backupCancel = cancel
-			go func() {
-				if err := ws.db.AutoBackup(ctx, backupDir, backupInterval); err != nil {
-					// Silent failure for backup service
-				}
-			}()
+	// Initialize database (if not already initialized in NewWebServer)
+	fmt.Printf("🔍 Checking database initialization... ws.db is nil: %v\n", ws.db == nil)
+	if ws.db == nil {
+		fmt.Printf("🔧 Initializing database in Start()...\n")
+		normalDbPath := filepath.Join(kubegrafDir, "db.sqlite")
+		dbPath := ws.ephemeralMode.GetDBPath(normalDbPath)
+		fmt.Printf("🔧 Database path: %s\n", dbPath)
+		db, err := NewDatabase(dbPath, encryptionKey)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to initialize database in Start(): %v\n", err)
+		} else {
+			ws.db = db
+			fmt.Printf("✅ Database initialized in Start() at %s\n", dbPath)
 		}
+	} else {
+		fmt.Printf("✅ Database already initialized (from NewWebServer)\n")
+	}
+
+	// Initialize cluster service if database is available
+	if ws.db != nil {
+		fmt.Printf("🔧 Database available, initializing cluster services...\n")
+		if ws.clusterService == nil {
+			ws.clusterService = NewClusterService(app, ws.db)
+		}
+		
+		// Initialize enhanced cluster manager (only if not already initialized)
+		if ws.enhancedClusterManager == nil {
+			enhancedMgr, err := NewEnhancedClusterManager(app, ws.db)
+			if err != nil {
+				fmt.Printf("⚠️  Failed to initialize enhanced cluster manager: %v\n", err)
+			} else {
+				ws.enhancedClusterManager = enhancedMgr
+				fmt.Printf("✅ Enhanced cluster manager assigned to web server\n")
+			}
+		} else {
+			fmt.Printf("✅ Enhanced cluster manager already initialized\n")
+		}
+		
+		// Initialize backup configuration
+		backupDir = filepath.Join(kubegrafDir, "backups")
+		backupInterval = 6 * time.Hour
+		backupEnabled = true
+
+		// Start automatic database backups
+		ctx, cancel := context.WithCancel(context.Background())
+		backupCancel = cancel
+		go func() {
+			if err := ws.db.AutoBackup(ctx, backupDir, backupInterval); err != nil {
+				// Silent failure for backup service
+			}
+		}()
+	} else {
+		fmt.Printf("⚠️  Database is nil, skipping enhanced cluster manager initialization\n")
 	}
 
 	// Initialize cache (use LRU backend by default)
@@ -451,6 +480,16 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/clusters/pods", ws.handleGetClusterPodsNew)
 	http.HandleFunc("/api/clusters/events", ws.handleGetClusterEventsNew)
 	http.HandleFunc("/api/clusters/refresh", ws.handleRefreshClusters)
+
+	// Enhanced cluster manager endpoints
+	http.HandleFunc("/api/cluster-sources", ws.handleClusterSources)
+	http.HandleFunc("/api/cluster-sources/file", ws.handleAddClusterSourceFile)
+	http.HandleFunc("/api/cluster-sources/inline", ws.handleAddClusterSourceInline)
+	http.HandleFunc("/api/clusters/enhanced", ws.handleListClustersEnhanced)
+	http.HandleFunc("/api/clusters/active", ws.handleGetActiveCluster)
+	http.HandleFunc("/api/clusters/select", ws.handleSelectCluster)
+	http.HandleFunc("/api/clusters/reconnect", ws.handleReconnectCluster)
+	http.HandleFunc("/api/clusters/refresh-catalog", ws.handleRefreshClusterCatalog)
 
 	// File dialog endpoint
 	http.HandleFunc("/api/file/dialog", ws.handleFileDialog)

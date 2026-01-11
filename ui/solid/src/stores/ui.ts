@@ -49,6 +49,7 @@ export type View =
   | 'terminal'
   | 'connectors'
   | 'aiagents'
+  | 'connect'
   | 'clustermanager'
   | 'usermanagement'
   | 'uidemo'

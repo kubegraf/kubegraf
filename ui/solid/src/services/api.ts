@@ -1475,6 +1475,37 @@ export const api = {
       }),
     }),
 
+  // ============ Enhanced Cluster Manager ============
+  getClusterSources: () =>
+    fetchAPI<{ sources: any[] }>('/cluster-sources'),
+  addClusterSourceFile: (payload: { name: string; path: string }) =>
+    fetchAPI<{ success: boolean; source: any }>('/cluster-sources/file', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  addClusterSourceInline: (payload: { name: string; content: string }) =>
+    fetchAPI<{ success: boolean; source: any }>('/cluster-sources/inline', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getClustersEnhanced: () =>
+    fetchAPI<{ clusters: any[]; active: any }>('/clusters/enhanced'),
+  getActiveCluster: () =>
+    fetchAPI<{ cluster: any }>('/clusters/active'),
+  selectCluster: (clusterId: string) =>
+    fetchAPI<{ success: boolean; cluster: any }>('/clusters/select', {
+      method: 'POST',
+      body: JSON.stringify({ clusterId }),
+    }),
+  reconnectCluster: (clusterId: string) =>
+    fetchAPI<{ success: boolean; status: any }>('/clusters/reconnect?id=' + clusterId, {
+      method: 'POST',
+    }),
+  refreshClusterCatalog: () =>
+    fetchAPI<{ success: boolean; message: string }>('/clusters/refresh-catalog', {
+      method: 'POST',
+    }),
+
   // ============ AutoFix Engine ============
   getAutoFixRules: async () => {
     const data = await fetchAPI<{ rules: AutoFixRule[] }>('/autofix/rules');
