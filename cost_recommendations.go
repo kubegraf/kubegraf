@@ -26,6 +26,11 @@ type CostRecommendation struct {
 func (c *CostEstimator) GetCostRecommendations(ctx context.Context) ([]CostRecommendation, error) {
 	var recommendations []CostRecommendation
 
+	// Check if clientset is available
+	if c.app == nil || c.app.clientset == nil {
+		return recommendations, fmt.Errorf("cluster not connected")
+	}
+
 	// Get cluster cost data
 	clusterCost, err := c.EstimateClusterCost(ctx)
 	if err != nil {

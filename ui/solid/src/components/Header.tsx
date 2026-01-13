@@ -18,7 +18,7 @@ import {
 import { toggleAIPanel, setCurrentView, addNotification, currentView } from '../stores/ui';
 import { openCommandPalette, setCommandPaletteButtonRef } from '../stores/commandPalette';
 import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
-import { enhancedClusters, activeCluster, selectCluster, refreshEnhancedClusters } from '../stores/clusterEnhanced';
+import { enhancedClusters, activeCluster, selectCluster, refreshEnhancedClusters, disconnectCluster } from '../stores/clusterEnhanced';
 import { setNamespaces } from '../stores/globalStore';
 import { toggleBrainPanel, brainPanelOpen } from '../stores/brain';
 import ThemeToggle from './ThemeToggle';
@@ -655,64 +655,38 @@ const Header: Component = () => {
                 </Show>
               </div>
 
-              <div class="px-3 py-2 text-xs border-t" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
-                {enhancedClusters().length} cluster{enhancedClusters().length !== 1 ? 's' : ''} available
-                <button
-                  class="ml-2 underline"
-                  onClick={() => {
-                    setCtxDropdownOpen(false);
-                    goToClusterManager();
-                  }}
-                >
-                  Manage
-                </button>
+              <div class="px-3 py-2 text-xs border-t flex items-center justify-between" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
+                <span>{enhancedClusters().length} cluster{enhancedClusters().length !== 1 ? 's' : ''} available</span>
+                <div class="flex items-center gap-2">
+                  <Show when={activeCluster()}>
+                    <button
+                      class="underline text-red-500 hover:text-red-600"
+                      onClick={async () => {
+                        try {
+                          setCtxDropdownOpen(false);
+                          await disconnectCluster();
+                          addNotification('Cluster disconnected', 'success');
+                        } catch (err: any) {
+                          addNotification(err?.message || 'Failed to disconnect', 'error');
+                        }
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </Show>
+                  <button
+                    class="underline"
+                    onClick={() => {
+                      setCtxDropdownOpen(false);
+                      goToClusterManager();
+                    }}
+                  >
+                    Manage
+                  </button>
+                </div>
               </div>
             </div>
           </Show>
-        </div>
-
-        {/* Cluster status + connection manager */}
-
-        <div class="flex items-center gap-2">
-          <button
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-            style={{
-              background: (() => {
-                const currentCtx = contexts().find(c => c.isCurrent);
-                return currentCtx?.connected ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
-              })(),
-              color: (() => {
-                const currentCtx = contexts().find(c => c.isCurrent);
-                return currentCtx?.connected ? '#10b981' : '#ef4444';
-              })(),
-              border: '1px solid var(--border-color)',
-            }}
-            onClick={() => goToClusterManager()}
-          >
-            <span class={`w-2 h-2 rounded-full ${(() => {
-              const currentCtx = contexts().find(c => c.isCurrent);
-              return currentCtx?.connected ? 'bg-emerald-400' : 'bg-red-500';
-            })()}`}></span>
-            {(() => {
-              const currentCtx = contexts().find(c => c.isCurrent);
-              return currentCtx?.connected ? 'Cluster Connected' : 'Cluster Disconnected';
-            })()}
-          </button>
-          <button
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-            style={{
-              background: 'var(--accent-primary)',
-              color: '#000',
-              border: '1px solid var(--accent-primary)',
-              boxShadow: '0 0 10px rgba(59,130,246,0.35)',
-            }}
-            onClick={() => goToClusterManager()}
-            title="Manage Connections"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM12 15a3 3 0 100-6 3 3 0 000 6z" />
-            </svg>
-          </button>
         </div>
 
         {/* Terminal button */}

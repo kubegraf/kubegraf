@@ -324,13 +324,21 @@ func (lru *LRUCache) evictOldest() {
 	lru.keyOrder = lru.keyOrder[1:]
 }
 
-// Cache key helpers
+// Cache key helpers - PRODUCTION: Cluster-aware to prevent cross-cluster contamination
 func CacheKey(namespace, resource string) string {
-	return fmt.Sprintf("%s:%s:%d", resource, namespace, time.Now().Unix()/30) // 30s bucket
+	cluster := os.Getenv("KUBEGRAF_CURRENT_CLUSTER")
+	if cluster == "" {
+		cluster = "default"
+	}
+	return fmt.Sprintf("%s:%s:%s:%d", cluster, resource, namespace, time.Now().Unix()/30) // 30s bucket
 }
 
 func CacheKeyExact(resource string, params ...string) string {
-	key := resource
+	cluster := os.Getenv("KUBEGRAF_CURRENT_CLUSTER")
+	if cluster == "" {
+		cluster = "default"
+	}
+	key := cluster + ":" + resource
 	for _, p := range params {
 		key += ":" + p
 	}

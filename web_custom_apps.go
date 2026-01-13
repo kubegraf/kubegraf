@@ -342,11 +342,9 @@ func (ws *WebServer) previewCustomAppManifests(ctx context.Context, manifests []
 			continue
 		}
 
-		// Get namespace from object or use provided namespace
-		objNamespace := metaObj.GetNamespace()
-		if objNamespace == "" {
-			objNamespace = namespace
-		}
+		// Always use user-selected namespace for namespaced resources
+		// This prioritizes the user's namespace choice over any hardcoded values in manifests
+		objNamespace := namespace
 
 		// Set namespace if it's a namespaced resource
 		if ws.isNamespacedResource(gvk) {
@@ -366,6 +364,14 @@ func (ws *WebServer) previewCustomAppManifests(ctx context.Context, manifests []
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s/%s: %v", gvk.Kind, metaObj.GetName(), err))
 			continue
+		}
+
+		// Check for duplicate resources in existing namespace
+		if ws.isNamespacedResource(gvk) {
+			existingResource, checkErr := ws.checkResourceExists(ctx, gvk, objNamespace, metaObj.GetName())
+			if checkErr == nil && existingResource {
+				warnings = append(warnings, fmt.Sprintf("⚠️  %s/%s already exists in namespace '%s'. Deployment will update/overwrite the existing resource.", gvk.Kind, metaObj.GetName(), objNamespace))
+			}
 		}
 
 		// Add to preview
@@ -490,11 +496,9 @@ func (ws *WebServer) deployCustomApp(ctx context.Context, manifests []string, na
 			continue
 		}
 
-		// Get namespace from object or use provided namespace
-		objNamespace := metaObj.GetNamespace()
-		if objNamespace == "" {
-			objNamespace = namespace
-		}
+		// Always use user-selected namespace for namespaced resources
+		// This prioritizes the user's namespace choice over any hardcoded values in manifests
+		objNamespace := namespace
 
 		// Set namespace and label
 		if ws.isNamespacedResource(gvk) {
@@ -714,6 +718,41 @@ func (ws *WebServer) getResourceName(kind string) string {
 		return kindLower + "s"
 	}
 	return kindLower
+}
+
+// checkResourceExists checks if a resource already exists in the cluster
+func (ws *WebServer) checkResourceExists(ctx context.Context, gvk *schema.GroupVersionKind, namespace string, name string) (bool, error) {
+	// Get dynamic client
+	dynamicClient, err := dynamic.NewForConfig(ws.app.config)
+	if err != nil {
+		return false, err
+	}
+
+	// Convert GVK to GVR
+	group := gvk.Group
+	version := gvk.Version
+	resource := ws.getResourceName(gvk.Kind)
+
+	gvr := schema.GroupVersionResource{
+		Group:    group,
+		Version:  version,
+		Resource: resource,
+	}
+
+	// Try to get the resource
+	if ws.isNamespacedResource(gvk) {
+		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	} else {
+		_, err = dynamicClient.Resource(gvr).Get(ctx, name, metav1.GetOptions{})
+	}
+
+	if err != nil {
+		// Resource doesn't exist
+		return false, nil
+	}
+
+	// Resource exists
+	return true, nil
 }
 
 // isNamespacedResource checks if a resource kind is namespaced

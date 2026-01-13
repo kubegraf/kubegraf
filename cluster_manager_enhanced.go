@@ -36,6 +36,7 @@ type EnhancedClusterManager struct {
 	healthChecker *cluster.HealthChecker
 	mu           sync.RWMutex
 	kubegrafDir  string
+	cacheCleanupFunc func() error // Callback to clear cache on cluster switch
 }
 
 // NewEnhancedClusterManager creates a new enhanced cluster manager
@@ -536,6 +537,8 @@ func (ecm *EnhancedClusterManager) SelectCluster(clusterID string) error {
 		return fmt.Errorf("cluster not found: %w", err)
 	}
 
+	fmt.Printf("🔄 Switching to cluster: %s (context: %s)\n", cluster.Name, cluster.ContextName)
+
 	// Ensure cluster is registered with health checker before selecting
 	ecm.registerClusterForHealthCheck(cluster)
 
@@ -558,20 +561,71 @@ func (ecm *EnhancedClusterManager) SelectCluster(clusterID string) error {
 	}
 	_ = os.Setenv("KUBECONFIG", activePath)
 
-	// Connect app with the kubeconfig
+	// Set cluster context for cache key isolation (CRITICAL for multi-cluster)
+	_ = os.Setenv("KUBEGRAF_CURRENT_CLUSTER", cluster.ContextName)
+	fmt.Printf("🏷️  Set KUBEGRAF_CURRENT_CLUSTER=%s\n", cluster.ContextName)
+
+	// CRITICAL: Clear cache when switching clusters to prevent stale data
+	if ecm.cacheCleanupFunc != nil {
+		fmt.Printf("🧹 Clearing cache for cluster switch...\n")
+		if err := ecm.cacheCleanupFunc(); err != nil {
+			fmt.Printf("⚠️  Failed to clear cache: %v\n", err)
+		} else {
+			fmt.Printf("✅ Cache cleared\n")
+		}
+	}
+
+	// Connect app with the kubeconfig and reload all contexts
 	if ecm.ClusterService != nil && ecm.ClusterService.app != nil {
+		fmt.Printf("🔌 Reloading kubeconfig contexts...\n")
 		if err := ecm.ClusterService.app.ConnectWithKubeconfig(activePath); err != nil {
 			return fmt.Errorf("reload cluster contexts: %w", err)
+		}
+		fmt.Printf("✅ Contexts reloaded\n")
+
+		// Now switch to the specific context within the loaded kubeconfig
+		if cluster.ContextName != "" {
+			fmt.Printf("🎯 Switching to context: %s\n", cluster.ContextName)
+			if err := ecm.ClusterService.app.SwitchContext(cluster.ContextName); err != nil {
+				// If SwitchContext fails, try to connect directly
+				fmt.Printf("⚠️  SwitchContext failed: %v, attempting direct connection...\n", err)
+
+				// Update app state directly
+				ecm.ClusterService.app.cluster = cluster.Name
+				ecm.ClusterService.app.connected = false // Set to false initially
+				ecm.ClusterService.app.connectionError = "Connecting..."
+
+				// Try to initialize with this context
+				if ecm.ClusterService.app.contextManager != nil {
+					ecm.ClusterService.app.contextManager.CurrentContext = cluster.ContextName
+				}
+			} else {
+				fmt.Printf("✅ Switched to context: %s\n", cluster.ContextName)
+			}
 		}
 	}
 
 	// Update status to CONNECTING
 	ecm.db.UpdateClusterStatus(clusterID, "CONNECTING", "", 0, 0)
 
-	// Perform immediate health check
+	// Perform immediate health check synchronously for better UX
+	fmt.Printf("🏥 Performing health check...\n")
+	_ = ecm.healthChecker.CheckCluster(clusterID)
+
+	// Update database with health check result
+	state := ecm.healthChecker.GetStatus(clusterID)
+	ecm.db.UpdateClusterStatus(clusterID, string(state.Status), state.LastError,
+		state.ConsecutiveFailures, state.ConsecutiveSuccesses)
+	fmt.Printf("✅ Health check complete - Status: %s\n", state.Status)
+
+	// Also trigger async health check for continuous monitoring
 	go func() {
+		time.Sleep(2 * time.Second)
 		_ = ecm.healthChecker.CheckCluster(clusterID)
-		// Status will be updated by the health checker
+		// Update database after async check too
+		asyncState := ecm.healthChecker.GetStatus(clusterID)
+		ecm.db.UpdateClusterStatus(clusterID, string(asyncState.Status), asyncState.LastError,
+			asyncState.ConsecutiveFailures, asyncState.ConsecutiveSuccesses)
 	}()
 
 	return nil
@@ -594,6 +648,11 @@ func (ecm *EnhancedClusterManager) ReconnectCluster(clusterID string) error {
 			state.ConsecutiveFailures, state.ConsecutiveSuccesses)
 		return fmt.Errorf("health check failed: %w", err)
 	}
+
+	// Update database with successful health check result
+	state := ecm.healthChecker.GetStatus(clusterID)
+	ecm.db.UpdateClusterStatus(clusterID, string(state.Status), state.LastError,
+		state.ConsecutiveFailures, state.ConsecutiveSuccesses)
 
 	// If health check succeeds, connect
 	return ecm.SelectCluster(clusterID)

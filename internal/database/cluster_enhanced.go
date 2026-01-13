@@ -250,6 +250,17 @@ func (d *Database) SetActiveCluster(clusterID string) error {
 	return err
 }
 
+// ClearActiveCluster clears the active cluster
+func (d *Database) ClearActiveCluster() error {
+	_, err := d.db.Exec(`
+		UPDATE clusters
+		SET active = 0,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE active = 1
+	`)
+	return err
+}
+
 // GetActiveCluster returns the currently active cluster
 func (d *Database) GetActiveCluster() (*EnhancedClusterEntry, error) {
 	cluster := &EnhancedClusterEntry{}

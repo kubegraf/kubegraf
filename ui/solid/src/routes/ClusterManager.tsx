@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, onMount } from 'solid-js';
+import { Component, For, Show, createMemo, onMount, createSignal } from 'solid-js';
 import {
   clusterManagerStatus,
   refreshClusterStatus,
@@ -20,6 +20,8 @@ import AuthErrorHelper from '../components/AuthErrorHelper';
 import { api } from '../services/api';
 
 const ClusterManager: Component = () => {
+  const [sourcesExpanded, setSourcesExpanded] = createSignal(false);
+
   onMount(() => {
     // Refresh cluster status to sync with header
     refreshClusterStatus();
@@ -113,35 +115,6 @@ const ClusterManager: Component = () => {
           </div>
         </div>
       </div>
-
-      {/* Show "Choose your cluster" message when enhanced clusters are found */}
-      <Show when={!hasActiveCluster() && (enhancedClusters().length > 0 || sources().length > 0)}>
-        <div class="p-6 rounded-xl border mb-6" style={{ 
-          border: '1px solid var(--border-color)', 
-          background: 'var(--bg-card)',
-          'border-left': '4px solid var(--accent-primary)'
-        }}>
-          <div class="flex items-start gap-4">
-            <div class="flex-shrink-0">
-              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <div class="flex-1">
-              <h2 class="text-xl font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-                Choose your cluster to connect
-              </h2>
-              <p class="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-                {enhancedClusters().length > 0
-                  ? `Found ${enhancedClusters().length} cluster${enhancedClusters().length > 1 ? 's' : ''}. Select one below to connect.`
-                  : sources().length > 0
-                  ? `Found ${sources().length} kubeconfig source${sources().length > 1 ? 's' : ''}. Use the Enhanced Cluster Manager below to connect.`
-                  : 'Use the Enhanced Cluster Manager below to add and connect to clusters.'}
-              </p>
-            </div>
-          </div>
-        </div>
-      </Show>
 
       {/* Show ConnectionOverlay-style content when NO enhanced clusters are found */}
       <Show when={!hasActiveCluster() && enhancedClusters().length === 0 && sources().length === 0 && !enhancedLoading()}>
@@ -317,44 +290,64 @@ const ClusterManager: Component = () => {
               Clusters with health status tracking and source management
             </p>
           </div>
-                      <button
-            class="px-3 py-1.5 text-sm rounded-md transition-colors"
-                        style={{
-                          border: '1px solid var(--border-color)',
-              background: 'var(--bg-tertiary)', 
-              color: 'var(--text-primary)', 
-            }}
-            onClick={() => {
-              refreshEnhancedClusters();
-              refreshSources();
-            }}
-            disabled={enhancedLoading()}
-          >
-            Refresh
-                      </button>
-                    </div>
+          <div class="flex items-center gap-2">
+            <Show when={sources().length > 0}>
+              <button
+                class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+                onClick={() => setSourcesExpanded(!sourcesExpanded())}
+                title="Click to view kubeconfig sources"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>{sources().length} source{sources().length !== 1 ? 's' : ''}</span>
+                <svg class={`w-3 h-3 transition-transform ${sourcesExpanded() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </Show>
+            <button
+              class="px-3 py-1.5 text-sm rounded-md transition-colors"
+              style={{
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)',
+              }}
+              onClick={() => {
+                refreshEnhancedClusters();
+                refreshSources();
+              }}
+              disabled={enhancedLoading()}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
 
-        {/* Sources */}
-        <Show when={sources().length > 0}>
-          <div class="mb-6">
-            <h3 class="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Kubeconfig Sources</h3>
-            <div class="space-y-2">
+        {/* Sources dropdown */}
+        <Show when={sourcesExpanded() && sources().length > 0}>
+          <div class="mb-4 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Kubeconfig Sources</h3>
+            </div>
+            <div class="space-y-1">
               <For each={sources()}>
                 {(source) => (
-                  <div class="p-2 rounded border text-xs" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                  <div class="flex items-center gap-2 p-1.5 rounded text-xs" style={{ background: 'var(--bg-card)' }}>
                     <span class="font-medium" style={{ color: 'var(--text-primary)' }}>{source.name}</span>
-                    <span class="ml-2 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)' }}>
+                    <span class="px-1.5 py-0.5 rounded" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)' }}>
                       {source.type}
                     </span>
                     <Show when={source.path}>
-                      <span class="ml-2" style={{ color: 'var(--text-muted)' }}>{source.path}</span>
+                      <span class="truncate" style={{ color: 'var(--text-muted)' }}>{source.path}</span>
                     </Show>
                   </div>
                 )}
               </For>
             </div>
-            </div>
-          </Show>
+          </div>
+        </Show>
 
         {/* Enhanced Clusters */}
         <Show when={enhancedClusters().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>No enhanced clusters found.</p>}>
@@ -382,111 +375,81 @@ const ClusterManager: Component = () => {
                     }
                   };
                   return (
-                    <div 
-                      class="p-2.5 rounded-lg border flex flex-col gap-1.5" 
-                      style={{ 
-                        border: '1px solid var(--border-color)', 
-                        background: cluster.active ? 'rgba(6, 182, 212, 0.05)' : 'var(--bg-card)' 
+                    <div
+                      class="p-2 rounded-lg border flex items-center justify-between gap-3"
+                      style={{
+                        border: '1px solid var(--border-color)',
+                        background: cluster.active ? 'rgba(6, 182, 212, 0.05)' : 'var(--bg-card)'
                       }}
+                      title={cluster.lastError || ''}
                     >
-                      <div class="flex items-center justify-between gap-4">
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center gap-2 mb-0.5" style={{ 'flex-wrap': 'nowrap', 'overflow-x': 'auto' }}>
-                            <span class="text-base font-semibold" style={{ color: 'var(--text-primary)', 'white-space': 'nowrap' }}>{cluster.name}</span>
-                            <Show when={cluster.active}>
-                              <span 
-                                class="px-2 py-0.5 text-xs rounded-full" 
-                                style={{ 
-                                  background: 'rgba(16, 185, 129, 0.15)', 
-                                  color: 'var(--success-color)', 
-                                  'white-space': 'nowrap' 
-                                }}
-                              >
-                                Active
-                              </span>
-                            </Show>
-                            <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)', 'white-space': 'nowrap' }}>
-                              {cluster.provider}
-                            </span>
-                            <span class="px-2 py-0.5 text-xs rounded-full" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', 'white-space': 'nowrap' }}>
-                              {cluster.environment}
-                            </span>
-                            <Show when={!cluster.active}>
-                              <button
-                                class="px-3 py-1.5 text-sm rounded-md transition-all"
-                                style={{
-                                  background: 'var(--accent-primary)',
-                                  color: '#000',
-                                  'white-space': 'nowrap',
-                                  'flex-shrink': 0
-                                }}
-                                disabled={enhancedLoading()}
-                                onClick={async () => {
-                                  try {
-                                    console.log('Selecting cluster:', cluster.clusterId, cluster.name);
-                                    await selectCluster(cluster.clusterId);
-                                    addNotification(`Switched to ${cluster.name}`, 'success');
-                                    // Refresh to get updated status
-                                    await refreshEnhancedClusters();
-                                  } catch (err: any) {
-                                    console.error('Select cluster error:', err);
-                                    addNotification(err?.message || 'Failed to select cluster', 'error');
-                                  }
-                                }}
-                              >
-                                Select
-                              </button>
-                            </Show>
-              <button
-                              class="px-3 py-1.5 text-sm rounded-md transition-all"
-                style={{ 
-                  border: '1px solid var(--border-color)', 
-                  background: 'var(--bg-tertiary)', 
-                  color: 'var(--text-primary)', 
-                                'white-space': 'nowrap',
-                                'flex-shrink': 0
-                              }}
-                              disabled={enhancedLoading()}
-                              onClick={async () => {
-                                try {
-                                  await reconnectCluster(cluster.clusterId);
-                                  addNotification(`Reconnecting to ${cluster.name}...`, 'info');
-                                  // Refresh to get updated status
-                                  await refreshEnhancedClusters();
-                                } catch (err: any) {
-                                  addNotification(err?.message || 'Failed to reconnect', 'error');
-                                }
-                              }}
-                            >
-                              Reconnect
-              </button>
-            </div>
-                          <p class="text-xs mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                            {cluster.contextName} • {cluster.kubeconfigPath}
-                          </p>
-                          <Show when={cluster.lastError}>
-                            <p class="text-xs mt-0.5" style={{ color: 'var(--error-color)' }}>{cluster.lastError}</p>
-                          </Show>
-                        </div>
-                        <div class="flex items-center gap-2 flex-shrink-0">
-                          <span class="w-2 h-2 rounded-full" style={{ background: statusColor() }}></span>
-                          <span class="text-xs font-medium" style={{ color: statusColor(), 'white-space': 'nowrap' }}>{statusLabel()}</span>
-                        </div>
+                      <div class="flex items-center gap-2 flex-1 min-w-0">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColor() }}></span>
+                        <span class="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{cluster.name}</span>
+                        <Show when={cluster.active}>
+                          <span
+                            class="px-1.5 py-0.5 text-xs rounded-full flex-shrink-0"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: 'var(--success-color)'
+                            }}
+                          >
+                            Active
+                          </span>
+                        </Show>
+                        <span class="px-1.5 py-0.5 text-xs rounded-full flex-shrink-0" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-primary)' }}>
+                          {cluster.provider}
+                        </span>
+                        <span class="px-1.5 py-0.5 text-xs rounded-full flex-shrink-0" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                          {cluster.environment}
+                        </span>
                       </div>
-                      <Show when={cluster.status === 'AUTH_ERROR'}>
-                        <AuthErrorHelper
-                          provider={cluster.provider}
-                          clusterName={cluster.name}
-                          onRetry={async () => {
+                      <div class="flex items-center gap-2 flex-shrink-0">
+                        <span class="text-xs font-medium" style={{ color: statusColor() }}>{statusLabel()}</span>
+                        <Show when={!cluster.active}>
+                          <button
+                            class="px-2 py-1 text-xs rounded-md transition-all"
+                            style={{
+                              background: 'var(--accent-primary)',
+                              color: '#000'
+                            }}
+                            disabled={enhancedLoading()}
+                            onClick={async () => {
+                              try {
+                                console.log('Selecting cluster:', cluster.clusterId, cluster.name);
+                                await selectCluster(cluster.clusterId);
+                                addNotification(`Switched to ${cluster.name}`, 'success');
+                                await refreshEnhancedClusters();
+                              } catch (err: any) {
+                                console.error('Select cluster error:', err);
+                                addNotification(err?.message || 'Failed to select cluster', 'error');
+                              }
+                            }}
+                          >
+                            Select
+                          </button>
+                        </Show>
+                        <button
+                          class="px-2 py-1 text-xs rounded-md transition-all"
+                          style={{
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-tertiary)',
+                            color: 'var(--text-primary)'
+                          }}
+                          disabled={enhancedLoading()}
+                          onClick={async () => {
                             try {
                               await reconnectCluster(cluster.clusterId);
                               addNotification(`Reconnecting to ${cluster.name}...`, 'info');
+                              await refreshEnhancedClusters();
                             } catch (err: any) {
                               addNotification(err?.message || 'Failed to reconnect', 'error');
                             }
                           }}
-                        />
-            </Show>
+                        >
+                          Reconnect
+                        </button>
+                      </div>
                     </div>
                   );
                 }}

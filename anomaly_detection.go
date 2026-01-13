@@ -69,12 +69,24 @@ type Anomaly struct {
 }
 
 // AnomalyDetector handles anomaly detection
+// ScanProgress tracks real-time progress during scanning
+type ScanProgress struct {
+	IsScanning      bool      `json:"isScanning"`
+	TotalPods       int       `json:"totalPods"`
+	ProcessedPods   int       `json:"processedPods"`
+	CurrentSamples  int       `json:"currentSamples"`
+	StartTime       time.Time `json:"startTime"`
+	Message         string    `json:"message"`
+}
+
 type AnomalyDetector struct {
 	app            *App
 	metricsHistory []MetricSample
 	mu             sync.RWMutex
 	maxHistory     int     // Maximum number of samples to keep
 	threshold      float64 // Anomaly threshold (0-1)
+	scanProgress   ScanProgress
+	progressMu     sync.RWMutex
 }
 
 // NewAnomalyDetector creates a new anomaly detector
@@ -98,11 +110,33 @@ func (ad *AnomalyDetector) CollectMetrics(ctx context.Context) ([]MetricSample, 
 	var samples []MetricSample
 	now := time.Now()
 
+	// Initialize progress tracking
+	ad.progressMu.Lock()
+	ad.scanProgress = ScanProgress{
+		IsScanning:     true,
+		TotalPods:      0,
+		ProcessedPods:  0,
+		CurrentSamples: 0,
+		StartTime:      now,
+		Message:        "Fetching pods from cluster...",
+	}
+	ad.progressMu.Unlock()
+
 	// Get all pods across all namespaces
 	pods, err := ad.app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
+		ad.progressMu.Lock()
+		ad.scanProgress.IsScanning = false
+		ad.scanProgress.Message = fmt.Sprintf("Error: %v", err)
+		ad.progressMu.Unlock()
 		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
+
+	// Update total pods count
+	ad.progressMu.Lock()
+	ad.scanProgress.TotalPods = len(pods.Items)
+	ad.scanProgress.Message = fmt.Sprintf("Processing %d pods...", len(pods.Items))
+	ad.progressMu.Unlock()
 
 	// Get pod metrics if available
 	metricsMap := make(map[string]struct {
@@ -221,9 +255,29 @@ func (ad *AnomalyDetector) CollectMetrics(ctx context.Context) ([]MetricSample, 
 		}
 
 		samples = append(samples, sample)
+
+		// Update progress after each pod
+		ad.progressMu.Lock()
+		ad.scanProgress.ProcessedPods++
+		ad.scanProgress.CurrentSamples = len(samples)
+		ad.scanProgress.Message = fmt.Sprintf("Processed %d/%d pods", ad.scanProgress.ProcessedPods, ad.scanProgress.TotalPods)
+		ad.progressMu.Unlock()
 	}
 
+	// Mark scanning as complete
+	ad.progressMu.Lock()
+	ad.scanProgress.IsScanning = false
+	ad.scanProgress.Message = fmt.Sprintf("Scan complete! Collected %d samples from %d pods", len(samples), ad.scanProgress.TotalPods)
+	ad.progressMu.Unlock()
+
 	return samples, nil
+}
+
+// GetScanProgress returns the current scan progress
+func (ad *AnomalyDetector) GetScanProgress() ScanProgress {
+	ad.progressMu.RLock()
+	defer ad.progressMu.RUnlock()
+	return ad.scanProgress
 }
 
 // ExtractFeatures converts a metric sample to a feature vector

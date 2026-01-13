@@ -62,9 +62,18 @@ async function selectCluster(clusterId: string) {
   try {
     const result = await api.selectCluster(clusterId);
     console.log('Select cluster result:', result);
-    // Refresh clusters and sources to get updated status
+
+    // Immediate refresh to get status
     await refreshEnhancedClusters();
     await refreshSources();
+
+    // Wait a moment for backend to reinitialize metrics collector
+    console.log('Waiting for backend to reinitialize metrics collector...');
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Silent page reload to clear all stale data and show only new cluster's workloads
+    console.log('Reloading page to switch to new cluster...');
+    window.location.reload();
   } catch (err: any) {
     console.error('Failed to select cluster', err);
     throw err;
@@ -78,8 +87,30 @@ async function reconnectCluster(clusterId: string) {
   try {
     await api.reconnectCluster(clusterId);
     await refreshEnhancedClusters();
+
+    // Silent page reload to clear all stale data
+    console.log('Reloading page after reconnect...');
+    window.location.reload();
   } catch (err) {
     console.error('Failed to reconnect cluster', err);
+    throw err;
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function disconnectCluster() {
+  setLoading(true);
+  try {
+    await api.disconnectCluster();
+    setActiveCluster(null);
+    await refreshEnhancedClusters();
+
+    // Silent page reload to clear all cached data
+    console.log('Reloading page after disconnect...');
+    window.location.reload();
+  } catch (err) {
+    console.error('Failed to disconnect cluster', err);
     throw err;
   } finally {
     setLoading(false);
@@ -105,4 +136,5 @@ export {
   refreshSources,
   selectCluster,
   reconnectCluster,
+  disconnectCluster,
 };

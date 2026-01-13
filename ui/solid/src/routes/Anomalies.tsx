@@ -6,13 +6,50 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import CommandPreview from '../components/CommandPreview';
 
 const Anomalies: Component = () => {
-  const [activeTab, setActiveTab] = createSignal<'anomalies' | 'recommendations'>('anomalies');
+  const [activeTab, setActiveTab] = createSignal<'anomalies' | 'recommendations'>('recommendations');
   const [selectedSeverity, setSelectedSeverity] = createSignal<string>('');
   const [scanKey, setScanKey] = createSignal(0);
   const [remediating, setRemediating] = createSignal<string | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = createSignal(false);
   const [pendingAction, setPendingAction] = createSignal<{ type: 'anomaly' | 'recommendation', data: any } | null>(null);
   const [isApplying, setIsApplying] = createSignal(false);
+  const [scanProgress, setScanProgress] = createSignal<{
+    isScanning: boolean;
+    totalPods: number;
+    processedPods: number;
+    currentSamples: number;
+    message: string;
+    totalInHistory: number;
+  } | null>(null);
+  const [progressPollInterval, setProgressPollInterval] = createSignal<number | null>(null);
+
+  // Export recommendations to JSON
+  const exportRecommendations = () => {
+    const recs = recommendations();
+    if (!recs || !recs.recommendations || recs.recommendations.length === 0) {
+      addNotification('No recommendations to export', 'warning');
+      return;
+    }
+
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      clusterContext: currentContext(),
+      totalRecommendations: recs.total,
+      metricsStats: recs.metricsStats,
+      recommendations: recs.recommendations,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ml-recommendations-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addNotification('Recommendations exported successfully', 'success');
+  };
 
   const buildRecommendationCommand = (rec: any): string => {
     // Best-effort equivalent "kubectl" commands for transparency only.
@@ -284,6 +321,54 @@ const Anomalies: Component = () => {
     });
   });
 
+  // Poll scan progress while anomalies are loading or recommendations are loading
+  createEffect(() => {
+    const isAnomaliesLoading = anomaliesData.loading;
+    const isRecommendationsLoading = recommendations.loading;
+    const isScanning = isAnomaliesLoading || isRecommendationsLoading;
+
+    if (isScanning) {
+      // Start polling
+      const pollProgress = async () => {
+        try {
+          const progress = await api.getScanProgress();
+          setScanProgress(progress);
+
+          // If scan completed, refetch recommendations to update stats
+          if (!progress.isScanning && activeTab() === 'recommendations') {
+            refetchRecommendations();
+          }
+        } catch (err) {
+          console.error('[Anomalies] Failed to fetch scan progress:', err);
+        }
+      };
+
+      // Initial poll
+      pollProgress();
+
+      // Set up interval
+      const interval = setInterval(pollProgress, 500); // Poll every 500ms for smooth updates
+      setProgressPollInterval(interval);
+
+      onCleanup(() => {
+        if (interval) {
+          clearInterval(interval);
+          setProgressPollInterval(null);
+        }
+      });
+    } else {
+      // Clear interval when not scanning
+      const interval = progressPollInterval();
+      if (interval) {
+        clearInterval(interval);
+        setProgressPollInterval(null);
+      }
+
+      // One final poll to get the final state
+      api.getScanProgress().then(setScanProgress).catch(console.error);
+    }
+  });
+
   onMount(() => {
     // Trigger initial scan
     setScanKey(1);
@@ -313,32 +398,35 @@ const Anomalies: Component = () => {
             </button>
           </Show>
           <Show when={activeTab() === 'recommendations'}>
-            <button
-              onClick={() => refetchRecommendations()}
-              disabled={recommendations.loading}
-              class="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: 'var(--accent-primary)', color: 'white' }}
-            >
-              {recommendations.loading ? 'Loading...' : 'Refresh Recommendations'}
-            </button>
+            <div class="flex gap-2">
+              <button
+                onClick={() => refetchRecommendations()}
+                disabled={recommendations.loading}
+                class="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: 'var(--accent-primary)', color: 'white' }}
+              >
+                {recommendations.loading ? 'Loading...' : 'Refresh Recommendations'}
+              </button>
+              <Show when={recommendations() && recommendations()!.recommendations && recommendations()!.recommendations.length > 0}>
+                <button
+                  onClick={exportRecommendations}
+                  class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{ border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                  title="Export recommendations as JSON"
+                >
+                  <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export
+                </button>
+              </Show>
+            </div>
           </Show>
         </div>
       </div>
 
       {/* Tabs */}
       <div class="flex gap-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
-        <button
-          onClick={() => setActiveTab('anomalies')}
-          class={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab() === 'anomalies' ? 'border-b-2' : 'opacity-60 hover:opacity-100'
-          }`}
-          style={{
-            color: activeTab() === 'anomalies' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            'border-bottom-color': activeTab() === 'anomalies' ? 'var(--accent-primary)' : 'transparent',
-          }}
-        >
-          Anomaly Detection
-        </button>
         <button
           onClick={() => setActiveTab('recommendations')}
           class={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -350,6 +438,18 @@ const Anomalies: Component = () => {
           }}
         >
           ML Recommendations
+        </button>
+        <button
+          onClick={() => setActiveTab('anomalies')}
+          class={`px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab() === 'anomalies' ? 'border-b-2' : 'opacity-60 hover:opacity-100'
+          }`}
+          style={{
+            color: activeTab() === 'anomalies' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom-color': activeTab() === 'anomalies' ? 'var(--accent-primary)' : 'transparent',
+          }}
+        >
+          Anomaly Detection
         </button>
       </div>
 
@@ -583,14 +683,76 @@ const Anomalies: Component = () => {
                   {isPreparing ? 'Preparing ML Recommendations…' : 'No ML Recommendations Yet'}
                 </p>
 
+                {/* Scanning Progress (Live Updates) */}
+                <Show when={scanProgress()?.isScanning}>
+                  {() => {
+                    const progress = scanProgress()!;
+                    const percentComplete = progress.totalPods > 0 ? (progress.processedPods / progress.totalPods) * 100 : 0;
+
+                    // Calculate estimated time remaining
+                    let estimatedTimeRemaining = '';
+                    if (progress.startTime && progress.processedPods > 0 && progress.totalPods > 0) {
+                      const elapsed = Date.now() - new Date(progress.startTime).getTime();
+                      const avgTimePerPod = elapsed / progress.processedPods;
+                      const remainingPods = progress.totalPods - progress.processedPods;
+                      const estimatedMs = avgTimePerPod * remainingPods;
+
+                      if (estimatedMs < 1000) {
+                        estimatedTimeRemaining = '< 1 sec remaining';
+                      } else if (estimatedMs < 60000) {
+                        estimatedTimeRemaining = `~${Math.ceil(estimatedMs / 1000)} sec remaining`;
+                      } else {
+                        const minutes = Math.ceil(estimatedMs / 60000);
+                        estimatedTimeRemaining = `~${minutes} min${minutes > 1 ? 's' : ''} remaining`;
+                      }
+                    }
+
+                    return (
+                      <div class="max-w-md mx-auto mb-4 p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                        <div class="flex items-center justify-between mb-2">
+                          <span class="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--accent-primary)' }}>
+                            <span class="animate-spin">⚡</span>
+                            Scanning Cluster...
+                          </span>
+                          <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                            {progress.processedPods} / {progress.totalPods} pods
+                          </span>
+                        </div>
+                        <div class="w-full rounded-full h-3 overflow-hidden mb-2" style={{ background: 'var(--bg-secondary)' }}>
+                          <div
+                            class="h-full rounded-full transition-all duration-200"
+                            style={{
+                              width: `${percentComplete}%`,
+                              background: 'linear-gradient(90deg, #06b6d4, #0891b2)',
+                            }}
+                          />
+                        </div>
+                        <div class="flex items-center justify-between">
+                          <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {progress.message}
+                          </p>
+                          <Show when={estimatedTimeRemaining}>
+                            <p class="text-xs font-medium" style={{ color: 'var(--accent-primary)' }}>
+                              {estimatedTimeRemaining}
+                            </p>
+                          </Show>
+                        </div>
+                        <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                          Collecting samples: {progress.currentSamples} (Total in history: {progress.totalInHistory + progress.currentSamples})
+                        </p>
+                      </div>
+                    );
+                  }}
+                </Show>
+
                 {/* Metrics Progress */}
                 <div class="max-w-md mx-auto mb-4">
                   <div class="flex items-center justify-between mb-2">
                     <span class="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      Metrics Collected
+                      Metrics Samples Collected
                     </span>
                     <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {totalSamples} / {minRequired}
+                      {(scanProgress()?.totalInHistory || totalSamples).toLocaleString()} {hasEnoughData ? `(min ${minRequired} required)` : `/ ${minRequired}`}
                     </span>
                   </div>
                   <div class="w-full rounded-full h-3 overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
@@ -606,8 +768,8 @@ const Anomalies: Component = () => {
                   </div>
                   <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
                     {hasEnoughData
-                      ? '✓ Enough data collected! We are generating recommendations automatically.'
-                      : `${remainingNeeded} more sample${remainingNeeded !== 1 ? 's' : ''} needed`}
+                      ? `✓ ${(scanProgress()?.totalInHistory || totalSamples).toLocaleString()} samples collected! Generating recommendations automatically. (Collects up to 10,000 samples)`
+                      : `${remainingNeeded} more sample${remainingNeeded !== 1 ? 's' : ''} needed to start analysis`}
                   </p>
                 </div>
 
@@ -615,7 +777,51 @@ const Anomalies: Component = () => {
                   <p>
                     Recommendations will appear as the system learns from your cluster metrics and completes the analysis.
                   </p>
-                  <p class="text-xs" style={{ color: 'var(--text-muted)' }}>
+
+                  {/* Info about scanning time and settings */}
+                  <div class="mt-4 p-3 rounded-lg text-xs space-y-2" style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                    <p style={{ color: 'var(--text-primary)' }}>
+                      <strong>⏱️ About Scanning Time:</strong>
+                    </p>
+                    <ul class="list-disc list-inside space-y-0.5 ml-2" style={{ color: 'var(--text-muted)' }}>
+                      <li>Scan time depends on your current cluster size (number of pods)</li>
+                      <li>Small clusters (~10-50 pods): <strong>5-15 seconds</strong></li>
+                      <li>Medium clusters (~50-200 pods): <strong>15-45 seconds</strong></li>
+                      <li>Large clusters (~200-1000 pods): <strong>1-3 minutes</strong></li>
+                      <li>Background collection happens automatically every 5 minutes</li>
+                      <li>Time varies based on cluster load and network latency</li>
+                    </ul>
+
+                    <div class="pt-2 border-t" style={{ borderColor: 'rgba(6, 182, 212, 0.3)' }}>
+                      <p style={{ color: 'var(--text-primary)' }} class="mb-2">
+                        <strong>⚙️ Configure Background Collection:</strong>
+                      </p>
+                      <a
+                        href="/settings"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setCurrentView('settings');
+                        }}
+                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: 'var(--accent-primary)',
+                          color: 'white',
+                          textDecoration: 'none'
+                        }}
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Open Metrics Collection Settings
+                      </a>
+                      <p style={{ color: 'var(--text-muted)' }} class="mt-1">
+                        Change collection interval, disable auto-collection, or adjust retention period
+                      </p>
+                    </div>
+                  </div>
+
+                  <p class="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
                     💡 <strong>Tip:</strong> Run anomaly detection multiple times to collect more metrics. Each scan adds new
                     samples to the history.
                   </p>
@@ -627,10 +833,21 @@ const Anomalies: Component = () => {
 
         <Show when={!recommendations.loading && recommendations() && recommendations()!.recommendations && Array.isArray(recommendations()!.recommendations) && recommendations()!.recommendations.length > 0}>
           <div class="space-y-4">
-            <div class="card p-4">
+            <div class="card p-4 flex items-center justify-between">
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>
                 Total Recommendations: <strong style={{ color: 'var(--text-primary)' }}>{recommendations()!.total || 0}</strong>
               </div>
+              <button
+                onClick={exportRecommendations}
+                class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-80"
+                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                title="Export all recommendations as JSON"
+              >
+                <svg class="w-3.5 h-3.5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export All
+              </button>
             </div>
             <For each={recommendations()!.recommendations || []}>
               {(rec: any) => (

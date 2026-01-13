@@ -235,18 +235,18 @@ const SREAgent: Component = () => {
       {/* Header */}
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-white mb-2">SRE Agent</h1>
-          <p class="text-gray-400">Intelligent incident detection and automated remediation</p>
+          <h1 class="text-3xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>SRE Agent</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>Intelligent incident detection and automated remediation</p>
         </div>
         <Show when={sreStatus()}>
           {(status) => (
             <button
               onClick={toggleAgent}
-              class={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                status().enabled
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-gray-600 hover:bg-gray-700 text-white'
-              }`}
+              class="px-6 py-2 rounded-lg font-medium transition-colors"
+              style={{
+                background: status().enabled ? 'var(--success-color)' : 'var(--bg-tertiary)',
+                color: 'white'
+              }}
             >
               {status().enabled ? '✓ Enabled' : 'Disabled'}
             </button>
@@ -255,44 +255,44 @@ const SREAgent: Component = () => {
       </div>
 
       {/* Tabs */}
-      <div class="flex space-x-2 border-b border-gray-700">
+      <div class="flex space-x-2 border-b" style={{ 'border-color': 'var(--border-color)' }}>
         <button
           onClick={() => setActiveTab('overview')}
-          class={`px-4 py-2 font-medium transition-colors ${
-            activeTab() === 'overview'
-              ? 'text-blue-400 border-b-2 border-blue-400'
-              : 'text-gray-400 hover:text-gray-300'
-          }`}
+          class="px-4 py-2 font-medium transition-colors"
+          style={{
+            color: activeTab() === 'overview' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom': activeTab() === 'overview' ? '2px solid var(--accent-primary)' : 'none'
+          }}
         >
           Overview
         </button>
         <button
           onClick={() => setActiveTab('incidents')}
-          class={`px-4 py-2 font-medium transition-colors ${
-            activeTab() === 'incidents'
-              ? 'text-blue-400 border-b-2 border-blue-400'
-              : 'text-gray-400 hover:text-gray-300'
-          }`}
+          class="px-4 py-2 font-medium transition-colors"
+          style={{
+            color: activeTab() === 'incidents' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom': activeTab() === 'incidents' ? '2px solid var(--accent-primary)' : 'none'
+          }}
         >
           Incidents
         </button>
         <button
           onClick={() => setActiveTab('actions')}
-          class={`px-4 py-2 font-medium transition-colors ${
-            activeTab() === 'actions'
-              ? 'text-blue-400 border-b-2 border-blue-400'
-              : 'text-gray-400 hover:text-gray-300'
-          }`}
+          class="px-4 py-2 font-medium transition-colors"
+          style={{
+            color: activeTab() === 'actions' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom': activeTab() === 'actions' ? '2px solid var(--accent-primary)' : 'none'
+          }}
         >
           Actions
         </button>
         <button
           onClick={() => setActiveTab('config')}
-          class={`px-4 py-2 font-medium transition-colors ${
-            activeTab() === 'config'
-              ? 'text-blue-400 border-b-2 border-blue-400'
-              : 'text-gray-400 hover:text-gray-300'
-          }`}
+          class="px-4 py-2 font-medium transition-colors"
+          style={{
+            color: activeTab() === 'config' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            'border-bottom': activeTab() === 'config' ? '2px solid var(--accent-primary)' : 'none'
+          }}
         >
           Configuration
         </button>
@@ -372,7 +372,8 @@ const SREAgent: Component = () => {
             <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Active Incidents</h2>
             <button
               onClick={refetchIncidents}
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
+              class="px-4 py-2 rounded text-sm transition-colors"
+              style={{ background: 'var(--accent-primary)', color: 'white' }}
             >
               Refresh
             </button>
@@ -428,7 +429,8 @@ const SREAgent: Component = () => {
             <h2 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Remediation Actions</h2>
             <button
               onClick={refetchActions}
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
+              class="px-4 py-2 rounded text-sm transition-colors"
+              style={{ background: 'var(--accent-primary)', color: 'white' }}
             >
               Refresh
             </button>
@@ -484,7 +486,8 @@ const SREAgent: Component = () => {
               <Show when={!configEditing()}>
                 <button
                   onClick={startEditing}
-                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
+                  class="px-4 py-2 rounded transition-colors"
+                  style={{ background: 'var(--accent-primary)', color: 'white' }}
                 >
                   Edit Configuration
                 </button>
@@ -493,13 +496,15 @@ const SREAgent: Component = () => {
                 <div class="space-x-2">
                   <button
                     onClick={() => setConfigEditing(false)}
-                    class="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+                    class="px-4 py-2 rounded transition-colors"
+                    style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                   >
                     Cancel
                   </button>
                   <button
                     onClick={saveConfig}
-                    class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white"
+                    class="px-4 py-2 rounded transition-colors"
+                    style={{ background: 'var(--success-color)', color: 'white' }}
                   >
                     Save
                   </button>

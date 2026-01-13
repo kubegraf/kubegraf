@@ -324,6 +324,15 @@ func NewWebServer(app *App) *WebServer {
 				fmt.Printf("⚠️  Failed to initialize enhanced cluster manager: %v\n", err)
 			} else {
 				ws.enhancedClusterManager = enhancedMgr
+
+				// Set cache cleanup callback for cluster switching
+				if ws.cache != nil {
+					ws.enhancedClusterManager.cacheCleanupFunc = func() error {
+						return ws.cache.Clear()
+					}
+					fmt.Printf("✅ Cache cleanup callback registered with cluster manager\n")
+				}
+
 				fmt.Printf("✅ Enhanced cluster manager assigned to web server\n")
 			}
 		} else {
@@ -353,6 +362,14 @@ func NewWebServer(app *App) *WebServer {
 		// Silent failure for production
 	} else {
 		ws.cache = cache
+
+		// Register cache cleanup callback with enhanced cluster manager if available
+		if ws.enhancedClusterManager != nil {
+			ws.enhancedClusterManager.cacheCleanupFunc = func() error {
+				return ws.cache.Clear()
+			}
+			fmt.Printf("✅ Cache cleanup callback registered with cluster manager\n")
+		}
 	}
 
 	// Initialize IAM (enabled by default)
@@ -470,7 +487,6 @@ func (ws *WebServer) Start(port int) error {
 	// Legacy cluster endpoints (keep for backward compatibility)
 	http.HandleFunc("/api/clusters", ws.handleClusters)
 	http.HandleFunc("/api/clusters/connect", ws.handleClusterConnect)
-	http.HandleFunc("/api/clusters/disconnect", ws.handleClusterDisconnect)
 	http.HandleFunc("/api/clusters/status", ws.handleClusterStatus)
 	http.HandleFunc("/api/clusters/health", ws.handleClusterHealth)
 	http.HandleFunc("/api/clusters/health/check", ws.handleClusterHealthCheck)
@@ -490,6 +506,7 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/clusters/active", ws.handleGetActiveCluster)
 	http.HandleFunc("/api/clusters/select", ws.handleSelectCluster)
 	http.HandleFunc("/api/clusters/reconnect", ws.handleReconnectCluster)
+	http.HandleFunc("/api/clusters/disconnect", ws.handleDisconnectCluster)
 	http.HandleFunc("/api/clusters/refresh-catalog", ws.handleRefreshClusterCatalog)
 
 	// File dialog endpoint

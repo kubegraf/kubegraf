@@ -80,7 +80,11 @@ func (mlr *MLRecommender) GetMetricsHistoryStats() map[string]interface{} {
 	defer mlr.mu.RUnlock()
 
 	historyLen := len(mlr.metricsHistory)
-	minRequired := 20
+	// Require at least 1000 pod metric samples for meaningful ML analysis
+	// One anomaly scan typically collects metrics from all pods (could be 50-200+ depending on cluster size)
+	// We want at least 10-20 scans worth of data for reliable time-series analysis and trend detection
+	// This ensures each deployment/statefulset gets 50+ samples for accurate cost optimization
+	minRequired := 1000
 	progress := float64(historyLen) / float64(minRequired) * 100
 	if progress > 100 {
 		progress = 100

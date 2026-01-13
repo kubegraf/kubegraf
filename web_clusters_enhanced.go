@@ -164,6 +164,9 @@ func (ws *WebServer) handleSelectCluster(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Reinitialize metrics collector with new cluster
+	ws.reinitializeMetricsCollector()
+
 	// Get updated cluster status
 	cluster, err := ws.enhancedClusterManager.GetActiveCluster()
 	if err != nil {
@@ -311,5 +314,49 @@ func (ws *WebServer) handleRefreshClusterCatalog(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Cluster catalog refreshed",
+	})
+}
+
+// handleDisconnectCluster handles POST /api/clusters/disconnect
+func (ws *WebServer) handleDisconnectCluster(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Clear the active cluster connection
+	if ws.app != nil {
+		ws.app.connected = false
+		ws.app.connectionError = "Disconnected by user"
+		ws.app.cluster = ""
+		ws.app.clientset = nil
+		ws.app.metricsClient = nil
+
+		// Update context manager
+		if ws.app.contextManager != nil {
+			ws.app.contextManager.CurrentContext = ""
+		}
+	}
+
+	// Clear cache to remove all cached data
+	if ws.cache != nil {
+		if err := ws.cache.Clear(); err != nil {
+			fmt.Printf("⚠️  Failed to clear cache on disconnect: %v\n", err)
+		} else {
+			fmt.Printf("✅ Cache cleared on disconnect\n")
+		}
+	}
+
+	// If enhanced cluster manager available, clear active cluster in DB
+	if ws.enhancedClusterManager != nil && ws.db != nil {
+		if err := ws.db.ClearActiveCluster(); err != nil {
+			fmt.Printf("⚠️  Failed to clear active cluster in DB: %v\n", err)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Cluster disconnected",
 	})
 }
