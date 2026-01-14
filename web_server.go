@@ -221,6 +221,8 @@ type WebServer struct {
 	// Policy and notification services
 	policyService        *PolicyService
 	announcementsService *AnnouncementsService
+	// Incident intelligence system for RCA and auto-remediation
+	incidentIntelligence *IncidentIntelligence
 }
 
 // NewWebServer creates a new web server
@@ -396,6 +398,9 @@ func NewWebServer(app *App) *WebServer {
 	} else {
 		ws.stateManager = stateMgr
 	}
+
+	// Initialize incident intelligence system for RCA and auto-remediation
+	ws.incidentIntelligence = NewIncidentIntelligence(app)
 
 	return ws
 }

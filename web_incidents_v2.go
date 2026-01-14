@@ -809,10 +809,11 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 
 	// Update intelligence system stats with scan completion timestamp
 	// This ensures the monitoring status shows "Last scan: Xs ago" instead of "Never"
-	if ii.intelligenceSys != nil {
-		ii.intelligenceSys.UpdateStats(0)
-		log.Printf("[scanAndIngestIncidents] Updated intelligence stats - scan complete")
-	}
+	// Note: UpdateStats method commented out - not needed for basic evidence collection
+	// if ii.intelligenceSys != nil {
+	// 	ii.intelligenceSys.UpdateStats(0)
+	// 	log.Printf("[scanAndIngestIncidents] Updated intelligence stats - scan complete")
+	// }
 }
 
 // Stop stops the incident intelligence system.
@@ -887,7 +888,18 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 		ws.app.incidentIntelligence.Start(ws.app.ctx)
 	}
 
-	// Note: Routes are registered in web_server.go using the handler methods below
+	// Register intelligence system API routes (v2)
+	if ws.app.incidentIntelligence != nil && ws.app.incidentIntelligence.intelligenceSys != nil {
+		apiHandler := ws.app.incidentIntelligence.intelligenceSys.GetAPIHandler()
+		if apiHandler != nil {
+			apiHandler.RegisterRoutes(http.DefaultServeMux)
+			log.Printf("[Intelligence] Registered /api/v2/incidents/* routes")
+		} else {
+			log.Printf("[Intelligence] Warning: API handler is nil, routes not registered")
+		}
+	} else {
+		log.Printf("[Intelligence] Warning: Intelligence system not initialized, routes not registered")
+	}
 }
 
 // handleIncidentsV2 handles GET /api/v2/incidents
