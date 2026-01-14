@@ -806,6 +806,13 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 			}
 		}
 	}
+
+	// Update intelligence system stats with scan completion timestamp
+	// This ensures the monitoring status shows "Last scan: Xs ago" instead of "Never"
+	if ii.intelligenceSys != nil {
+		ii.intelligenceSys.UpdateStats(0)
+		log.Printf("[scanAndIngestIncidents] Updated intelligence stats - scan complete")
+	}
 }
 
 // Stop stops the incident intelligence system.
@@ -1732,6 +1739,26 @@ func (ws *WebServer) handleAutoRemediationStatus(w http.ResponseWriter, r *http.
 	}
 
 	status := autoEngine.GetStatus()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// handleIntelligenceStatus handles GET /api/v2/intelligence/status
+func (ws *WebServer) handleIntelligenceStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
+		// Return basic status when not available
+		http.Error(w, "Intelligence system not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
+	status := intelSys.GetStatus()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }
