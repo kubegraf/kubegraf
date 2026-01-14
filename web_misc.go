@@ -34,6 +34,21 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// handleCacheStats returns cache performance statistics (production monitoring)
+func (ws *WebServer) handleCacheStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.cache == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "cache not initialized",
+		})
+		return
+	}
+
+	stats := ws.cache.GetStats()
+	json.NewEncoder(w).Encode(stats)
+}
+
 // handleConnectionStatus checks and returns the current cluster connection status
 // If retry=true query parameter is present, it will attempt to reconnect
 func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Request) {

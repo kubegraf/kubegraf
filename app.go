@@ -61,6 +61,9 @@ func (a *App) Initialize() error {
 	// Initialize ML recommender
 	a.mlRecommender = NewMLRecommender(a)
 
+	// Initialize background metrics collector
+	a.metricsCollector = NewMetricsCollector(a, nil) // nil uses default config
+
 	// Initialize event monitor
 	a.eventMonitor = NewEventMonitor(a)
 
@@ -72,6 +75,9 @@ func (a *App) Initialize() error {
 
 	// Start monitoring (will wait for cluster connection)
 	a.eventMonitor.Start(a.ctx)
+
+	// Start background metrics collection
+	a.metricsCollector.Start(a.ctx)
 
 	// Setup UI - only for TUI mode, not for web mode
 	// Web mode doesn't need TUI components
@@ -458,6 +464,11 @@ func (a *App) Run() error {
 
 // Shutdown gracefully shuts down the application
 func (a *App) Shutdown() {
+	// Stop background metrics collector
+	if a.metricsCollector != nil {
+		a.metricsCollector.Stop()
+	}
+
 	a.cancel()
 	select {
 	case <-a.stopCh:

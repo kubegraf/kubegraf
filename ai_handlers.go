@@ -768,6 +768,7 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 	http.HandleFunc("/api/anomalies/stats", ws.handleAnomalyStats)
 	http.HandleFunc("/api/anomalies/remediate", ws.handleAnomalyRemediate)
 	http.HandleFunc("/api/anomalies/metrics", ws.handleAnomalyMetrics)
+	http.HandleFunc("/api/anomalies/scan-progress", ws.handleScanProgress)
 
 	// AutoFix Engine
 	http.HandleFunc("/api/autofix/rules", ws.handleAutoFixRules)
@@ -780,6 +781,11 @@ func (ws *WebServer) RegisterAdvancedHandlers() {
 	http.HandleFunc("/api/ml/recommendations/apply", ws.handleApplyRecommendation)
 	http.HandleFunc("/api/ml/recommendations/stats", ws.handleMLRecommendationsStats)
 	http.HandleFunc("/api/ml/predict", ws.handleMLPredict)
+
+	// Metrics Collector Configuration
+	http.HandleFunc("/api/metrics/collector/config", ws.handleMetricsCollectorConfig)
+	http.HandleFunc("/api/metrics/collector/status", ws.handleMetricsCollectorStatus)
+	http.HandleFunc("/api/metrics/collector/clear", ws.handleMetricsCollectorClear)
 
 	// Storage
 	http.HandleFunc("/api/storage/persistentvolumes", ws.handlePersistentVolumes)
@@ -981,6 +987,48 @@ func (ws *WebServer) handleAnomalyMetrics(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// handleScanProgress returns the current scan progress
+func (ws *WebServer) handleScanProgress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.anomalyDetector == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"isScanning":     false,
+			"totalPods":      0,
+			"processedPods":  0,
+			"currentSamples": 0,
+			"message":        "Anomaly detector not initialized",
+		})
+		return
+	}
+
+	progress := ws.app.anomalyDetector.GetScanProgress()
+
+	// Also include total samples in history for context
+	historyLen := 0
+	if ws.app.mlRecommender != nil {
+		stats := ws.app.mlRecommender.GetMetricsHistoryStats()
+		if samples, ok := stats["totalSamples"].(int); ok {
+			historyLen = samples
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"isScanning":       progress.IsScanning,
+		"totalPods":        progress.TotalPods,
+		"processedPods":    progress.ProcessedPods,
+		"currentSamples":   progress.CurrentSamples,
+		"message":          progress.Message,
+		"startTime":        progress.StartTime,
+		"totalInHistory":   historyLen,
+	})
+}
+
 // handleMLRecommendations returns ML-powered recommendations
 func (ws *WebServer) handleMLRecommendations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1044,10 +1092,10 @@ func (ws *WebServer) handleMLRecommendationsStats(w http.ResponseWriter, r *http
 	if ws.app.clientset == nil || !ws.app.connected {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"totalSamples":    0,
-			"minRequired":     20,
+			"minRequired":     1000,
 			"progress":        0,
 			"hasEnoughData":   false,
-			"remainingNeeded": 20,
+			"remainingNeeded": 1000,
 		})
 		return
 	}
@@ -2632,4 +2680,165 @@ func (ws *WebServer) handleAutoFixEnabled(w http.ResponseWriter, r *http.Request
 	}
 
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+// handleMetricsCollectorConfig handles GET/POST /api/metrics/collector/config
+func (ws *WebServer) handleMetricsCollectorConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.metricsCollector == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Metrics collector not initialized",
+		})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Get current configuration
+		config := ws.app.metricsCollector.GetConfig()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled":            config.Enabled,
+			"collectionInterval": config.CollectionInterval.Minutes(),
+			"maxRetentionDays":   config.MaxRetentionDays,
+			"storagePath":        config.StoragePath,
+		})
+
+	case http.MethodPost:
+		// Update configuration
+		var req struct {
+			Enabled            *bool    `json:"enabled"`
+			CollectionInterval *float64 `json:"collectionInterval"` // in minutes
+			MaxRetentionDays   *int     `json:"maxRetentionDays"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to parse request: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Get current config
+		config := ws.app.metricsCollector.GetConfig()
+
+		// Update fields if provided
+		if req.Enabled != nil {
+			config.Enabled = *req.Enabled
+		}
+		if req.CollectionInterval != nil {
+			config.CollectionInterval = time.Duration(*req.CollectionInterval * float64(time.Minute))
+		}
+		if req.MaxRetentionDays != nil {
+			config.MaxRetentionDays = *req.MaxRetentionDays
+		}
+
+		// Apply updated config
+		ws.app.metricsCollector.UpdateConfig(config)
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Configuration updated successfully",
+			"config": map[string]interface{}{
+				"enabled":            config.Enabled,
+				"collectionInterval": config.CollectionInterval.Minutes(),
+				"maxRetentionDays":   config.MaxRetentionDays,
+			},
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleMetricsCollectorStatus handles GET /api/metrics/collector/status
+func (ws *WebServer) handleMetricsCollectorStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.metricsCollector == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Metrics collector not initialized",
+		})
+		return
+	}
+
+	// Get metrics stats from ML recommender
+	var totalSamples int
+	var lastUpdated time.Time
+
+	if ws.app.mlRecommender != nil {
+		stats := ws.app.mlRecommender.GetMetricsHistoryStats()
+		if samples, ok := stats["totalSamples"].(int); ok {
+			totalSamples = samples
+		}
+	}
+
+	if ws.app.anomalyDetector != nil {
+		ws.app.anomalyDetector.mu.RLock()
+		if len(ws.app.anomalyDetector.metricsHistory) > 0 {
+			lastUpdated = ws.app.anomalyDetector.metricsHistory[len(ws.app.anomalyDetector.metricsHistory)-1].Timestamp
+		}
+		ws.app.anomalyDetector.mu.RUnlock()
+	}
+
+	config := ws.app.metricsCollector.GetConfig()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"enabled":            config.Enabled,
+		"collectionInterval": config.CollectionInterval.Minutes(),
+		"totalSamples":       totalSamples,
+		"lastUpdated":        lastUpdated,
+		"storagePath":        config.StoragePath,
+		"maxRetentionDays":   config.MaxRetentionDays,
+		"isConnected":        ws.app.connected,
+	})
+}
+
+// handleMetricsCollectorClear handles POST /api/metrics/collector/clear
+func (ws *WebServer) handleMetricsCollectorClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if ws.app.metricsCollector == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Metrics collector not initialized",
+		})
+		return
+	}
+
+	// Clear metrics from anomaly detector
+	if ws.app.anomalyDetector != nil {
+		ws.app.anomalyDetector.mu.Lock()
+		ws.app.anomalyDetector.metricsHistory = []MetricSample{}
+		ws.app.anomalyDetector.mu.Unlock()
+	}
+
+	// Clear metrics from ML recommender
+	if ws.app.mlRecommender != nil {
+		ws.app.mlRecommender.mu.Lock()
+		ws.app.mlRecommender.metricsHistory = []MetricSample{}
+		ws.app.mlRecommender.mu.Unlock()
+	}
+
+	// Save empty metrics to disk
+	if err := ws.app.metricsCollector.SaveMetrics(); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to save cleared metrics: %v", err),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Metrics history cleared successfully",
+	})
 }

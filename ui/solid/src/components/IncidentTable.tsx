@@ -881,19 +881,19 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
   const getPatternIcon = (pattern: string): string => {
     const p = pattern?.toUpperCase() || '';
     switch (p) {
-      case 'OOM_PRESSURE': return '💥';
-      case 'CRASHLOOP': return '🔄';
-      case 'RESTART_STORM': return '🌪️';
-      case 'NO_READY_ENDPOINTS': return '🔌';
-      case 'INTERNAL_ERRORS': return '🐛';
-      case 'IMAGE_PULL_FAILURE': return '📦';
-      case 'CONFIG_ERROR': return '⚙️';
-      case 'DNS_FAILURE': return '🌐';
-      case 'PERMISSION_DENIED': return '🔒';
-      case 'APP_CRASH': return '💀';
-      case 'TIMEOUTS': return '⏱️';
-      case 'UPSTREAM_FAILURE': return '⬆️';
-      default: return '⚠️';
+      case 'OOM_PRESSURE': return '🧠';           // Brain: memory issues
+      case 'CRASHLOOP': return '🔄';             // Loop: recurring crashes
+      case 'RESTART_STORM': return '⚡';          // Lightning: rapid restart events
+      case 'NO_READY_ENDPOINTS': return '🔗';    // Broken link: connection issues
+      case 'INTERNAL_ERRORS': return '🐛';       // Bug: internal application errors
+      case 'IMAGE_PULL_FAILURE': return '📦';    // Package: container image issues
+      case 'CONFIG_ERROR': return '⚙️';          // Gear: configuration problems
+      case 'DNS_FAILURE': return '🌐';           // Globe: network/DNS issues
+      case 'PERMISSION_DENIED': return '🔒';     // Lock: access/permission issues
+      case 'APP_CRASH': return '💥';             // Explosion: application crash
+      case 'TIMEOUTS': return '⏱️';              // Stopwatch: timeout issues
+      case 'UPSTREAM_FAILURE': return '🔺';      // Red triangle: upstream/dependency failures
+      default: return '⚠️';                      // Warning: unknown/generic issues
     }
   };
 
@@ -1234,24 +1234,37 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                   onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    console.log('[IncidentTable] View Full Remediation clicked for:', incident.id);
+                                    console.log('[IncidentTable] SafeFix clicked for:', incident.id);
                                     props.onViewDetails!(incident);
                                   }}
                                   style={{
-                                    padding: '6px 12px',
-                                    background: 'var(--accent-primary)',
-                                    color: 'white',
+                                    padding: '10px 20px',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    color: '#1f2937',
                                     border: 'none',
-                                    'border-radius': '6px',
+                                    'border-radius': '8px',
                                     cursor: 'pointer',
-                                    'font-weight': '500',
-                                    'font-size': '12px',
+                                    'font-weight': '700',
+                                    'font-size': '14px',
                                     display: 'flex',
                                     'align-items': 'center',
-                                    gap: '6px'
+                                    gap: '8px',
+                                    'box-shadow': '0 4px 12px rgba(16, 185, 129, 0.4)',
+                                    transition: 'all 0.2s ease',
+                                    transform: 'scale(1)',
+                                    'letter-spacing': '0.3px'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'scale(1.05) translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.5)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'scale(1) translateY(0)';
+                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.4)';
                                   }}
                                 >
-                                  🚀 View Full Remediation
+                                  <span style={{ 'font-size': '16px' }}>✨</span>
+                                  SafeFix
                                 </button>
                               </Show>
                             </div>
@@ -1314,9 +1327,9 @@ const IncidentTable: Component<IncidentTableProps> = (props) => {
                                             'border-radius': '4px',
                                             border: 'none',
                                             background: rec.action?.type === 'VIEW_LOGS' || rec.action?.type === 'VIEW_EVENTS' || rec.action?.type === 'DESCRIBE'
-                                              ? 'var(--accent-secondary, #6c5ce7)' 
+                                              ? 'var(--accent-secondary, #6c5ce7)'
                                               : 'var(--accent-primary)',
-                                            color: '#fff',
+                                            color: '#1f2937',
                                             cursor: 'pointer',
                                             'font-weight': '600',
                                             display: 'inline-flex',

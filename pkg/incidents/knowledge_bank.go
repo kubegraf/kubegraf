@@ -778,10 +778,13 @@ func (kb *KnowledgeBank) GetRunbookSuccessRate(runbookID string) (float64, int) 
 	return float64(totalSuccess) / float64(totalExec), totalExec
 }
 
-// GetRecentIncidents retrieves recent incidents
+// GetRecentIncidents retrieves recent incidents (last 30 days by default for production use)
 func (kb *KnowledgeBank) GetRecentIncidents(limit int) ([]*IncidentRecord, error) {
 	kb.mu.RLock()
 	defer kb.mu.RUnlock()
+
+	// Production-ready: Only show incidents from last 30 days
+	thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour)
 
 	query := `
 	SELECT id, fingerprint, pattern, severity, resource_json, cluster_context,
@@ -789,11 +792,12 @@ func (kb *KnowledgeBank) GetRecentIncidents(limit int) ([]*IncidentRecord, error
 		resolved_at, resolution, evidence_pack_json, diagnosis_json, metadata_json,
 		created_at, updated_at
 	FROM incidents
+	WHERE last_seen >= ?
 	ORDER BY last_seen DESC
 	LIMIT ?
 	`
 
-	rows, err := kb.db.Query(query, limit)
+	rows, err := kb.db.Query(query, thirtyDaysAgo, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -865,4 +869,87 @@ func (kb *KnowledgeBank) GetResolvedIncidents(limit int, namespace string, patte
 	defer rows.Close()
 
 	return kb.scanIncidentRows(rows)
+}
+
+// CleanupOldIncidents removes incidents older than the specified retention period
+// This should be called periodically (e.g., daily) to prevent database bloat
+func (kb *KnowledgeBank) CleanupOldIncidents(retentionDays int) (int, error) {
+	kb.mu.Lock()
+	defer kb.mu.Unlock()
+
+	cutoffTime := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+
+	// Delete old incidents
+	result, err := kb.db.Exec(`
+		DELETE FROM incidents
+		WHERE last_seen < ?
+	`, cutoffTime)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete old incidents: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	// Also cleanup old fixes that reference deleted incidents
+	_, _ = kb.db.Exec(`
+		DELETE FROM fixes
+		WHERE incident_id NOT IN (SELECT id FROM incidents)
+	`)
+
+	// Vacuum database to reclaim space
+	_, _ = kb.db.Exec("VACUUM")
+
+	return int(rowsAffected), nil
+}
+
+// GetIncidentStats returns statistics about stored incidents
+func (kb *KnowledgeBank) GetIncidentStats() (map[string]interface{}, error) {
+	kb.mu.RLock()
+	defer kb.mu.RUnlock()
+
+	stats := make(map[string]interface{})
+
+	// Total incidents
+	var total int
+	err := kb.db.QueryRow("SELECT COUNT(*) FROM incidents").Scan(&total)
+	if err != nil {
+		return nil, err
+	}
+	stats["total"] = total
+
+	// Unresolved incidents
+	var unresolved int
+	err = kb.db.QueryRow("SELECT COUNT(*) FROM incidents WHERE resolved_at IS NULL").Scan(&unresolved)
+	if err != nil {
+		return nil, err
+	}
+	stats["unresolved"] = unresolved
+
+	// Incidents by severity
+	rows, err := kb.db.Query("SELECT severity, COUNT(*) FROM incidents WHERE resolved_at IS NULL GROUP BY severity")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bySeverity := make(map[string]int)
+	for rows.Next() {
+		var severity string
+		var count int
+		if err := rows.Scan(&severity, &count); err != nil {
+			continue
+		}
+		bySeverity[severity] = count
+	}
+	stats["by_severity"] = bySeverity
+
+	// Oldest incident
+	var oldestTime time.Time
+	err = kb.db.QueryRow("SELECT MIN(first_seen) FROM incidents").Scan(&oldestTime)
+	if err == nil {
+		stats["oldest_incident"] = oldestTime
+		stats["retention_days"] = int(time.Since(oldestTime).Hours() / 24)
+	}
+
+	return stats, nil
 }

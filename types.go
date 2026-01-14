@@ -110,6 +110,8 @@ type App struct {
 	incidentIntelligence *IncidentIntelligence
 	// Cluster Health Monitor
 	healthMonitor *health.ClusterHealthMonitor
+	// Background Metrics Collector
+	metricsCollector *MetricsCollector
 }
 
 // TableData holds the current table information

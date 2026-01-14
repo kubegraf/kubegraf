@@ -16,6 +16,7 @@ import (
 // metricsHub holds the metrics WebSocket hub and collector.
 var metricsHub *metrics.Hub
 var metricsCollector *metrics.Collector
+var metricsCollectorCancel context.CancelFunc
 
 // handleMetricsWebSocket handles WebSocket connections for realtime metrics streaming.
 func (ws *WebServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +95,60 @@ func (ws *WebServer) handleMetricsStatus(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
+// reinitializeMetricsCollector reinitializes the metrics collector with the current cluster
+func (ws *WebServer) reinitializeMetricsCollector() {
+	if ws.app == nil || ws.app.clientset == nil {
+		log.Println("[Metrics] Cannot reinitialize - no cluster connection")
+		return
+	}
+
+	log.Println("[Metrics] Reinitializing metrics collector for new cluster...")
+
+	// Cancel old collector if running
+	if metricsCollectorCancel != nil {
+		log.Println("[Metrics] Stopping old metrics collector...")
+		metricsCollectorCancel()
+		time.Sleep(100 * time.Millisecond) // Give it time to stop
+	}
+
+	// Create new metrics client with current config
+	var metricsClient metricsclientset.Interface
+	if ws.app.config != nil {
+		var err error
+		metricsClient, err = metricsclientset.NewForConfig(ws.app.config)
+		if err != nil {
+			log.Printf("[Metrics] Failed to create metrics client: %v", err)
+		}
+	}
+
+	// Create new collector with cancelable context
+	if metricsHub != nil {
+		config := metrics.DefaultConfig()
+
+		// Create new buffer to clear old error messages
+		buffer := metrics.NewRingBuffer(config.MaxPoints)
+		// Create new hub with fresh buffer
+		metricsHub = metrics.NewHub(buffer)
+
+		// Start hub in background
+		go metricsHub.Run()
+
+		metricsCollector = metrics.NewCollector(ws.app.clientset, metricsClient, metricsHub, config)
+
+		// Create cancelable context
+		ctx, cancel := context.WithCancel(context.Background())
+		metricsCollectorCancel = cancel
+
+		// Start collector in background
+		go func() {
+			metricsCollector.Start(ctx)
+			log.Println("[Metrics] Metrics collector stopped")
+		}()
+
+		log.Println("[Metrics] Metrics collector reinitialized with new cluster")
+	}
+}
+
 // startMetricsCollector initializes and starts the realtime metrics collection.
 func (ws *WebServer) startMetricsCollector() {
 	// Wait for cluster connection
@@ -128,8 +183,11 @@ func (ws *WebServer) startMetricsCollector() {
 	// Create and start collector
 	metricsCollector = metrics.NewCollector(ws.app.clientset, metricsClient, metricsHub, config)
 
+	// Create cancelable context
+	ctx, cancel := context.WithCancel(context.Background())
+	metricsCollectorCancel = cancel
+
 	// Run collector (blocking)
-	ctx := context.Background()
 	metricsCollector.Start(ctx)
 }
 

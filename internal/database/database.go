@@ -130,6 +130,11 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 
 // initSchema creates tables if they don't exist
 func (d *Database) initSchema() error {
+	// First, run migrations for existing tables
+	if err := d.migrateSchema(); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
+
 	schema := `
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,17 +199,39 @@ func (d *Database) initSchema() error {
 		created_at DATETIME NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS cluster_sources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		type TEXT NOT NULL, -- 'default', 'file', 'inline'
+		path TEXT, -- For 'file' type, the kubeconfig file path
+		content_path TEXT, -- For 'inline' type, path to saved file in .kubegraf
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		UNIQUE(name, type)
+	);
+
 	CREATE TABLE IF NOT EXISTS clusters (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
+		cluster_id TEXT NOT NULL UNIQUE, -- Stable hash ID (sourceId + contextName)
+		name TEXT NOT NULL,
+		context_name TEXT NOT NULL,
+		source_id INTEGER,
 		provider TEXT,
+		environment TEXT, -- 'prod', 'staging', 'dev', 'local'
 		kubeconfig_path TEXT NOT NULL,
-		connected BOOLEAN NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'UNKNOWN', -- UNKNOWN, CONNECTING, CONNECTED, DEGRADED, DISCONNECTED, AUTH_ERROR
+		connected BOOLEAN NOT NULL DEFAULT 0, -- Legacy field, kept for compatibility
+		active BOOLEAN NOT NULL DEFAULT 0, -- Whether this is the current active cluster
 		last_used DATETIME,
-		error TEXT,
+		last_checked DATETIME,
+		last_error TEXT,
+		consecutive_failures INTEGER NOT NULL DEFAULT 0,
+		consecutive_successes INTEGER NOT NULL DEFAULT 0,
+		error TEXT, -- Legacy field
 		is_default BOOLEAN NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL
+		updated_at DATETIME NOT NULL,
+		FOREIGN KEY (source_id) REFERENCES cluster_sources(id) ON DELETE SET NULL
 	);
 
 	CREATE TABLE IF NOT EXISTS workspace_context (
@@ -271,6 +298,11 @@ func (d *Database) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_app_installations_app_name ON app_installations(app_name);
 	CREATE INDEX IF NOT EXISTS idx_clusters_connected ON clusters(connected);
 	CREATE INDEX IF NOT EXISTS idx_clusters_last_used ON clusters(last_used);
+	CREATE INDEX IF NOT EXISTS idx_clusters_cluster_id ON clusters(cluster_id);
+	CREATE INDEX IF NOT EXISTS idx_clusters_status ON clusters(status);
+	CREATE INDEX IF NOT EXISTS idx_clusters_active ON clusters(active);
+	CREATE INDEX IF NOT EXISTS idx_clusters_source_id ON clusters(source_id);
+	CREATE INDEX IF NOT EXISTS idx_cluster_sources_type ON cluster_sources(type);
 	CREATE INDEX IF NOT EXISTS idx_monitored_events_timestamp ON monitored_events(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_monitored_events_severity ON monitored_events(severity);
 	CREATE INDEX IF NOT EXISTS idx_monitored_events_namespace ON monitored_events(namespace);
@@ -290,6 +322,34 @@ func (d *Database) initSchema() error {
 
 	_, err := d.db.Exec(schema)
 	return err
+}
+
+// migrateSchema handles schema migrations for existing databases
+func (d *Database) migrateSchema() error {
+	// Check if clusters table exists
+	var tableInfo string
+	err := d.db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='clusters'").Scan(&tableInfo)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("check clusters table: %w", err)
+	}
+
+	// If clusters table exists, check if it needs migration
+	if err == nil && tableInfo != "" {
+		// Check if cluster_id column exists by trying to query it
+		_, err = d.db.Exec("SELECT cluster_id FROM clusters LIMIT 1")
+		if err != nil {
+			// Column doesn't exist, need to migrate
+			fmt.Printf("⚠️  Migrating clusters table schema...\n")
+			
+			// Drop old table (data will be lost, but this is for new schema)
+			if _, err := d.db.Exec("DROP TABLE IF EXISTS clusters"); err != nil {
+				return fmt.Errorf("drop old clusters table: %w", err)
+			}
+			fmt.Printf("✅ Dropped old clusters table\n")
+		}
+	}
+
+	return nil
 }
 
 // Encrypt encrypts data using AES-256-GCM

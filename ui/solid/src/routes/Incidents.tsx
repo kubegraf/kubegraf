@@ -4,7 +4,7 @@ import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
 import { Incident } from '../services/api';
 import { navigateToPod, openPodLogs, navigateToEvent } from '../utils/incident-navigation';
-import { IncidentModalV2 } from '../components/intelligence';
+import { IncidentModalV2, MonitoringStatus } from '../components/intelligence';
 import { AutoRemediationPanel, LearningDashboard } from '../components/intelligence';
 import {
   getCachedIncidents,
@@ -47,6 +47,7 @@ const IntelligencePanels: Component = () => {
 };
 
 const Incidents: Component = () => {
+  const [showRoadmap, setShowRoadmap] = createSignal(false);
   const [patternFilter, setPatternFilter] = createSignal('');
   const [severityFilter, setSeverityFilter] = createSignal('');
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
@@ -74,10 +75,7 @@ const Incidents: Component = () => {
     console.log('[Incidents] fetchIncidentsBackground: Starting fetch, setting loading states');
     setFetching(true);
     setIsRefreshing(true);
-    
-    // Ensure loading state is visible
-    setIsInitialLoad(true);
-    
+
     // Track incident list load
     const endListLoad = trackIncidentListLoad();
     
@@ -245,16 +243,32 @@ const Incidents: Component = () => {
   );
 
   return (
-    <div class="space-y-4 p-6">
+    <div class="p-4">
       {/* Header */}
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Incident Intelligence
-          </h1>
-          <p class="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            AI-powered detection with root cause analysis and remediation recommendations
-          </p>
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <div>
+            <h1 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Incident Intelligence
+            </h1>
+            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              AI-powered detection with root cause analysis and remediation recommendations
+            </p>
+          </div>
+          {/* Roadmap toggle button */}
+          <button
+            onClick={() => setShowRoadmap(!showRoadmap())}
+            class="px-2 py-1 rounded text-xs font-medium transition-all"
+            style={{
+              background: showRoadmap() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
+              color: showRoadmap() ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              border: `1px solid ${showRoadmap() ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+              cursor: 'pointer'
+            }}
+            title={showRoadmap() ? 'Hide roadmap' : 'Show roadmap'}
+          >
+            Roadmap
+          </button>
         </div>
         <div class="flex items-center gap-3">
           {/* Auto-refresh interval selector */}
@@ -272,7 +286,27 @@ const Incidents: Component = () => {
                 background: 'var(--bg-secondary)',
                 border: '1px solid var(--border-color)',
                 color: 'var(--text-primary)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                'box-shadow': '0 1px 2px rgba(0,0,0,0.05)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-tertiary)';
+                e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--bg-secondary)';
+                e.currentTarget.style.borderColor = 'var(--border-color)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+              }}
+              onMouseDown={(e) => {
+                e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
               }}
             >
               <option value="0">Off</option>
@@ -290,7 +324,37 @@ const Incidents: Component = () => {
             style={{
               background: 'var(--accent-primary)',
               color: '#000',
-              opacity: isRefreshing() ? 0.7 : 1
+              opacity: isRefreshing() ? 0.7 : 1,
+              cursor: isRefreshing() ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              'box-shadow': isRefreshing() ? '0 1px 2px rgba(0,0,0,0.05)' : '0 2px 4px rgba(0,0,0,0.1)',
+              transform: 'scale(1)'
+            }}
+            onMouseEnter={(e) => {
+              if (!isRefreshing()) {
+                e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                e.currentTarget.style.filter = 'brightness(1.1)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isRefreshing()) {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                e.currentTarget.style.filter = 'brightness(1)';
+              }
+            }}
+            onMouseDown={(e) => {
+              if (!isRefreshing()) {
+                e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
+              }
+            }}
+            onMouseUp={(e) => {
+              if (!isRefreshing()) {
+                e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+              }
             }}
           >
             <Show when={isRefreshing()}>
@@ -301,73 +365,202 @@ const Incidents: Component = () => {
         </div>
       </div>
 
-      {/* Post-launch notice: compact, non-blocking */}
-      <div class="card p-3 mb-4 flex flex-col gap-1" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
+      {/* Post-launch roadmap: Collapsible */}
+      <Show when={showRoadmap()}>
+      <div class="card p-2 mb-2 flex flex-col gap-1" style={{ background: 'var(--bg-tertiary)', 'border-color': 'var(--border-color)' }}>
         <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Incident Intelligence roadmap</span>
+          <span class="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Incident Intelligence roadmap</span>
           <span class="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--accent-primary)15', color: 'var(--accent-primary)' }}>Not in v1 launch</span>
         </div>
-        <div class="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+        <div class="flex flex-wrap gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <span class="px-2 py-0.5 rounded" style={{ background: 'var(--bg-secondary)' }}>
             Security Incidents (scanner/exploit) — coming after launch
           </span>
-          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+          <span class="px-2 py-0.5 rounded" style={{ background: 'var(--bg-secondary)' }}>
             Reliability Incidents (5xx RCA) — coming after launch
           </span>
-          <span class="px-2 py-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+          <span class="px-2 py-0.5 rounded" style={{ background: 'var(--bg-secondary)' }}>
             No runtime traffic analysis in v1
           </span>
         </div>
       </div>
+      </Show>
 
-      {/* Summary chips - compact with color accents */}
-      <div class="flex flex-wrap gap-2 mb-3">
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
+      {/* Summary chips and filters - combined in one row */}
+      <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+        {/* Summary chips - now clickable buttons that filter */}
+        <button
+          onClick={() => {
+            if (severityFilter() === 'critical') {
+              setSeverityFilter('');
+            } else {
+              setSeverityFilter('critical');
+            }
+            fetchIncidentsBackground();
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: severityFilter() === 'critical' ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.12)',
+            border: severityFilter() === 'critical' ? '2px solid rgba(239,68,68,0.6)' : '1px solid rgba(239,68,68,0.35)',
+            transform: severityFilter() === 'critical' ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Click to filter by Critical severity"
+        >
           <span style={{ color: 'var(--error-color)' }}>Critical</span>
-          <span class="text-base font-bold" style={{ color: 'var(--error-color)' }}>{criticalCount()}</span>
-        </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.35)' }}>
+          <span class="text-xs font-bold" style={{ color: 'var(--error-color)' }}>{criticalCount()}</span>
+        </button>
+        <button
+          onClick={() => {
+            if (severityFilter() === 'high') {
+              setSeverityFilter('');
+            } else {
+              setSeverityFilter('high');
+            }
+            fetchIncidentsBackground();
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: severityFilter() === 'high' ? 'rgba(255,107,107,0.25)' : 'rgba(255,107,107,0.12)',
+            border: severityFilter() === 'high' ? '2px solid rgba(255,107,107,0.6)' : '1px solid rgba(255,107,107,0.35)',
+            transform: severityFilter() === 'high' ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Click to filter by High severity"
+        >
           <span style={{ color: '#ff6b6b' }}>High</span>
-          <span class="text-base font-bold" style={{ color: '#ff6b6b' }}>{highCount()}</span>
-        </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}>
+          <span class="text-xs font-bold" style={{ color: '#ff6b6b' }}>{highCount()}</span>
+        </button>
+        <button
+          onClick={() => {
+            if (severityFilter() === 'medium' || severityFilter() === 'warning') {
+              setSeverityFilter('');
+            } else {
+              setSeverityFilter('medium');
+            }
+            fetchIncidentsBackground();
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: (severityFilter() === 'medium' || severityFilter() === 'warning') ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.12)',
+            border: (severityFilter() === 'medium' || severityFilter() === 'warning') ? '2px solid rgba(245,158,11,0.6)' : '1px solid rgba(245,158,11,0.35)',
+            transform: (severityFilter() === 'medium' || severityFilter() === 'warning') ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Click to filter by Medium/Warning severity"
+        >
           <span style={{ color: 'var(--warning-color)' }}>Medium/Warning</span>
-          <span class="text-base font-bold" style={{ color: 'var(--warning-color)' }}>{warningCount()}</span>
-        </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(81,207,102,0.12)', border: '1px solid rgba(81,207,102,0.35)' }}>
+          <span class="text-xs font-bold" style={{ color: 'var(--warning-color)' }}>{warningCount()}</span>
+        </button>
+        <div class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1" style={{ background: 'rgba(81,207,102,0.12)', border: '1px solid rgba(81,207,102,0.35)' }} title="Incidents with diagnosis available">
           <span style={{ color: '#51cf66' }}>With Diagnosis</span>
-          <span class="text-base font-bold" style={{ color: '#51cf66' }}>{diagnosedCount()}</span>
+          <span class="text-xs font-bold" style={{ color: '#51cf66' }}>{diagnosedCount()}</span>
         </div>
-        <div class="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)' }}>
+        <div class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)' }} title="Incidents with available fixes">
           <span style={{ color: 'var(--accent-primary)' }}>Fixable</span>
-          <span class="text-base font-bold" style={{ color: 'var(--accent-primary)' }}>{fixableCount()}</span>
+          <span class="text-xs font-bold" style={{ color: 'var(--accent-primary)' }}>{fixableCount()}</span>
         </div>
-      </div>
 
-      {/* Filters - Always visible */}
-        <IncidentFilters
-          patternFilter={patternFilter()}
-          severityFilter={severityFilter()}
-          namespaceFilter={namespaceFilter()}
-          statusFilter={statusFilter()}
-          namespaces={namespaces()}
-          onPatternFilterChange={(val) => {
-            setPatternFilter(val);
+        {/* Separator */}
+        <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 4px' }} />
+
+        {/* Filters inline */}
+        <select
+          value={patternFilter()}
+          onChange={(e) => {
+            setPatternFilter(e.currentTarget.value);
             fetchIncidentsBackground();
           }}
-          onSeverityFilterChange={(val) => {
-            setSeverityFilter(val);
+          class="px-2 py-1 rounded text-xs"
+          style={{
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+            cursor: 'pointer',
+            'min-width': '140px'
+          }}
+        >
+          <option value="">All Patterns</option>
+          <option value="APP_CRASH">💀 App Crash</option>
+          <option value="CRASHLOOP">🔄 CrashLoop</option>
+          <option value="OOM_PRESSURE">💥 OOM Pressure</option>
+          <option value="RESTART_STORM">🌪️ Restart Storm</option>
+          <option value="NO_READY_ENDPOINTS">🔌 No Ready Endpoints</option>
+          <option value="INTERNAL_ERRORS">🐛 Internal Errors</option>
+          <option value="UPSTREAM_FAILURE">⬆️ Upstream Failure</option>
+          <option value="TIMEOUTS">⏱️ Timeouts</option>
+          <option value="IMAGE_PULL_FAILURE">📦 Image Pull Failure</option>
+          <option value="CONFIG_ERROR">⚙️ Config Error</option>
+          <option value="DNS_FAILURE">🌐 DNS Failure</option>
+          <option value="PERMISSION_DENIED">🔒 Permission Denied</option>
+        </select>
+
+        <select
+          value={severityFilter()}
+          onChange={(e) => {
+            setSeverityFilter(e.currentTarget.value);
             fetchIncidentsBackground();
           }}
-          onNamespaceFilterChange={(val) => {
-            setNamespaceFilter(val);
+          class="px-2 py-1 rounded text-xs"
+          style={{
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+            cursor: 'pointer',
+            'min-width': '120px'
+          }}
+        >
+          <option value="">All Severities</option>
+          <option value="critical">🔴 Critical</option>
+          <option value="high">🟠 High</option>
+          <option value="medium">🟡 Medium</option>
+          <option value="low">🔵 Low</option>
+          <option value="info">⚪ Info</option>
+        </select>
+
+        <select
+          value={namespaceFilter()}
+          onChange={(e) => {
+            setNamespaceFilter(e.currentTarget.value);
             fetchIncidentsBackground();
           }}
-          onStatusFilterChange={(val) => {
-            setStatusFilter(val);
+          class="px-2 py-1 rounded text-xs"
+          style={{
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+            cursor: 'pointer',
+            'min-width': '120px'
+          }}
+        >
+          <option value="">All Namespaces</option>
+          <For each={namespaces()}>
+            {(ns) => (
+              <option value={ns}>{ns}</option>
+            )}
+          </For>
+        </select>
+
+        <select
+          value={statusFilter()}
+          onChange={(e) => {
+            setStatusFilter(e.currentTarget.value);
             fetchIncidentsBackground();
           }}
-        />
+          class="px-2 py-1 rounded text-xs"
+          style={{
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+            cursor: 'pointer',
+            'min-width': '110px'
+          }}
+        >
+          <option value="">All Status</option>
+          <option value="open">🟢 Active</option>
+          <option value="resolved">✅ Resolved</option>
+          <option value="investigating">🔍 Investigating</option>
+          <option value="remediating">🔧 Remediating</option>
+          <option value="suppressed">🔇 Suppressed</option>
+        </select>
+      </div>
 
       {/* Incidents Table - Always rendered, shows empty state or data */}
       <IncidentTable
@@ -379,23 +572,25 @@ const Incidents: Component = () => {
         onViewDetails={handleViewDetails}
       />
 
-      {/* Info Banner - Only when no incidents and not loading/refreshing */}
+      {/* Monitoring Status - Always visible when not loading */}
+      <Show when={!isRefreshing() && !isInitialLoad() && hasLoadedOnce()}>
+        <MonitoringStatus />
+      </Show>
+
+      {/* No Incidents Message - Only when no incidents */}
       <Show when={filteredIncidents().length === 0 && !isRefreshing() && !isInitialLoad() && hasLoadedOnce()}>
-        <div 
-          class="p-4 rounded-lg"
-          style={{ 
-            background: 'var(--accent-primary)15', 
-            border: '1px solid var(--accent-primary)40' 
+        <div
+          class="p-3 rounded-lg mt-2"
+          style={{
+            background: 'var(--accent-primary)15',
+            border: '1px solid var(--accent-primary)40'
           }}
         >
-          <div style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
-            <span style={{ 'font-size': '24px' }}>🎉</span>
+          <div style={{ display: 'flex', 'align-items': 'center', gap: '10px' }}>
+            <span style={{ 'font-size': '20px' }}>🎉</span>
             <div>
-              <div style={{ color: 'var(--text-primary)', 'font-weight': '600' }}>
+              <div style={{ color: 'var(--text-primary)', 'font-weight': '600', 'font-size': '13px' }}>
                 No incidents detected
-              </div>
-              <div style={{ color: 'var(--text-secondary)', 'font-size': '13px' }}>
-                The incident intelligence system is actively monitoring your cluster.
               </div>
             </div>
           </div>
@@ -404,7 +599,7 @@ const Incidents: Component = () => {
 
       {/* Side Panels Toggle - Only show if capabilities are enabled */}
       <Show when={capabilities.isAutoRemediationEnabled() || capabilities.isLearningEngineEnabled()}>
-        <div class="mt-6 mb-4" style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
+        <div class="mt-3 mb-2" style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}>
           <button
             onClick={() => setShowSidePanels(!showSidePanels())}
             style={{
@@ -416,8 +611,33 @@ const Incidents: Component = () => {
               color: showSidePanels() ? 'var(--accent-primary)' : 'var(--text-secondary)',
               cursor: 'pointer',
               'font-weight': '600',
-              transition: 'all 0.2s ease',
-              'box-shadow': showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+              transition: 'all 0.15s ease',
+              'box-shadow': showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : '0 1px 2px rgba(0,0,0,0.05)',
+              transform: 'scale(1)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.12)';
+              if (!showSidePanels()) {
+                e.currentTarget.style.background = 'var(--bg-tertiary)';
+                e.currentTarget.style.borderColor = 'var(--accent-primary)';
+              } else {
+                e.currentTarget.style.background = 'var(--accent-primary)30';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = showSidePanels() ? '0 2px 4px rgba(0,0,0,0.1)' : '0 1px 2px rgba(0,0,0,0.05)';
+              e.currentTarget.style.background = showSidePanels() ? 'var(--accent-primary)20' : 'var(--bg-secondary)';
+              e.currentTarget.style.borderColor = 'var(--border-color)';
+            }}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+              e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.12)';
             }}
           >
             {showSidePanels() ? '🧠 Hide Intelligence Panels' : '🧠 Show Intelligence Panels'}
@@ -434,9 +654,9 @@ const Incidents: Component = () => {
       </Show>
 
       {/* Footer */}
-      <div class="mt-6 p-4 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-        <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', color: 'var(--text-secondary)', 'font-size': '12px' }}>
-          <span>ℹ️</span>
+      <div class="mt-3 p-2 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+        <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', color: 'var(--text-secondary)', 'font-size': '11px' }}>
+          <span style={{ 'font-size': '14px' }}>ℹ️</span>
           <span>
             Click on any incident row to expand and see diagnosis, probable causes, and recommendations.
           </span>

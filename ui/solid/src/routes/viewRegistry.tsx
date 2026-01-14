@@ -50,6 +50,7 @@ const TimeHelix = lazy(() => import('./TimeHelix'));
 const ResourceWaterfall = lazy(() => import('./ResourceWaterfall'));
 const Apps = lazy(() => import('./Apps'));
 const ClusterManager = lazy(() => import('./ClusterManager'));
+const Connect = lazy(() => import('./Connect'));
 const Storage = lazy(() => import('./Storage'));
 const RBAC = lazy(() => import('./RBAC'));
 const ServiceAccounts = lazy(() => import('./ServiceAccounts'));
@@ -166,6 +167,7 @@ export const views: Record<string, Component> = {
   customapps: CustomApps,
   deployapp: DeployApp,
   clustermanager: ClusterManager,
+  connect: Connect,
   kiali: Kiali,
   releases: Releases,
   rollouts: Rollouts,
@@ -176,6 +178,7 @@ export const views: Record<string, Component> = {
 
 // Views that should be accessible even when not connected
 export const noConnectionViews: ReadonlySet<View> = new Set<View>([
+  'connect',
   'clustermanager',
   'settings',
   'logs',

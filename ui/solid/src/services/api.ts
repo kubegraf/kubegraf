@@ -775,6 +775,16 @@ export const api = {
   },
   getAnomalyStats: () =>
     fetchAPI<AnomalyStats>('/anomalies/stats'),
+  getScanProgress: () =>
+    fetchAPI<{
+      isScanning: boolean;
+      totalPods: number;
+      processedPods: number;
+      currentSamples: number;
+      message: string;
+      startTime: string;
+      totalInHistory: number;
+    }>('/api/anomalies/scan-progress'),
   remediateAnomaly: (anomalyId: string) =>
     fetchAPI<{ success: boolean; message?: string; anomaly?: Anomaly }>('/anomalies/remediate', {
       method: 'POST',
@@ -1463,7 +1473,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   disconnectCluster: () =>
-    fetchAPI<{ success: boolean; status: ClusterManagerStatus }>('/clusters/disconnect', {
+    fetchAPI<{ success: boolean; message: string }>('/clusters/disconnect', {
       method: 'POST',
     }),
   openFileDialog: (title?: string, defaultPath?: string) =>
@@ -1473,6 +1483,37 @@ export const api = {
         title: title || 'Select kubeconfig file',
         defaultPath: defaultPath || '',
       }),
+    }),
+
+  // ============ Enhanced Cluster Manager ============
+  getClusterSources: () =>
+    fetchAPI<{ sources: any[] }>('/cluster-sources'),
+  addClusterSourceFile: (payload: { name: string; path: string }) =>
+    fetchAPI<{ success: boolean; source: any }>('/cluster-sources/file', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  addClusterSourceInline: (payload: { name: string; content: string }) =>
+    fetchAPI<{ success: boolean; source: any }>('/cluster-sources/inline', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getClustersEnhanced: () =>
+    fetchAPI<{ clusters: any[]; active: any }>('/clusters/enhanced'),
+  getActiveCluster: () =>
+    fetchAPI<{ cluster: any }>('/clusters/active'),
+  selectCluster: (clusterId: string) =>
+    fetchAPI<{ success: boolean; cluster: any }>('/clusters/select', {
+      method: 'POST',
+      body: JSON.stringify({ clusterId }),
+    }),
+  reconnectCluster: (clusterId: string) =>
+    fetchAPI<{ success: boolean; status: any }>('/clusters/reconnect?id=' + clusterId, {
+      method: 'POST',
+    }),
+  refreshClusterCatalog: () =>
+    fetchAPI<{ success: boolean; message: string }>('/clusters/refresh-catalog', {
+      method: 'POST',
     }),
 
   // ============ AutoFix Engine ============
@@ -1686,6 +1727,49 @@ export const api = {
 
   forceHealthCheck: () =>
     fetchAPI<{ success: boolean; status: ClusterHealthStatus }>('/clusters/health/check', {
+      method: 'POST',
+    }),
+
+  // ============ Metrics Collector ============
+  getMetricsCollectorConfig: () =>
+    fetchAPI<{
+      enabled: boolean;
+      collectionInterval: number; // in minutes
+      maxRetentionDays: number;
+      storagePath: string;
+    }>('/api/metrics/collector/config'),
+
+  updateMetricsCollectorConfig: (config: {
+    enabled?: boolean;
+    collectionInterval?: number;
+    maxRetentionDays?: number;
+  }) =>
+    fetchAPI<{
+      success: boolean;
+      message: string;
+      config: {
+        enabled: boolean;
+        collectionInterval: number;
+        maxRetentionDays: number;
+      };
+    }>('/api/metrics/collector/config', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
+  getMetricsCollectorStatus: () =>
+    fetchAPI<{
+      enabled: boolean;
+      collectionInterval: number;
+      totalSamples: number;
+      lastUpdated: string;
+      storagePath: string;
+      maxRetentionDays: number;
+      isConnected: boolean;
+    }>('/api/metrics/collector/status'),
+
+  clearMetricsHistory: () =>
+    fetchAPI<{ success: boolean; message: string }>('/api/metrics/collector/clear', {
       method: 'POST',
     }),
 };

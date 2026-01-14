@@ -701,6 +701,11 @@ func (c *CostEstimator) EstimateNamespaceCost(ctx context.Context, namespace str
 
 // EstimateClusterCost calculates the total cluster cost
 func (c *CostEstimator) EstimateClusterCost(ctx context.Context) (*ClusterCost, error) {
+	// Check if clientset is available
+	if c.app == nil || c.app.clientset == nil {
+		return nil, fmt.Errorf("cluster not connected")
+	}
+
 	nodes, err := c.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err

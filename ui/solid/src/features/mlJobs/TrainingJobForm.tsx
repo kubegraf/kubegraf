@@ -147,10 +147,9 @@ const TrainingJobForm: Component<TrainingJobFormProps> = (props) => {
                     borderColor: 'var(--border-color)'
                   }}
                 >
-                  <option value="default">default</option>
                   <For each={namespaces() || []}>
                     {(ns) => (
-                      <option value={ns}>{ns}</option>
+                      <option value={ns.name}>{ns.name}</option>
                     )}
                   </For>
                 </select>

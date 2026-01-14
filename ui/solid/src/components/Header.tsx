@@ -18,6 +18,7 @@ import {
 import { toggleAIPanel, setCurrentView, addNotification, currentView } from '../stores/ui';
 import { openCommandPalette, setCommandPaletteButtonRef } from '../stores/commandPalette';
 import { clusterManagerStatus, goToClusterManager } from '../stores/clusterManager';
+import { enhancedClusters, activeCluster, selectCluster, refreshEnhancedClusters, disconnectCluster } from '../stores/clusterEnhanced';
 import { setNamespaces } from '../stores/globalStore';
 import { toggleBrainPanel, brainPanelOpen } from '../stores/brain';
 import ThemeToggle from './ThemeToggle';
@@ -109,6 +110,39 @@ const Header: Component = () => {
     ctxSearch,
     { threshold: 2000 }
   );
+  // Combine enhanced clusters with legacy contexts for dropdown
+  const allAvailableClusters = createMemo(() => {
+    const enhanced = enhancedClusters();
+    const legacy = contexts();
+    const combined: Array<{name: string; isEnhanced: boolean; clusterId?: string; status?: string; connected?: boolean; isCurrent?: boolean}> = [];
+    
+    // Add enhanced clusters
+    enhanced.forEach(cluster => {
+      combined.push({
+        name: cluster.name,
+        isEnhanced: true,
+        clusterId: cluster.clusterId,
+        status: cluster.status,
+        connected: cluster.status === 'CONNECTED' || cluster.status === 'DEGRADED',
+        isCurrent: cluster.active,
+      });
+    });
+    
+    // Add legacy contexts (avoid duplicates)
+    legacy.forEach(ctx => {
+      if (!combined.find(c => c.name === ctx.name)) {
+        combined.push({
+          name: ctx.name,
+          isEnhanced: false,
+          connected: ctx.connected,
+          isCurrent: ctx.isCurrent,
+        });
+      }
+    });
+    
+    return combined;
+  });
+
   const filteredContexts = createMemo(() => {
     const names = new Set(filteredContextNames());
     if (!ctxSearch().trim()) return contexts();
@@ -210,7 +244,24 @@ const Header: Component = () => {
 
   // Disconnect from cluster
   // Connect to cluster
-  const selectContext = async (ctxName: string) => {
+  const selectContext = async (ctxName: string, clusterId?: string) => {
+    // If it's an enhanced cluster, use the enhanced API
+    if (clusterId) {
+      try {
+        setSwitching(true);
+        await selectCluster(clusterId);
+        addNotification(`Switched to ${ctxName}`, 'success');
+        refreshEnhancedClusters();
+        setCtxDropdownOpen(false);
+      } catch (err: any) {
+        addNotification(err?.message || `Failed to switch to ${ctxName}`, 'error');
+      } finally {
+        setSwitching(false);
+      }
+      return;
+    }
+    
+    // Otherwise use legacy context switching
     if (ctxName === currentContext()) {
       setCtxDropdownOpen(false);
       setCtxSearch('');
@@ -469,14 +520,37 @@ const Header: Component = () => {
           >
             <div class="flex items-center gap-2 text-left">
               <span class={`w-2 h-2 rounded-full ${(() => {
+                const active = activeCluster();
+                if (active) {
+                  switch (active.status) {
+                    case 'CONNECTED': return 'bg-green-500';
+                    case 'DEGRADED': return 'bg-yellow-500';
+                    case 'CONNECTING': return 'bg-blue-500';
+                    case 'AUTH_ERROR': return 'bg-red-500';
+                    case 'DISCONNECTED': return 'bg-red-500';
+                    default: return 'bg-gray-500';
+                  }
+                }
                 const currentCtx = contexts().find(c => c.isCurrent);
                 return currentCtx?.connected ? 'bg-green-500' : 'bg-red-500';
               })()}`}></span>
               <div class="flex flex-col leading-tight">
-                <span class="text-sm font-medium truncate">{switching() ? 'Switching...' : (currentContext() || 'Select cluster')}</span>
+                <span class="text-sm font-medium truncate">
+                  {switching() ? 'Switching...' : (activeCluster()?.name || currentContext() || 'Select cluster')}
+                </span>
                 <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
                   {(() => {
-                    // Get actual connectivity status from contexts list for current context
+                    const active = activeCluster();
+                    if (active) {
+                      switch (active.status) {
+                        case 'CONNECTED': return 'Connected';
+                        case 'DEGRADED': return 'Degraded';
+                        case 'CONNECTING': return 'Connecting';
+                        case 'AUTH_ERROR': return 'Auth Required';
+                        case 'DISCONNECTED': return 'Disconnected';
+                        default: return 'Unknown';
+                      }
+                    }
                     const currentCtx = contexts().find(c => c.isCurrent);
                     return currentCtx?.connected ? 'Connected' : 'Disconnected';
                   })()}
@@ -528,95 +602,91 @@ const Header: Component = () => {
                 <Show when={!contextsResource.loading} fallback={
                   <div class="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Loading clusters...</div>
                 }>
-                  <For each={filteredContexts()}>
-                    {(ctx) => (
-                      <button
-                        onClick={() => selectContext(ctx.name)}
-                        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
-                        style={{
-                          background: ctx.isCurrent ? 'var(--bg-tertiary)' : 'transparent',
-                          color: ctx.isCurrent ? 'var(--accent-primary)' : 'var(--text-primary)',
-                        }}
-                      >
-                        <span class={`w-2 h-2 rounded-full flex-shrink-0 ${ctx.connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                        <div class="flex-1 min-w-0">
-                          <span class="truncate block">{ctx.name}</span>
-                          <Show when={ctx.serverVersion}>
-                            <span class="text-xs" style={{ color: 'var(--text-muted)' }}>{ctx.serverVersion}</span>
-                          </Show>
-                        </div>
-                        <Show when={ctx.isCurrent}>
-                          <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                          </svg>
-                        </Show>
-                      </button>
-                    )}
-                  </For>
+                  {/* Show enhanced clusters only */}
+                  <Show when={enhancedClusters().length > 0}>
+                    <For each={enhancedClusters().filter(c => !ctxSearch() || c.name.toLowerCase().includes(ctxSearch().toLowerCase()))}>
+                      {(cluster) => {
+                        const statusColor = () => {
+                          switch (cluster.status) {
+                            case 'CONNECTED': return '#10b981';
+                            case 'DEGRADED': return '#f59e0b';
+                            case 'CONNECTING': return '#3b82f6';
+                            case 'AUTH_ERROR': return '#ef4444';
+                            case 'DISCONNECTED': return '#ef4444';
+                            default: return '#6b7280';
+                          }
+                        };
+                        return (
+                          <button
+                            onClick={() => selectContext(cluster.name, cluster.clusterId)}
+                            class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
+                            style={{
+                              background: cluster.active ? 'var(--bg-tertiary)' : 'transparent',
+                              color: cluster.active ? 'var(--accent-primary)' : 'var(--text-primary)',
+                            }}
+                          >
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColor() }}></span>
+                            <div class="flex-1 min-w-0">
+                              <span class="truncate block">{cluster.name}</span>
+                              <span class="text-xs" style={{ color: 'var(--text-muted)' }}>{cluster.status} • {cluster.provider}</span>
+                            </div>
+                            <Show when={cluster.active}>
+                              <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                              </svg>
+                            </Show>
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </Show>
                 </Show>
 
-                <Show when={ctxSearch() && filteredContexts().length === 0}>
+                <Show when={ctxSearch() && enhancedClusters().filter(c => !ctxSearch() || c.name.toLowerCase().includes(ctxSearch().toLowerCase())).length === 0}>
                   <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
                     No clusters found
                   </div>
                 </Show>
 
-                <Show when={!contextsResource.loading && contexts().length === 0}>
+                <Show when={!contextsResource.loading && enhancedClusters().length === 0}>
                   <div class="px-3 py-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
                     No clusters available
                   </div>
                 </Show>
               </div>
 
-              <div class="px-3 py-2 text-xs border-t" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
-                {contexts().length} cluster{contexts().length !== 1 ? 's' : ''} available
+              <div class="px-3 py-2 text-xs border-t flex items-center justify-between" style={{ 'border-color': 'var(--border-color)', color: 'var(--text-muted)' }}>
+                <span>{enhancedClusters().length} cluster{enhancedClusters().length !== 1 ? 's' : ''} available</span>
+                <div class="flex items-center gap-2">
+                  <Show when={activeCluster()}>
+                    <button
+                      class="underline text-red-500 hover:text-red-600"
+                      onClick={async () => {
+                        try {
+                          setCtxDropdownOpen(false);
+                          await disconnectCluster();
+                          addNotification('Cluster disconnected', 'success');
+                        } catch (err: any) {
+                          addNotification(err?.message || 'Failed to disconnect', 'error');
+                        }
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </Show>
+                  <button
+                    class="underline"
+                    onClick={() => {
+                      setCtxDropdownOpen(false);
+                      goToClusterManager();
+                    }}
+                  >
+                    Manage
+                  </button>
+                </div>
               </div>
             </div>
           </Show>
-        </div>
-
-        {/* Cluster status + connection manager */}
-
-        <div class="flex items-center gap-2">
-          <button
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-            style={{
-              background: (() => {
-                const currentCtx = contexts().find(c => c.isCurrent);
-                return currentCtx?.connected ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
-              })(),
-              color: (() => {
-                const currentCtx = contexts().find(c => c.isCurrent);
-                return currentCtx?.connected ? '#10b981' : '#ef4444';
-              })(),
-              border: '1px solid var(--border-color)',
-            }}
-            onClick={() => goToClusterManager()}
-          >
-            <span class={`w-2 h-2 rounded-full ${(() => {
-              const currentCtx = contexts().find(c => c.isCurrent);
-              return currentCtx?.connected ? 'bg-emerald-400' : 'bg-red-500';
-            })()}`}></span>
-            {(() => {
-              const currentCtx = contexts().find(c => c.isCurrent);
-              return currentCtx?.connected ? 'Cluster Connected' : 'Cluster Disconnected';
-            })()}
-          </button>
-          <button
-            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-            style={{
-              background: 'var(--accent-primary)',
-              color: '#000',
-              border: '1px solid var(--accent-primary)',
-              boxShadow: '0 0 10px rgba(59,130,246,0.35)',
-            }}
-            onClick={() => goToClusterManager()}
-            title="Manage Connections"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM12 15a3 3 0 100-6 3 3 0 000 6z" />
-            </svg>
-          </button>
         </div>
 
         {/* Terminal button */}
@@ -775,25 +845,6 @@ const Header: Component = () => {
 
         {/* Theme toggle */}
         <ThemeToggle />
-
-        {/* Compact mode toggle */}
-        <button
-          onClick={() => updateSetting('compactMode', !settings().compactMode)}
-          class="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors"
-          style={{
-            background: settings().compactMode ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-            color: settings().compactMode ? '#fff' : 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-          }}
-          title={settings().compactMode ? 'Compact Mode ON - Click to switch to Normal' : 'Normal Mode - Click to switch to Compact'}
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={settings().compactMode 
-              ? "M4 6h16M4 12h16M4 18h16" 
-              : "M4 6h16M4 10h16M4 14h16M4 18h16"} />
-          </svg>
-          <span class="text-sm">{settings().compactMode ? 'Normal' : 'Compact'}</span>
-        </button>
 
         {/* Brain button */}
         <button

@@ -57,6 +57,10 @@ const Settings: Component = () => {
   const [clearingPerf, setClearingPerf] = createSignal(false);
   const [announcementsStatus, setAnnouncementsStatus] = createSignal<any>(null);
   const [fetchingAnnouncements, setFetchingAnnouncements] = createSignal(false);
+  const [metricsCollectorConfig, setMetricsCollectorConfig] = createSignal<any>(null);
+  const [metricsCollectorStatus, setMetricsCollectorStatus] = createSignal<any>(null);
+  const [updatingMetricsConfig, setUpdatingMetricsConfig] = createSignal(false);
+  const [clearingMetrics, setClearingMetrics] = createSignal(false);
 
   // Load current version from status
   createEffect(async () => {
@@ -103,6 +107,19 @@ const Settings: Component = () => {
       setAnnouncementsStatus(status);
     } catch (err) {
       console.error('Failed to get announcements status:', err);
+    }
+  });
+
+  // Load metrics collector config and status
+  createEffect(async () => {
+    try {
+      const config = await api.getMetricsCollectorConfig();
+      setMetricsCollectorConfig(config);
+
+      const status = await api.getMetricsCollectorStatus();
+      setMetricsCollectorStatus(status);
+    } catch (err) {
+      console.error('Failed to get metrics collector config:', err);
     }
   });
 
@@ -193,12 +210,6 @@ const Settings: Component = () => {
             label: themes[theme].label,
             value: theme,
           })),
-        },
-        {
-          id: 'compactMode',
-          label: 'Compact Mode',
-          description: 'Reduce spacing and padding for a more compact view',
-          type: 'toggle',
         },
         {
           id: 'sidebarCollapsed',
@@ -358,6 +369,13 @@ const Settings: Component = () => {
       icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
       items: [],
       isLearningSection: true, // Special flag for custom rendering
+    },
+    {
+      title: 'Metrics Collection',
+      description: 'Configure background metrics collection for ML recommendations',
+      icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+      items: [],
+      isMetricsCollectionSection: true, // Special flag for custom rendering
     },
     {
       title: 'Monitoring & Analysis',
@@ -1083,7 +1101,7 @@ const Settings: Component = () => {
                   </Show>
                 </div>
               </Show>
-              <Show when={!(section as any).isBackupSection && !(section as any).isLearningSection && !(section as any).isAnnouncementsSection}>
+              <Show when={!(section as any).isBackupSection && !(section as any).isLearningSection && !(section as any).isAnnouncementsSection && !(section as any).isMetricsCollectionSection}>
                 <div class="space-y-3">
                   <For each={section.items}>
                     {(item) => <SettingItemComponent item={item} />}
@@ -1298,6 +1316,234 @@ const Settings: Component = () => {
                         {resettingLearning() ? 'Resetting...' : 'Reset Learning'}
                       </button>
                     </div>
+                  </div>
+                </div>
+              </Show>
+              <Show when={(section as any).isMetricsCollectionSection}>
+                {/* Metrics Collection Section */}
+                <div class="space-y-4">
+                  {/* Information Banner */}
+                  <div class="card p-4 mb-4" style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                    <div class="flex items-start gap-3">
+                      <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div class="flex-1">
+                        <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                          How Background Metrics Collection Works
+                        </div>
+                        <div class="text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <p>KubeGraf automatically collects pod metrics in the background to power ML-based recommendations:</p>
+                          <ul class="list-disc list-inside ml-2 space-y-0.5">
+                            <li>Collects CPU, memory, and resource usage from all pods periodically</li>
+                            <li>Data is stored locally on your device at <code class="px-1 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)' }}>~/.kubegraf/metrics/</code></li>
+                            <li>Used by ML algorithms to generate optimization recommendations</li>
+                            <li>Only collects when cluster is connected</li>
+                            <li>All data stays local - nothing is sent to external servers</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="card p-6">
+                    <div class="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 class="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                          Background Collection
+                        </h3>
+                        <p class="text-sm" style={{ color: 'var(--text-muted)' }}>
+                          Automatically collect metrics at regular intervals
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const currentEnabled = metricsCollectorConfig()?.enabled ?? true;
+                          const newEnabled = !currentEnabled;
+
+                          setUpdatingMetricsConfig(true);
+                          try {
+                            await api.updateMetricsCollectorConfig({ enabled: newEnabled });
+                            const config = await api.getMetricsCollectorConfig();
+                            setMetricsCollectorConfig(config);
+                            addNotification(
+                              newEnabled ? 'Metrics collection enabled' : 'Metrics collection disabled',
+                              'success'
+                            );
+                          } catch (err: any) {
+                            addNotification(`Failed to update metrics collection: ${err.message || err}`, 'error');
+                          } finally {
+                            setUpdatingMetricsConfig(false);
+                          }
+                        }}
+                        disabled={updatingMetricsConfig()}
+                        class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                          metricsCollectorConfig()?.enabled ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-tertiary)]'
+                        }`}
+                        style={{ outline: 'none' }}
+                        title={metricsCollectorConfig()?.enabled ? 'Enabled' : 'Disabled'}
+                      >
+                        <span
+                          class={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform pointer-events-none ${
+                            metricsCollectorConfig()?.enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <Show when={metricsCollectorConfig()}>
+                      <div class="grid grid-cols-2 gap-4 mt-4">
+                        <div>
+                          <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                            Collection Interval
+                          </div>
+                          <select
+                            value={metricsCollectorConfig()?.collectionInterval || 5}
+                            onChange={async (e) => {
+                              const interval = parseFloat(e.currentTarget.value);
+                              setUpdatingMetricsConfig(true);
+                              try {
+                                await api.updateMetricsCollectorConfig({
+                                  collectionInterval: interval
+                                });
+                                const config = await api.getMetricsCollectorConfig();
+                                setMetricsCollectorConfig(config);
+                                addNotification(`Collection interval updated to ${interval} minutes`, 'success');
+                              } catch (err: any) {
+                                addNotification(`Failed to update interval: ${err.message || err}`, 'error');
+                              } finally {
+                                setUpdatingMetricsConfig(false);
+                              }
+                            }}
+                            disabled={!metricsCollectorConfig()?.enabled || updatingMetricsConfig()}
+                            class="w-full px-3 py-2 rounded-lg text-sm"
+                            style={{
+                              background: 'var(--bg-tertiary)',
+                              color: 'var(--text-primary)',
+                              border: '1px solid var(--border-color)',
+                            }}
+                          >
+                            <option value="1">1 minute (testing)</option>
+                            <option value="5">5 minutes (recommended)</option>
+                            <option value="10">10 minutes (battery saver)</option>
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes (minimal)</option>
+                            <option value="60">1 hour</option>
+                          </select>
+                          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            How often to collect pod metrics
+                          </div>
+                        </div>
+                        <div>
+                          <div class="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                            Data Retention
+                          </div>
+                          <select
+                            value={metricsCollectorConfig()?.maxRetentionDays || 7}
+                            onChange={async (e) => {
+                              const days = parseInt(e.currentTarget.value);
+                              setUpdatingMetricsConfig(true);
+                              try {
+                                await api.updateMetricsCollectorConfig({
+                                  maxRetentionDays: days
+                                });
+                                const config = await api.getMetricsCollectorConfig();
+                                setMetricsCollectorConfig(config);
+                                addNotification(`Retention period updated to ${days} days`, 'success');
+                              } catch (err: any) {
+                                addNotification(`Failed to update retention: ${err.message || err}`, 'error');
+                              } finally {
+                                setUpdatingMetricsConfig(false);
+                              }
+                            }}
+                            disabled={updatingMetricsConfig()}
+                            class="w-full px-3 py-2 rounded-lg text-sm"
+                            style={{
+                              background: 'var(--bg-tertiary)',
+                              color: 'var(--text-primary)',
+                              border: '1px solid var(--border-color)',
+                            }}
+                          >
+                            <option value="1">1 day</option>
+                            <option value="3">3 days</option>
+                            <option value="7">7 days (recommended)</option>
+                            <option value="14">14 days</option>
+                            <option value="30">30 days</option>
+                          </select>
+                          <div class="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                            How long to keep metrics data
+                          </div>
+                        </div>
+                      </div>
+
+                      <Show when={metricsCollectorStatus()}>
+                        <div class="grid grid-cols-3 gap-4 mt-6 p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+                          <div>
+                            <div class="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                              Total Samples
+                            </div>
+                            <div class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                              {metricsCollectorStatus()?.totalSamples || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <div class="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                              Status
+                            </div>
+                            <div class="flex items-center gap-1">
+                              <span class={`w-2 h-2 rounded-full ${metricsCollectorStatus()?.isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                              <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                {metricsCollectorStatus()?.isConnected ? 'Connected' : 'Disconnected'}
+                              </span>
+                            </div>
+                          </div>
+                          <Show when={metricsCollectorStatus()?.lastUpdated}>
+                            <div>
+                              <div class="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                                Last Updated
+                              </div>
+                              <div class="text-xs" style={{ color: 'var(--text-primary)' }}>
+                                {new Date(metricsCollectorStatus()!.lastUpdated).toLocaleString()}
+                              </div>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
+
+                      <div class="mt-4">
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Are you sure you want to clear all metrics history? This action cannot be undone and will reset ML recommendations.')) {
+                              return;
+                            }
+                            setClearingMetrics(true);
+                            try {
+                              await api.clearMetricsHistory();
+                              addNotification('Metrics history cleared successfully', 'success');
+                              // Reload status
+                              const status = await api.getMetricsCollectorStatus();
+                              setMetricsCollectorStatus(status);
+                            } catch (err: any) {
+                              addNotification(`Failed to clear metrics: ${err.message || err}`, 'error');
+                            } finally {
+                              setClearingMetrics(false);
+                            }
+                          }}
+                          disabled={clearingMetrics() || (metricsCollectorStatus()?.totalSamples || 0) === 0}
+                          class="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                          style={{ background: 'var(--error-color)', color: 'white' }}
+                        >
+                          <Show when={clearingMetrics()}>
+                            <div class="spinner" style={{ width: '16px', height: '16px' }} />
+                          </Show>
+                          {clearingMetrics() ? 'Clearing...' : 'Clear Metrics History'}
+                        </button>
+                        <p class="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                          Remove all collected metrics data and reset ML recommendations
+                        </p>
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </Show>
