@@ -11,18 +11,31 @@ import (
 	"time"
 )
 
+// RelatedEvent represents a Kubernetes event correlated with an incident
+type RelatedEvent struct {
+	Type      string    `json:"type"`
+	Reason    string    `json:"reason"`
+	Message   string    `json:"message"`
+	Count     int32     `json:"count"`
+	FirstSeen time.Time `json:"firstSeen"`
+	LastSeen  time.Time `json:"lastSeen"`
+	Source    string    `json:"source"`
+}
+
 // Incident represents a detected issue from Kubernetes resources
 type KubernetesIncident struct {
-	ID           string    `json:"id"`
-	Type         string    `json:"type"`         // oom, crashloop, node_pressure, job_failure, etc.
-	Severity     string    `json:"severity"`     // warning, critical
-	ResourceKind string    `json:"resourceKind"` // Pod, Job, CronJob, Node
-	ResourceName string    `json:"resourceName"`
-	Namespace    string    `json:"namespace"`
-	FirstSeen    time.Time `json:"firstSeen"`
-	LastSeen     time.Time `json:"lastSeen"`
-	Count        int       `json:"count"`
-	Message      string    `json:"message,omitempty"`
+	ID             string         `json:"id"`
+	Type           string         `json:"type"`          // oom, crashloop, node_pressure, job_failure, etc.
+	Severity       string         `json:"severity"`      // warning, critical
+	ResourceKind   string         `json:"resourceKind"`  // Pod, Job, CronJob, Node
+	ResourceName   string         `json:"resourceName"`
+	Namespace      string         `json:"namespace"`
+	FirstSeen      time.Time      `json:"firstSeen"`
+	LastSeen       time.Time      `json:"lastSeen"`
+	Count          int            `json:"count"`
+	Message        string         `json:"message,omitempty"`
+	RelatedEvents  []RelatedEvent `json:"relatedEvents,omitempty"`
+	EventSummary   string         `json:"eventSummary,omitempty"`
 }
 
 // handleIncidents scans Kubernetes resources for incidents

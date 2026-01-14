@@ -809,10 +809,11 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 
 	// Update intelligence system stats with scan completion timestamp
 	// This ensures the monitoring status shows "Last scan: Xs ago" instead of "Never"
-	if ii.intelligenceSys != nil {
-		ii.intelligenceSys.UpdateStats(0)
-		log.Printf("[scanAndIngestIncidents] Updated intelligence stats - scan complete")
-	}
+	// TODO: Implement UpdateStats method on IntelligenceSystem
+	// if ii.intelligenceSys != nil {
+	// 	ii.intelligenceSys.UpdateStats(0)
+	// 	log.Printf("[scanAndIngestIncidents] Updated intelligence stats - scan complete")
+	// }
 }
 
 // Stop stops the incident intelligence system.
