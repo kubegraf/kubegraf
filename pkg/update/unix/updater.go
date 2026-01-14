@@ -128,6 +128,12 @@ fi
 echo "📥 Installing new binary..."
 cp "$NEW_BINARY_PATH" "$EXEC_PATH"
 chmod +x "$EXEC_PATH"
+
+# Remove macOS quarantine attribute if present (prevents Gatekeeper blocking)
+if command -v xattr > /dev/null 2>&1; then
+    xattr -d com.apple.quarantine "$EXEC_PATH" 2>/dev/null || true
+fi
+
 echo "✓ New binary installed"
 
 # Step 3: Verify new binary works
