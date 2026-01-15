@@ -54,7 +54,9 @@ func NewIntelligenceHandler(
 // RegisterRoutes registers HTTP routes for the intelligence API
 func (h *IntelligenceHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Incident Intelligence APIs
-	mux.HandleFunc("/api/v2/incidents/", h.handleIncidentRoute)
+	// NOTE: /api/v2/incidents (no trailing slash) is registered separately in web_incidents_v2.go
+	// with scanner fallback support. Only register sub-routes here.
+	mux.HandleFunc("/api/v2/incidents/", h.handleIncidentRoute) // Individual incident routes (with trailing slash)
 
 	// Evidence APIs
 	mux.HandleFunc("/api/v2/evidence/", h.handleEvidenceRoute)
@@ -87,8 +89,9 @@ func (h *IntelligenceHandler) handleIncidentRoute(w http.ResponseWriter, r *http
 	path := strings.TrimPrefix(r.URL.Path, "/api/v2/incidents/")
 	parts := strings.Split(path, "/")
 
+	// If no incident ID is provided, list all incidents
 	if len(parts) < 1 || parts[0] == "" {
-		http.Error(w, "Missing incident ID", http.StatusBadRequest)
+		h.handleListIncidents(w, r)
 		return
 	}
 
@@ -132,6 +135,68 @@ func (h *IntelligenceHandler) handleIncidentRoute(w http.ResponseWriter, r *http
 	default:
 		http.Error(w, "Unknown endpoint", http.StatusNotFound)
 	}
+}
+
+// handleListIncidents returns all active incidents
+func (h *IntelligenceHandler) handleListIncidents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse query parameters
+	namespace := r.URL.Query().Get("namespace")
+	patternFilter := r.URL.Query().Get("pattern")
+	severityFilter := r.URL.Query().Get("severity")
+	statusFilter := r.URL.Query().Get("status")
+
+	// Get all incidents from manager
+	allIncidents := h.manager.GetAllIncidents()
+
+	// Apply filters - initialize as empty slice so JSON returns [] not null
+	filtered := make([]*Incident, 0)
+	for _, incident := range allIncidents {
+		// Namespace filter
+		if namespace != "" && incident.Resource.Namespace != namespace {
+			continue
+		}
+		// Pattern filter
+		if patternFilter != "" && string(incident.Pattern) != patternFilter {
+			continue
+		}
+		// Severity filter
+		if severityFilter != "" && string(incident.Severity) != severityFilter {
+			continue
+		}
+		// Status filter
+		if statusFilter != "" && string(incident.Status) != statusFilter {
+			continue
+		}
+		filtered = append(filtered, incident)
+	}
+
+	// Build summary
+	summary := map[string]interface{}{
+		"byPattern":  make(map[string]int),
+		"bySeverity": make(map[string]int),
+		"byStatus":   make(map[string]int),
+	}
+
+	patternCounts := summary["byPattern"].(map[string]int)
+	severityCounts := summary["bySeverity"].(map[string]int)
+	statusCounts := summary["byStatus"].(map[string]int)
+
+	for _, inc := range filtered {
+		patternCounts[string(inc.Pattern)]++
+		severityCounts[string(inc.Severity)]++
+		statusCounts[string(inc.Status)]++
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"incidents": filtered,
+		"total":     len(filtered),
+		"summary":   summary,
+	})
 }
 
 // IntelligentIncidentResponse is the full incident response with intelligence

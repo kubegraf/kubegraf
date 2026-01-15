@@ -48,6 +48,11 @@ const (
 	PatternReadinessFailure FailurePattern = "READINESS_FAILURE"
 	PatternStartupFailure   FailurePattern = "STARTUP_FAILURE"
 
+	// Certificate/TLS failures (cert-manager)
+	PatternCertificateExpiring      FailurePattern = "CERTIFICATE_EXPIRING"
+	PatternCertificateRequestFailed FailurePattern = "CERTIFICATE_REQUEST_FAILED"
+	PatternIssuerNotReady           FailurePattern = "ISSUER_NOT_READY"
+
 	// Unknown pattern for unclassified failures
 	PatternUnknown FailurePattern = "UNKNOWN"
 )
@@ -76,6 +81,8 @@ func (p FailurePattern) Category() PatternCategory {
 		return CategorySecurity
 	case PatternLivenessFailure, PatternReadinessFailure, PatternStartupFailure:
 		return CategoryHealthCheck
+	case PatternCertificateExpiring, PatternCertificateRequestFailed, PatternIssuerNotReady:
+		return CategoryCertificate
 	default:
 		return CategoryUnknown
 	}
@@ -91,6 +98,7 @@ const (
 	CategoryScheduling     PatternCategory = "scheduling"
 	CategorySecurity       PatternCategory = "security"
 	CategoryHealthCheck    PatternCategory = "health_check"
+	CategoryCertificate    PatternCategory = "certificate"
 	CategoryUnknown        PatternCategory = "unknown"
 )
 
@@ -307,6 +315,28 @@ func AllPatterns() []PatternMetadata {
 			Category:        CategoryHealthCheck,
 			DefaultSeverity: SeverityHigh,
 			KubeReasons:     []string{"Unhealthy"},
+		},
+		// Certificate/TLS patterns (cert-manager)
+		{
+			Pattern:         PatternCertificateExpiring,
+			Name:            "Certificate Expiring",
+			Description:     "TLS certificate is expiring soon or has expired",
+			Category:        CategoryCertificate,
+			DefaultSeverity: SeverityHigh,
+		},
+		{
+			Pattern:         PatternCertificateRequestFailed,
+			Name:            "Certificate Request Failed",
+			Description:     "Certificate issuance request failed or was denied",
+			Category:        CategoryCertificate,
+			DefaultSeverity: SeverityHigh,
+		},
+		{
+			Pattern:         PatternIssuerNotReady,
+			Name:            "Issuer Not Ready",
+			Description:     "Certificate issuer (ClusterIssuer/Issuer) is not ready",
+			Category:        CategoryCertificate,
+			DefaultSeverity: SeverityHigh,
 		},
 	}
 }

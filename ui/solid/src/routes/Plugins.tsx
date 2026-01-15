@@ -658,7 +658,11 @@ const Plugins: Component = () => {
         <div class="card p-6">
           <h3 class="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Quick Stats</h3>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
+            <button
+              onClick={() => setActiveTab('helm')}
+              class="p-4 rounded-lg text-center cursor-pointer transition-all hover:scale-105"
+              style={{ background: 'var(--bg-tertiary)', border: 'none' }}
+            >
               <Show when={helmReleases.loading} fallback={
                 <div class="text-2xl font-bold" style={{ color: 'var(--accent-primary)' }}>
                   {Array.isArray(helmReleases()) ? helmReleases()?.length ?? 0 : 0}
@@ -669,8 +673,12 @@ const Plugins: Component = () => {
                 </div>
               </Show>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Helm Releases</div>
-            </div>
-            <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
+            </button>
+            <button
+              onClick={() => setActiveTab('argocd')}
+              class="p-4 rounded-lg text-center cursor-pointer transition-all hover:scale-105"
+              style={{ background: 'var(--bg-tertiary)', border: 'none' }}
+            >
               <Show when={argoCDApps.loading} fallback={
                 <div class="text-2xl font-bold" style={{ color: 'var(--accent-secondary)' }}>
                   {Array.isArray(argoCDApps()) ? argoCDApps()?.length ?? 0 : 0}
@@ -681,8 +689,12 @@ const Plugins: Component = () => {
                 </div>
               </Show>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>ArgoCD Apps</div>
-            </div>
-            <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
+            </button>
+            <button
+              onClick={() => setActiveTab('flux')}
+              class="p-4 rounded-lg text-center cursor-pointer transition-all hover:scale-105"
+              style={{ background: 'var(--bg-tertiary)', border: 'none' }}
+            >
               <Show when={fluxResources.loading} fallback={
                 <div class="text-2xl font-bold" style={{ color: '#8b5cf6' }}>
                   {Array.isArray(fluxResources()) ? fluxResources()?.length ?? 0 : 0}
@@ -693,7 +705,7 @@ const Plugins: Component = () => {
                 </div>
               </Show>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Flux Resources</div>
-            </div>
+            </button>
             <div class="p-4 rounded-lg text-center" style={{ background: 'var(--bg-tertiary)' }}>
               <div class="text-2xl font-bold" style={{ color: 'var(--success-color)' }}>{plugins.filter(p => p.enabled).length}</div>
               <div class="text-sm" style={{ color: 'var(--text-secondary)' }}>Active Plugins</div>

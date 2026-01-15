@@ -65,6 +65,7 @@ const Pods: Component = () => {
   // Bulk selection
   const bulk = useBulkSelection<Pod>();
   const [showBulkDeleteModal, setShowBulkDeleteModal] = createSignal(false);
+  const [modalSelectedItems, setModalSelectedItems] = createSignal<Array<{ name: string; namespace: string }>>([]);
 
   // Modal states
   const [showYaml, setShowYaml] = createSignal(false);
@@ -1301,7 +1302,12 @@ const Pods: Component = () => {
           totalCount={filteredAndSortedPods().length}
           onSelectAll={() => bulk.selectAll(filteredAndSortedPods())}
           onDeselectAll={() => bulk.deselectAll()}
-          onDelete={() => setShowBulkDeleteModal(true)}
+          onDelete={() => {
+            // Capture selected items at the moment the modal opens
+            const items = bulk.getSelectedItems(filteredAndSortedPods());
+            setModalSelectedItems(items);
+            setShowBulkDeleteModal(true);
+          }}
           resourceType="pods"
         />
 
@@ -2589,9 +2595,9 @@ const Pods: Component = () => {
         isOpen={showBulkDeleteModal()}
         onClose={() => setShowBulkDeleteModal(false)}
         resourceType="Pods"
-        selectedItems={selectedItemsForModal()}
+        selectedItems={modalSelectedItems()}
         onConfirm={async () => {
-          const selectedPods = selectedItemsForModal();
+          const selectedPods = modalSelectedItems();
 
           // Delete each pod
           for (const pod of selectedPods) {

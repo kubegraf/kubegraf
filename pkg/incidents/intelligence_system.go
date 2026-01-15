@@ -273,6 +273,13 @@ func (s *IntelligenceSystem) GetStatus() *IntelligenceSystemStatus {
 		Running:              s.running,
 		KnowledgeBankEnabled: s.knowledgeBank != nil,
 		LearningEnabled:      s.learningEngine != nil,
+		// Default monitoring stats - these will be populated by SetMonitoringStats
+		PodsMonitored:     0,
+		NodesMonitored:    0,
+		EventsProcessed:   0,
+		LastScanTime:      "",
+		RunbooksAvailable: 0,
+		SystemHealth:      "healthy",
 	}
 
 	if s.autoEngine != nil {
@@ -283,6 +290,20 @@ func (s *IntelligenceSystem) GetStatus() *IntelligenceSystemStatus {
 	if s.learningEngine != nil {
 		status.ClusterCount = len(s.learningEngine.GetAllClusters())
 		status.LearnedPatternCount = len(s.learningEngine.GetLearnedPatterns(true))
+	}
+
+	// Get runbooks count
+	if s.runbookReg != nil {
+		status.RunbooksAvailable = len(s.runbookReg.GetAll())
+	}
+
+	// Determine system health based on component status
+	if !s.running {
+		status.SystemHealth = "offline"
+	} else if s.knowledgeBank == nil && s.learningEngine == nil {
+		status.SystemHealth = "degraded"
+	} else {
+		status.SystemHealth = "healthy"
 	}
 
 	return status
@@ -296,5 +317,12 @@ type IntelligenceSystemStatus struct {
 	AutoRemediationStatus *AutoRemediationStatus  `json:"autoRemediationStatus,omitempty"`
 	ClusterCount          int                     `json:"clusterCount"`
 	LearnedPatternCount   int                     `json:"learnedPatternCount"`
+	// Fields required by frontend MonitoringStatus component
+	PodsMonitored     int    `json:"podsMonitored"`
+	NodesMonitored    int    `json:"nodesMonitored"`
+	EventsProcessed   int    `json:"eventsProcessed"`
+	LastScanTime      string `json:"lastScanTime"`
+	RunbooksAvailable int    `json:"runbooksAvailable"`
+	SystemHealth      string `json:"systemHealth"`
 }
 

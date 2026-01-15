@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, Show, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, Show, For, onMount, onCleanup } from 'solid-js';
 import { api } from '../services/api';
 import IncidentTable from '../components/IncidentTable';
 import IncidentFilters from '../components/IncidentFilters';
@@ -46,12 +46,38 @@ const IntelligencePanels: Component = () => {
   );
 };
 
+// Helper function to categorize incidents by resource kind or pattern
+const getIncidentCategory = (incident: Incident): string => {
+  const kind = incident.resource?.kind || incident.resourceKind || '';
+  const pattern = incident.pattern || '';
+
+  // Cert-Manager resources
+  if (['Certificate', 'CertificateRequest', 'Issuer', 'ClusterIssuer', 'Order', 'Challenge'].includes(kind) ||
+      pattern.includes('CERTIFICATE') || pattern.includes('ISSUER')) {
+    return 'cert-manager';
+  }
+
+  // Istio resources
+  if (['VirtualService', 'Gateway', 'DestinationRule', 'ServiceEntry', 'Sidecar', 'PeerAuthentication', 'AuthorizationPolicy'].includes(kind)) {
+    return 'istio';
+  }
+
+  // Node-level incidents
+  if (kind === 'Node' || pattern.includes('NODE')) {
+    return 'nodes';
+  }
+
+  // Workload resources (default)
+  return 'workloads';
+};
+
 const Incidents: Component = () => {
   const [showRoadmap, setShowRoadmap] = createSignal(false);
   const [patternFilter, setPatternFilter] = createSignal('');
   const [severityFilter, setSeverityFilter] = createSignal('');
   const [namespaceFilter, setNamespaceFilter] = createSignal('');
   const [statusFilter, setStatusFilter] = createSignal('');
+  const [categoryFilter, setCategoryFilter] = createSignal('');
   const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
   const [showSidePanels, setShowSidePanels] = createSignal(false);
@@ -195,7 +221,8 @@ const Incidents: Component = () => {
     return all.filter((inc: Incident) => {
       const pattern = inc.pattern || inc.type || '';
       const namespace = inc.resource?.namespace || inc.namespace || '';
-      
+
+      if (categoryFilter() && getIncidentCategory(inc) !== categoryFilter()) return false;
       if (patternFilter() && pattern.toUpperCase() !== patternFilter().toUpperCase()) return false;
       if (severityFilter() && inc.severity !== severityFilter()) return false;
       if (namespaceFilter() && namespace !== namespaceFilter()) return false;
@@ -236,10 +263,24 @@ const Incidents: Component = () => {
   const diagnosedCount = createMemo(() => 
     filteredIncidents().filter((inc: Incident) => inc.diagnosis).length
   );
-  const fixableCount = createMemo(() => 
-    filteredIncidents().filter((inc: Incident) => 
+  const fixableCount = createMemo(() =>
+    filteredIncidents().filter((inc: Incident) =>
       inc.recommendations && inc.recommendations.length > 0
     ).length
+  );
+
+  // Category counts (based on all incidents, not filtered)
+  const workloadsCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => getIncidentCategory(inc) === 'workloads').length
+  );
+  const certManagerCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => getIncidentCategory(inc) === 'cert-manager').length
+  );
+  const istioCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => getIncidentCategory(inc) === 'istio').length
+  );
+  const nodesCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => getIncidentCategory(inc) === 'nodes').length
   );
 
   return (
@@ -457,6 +498,87 @@ const Incidents: Component = () => {
           <span style={{ color: 'var(--accent-primary)' }}>Fixable</span>
           <span class="text-xs font-bold" style={{ color: 'var(--accent-primary)' }}>{fixableCount()}</span>
         </div>
+
+        {/* Separator */}
+        <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 4px' }} />
+
+        {/* Category filter chips */}
+        <button
+          onClick={() => {
+            if (categoryFilter() === 'workloads') {
+              setCategoryFilter('');
+            } else {
+              setCategoryFilter('workloads');
+            }
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: categoryFilter() === 'workloads' ? 'rgba(147,51,234,0.25)' : 'rgba(147,51,234,0.12)',
+            border: categoryFilter() === 'workloads' ? '2px solid rgba(147,51,234,0.6)' : '1px solid rgba(147,51,234,0.35)',
+            transform: categoryFilter() === 'workloads' ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Filter by Workloads (Pods, Deployments, etc.)"
+        >
+          <span style={{ color: '#9333ea' }}>Workloads</span>
+          <span class="text-xs font-bold" style={{ color: '#9333ea' }}>{workloadsCount()}</span>
+        </button>
+        <button
+          onClick={() => {
+            if (categoryFilter() === 'cert-manager') {
+              setCategoryFilter('');
+            } else {
+              setCategoryFilter('cert-manager');
+            }
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: categoryFilter() === 'cert-manager' ? 'rgba(14,165,233,0.25)' : 'rgba(14,165,233,0.12)',
+            border: categoryFilter() === 'cert-manager' ? '2px solid rgba(14,165,233,0.6)' : '1px solid rgba(14,165,233,0.35)',
+            transform: categoryFilter() === 'cert-manager' ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Filter by Cert-Manager (Certificates, Issuers, etc.)"
+        >
+          <span style={{ color: '#0ea5e9' }}>Cert-Manager</span>
+          <span class="text-xs font-bold" style={{ color: '#0ea5e9' }}>{certManagerCount()}</span>
+        </button>
+        <button
+          onClick={() => {
+            if (categoryFilter() === 'istio') {
+              setCategoryFilter('');
+            } else {
+              setCategoryFilter('istio');
+            }
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: categoryFilter() === 'istio' ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.12)',
+            border: categoryFilter() === 'istio' ? '2px solid rgba(99,102,241,0.6)' : '1px solid rgba(99,102,241,0.35)',
+            transform: categoryFilter() === 'istio' ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Filter by Istio (VirtualServices, Gateways, etc.)"
+        >
+          <span style={{ color: '#6366f1' }}>Istio</span>
+          <span class="text-xs font-bold" style={{ color: '#6366f1' }}>{istioCount()}</span>
+        </button>
+        <button
+          onClick={() => {
+            if (categoryFilter() === 'nodes') {
+              setCategoryFilter('');
+            } else {
+              setCategoryFilter('nodes');
+            }
+          }}
+          class="px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+          style={{
+            background: categoryFilter() === 'nodes' ? 'rgba(34,197,94,0.25)' : 'rgba(34,197,94,0.12)',
+            border: categoryFilter() === 'nodes' ? '2px solid rgba(34,197,94,0.6)' : '1px solid rgba(34,197,94,0.35)',
+            transform: categoryFilter() === 'nodes' ? 'scale(1.05)' : 'scale(1)'
+          }}
+          title="Filter by Nodes (Node issues, preemptions, etc.)"
+        >
+          <span style={{ color: '#22c55e' }}>Nodes</span>
+          <span class="text-xs font-bold" style={{ color: '#22c55e' }}>{nodesCount()}</span>
+        </button>
 
         {/* Separator */}
         <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 4px' }} />

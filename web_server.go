@@ -803,52 +803,16 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/v2/perf/clear", ws.handlePerfClear)
 	http.HandleFunc("/api/v2/perf/ui", ws.handlePerfUI)
 
-	// Incidents V2 endpoint (full incident intelligence with diagnosis, recommendations, fixes)
-	// Wrap with performance middleware if enabled
-	if ws.perfStore != nil {
-		http.HandleFunc("/api/v2/incidents/summary", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2Summary))
-		http.HandleFunc("/api/v2/incidents/patterns", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2Patterns))
-		http.HandleFunc("/api/v2/incidents/refresh", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2Refresh))
-		// Learning endpoints
-		http.HandleFunc("/api/v2/learning/status", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleLearningStatus))
-		http.HandleFunc("/api/v2/learning/reset", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleLearningReset))
-		http.HandleFunc("/api/v2/incidents/", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentV2ByID))
-		http.HandleFunc("/api/v2/incidents", instrumentation.PerformanceMiddleware(ws.perfStore, ws.handleIncidentsV2))
-	} else {
-		http.HandleFunc("/api/v2/incidents/summary", ws.handleIncidentsV2Summary)
-		http.HandleFunc("/api/v2/incidents/patterns", ws.handleIncidentsV2Patterns)
-		http.HandleFunc("/api/v2/incidents/refresh", ws.handleIncidentsV2Refresh)
-		// Learning endpoints (must be registered before the catch-all /api/v2/incidents/ route)
-		http.HandleFunc("/api/v2/learning/status", ws.handleLearningStatus)
-		http.HandleFunc("/api/v2/learning/reset", ws.handleLearningReset)
-		http.HandleFunc("/api/v2/incidents/", ws.handleIncidentV2ByID)
-		http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
-	}
+	// NOTE: Incidents V2 routes are now handled by the Intelligence System
+	// via ws.RegisterIncidentIntelligenceRoutes() called earlier.
+	// The intelligence handler (intelligence_handlers.go) manages all /api/v2/incidents/* routes,
+	// including summary, patterns, refresh, learning endpoints, and incident-by-ID.
 
-	// Fix action endpoints (safe remediation actions)
-	// NOTE: These routes are now handled via /api/v2/incidents/{id}/fix-preview and /api/v2/incidents/{id}/fix-apply
-	// Keeping fix-preview for backward compatibility, but fix-apply is handled by handleIncidentV2ByID
-	http.HandleFunc("/api/v2/incidents/fix-preview", ws.handleFixPreview)
-	// Removed: http.HandleFunc("/api/v2/incidents/fix-apply", ws.handleFixApply)
-	// This route is now handled by handleIncidentV2ByID -> handleFixApplyV2
+	// NOTE: Auto-remediation, learning, runbook, and feedback endpoints are also handled by the Intelligence System
+	// These are all registered via the intelligence handler in RegisterIncidentIntelligenceRoutes()
 
-	// Auto-remediation endpoints
-	http.HandleFunc("/api/v2/auto-remediation/status", ws.handleAutoRemediationStatus)
-	http.HandleFunc("/api/v2/auto-remediation/enable", ws.handleAutoRemediationEnable)
-	http.HandleFunc("/api/v2/auto-remediation/disable", ws.handleAutoRemediationDisable)
-	http.HandleFunc("/api/v2/auto-remediation/decisions", ws.handleAutoRemediationDecisions)
-
-	// Learning endpoints
-	http.HandleFunc("/api/v2/learning/clusters", ws.handleLearningClusters)
-	http.HandleFunc("/api/v2/learning/patterns", ws.handleLearningPatterns)
-	http.HandleFunc("/api/v2/learning/trends", ws.handleLearningTrends)
-	http.HandleFunc("/api/v2/learning/similar", ws.handleLearningSimilar)
-
-	// Runbooks endpoints
-	http.HandleFunc("/api/v2/runbooks", ws.handleRunbooks)
-
-	// Feedback endpoint
-	http.HandleFunc("/api/v2/feedback", ws.handleFeedback)
+	// Intelligence status endpoint
+	http.HandleFunc("/api/v2/intelligence/status", ws.handleIntelligenceStatus)
 
 	// Brain endpoints (real cluster data)
 	http.HandleFunc("/api/brain/timeline", ws.handleBrainTimeline)

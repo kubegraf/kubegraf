@@ -191,14 +191,17 @@ func (hc *HealthChecker) CheckCluster(clusterID string) error {
 
 // performHealthCheck performs the actual Kubernetes API call
 func (hc *HealthChecker) performHealthCheck(ctx context.Context, clientset *kubernetes.Clientset, config *rest.Config) error {
-	// Use ServerVersion as a lightweight health check
+	// Use ServerVersion as the primary health check
+	// This is the most reliable indicator that the cluster is working
 	_, err := clientset.Discovery().ServerVersion()
 	if err != nil {
 		return err
 	}
 
-	// Optionally check /healthz endpoint if available
-	// This is a best-effort check, don't fail if it's not available
+	// ServerVersion succeeded - cluster is healthy
+	// The /healthz endpoint is deprecated and may return 404 on some clusters
+	// (especially GKE clusters where it's disabled by default)
+	// We only check /healthz for auth errors (401/403) which indicate credential issues
 	healthzURL := config.Host + "/healthz"
 	req, err := http.NewRequestWithContext(ctx, "GET", healthzURL, nil)
 	if err == nil {
@@ -211,8 +214,11 @@ func (hc *HealthChecker) performHealthCheck(ctx context.Context, clientset *kube
 			resp, err := client.Do(req)
 			if err == nil {
 				resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					return fmt.Errorf("healthz returned status %d", resp.StatusCode)
+				// Only treat auth errors as failures
+				// 404 means /healthz is not available, which is fine - ServerVersion already passed
+				// 5xx means server error, but we already know the API is working from ServerVersion
+				if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+					return fmt.Errorf("healthz returned auth error %d", resp.StatusCode)
 				}
 			}
 		}

@@ -44,10 +44,10 @@ const MonitoringStatus: Component<MonitoringStatusProps> = (props) => {
 
   const getHealthColor = (health: string) => {
     switch (health?.toLowerCase()) {
-      case 'healthy': return '#4ade80';
-      case 'warning': return '#fbbf24';
-      case 'degraded': return '#f97316';
-      case 'offline': return '#ef4444';
+      case 'healthy': return '#16a34a'; // Darker green for better visibility in light themes
+      case 'warning': return '#d97706'; // Darker amber for light themes
+      case 'degraded': return '#ea580c'; // Darker orange for light themes
+      case 'offline': return '#dc2626'; // Darker red for light themes
       default: return '#6b7280';
     }
   };

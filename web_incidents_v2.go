@@ -888,7 +888,12 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 		ws.app.incidentIntelligence.Start(ws.app.ctx)
 	}
 
-	// Register intelligence system API routes (v2)
+	// Register our custom handler for /api/v2/incidents FIRST (before intelligence routes)
+	// This handler uses IncidentScanner as a fallback when Manager has no incidents
+	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
+	log.Printf("[Intelligence] Registered /api/v2/incidents with scanner fallback")
+
+	// Register intelligence system API routes (v2) - these will handle sub-paths like /api/v2/incidents/{id}
 	if ws.app.incidentIntelligence != nil && ws.app.incidentIntelligence.intelligenceSys != nil {
 		apiHandler := ws.app.incidentIntelligence.intelligenceSys.GetAPIHandler()
 		if apiHandler != nil {
@@ -946,6 +951,48 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		} else {
 			incidentList = manager.FilterIncidents(filter)
 		}
+	}
+
+	// FALLBACK: If Manager has no incidents, use IncidentScanner to get live Kubernetes incidents
+	if len(incidentList) == 0 && ws.app.clientset != nil && ws.app.connected {
+		log.Printf("[handleIncidentsV2] Manager has no incidents, falling back to IncidentScanner")
+		scanner := NewIncidentScanner(ws.app)
+		k8sIncidents := scanner.ScanAllIncidents(namespace)
+		log.Printf("[handleIncidentsV2] Scanner found %d incidents", len(k8sIncidents))
+
+		// Convert KubernetesIncident to incidents.Incident format
+		for _, k8sInc := range k8sIncidents {
+			// Apply filters
+			if severityStr != "" && k8sInc.Severity != severityStr {
+				continue
+			}
+
+			// Map incident type to failure pattern
+			pattern := mapTypeToPattern(k8sInc.Type)
+			if patternStr != "" && string(pattern) != patternStr {
+				continue
+			}
+
+			incident := &incidents.Incident{
+				ID:          k8sInc.ID,
+				Fingerprint: k8sInc.ID,
+				Pattern:     pattern,
+				Severity:    incidents.Severity(k8sInc.Severity),
+				Status:      incidents.StatusOpen,
+				Resource: incidents.KubeResourceRef{
+					Kind:      k8sInc.ResourceKind,
+					Name:      k8sInc.ResourceName,
+					Namespace: k8sInc.Namespace,
+				},
+				Title:       fmt.Sprintf("%s: %s", k8sInc.Type, k8sInc.ResourceName),
+				Description: k8sInc.Message,
+				Occurrences: k8sInc.Count,
+				FirstSeen:   k8sInc.FirstSeen,
+				LastSeen:    k8sInc.LastSeen,
+			}
+			incidentList = append(incidentList, incident)
+		}
+		log.Printf("[handleIncidentsV2] After filtering, returning %d incidents", len(incidentList))
 	}
 
 	// Add resolved incidents from database if filtering by resolved status
@@ -1037,6 +1084,39 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		"total":     len(incidentList),
 		"summary":   summary,
 	})
+}
+
+// mapTypeToPattern maps Kubernetes incident types from IncidentScanner to incidents.FailurePattern
+func mapTypeToPattern(incidentType string) incidents.FailurePattern {
+	switch incidentType {
+	case "oom":
+		return incidents.PatternOOMPressure
+	case "crashloop":
+		return incidents.PatternCrashLoop
+	case "high_restarts":
+		return incidents.PatternRestartStorm
+	case "node_memory_pressure":
+		return incidents.PatternOOMPressure
+	case "node_disk_pressure":
+		return incidents.PatternDiskPressure
+	case "node_pressure":
+		return incidents.PatternNodePressure
+	case "node_not_ready":
+		return incidents.PatternNodeNotReady
+	case "job_failure", "cronjob_failure":
+		return incidents.PatternAppCrash
+	case "image_pull_failure":
+		return incidents.PatternImagePullFailure
+	// Cert-manager related incidents
+	case "certificate_not_ready", "certificate_expired", "certificate_expiring":
+		return incidents.PatternCertificateExpiring
+	case "certificate_request_failed":
+		return incidents.PatternCertificateRequestFailed
+	case "issuer_not_ready", "cluster_issuer_not_ready":
+		return incidents.PatternIssuerNotReady
+	default:
+		return incidents.PatternUnknown
+	}
 }
 
 // getIncidentByID retrieves an incident by ID from v2 manager only (production-ready, no fallbacks)
@@ -1762,16 +1842,29 @@ func (ws *WebServer) handleIntelligenceStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+
 	if ws.app.incidentIntelligence == nil || ws.app.incidentIntelligence.GetIntelligenceSystem() == nil {
-		// Return basic status when not available
-		http.Error(w, "Intelligence system not available", http.StatusServiceUnavailable)
+		// Return a valid JSON response with offline status when not available
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"running":              false,
+			"knowledgeBankEnabled": false,
+			"learningEnabled":      false,
+			"clusterCount":         0,
+			"learnedPatternCount":  0,
+			"podsMonitored":        0,
+			"nodesMonitored":       0,
+			"eventsProcessed":      0,
+			"lastScanTime":         "",
+			"runbooksAvailable":    0,
+			"systemHealth":         "offline",
+		})
 		return
 	}
 
 	intelSys := ws.app.incidentIntelligence.GetIntelligenceSystem()
 	status := intelSys.GetStatus()
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }
 
