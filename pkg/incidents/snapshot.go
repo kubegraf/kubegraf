@@ -87,10 +87,15 @@ type IncidentSnapshot struct {
 	WhyNowExplanation string `json:"whyNowExplanation"`
 	
 	// RECOMMENDED FIRST ACTION (precomputed)
-	
+
 	// RecommendedAction is the primary CTA
 	RecommendedAction *RecommendedAction `json:"recommendedAction,omitempty"`
-	
+
+	// LOG ANALYSIS (computed on demand for Pod incidents)
+
+	// LogAnalysis is the result of analyzing pod logs
+	LogAnalysis *LogAnalysisResult `json:"logAnalysis,omitempty"`
+
 	// CachedAt is when this snapshot was generated
 	CachedAt time.Time `json:"cachedAt"`
 	

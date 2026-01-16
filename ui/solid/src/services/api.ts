@@ -1334,25 +1334,35 @@ export const api = {
     });
   },
 
-  // Legacy fix endpoints (kept for backward compatibility)
+  // ============ Legacy Aliases (use standard methods above) ============
+  // These are kept for backward compatibility but internally use the standard API pattern:
+  // Standard: POST /api/v2/incidents/{incidentId}/fix-preview with { fixId }
+  // Standard: POST /api/v2/incidents/{incidentId}/fix-apply with { fixId, confirmed, dryRun? }
+
+  /** @deprecated Use previewFix(incidentId, fixId) instead */
   previewIncidentFix: async (incidentId: string, recommendationId?: string) => {
-    return fetchAPI<FixPreviewResponse>(`/v2/incidents/fix-preview`, {
+    // Redirect to standard endpoint
+    return fetchAPI<FixPreviewResponse>(`/v2/incidents/${incidentId}/fix-preview`, {
       method: 'POST',
-      body: JSON.stringify({ incidentId, recommendationId }),
+      body: JSON.stringify({ fixId: recommendationId }),
     });
   },
 
+  /** @deprecated Use applyFix(incidentId, fixId, false) instead */
   dryRunIncidentFix: async (incidentId: string, recommendationId?: string) => {
-    return fetchAPI<FixApplyResponse>(`/v2/incidents/fix-apply`, {
+    // Redirect to standard endpoint with dryRun flag
+    return fetchAPI<FixApplyResponse>(`/v2/incidents/${incidentId}/fix-apply`, {
       method: 'POST',
-      body: JSON.stringify({ incidentId, recommendationId, dryRun: true }),
+      body: JSON.stringify({ fixId: recommendationId, confirmed: false, dryRun: true }),
     });
   },
 
+  /** @deprecated Use applyFix(incidentId, fixId, true) instead */
   applyIncidentFix: async (incidentId: string, recommendationId?: string) => {
-    return fetchAPI<FixApplyResponse>(`/v2/incidents/fix-apply`, {
+    // Redirect to standard endpoint
+    return fetchAPI<FixApplyResponse>(`/v2/incidents/${incidentId}/fix-apply`, {
       method: 'POST',
-      body: JSON.stringify({ incidentId, recommendationId, dryRun: false }),
+      body: JSON.stringify({ fixId: recommendationId, confirmed: true, dryRun: false }),
     });
   },
 
@@ -1498,8 +1508,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  getClustersEnhanced: () =>
-    fetchAPI<{ clusters: any[]; active: any }>('/clusters/enhanced'),
+  getClustersEnhanced: (cached = false) =>
+    fetchAPI<{ clusters: any[]; active: any }>(`/clusters/enhanced${cached ? '?cached=true' : ''}`),
+  getClustersEnhancedCached: () =>
+    fetchAPI<{ clusters: any[]; active: any }>('/clusters/enhanced?cached=true'),
   getActiveCluster: () =>
     fetchAPI<{ cluster: any }>('/clusters/active'),
   selectCluster: (clusterId: string) =>
@@ -1737,7 +1749,7 @@ export const api = {
       collectionInterval: number; // in minutes
       maxRetentionDays: number;
       storagePath: string;
-    }>('/api/metrics/collector/config'),
+    }>('/metrics/collector/config'),
 
   updateMetricsCollectorConfig: (config: {
     enabled?: boolean;
@@ -1752,7 +1764,7 @@ export const api = {
         collectionInterval: number;
         maxRetentionDays: number;
       };
-    }>('/api/metrics/collector/config', {
+    }>('/metrics/collector/config', {
       method: 'POST',
       body: JSON.stringify(config),
     }),
@@ -1833,6 +1845,8 @@ export interface IncidentSnapshot {
   whyNowExplanation: string;
   // Recommended action
   recommendedAction?: RecommendedAction;
+  // Log Analysis
+  logAnalysis?: LogAnalysisResult;
   // Cache metadata
   cachedAt: string;
   validUntil: string;
@@ -1871,6 +1885,32 @@ export interface RecommendedAction {
   description?: string;
   tab: string;
   risk?: string;
+}
+
+// Log Analysis Types
+export interface LogInsight {
+  patternName: string;
+  category: string;
+  severity: string;
+  rootCause: string;
+  recommendedFix: string;
+  matchedLines: string[];
+  matchCount: number;
+  isUpstreamIssue: boolean;
+  extractedDetails?: Record<string, string>;
+}
+
+export interface LogAnalysisResult {
+  podName: string;
+  namespace: string;
+  container?: string;
+  analyzedAt: string;
+  totalLines: number;
+  insights: LogInsight[];
+  summary: string;
+  overallSeverity: string;
+  primaryRootCause: string;
+  isExternalIssue: boolean;
 }
 
 export interface ProposedFix {

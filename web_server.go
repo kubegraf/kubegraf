@@ -402,8 +402,8 @@ func NewWebServer(app *App) *WebServer {
 		ws.stateManager = stateMgr
 	}
 
-	// Initialize incident intelligence system for RCA and auto-remediation
-	ws.incidentIntelligence = NewIncidentIntelligence(app)
+	// Note: incident intelligence is initialized in RegisterIncidentIntelligenceRoutes()
+	// to ensure it's only created once and routes are properly registered
 
 	return ws
 }

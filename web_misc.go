@@ -999,11 +999,11 @@ func (ws *WebServer) syncActiveClusterFromContext() {
 		if c.ContextName == currentContext {
 			if err := ws.db.SetActiveCluster(c.ClusterID); err != nil {
 				fmt.Printf("⚠️  syncActiveCluster: Failed to set active: %v\n", err)
-			} else {
-				fmt.Printf("✅ Synced active cluster: %s (context: %s)\n", c.Name, currentContext)
 			}
+			// No-op success - don't log to avoid spam on frequent polling
 			return
 		}
 	}
-	fmt.Printf("⚠️  syncActiveCluster: Context '%s' not found in cluster list\n", currentContext)
+	// Only log warning if context is not found (unusual case)
+	// fmt.Printf("⚠️  syncActiveCluster: Context '%s' not found in cluster list\n", currentContext)
 }

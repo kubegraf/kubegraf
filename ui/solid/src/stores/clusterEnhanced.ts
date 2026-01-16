@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { api } from '../services/api';
 
 // Enhanced cluster types
@@ -33,16 +33,33 @@ export interface ClusterSource {
 const [enhancedClusters, setEnhancedClusters] = createSignal<EnhancedCluster[]>([]);
 const [activeCluster, setActiveCluster] = createSignal<EnhancedCluster | null>(null);
 const [sources, setSources] = createSignal<ClusterSource[]>([]);
-const [loading, setLoading] = createSignal(false);
+// Start with loading=true since we fetch on module load
+const [loading, setLoading] = createSignal(true);
 
+// Fast initial load using cached endpoint (optimistic UI pattern)
+async function refreshEnhancedClustersCached() {
+  try {
+    const data = await api.getClustersEnhancedCached();
+    console.log('[clusterEnhanced] Fast load clusters:', data.clusters?.length || 0, 'active:', data.active?.name);
+    setEnhancedClusters(data.clusters || []);
+    setActiveCluster(data.active || null);
+  } catch (err) {
+    console.error('[clusterEnhanced] Failed to load cached clusters', err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// Full refresh with health status (slower, use for manual refresh)
 async function refreshEnhancedClusters() {
   setLoading(true);
   try {
     const data = await api.getClustersEnhanced();
+    console.log('[clusterEnhanced] Full refresh clusters:', data.clusters?.length || 0, 'active:', data.active?.name);
     setEnhancedClusters(data.clusters || []);
     setActiveCluster(data.active || null);
   } catch (err) {
-    console.error('Failed to load enhanced clusters', err);
+    console.error('[clusterEnhanced] Failed to load enhanced clusters', err);
   } finally {
     setLoading(false);
   }
@@ -51,9 +68,10 @@ async function refreshEnhancedClusters() {
 async function refreshSources() {
   try {
     const data = await api.getClusterSources();
+    console.log('[clusterEnhanced] Loaded sources:', data.sources?.length || 0);
     setSources(data.sources || []);
   } catch (err) {
-    console.error('Failed to load sources', err);
+    console.error('[clusterEnhanced] Failed to load sources', err);
   }
 }
 
@@ -117,59 +135,43 @@ async function disconnectCluster() {
   }
 }
 
-// Auto-refresh - faster (5s) when any cluster is connecting, slower (30s) otherwise
+// Auto-refresh - use a simple fixed interval to avoid infinite loops
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
+let autoRefreshInitialized = false;
 
 function startAutoRefresh() {
-  // Clear existing interval
+  // Prevent multiple initializations
+  if (autoRefreshInitialized) return;
+  autoRefreshInitialized = true;
+
+  // Clear any existing interval
   if (refreshInterval) {
     clearInterval(refreshInterval);
   }
 
-  // Initial refresh
-  refreshEnhancedClusters();
+  // FAST initial load using cached endpoint (optimistic UI)
+  refreshEnhancedClustersCached();
   refreshSources();
 
-  // Check if any cluster is connecting and use faster interval
-  const checkAndSchedule = () => {
-    const clusters = enhancedClusters();
-    const active = activeCluster();
-    const isConnecting = clusters.some(c => c.status === 'CONNECTING') ||
-                         active?.status === 'CONNECTING';
-
-    // Use 5s interval when connecting, 30s otherwise
-    const interval = isConnecting ? 5000 : 30000;
-
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-    }
-
-    refreshInterval = setInterval(async () => {
-      await refreshEnhancedClusters();
-      // Re-check interval after refresh in case status changed
-      const newClusters = enhancedClusters();
-      const newActive = activeCluster();
-      const stillConnecting = newClusters.some(c => c.status === 'CONNECTING') ||
-                              newActive?.status === 'CONNECTING';
-
-      if (stillConnecting !== isConnecting) {
-        // Status changed, reschedule with new interval
-        checkAndSchedule();
-      }
-    }, interval);
-  };
-
-  checkAndSchedule();
+  // Use cached endpoint for periodic refresh too (background health checks run on server)
+  refreshInterval = setInterval(() => {
+    refreshEnhancedClustersCached();
+  }, 30000);
 }
 
-createEffect(() => {
+function stopAutoRefresh() {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+  autoRefreshInitialized = false;
+}
+
+// Initialize auto-refresh when module loads (only once)
+if (typeof window !== 'undefined') {
+  console.log('[clusterEnhanced] Module loaded, starting auto-refresh with optimistic UI');
   startAutoRefresh();
-  return () => {
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-    }
-  };
-});
+}
 
 export {
   enhancedClusters,
@@ -177,6 +179,7 @@ export {
   sources,
   loading,
   refreshEnhancedClusters,
+  refreshEnhancedClustersCached,
   refreshSources,
   selectCluster,
   reconnectCluster,

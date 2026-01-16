@@ -11,6 +11,14 @@ import (
 	"sync"
 )
 
+// MonitoringStats holds scan statistics for the intelligence system
+type MonitoringStats struct {
+	PodsMonitored   int
+	NodesMonitored  int
+	EventsProcessed int
+	LastScanTime    string
+}
+
 // IntelligenceSystem is the main orchestrator for the autonomous SRE system
 type IntelligenceSystem struct {
 	// Core components
@@ -27,8 +35,9 @@ type IntelligenceSystem struct {
 	config IntelligenceConfig
 
 	// State
-	mu      sync.RWMutex
-	running bool
+	mu              sync.RWMutex
+	running         bool
+	monitoringStats MonitoringStats
 }
 
 // IntelligenceConfig configures the intelligence system
@@ -273,11 +282,11 @@ func (s *IntelligenceSystem) GetStatus() *IntelligenceSystemStatus {
 		Running:              s.running,
 		KnowledgeBankEnabled: s.knowledgeBank != nil,
 		LearningEnabled:      s.learningEngine != nil,
-		// Default monitoring stats - these will be populated by SetMonitoringStats
-		PodsMonitored:     0,
-		NodesMonitored:    0,
-		EventsProcessed:   0,
-		LastScanTime:      "",
+		// Use actual monitoring stats from SetMonitoringStats
+		PodsMonitored:     s.monitoringStats.PodsMonitored,
+		NodesMonitored:    s.monitoringStats.NodesMonitored,
+		EventsProcessed:   s.monitoringStats.EventsProcessed,
+		LastScanTime:      s.monitoringStats.LastScanTime,
 		RunbooksAvailable: 0,
 		SystemHealth:      "healthy",
 	}
@@ -324,5 +333,17 @@ type IntelligenceSystemStatus struct {
 	LastScanTime      string `json:"lastScanTime"`
 	RunbooksAvailable int    `json:"runbooksAvailable"`
 	SystemHealth      string `json:"systemHealth"`
+}
+
+// SetMonitoringStats updates the monitoring statistics from the scanner
+func (s *IntelligenceSystem) SetMonitoringStats(pods, nodes, events int, scanTime string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.monitoringStats = MonitoringStats{
+		PodsMonitored:   pods,
+		NodesMonitored:  nodes,
+		EventsProcessed: events,
+		LastScanTime:    scanTime,
+	}
 }
 

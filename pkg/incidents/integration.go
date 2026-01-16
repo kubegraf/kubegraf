@@ -124,12 +124,13 @@ func (a *EventAdapter) IngestContainerStatus(
 // This is meant to be implemented in the main package where kubernetes client is available.
 type KubeClientAdapter struct {
 	// These fields will be set by the main application
-	GetResourceFunc     func(ctx context.Context, ref KubeResourceRef) (map[string]interface{}, error)
-	PatchResourceFunc   func(ctx context.Context, ref KubeResourceRef, patchData []byte, dryRun bool) (map[string]interface{}, error)
-	ScaleResourceFunc   func(ctx context.Context, ref KubeResourceRef, replicas int32, dryRun bool) error
-	RestartResourceFunc func(ctx context.Context, ref KubeResourceRef, dryRun bool) error
+	GetResourceFunc      func(ctx context.Context, ref KubeResourceRef) (map[string]interface{}, error)
+	PatchResourceFunc    func(ctx context.Context, ref KubeResourceRef, patchData []byte, dryRun bool) (map[string]interface{}, error)
+	ScaleResourceFunc    func(ctx context.Context, ref KubeResourceRef, replicas int32, dryRun bool) error
+	RestartResourceFunc  func(ctx context.Context, ref KubeResourceRef, dryRun bool) error
 	RollbackResourceFunc func(ctx context.Context, ref KubeResourceRef, revision int64, dryRun bool) error
-	DeleteResourceFunc  func(ctx context.Context, ref KubeResourceRef, dryRun bool) error
+	DeleteResourceFunc   func(ctx context.Context, ref KubeResourceRef, dryRun bool) error
+	GetPodLogsFunc       func(ctx context.Context, namespace, podName, container string, tailLines int64, previous bool) (string, error)
 }
 
 // GetResource implements KubeFixExecutor.
@@ -178,6 +179,14 @@ func (a *KubeClientAdapter) DeleteResource(ctx context.Context, ref KubeResource
 		return a.DeleteResourceFunc(ctx, ref, dryRun)
 	}
 	return nil
+}
+
+// GetPodLogs implements KubeFixExecutor.
+func (a *KubeClientAdapter) GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines int64, previous bool) (string, error) {
+	if a.GetPodLogsFunc != nil {
+		return a.GetPodLogsFunc(ctx, namespace, podName, container, tailLines, previous)
+	}
+	return "", nil
 }
 
 // ConversionHelpers provides helper functions for converting between types.
