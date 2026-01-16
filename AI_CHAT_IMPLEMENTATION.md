@@ -8,6 +8,55 @@ This document defines a **production-grade, CPU-safe AI execution architecture**
 
 ---
 
+## Key Improvements Over Previous Approach
+
+### Problems Fixed
+
+| Issue | Old Approach | New Architecture |
+|-------|--------------|------------------|
+| Ollama daemon dependency | `ollama serve` required (always running) | On-demand process spawning (spawn → inference → SIGKILL) |
+| Idle CPU usage | 5-15% constant drain | **0% when idle** |
+| No tiered system | Single AI path for all queries | 3-tier (deterministic → light LLM → deep reasoning) |
+| No resource limits | Unbounded CPU/memory usage | Strict timeouts, memory caps, process groups |
+| No product principles | Ad-hoc decisions | 5 non-negotiable principles defined |
+| Battery drain | Significant | Minimal (AI only when user asks) |
+
+### New Architecture Highlights
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TIER 1: Deterministic (50+ regex patterns)                                  │
+│  └─ Latency: 0ms | CPU when idle: 0% | Reliability: 100%                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  TIER 2: Lightweight LLM (Phi-3 Mini, spawned & killed)                      │
+│  └─ Latency: 200-500ms | CPU when idle: 0% | Reliability: 95%               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  TIER 3: Deep Reasoning (Llama 3.2, requires user confirmation)              │
+│  └─ Latency: 2-10s | CPU when idle: 0% | Reliability: 85%                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5 Non-Negotiable Product Principles
+
+1. **AI Never Runs Idle** - spawn → inference → kill → return
+2. **Deterministic Before Probabilistic** - regex/cache/API first, AI last
+3. **Explain Every Action** - why, impact, rollback, confidence required
+4. **User Confirmation for Mutations** - READ immediate, WRITE/DELETE confirmed
+5. **Fail Safe, Not Fail Open** - "I don't know" beats hallucination
+
+### CPU-Safe Execution Pattern
+
+```go
+// The core guarantee: spawn → run → SIGKILL → return
+cmd := exec.CommandContext(ctx, "llama-cli", "-m", modelPath, "-p", prompt)
+cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}  // Process group
+output, _ := cmd.Output()
+syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)        // ALWAYS kill
+return parseResponse(output)
+```
+
+---
+
 ## 1. Technical Diagnosis: Why Ollama Consumes CPU Idle
 
 ### The Problem with Persistent LLM Daemons
