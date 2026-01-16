@@ -75,6 +75,8 @@ func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Reque
 			} else {
 				ws.app.connected = true
 				ws.app.connectionError = ""
+				// Sync current context to enhanced cluster manager
+				ws.syncActiveClusterFromContext()
 			}
 		case <-time.After(3 * time.Second):
 			// Timeout - connection might still be in progress
@@ -85,6 +87,8 @@ func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Reque
 	// Fast path: if already connected and not retry, return cached status immediately
 	// Don't re-test connection on every request - it's slow (~2s)
 	if ws.app.connected && !retry {
+		// Ensure active cluster is synced (runs once, subsequent calls are no-ops if already synced)
+		ws.syncActiveClusterFromContext()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"connected": true,
 			"error":     "",
@@ -688,6 +692,9 @@ func (ws *WebServer) handleSwitchContext(w http.ResponseWriter, r *http.Request)
 		log.Printf("[handleSwitchContext] Incident manager context switched successfully")
 	}
 
+	// Sync active cluster to enhanced cluster manager for UI display
+	ws.syncActiveClusterFromContext()
+
 	// Clear cost cache when switching contexts (cost is cluster-specific)
 	ws.costCacheMu.Lock()
 	// Clear all cached costs to ensure fresh data for new cluster
@@ -967,4 +974,36 @@ func (ws *WebServer) handlePodDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(details)
+}
+
+// syncActiveClusterFromContext syncs the current kubeconfig context to the enhanced cluster manager
+// This ensures the active cluster badge shows correctly in the Cluster Manager UI
+func (ws *WebServer) syncActiveClusterFromContext() {
+	if ws.db == nil || ws.app == nil || ws.app.contextManager == nil {
+		return
+	}
+
+	currentContext := ws.app.contextManager.CurrentContext
+	if currentContext == "" {
+		return
+	}
+
+	// Find the cluster by context name and set it as active
+	clusters, err := ws.db.ListEnhancedClusters()
+	if err != nil {
+		fmt.Printf("⚠️  syncActiveCluster: Failed to list clusters: %v\n", err)
+		return
+	}
+
+	for _, c := range clusters {
+		if c.ContextName == currentContext {
+			if err := ws.db.SetActiveCluster(c.ClusterID); err != nil {
+				fmt.Printf("⚠️  syncActiveCluster: Failed to set active: %v\n", err)
+			} else {
+				fmt.Printf("✅ Synced active cluster: %s (context: %s)\n", c.Name, currentContext)
+			}
+			return
+		}
+	}
+	fmt.Printf("⚠️  syncActiveCluster: Context '%s' not found in cluster list\n", currentContext)
 }

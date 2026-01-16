@@ -658,9 +658,24 @@ func (ecm *EnhancedClusterManager) ReconnectCluster(clusterID string) error {
 	return ecm.SelectCluster(clusterID)
 }
 
-// GetActiveCluster returns the currently active cluster
+// GetActiveCluster returns the currently active cluster with enriched health status
 func (ecm *EnhancedClusterManager) GetActiveCluster() (*database.EnhancedClusterEntry, error) {
-	return ecm.db.GetActiveCluster()
+	activeCluster, err := ecm.db.GetActiveCluster()
+	if err != nil || activeCluster == nil {
+		return activeCluster, err
+	}
+
+	// Enrich with health status from health checker (same as ListClusters)
+	state := ecm.healthChecker.GetStatus(activeCluster.ClusterID)
+	if state != nil && state.Status != cluster.StatusUnknown {
+		activeCluster.Status = string(state.Status)
+		activeCluster.LastChecked = &state.LastChecked
+		activeCluster.LastError = state.LastError
+		activeCluster.ConsecutiveFailures = state.ConsecutiveFailures
+		activeCluster.ConsecutiveSuccesses = state.ConsecutiveSuccesses
+	}
+
+	return activeCluster, nil
 }
 
 // GetClusterStatus returns the health status of a cluster

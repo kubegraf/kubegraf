@@ -335,6 +335,9 @@ func NewWebServer(app *App) *WebServer {
 					fmt.Printf("✅ Cache cleanup callback registered with cluster manager\n")
 				}
 
+				// Note: Active cluster sync happens in handleConnectionStatus after app.Initialize()
+				// because app.contextManager is not available until Initialize() is called
+
 				fmt.Printf("✅ Enhanced cluster manager assigned to web server\n")
 			}
 		} else {

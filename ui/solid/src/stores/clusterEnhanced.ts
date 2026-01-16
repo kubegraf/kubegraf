@@ -117,14 +117,58 @@ async function disconnectCluster() {
   }
 }
 
-// Auto-refresh every 30 seconds
-createEffect(() => {
+// Auto-refresh - faster (5s) when any cluster is connecting, slower (30s) otherwise
+let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+function startAutoRefresh() {
+  // Clear existing interval
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+  }
+
+  // Initial refresh
   refreshEnhancedClusters();
   refreshSources();
-  const interval = setInterval(() => {
-    refreshEnhancedClusters();
-  }, 30000);
-  return () => clearInterval(interval);
+
+  // Check if any cluster is connecting and use faster interval
+  const checkAndSchedule = () => {
+    const clusters = enhancedClusters();
+    const active = activeCluster();
+    const isConnecting = clusters.some(c => c.status === 'CONNECTING') ||
+                         active?.status === 'CONNECTING';
+
+    // Use 5s interval when connecting, 30s otherwise
+    const interval = isConnecting ? 5000 : 30000;
+
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+
+    refreshInterval = setInterval(async () => {
+      await refreshEnhancedClusters();
+      // Re-check interval after refresh in case status changed
+      const newClusters = enhancedClusters();
+      const newActive = activeCluster();
+      const stillConnecting = newClusters.some(c => c.status === 'CONNECTING') ||
+                              newActive?.status === 'CONNECTING';
+
+      if (stillConnecting !== isConnecting) {
+        // Status changed, reschedule with new interval
+        checkAndSchedule();
+      }
+    }, interval);
+  };
+
+  checkAndSchedule();
+}
+
+createEffect(() => {
+  startAutoRefresh();
+  return () => {
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+  };
 });
 
 export {

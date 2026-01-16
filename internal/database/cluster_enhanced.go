@@ -202,6 +202,8 @@ func (d *Database) UpsertEnhancedCluster(cluster *EnhancedClusterEntry) error {
 		lastChecked = *cluster.LastChecked
 	}
 
+	// Note: 'active' is NOT updated here - it's only set via SetActiveCluster()
+	// This prevents refreshClusterCatalog() from accidentally clearing the active cluster
 	_, err := d.db.Exec(`
 		INSERT INTO clusters (
 			cluster_id, name, context_name, source_id, provider, environment,
@@ -219,7 +221,6 @@ func (d *Database) UpsertEnhancedCluster(cluster *EnhancedClusterEntry) error {
 			kubeconfig_path = excluded.kubeconfig_path,
 			status = excluded.status,
 			connected = excluded.connected,
-			active = excluded.active,
 			last_used = excluded.last_used,
 			last_checked = excluded.last_checked,
 			last_error = excluded.last_error,
