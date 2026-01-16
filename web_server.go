@@ -827,6 +827,12 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/brain/ml/predictions", ws.handleBrainMLPredictions)
 	http.HandleFunc("/api/brain/ml/summary", ws.handleBrainMLSummary)
 
+	// AI Assistant endpoints (new modular AI functionality)
+	http.HandleFunc("/api/ai/status", ws.handleAIStatus)
+	http.HandleFunc("/api/ai/chat", ws.handleAIChatSimple)
+	http.HandleFunc("/api/ai/suggestion", ws.handleAISuggestionSimple)
+	http.HandleFunc("/api/ai/execute", ws.handleAIExecuteSimple)
+
 	// Session token validation endpoint
 	http.HandleFunc("/api/auth/validate-token", ws.handleValidateSessionToken)
 
@@ -1025,8 +1031,6 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 		w.Write(indexContent)
 	}
 }
-
-// handleConnectionStatus returns the cluster connection status
 
 // handleCheckUpdates checks for available updates
 

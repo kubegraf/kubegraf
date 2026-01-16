@@ -16,7 +16,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -26,10 +25,10 @@ import (
 	"github.com/fatih/color"
 
 	cli "github.com/kubegraf/kubegraf/cli/cmd"
-	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/telemetry"
 	oldtelemetry "github.com/kubegraf/kubegraf/pkg/telemetry"
 )
+
 
 func main() {
 	// Catch panics and show useful error
@@ -109,27 +108,10 @@ func launchWebUI(port int, ephemeralMode bool) {
 	CheckUpdateStatus()
 
 	// In web mode, start server immediately and connect to cluster in background
-	fmt.Println("🚀 Starting KubeGraf Daemon...")
-
-	// Initialize cluster manager with auto-discovery (silently)
-	kubeconfigPaths, err := cluster.DiscoverKubeConfigs()
-	if err != nil {
-		log.Printf("⚠️  Failed to discover kubeconfigs: %v", err)
-	}
-
-	// Load contexts from discovered kubeconfigs (silently)
-	var clusterManager *cluster.ClusterManager
-	if len(kubeconfigPaths) > 0 {
-		contexts, err := cluster.LoadContextsFromFiles(kubeconfigPaths)
-		if err != nil {
-			log.Printf("⚠️  Failed to load contexts: %v", err)
-		} else {
-			// Create cluster manager with pre-warming (silently)
-			clusterManager, err = cluster.NewClusterManager(contexts)
-			if err != nil {
-				log.Printf("⚠️  Failed to create cluster manager: %v", err)
-			}
-		}
+	fmt.Println("🚀 Starting KubeGraf Web UI...")
+	
+	if ephemeralMode {
+		fmt.Println("🗑️  Ephemeral mode enabled - data will be wiped on exit")
 	}
 
 	// Create and initialize application
@@ -137,7 +119,6 @@ func launchWebUI(port int, ephemeralMode bool) {
 
 	// Start web server immediately (silently)
 	webServer := NewWebServer(app)
-	webServer.clusterManager = clusterManager
 
 	// Enable ephemeral mode if requested
 	if ephemeralMode {
@@ -149,18 +130,6 @@ func launchWebUI(port int, ephemeralMode bool) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// Initialize cluster connection in background (silently)
-	go func() {
-		initErr := app.Initialize()
-		if initErr != nil {
-			app.connectionError = initErr.Error()
-			app.connected = false
-			fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
-		} else {
-			app.connected = true
-		}
-	}()
-
 	// Start web server in a goroutine (silently)
 	serverErrChan := make(chan error, 1)
 	go func() {
@@ -169,6 +138,8 @@ func launchWebUI(port int, ephemeralMode bool) {
 			serverErrChan <- err
 		}
 	}()
+
+
 
 	// Wait for signal or server error
 	select {
