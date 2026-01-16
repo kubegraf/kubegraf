@@ -90,7 +90,7 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
 
   const getPatternIcon = (pattern: string) => {
     switch (pattern.toUpperCase()) {
-      case 'RESTART_STORM': return '🌪️';
+      case 'RESTART_STORM': return '🔄';
       case 'CRASHLOOP': return '💥';
       case 'OOM_PRESSURE': return '💾';
       case 'LIVENESS_FAILURE': case 'READINESS_FAILURE': return '💓';
@@ -146,7 +146,7 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
             right: 0,
             bottom: 0,
             width: '100%',
-            'max-width': '720px',
+            'max-width': '900px',
             background: 'var(--bg-primary)',
             'box-shadow': '-4px 0 24px rgba(0, 0, 0, 0.3)',
             display: 'flex',
@@ -398,6 +398,151 @@ const IncidentModalV2: Component<IncidentModalV2Props> = (props) => {
                   {snapshot()!.whyNowExplanation}
                 </p>
               </div>
+
+              {/* Log Analysis (if available) */}
+              <Show when={snapshot()?.logAnalysis}>
+                <div style={{
+                  background: snapshot()!.logAnalysis!.isExternalIssue
+                    ? 'rgba(251, 191, 36, 0.1)'
+                    : 'var(--bg-card)',
+                  'border-radius': '8px',
+                  padding: '16px',
+                  'margin-bottom': '20px',
+                  border: snapshot()!.logAnalysis!.isExternalIssue
+                    ? '2px solid #fbbf24'
+                    : '1px solid var(--border-color)'
+                }}>
+                  <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', 'margin-bottom': '12px' }}>
+                    <h3 style={{
+                      margin: 0,
+                      'font-size': '14px',
+                      'font-weight': '600',
+                      color: 'var(--text-primary)'
+                    }}>
+                      Log Analysis
+                    </h3>
+                    <Show when={snapshot()!.logAnalysis!.isExternalIssue}>
+                      <span style={{
+                        padding: '2px 8px',
+                        'border-radius': '4px',
+                        'font-size': '10px',
+                        'font-weight': '600',
+                        background: '#fbbf24',
+                        color: '#000'
+                      }}>
+                        UPSTREAM ISSUE
+                      </span>
+                    </Show>
+                    <span style={{
+                      padding: '2px 8px',
+                      'border-radius': '4px',
+                      'font-size': '10px',
+                      'font-weight': '600',
+                      background: snapshot()!.logAnalysis!.overallSeverity === 'critical' ? 'rgba(220, 53, 69, 0.2)' :
+                                 snapshot()!.logAnalysis!.overallSeverity === 'high' ? 'rgba(255, 107, 107, 0.2)' :
+                                 'rgba(251, 191, 36, 0.2)',
+                      color: snapshot()!.logAnalysis!.overallSeverity === 'critical' ? '#dc3545' :
+                             snapshot()!.logAnalysis!.overallSeverity === 'high' ? '#ff6b6b' :
+                             '#fbbf24',
+                      'text-transform': 'uppercase'
+                    }}>
+                      {snapshot()!.logAnalysis!.overallSeverity}
+                    </span>
+                  </div>
+
+                  {/* Summary */}
+                  <p style={{
+                    margin: '0 0 16px',
+                    color: 'var(--text-primary)',
+                    'font-size': '13px',
+                    'line-height': '1.5',
+                    'font-weight': '500'
+                  }}>
+                    {snapshot()!.logAnalysis!.summary}
+                  </p>
+
+                  {/* Primary Root Cause */}
+                  <div style={{
+                    padding: '12px',
+                    background: 'var(--bg-secondary)',
+                    'border-radius': '6px',
+                    'margin-bottom': '12px',
+                    'border-left': '3px solid var(--accent-primary)'
+                  }}>
+                    <div style={{ 'font-size': '11px', color: 'var(--text-secondary)', 'margin-bottom': '4px' }}>
+                      Primary Root Cause
+                    </div>
+                    <div style={{ color: 'var(--text-primary)', 'font-weight': '500' }}>
+                      {snapshot()!.logAnalysis!.primaryRootCause}
+                    </div>
+                  </div>
+
+                  {/* Insights */}
+                  <div style={{ 'margin-top': '12px' }}>
+                    <div style={{ 'font-size': '12px', color: 'var(--text-secondary)', 'margin-bottom': '8px' }}>
+                      Detected Issues ({snapshot()!.logAnalysis!.insights.length}):
+                    </div>
+                    <For each={snapshot()!.logAnalysis!.insights.slice(0, 4)}>
+                      {(insight) => (
+                        <div style={{
+                          padding: '10px 12px',
+                          background: 'var(--bg-secondary)',
+                          'border-radius': '6px',
+                          'margin-bottom': '8px',
+                          border: insight.isUpstreamIssue ? '1px solid rgba(251, 191, 36, 0.5)' : '1px solid var(--border-color)'
+                        }}>
+                          <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'flex-start', 'margin-bottom': '6px' }}>
+                            <div style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                              <span style={{
+                                padding: '2px 6px',
+                                'border-radius': '3px',
+                                'font-size': '10px',
+                                background: 'var(--bg-primary)',
+                                color: 'var(--text-secondary)'
+                              }}>
+                                {insight.category}
+                              </span>
+                              <Show when={insight.isUpstreamIssue}>
+                                <span style={{
+                                  'font-size': '10px',
+                                  color: '#fbbf24'
+                                }}>
+                                  external
+                                </span>
+                              </Show>
+                            </div>
+                            <span style={{ 'font-size': '11px', color: 'var(--text-muted)' }}>
+                              {insight.matchCount}x
+                            </span>
+                          </div>
+                          <div style={{ color: 'var(--text-primary)', 'font-size': '12px', 'margin-bottom': '4px' }}>
+                            {insight.rootCause}
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)', 'font-size': '11px' }}>
+                            Fix: {insight.recommendedFix}
+                          </div>
+                          <Show when={insight.matchedLines && insight.matchedLines.length > 0}>
+                            <div style={{
+                              'margin-top': '8px',
+                              padding: '6px 8px',
+                              background: 'var(--bg-primary)',
+                              'border-radius': '4px',
+                              'font-family': 'monospace',
+                              'font-size': '10px',
+                              color: 'var(--text-muted)',
+                              overflow: 'hidden',
+                              'text-overflow': 'ellipsis',
+                              'white-space': 'nowrap'
+                            }}>
+                              {insight.matchedLines[0].substring(0, 120)}...
+                            </div>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
 
               {/* Restart Context (if applicable) */}
               <Show when={snapshot() && (snapshot()!.pattern === 'RESTART_STORM' || snapshot()!.pattern === 'CRASHLOOP')}>

@@ -248,23 +248,24 @@ const Incidents: Component = () => {
     setSelectedIncident(null);
   };
 
-  // Counts - always computed from current data
-  const criticalCount = createMemo(() => 
-    filteredIncidents().filter((inc: Incident) => inc.severity === 'critical').length
+  // Severity counts - computed from ALL incidents (not filtered)
+  // This ensures the filter chips show totals regardless of current filter
+  const criticalCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => inc.severity === 'critical').length
   );
-  const highCount = createMemo(() => 
-    filteredIncidents().filter((inc: Incident) => inc.severity === 'high').length
+  const highCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => inc.severity === 'high').length
   );
-  const warningCount = createMemo(() => 
-    filteredIncidents().filter((inc: Incident) => 
+  const warningCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) =>
       inc.severity === 'medium' || inc.severity === 'warning'
     ).length
   );
-  const diagnosedCount = createMemo(() => 
-    filteredIncidents().filter((inc: Incident) => inc.diagnosis).length
+  const diagnosedCount = createMemo(() =>
+    (localIncidents() || []).filter((inc: Incident) => inc.diagnosis).length
   );
   const fixableCount = createMemo(() =>
-    filteredIncidents().filter((inc: Incident) =>
+    (localIncidents() || []).filter((inc: Incident) =>
       inc.recommendations && inc.recommendations.length > 0
     ).length
   );
@@ -694,13 +695,13 @@ const Incidents: Component = () => {
         onViewDetails={handleViewDetails}
       />
 
-      {/* Monitoring Status - Always visible when not loading */}
-      <Show when={!isRefreshing() && !isInitialLoad() && hasLoadedOnce()}>
+      {/* Monitoring Status - Always visible after initial load (don't hide during refresh) */}
+      <Show when={!isInitialLoad() && hasLoadedOnce()}>
         <MonitoringStatus />
       </Show>
 
-      {/* No Incidents Message - Only when no incidents */}
-      <Show when={filteredIncidents().length === 0 && !isRefreshing() && !isInitialLoad() && hasLoadedOnce()}>
+      {/* No Incidents Message - Only when no incidents (don't hide during refresh) */}
+      <Show when={filteredIncidents().length === 0 && !isInitialLoad() && hasLoadedOnce()}>
         <div
           class="p-3 rounded-lg mt-2"
           style={{
