@@ -722,7 +722,13 @@ func (ws *WebServer) handleHeatmapNodes(w http.ResponseWriter, r *http.Request) 
 
 // RegisterAdvancedHandlers registers all advanced feature handlers
 func (ws *WebServer) RegisterAdvancedHandlers() {
-// Diagnostics
+	// AI Assistant
+	http.HandleFunc("/api/ai/status", ws.handleAIStatus)
+	http.HandleFunc("/api/ai/query", ws.handleAIQuery)
+	http.HandleFunc("/api/ai/analyze/pod", ws.handleAIAnalyzePod)
+	http.HandleFunc("/api/ai/explain", ws.handleAIExplainError)
+
+	// Diagnostics
 	http.HandleFunc("/api/diagnostics/run", ws.handleDiagnosticsRun)
 	http.HandleFunc("/api/diagnostics/categories", ws.handleDiagnosticsCategories)
 
@@ -2834,122 +2840,5 @@ func (ws *WebServer) handleMetricsCollectorClear(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Metrics history cleared successfully",
-	})
-}
-
-// New Modular AI Assistant Handlers
-
-// handleAIChat handles natural language chat requests
-func (ws *WebServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var request struct {
-		Message string `json:"message"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Use existing AI assistant for natural language processing
-	assistant := NewAIAssistant(nil)
-	if !assistant.IsAvailable() {
-		// Fallback response when AI is not available
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"type": "generic_response",
-			"message": "AI Assistant is not available. Please install Ollama and run 'ollama serve' to enable AI features.",
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-
-	// Process the natural language query
-	response, err := assistant.Query(ctx, request.Message)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"type": "generic_response",
-		"message": response,
-	})
-}
-
-// handleAISuggestion generates healing suggestions based on AI analysis
-func (ws *WebServer) handleAISuggestion(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var request struct {
-		Intent map[string]interface{} `json:"intent"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// For now, return a mock suggestion
-	// In a full implementation, this would analyze the cluster and generate suggestions
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"action": "investigate",
-		"description": "AI suggestion feature coming soon. Please use existing cluster analysis tools.",
-		"resource": request.Intent["resource"],
-		"namespace": request.Intent["namespace"],
-		"name": request.Intent["name"],
-		"confidence": 0.8,
-		"risk_level": "low",
-		"estimated_impact": "AI-powered suggestions will be available soon",
-		"prerequisites": []string{"AI model available"},
-		"steps": []string{"Install Ollama", "Configure AI model", "Try natural language queries"},
-		"alternatives": []string{"Use existing cluster analysis", "Check pod logs", "Review events"},
-		"safety_checks": []map[string]interface{}{
-			{"name": "AI Available", "description": "Check if AI assistant is available", "status": "passed", "message": "AI assistant ready"},
-		},
-		"requires_approval": false,
-	})
-}
-
-// handleAIExecute executes AI-suggested actions
-func (ws *WebServer) handleAIExecute(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var request struct {
-		Suggestion map[string]interface{} `json:"suggestion"`
-		Confirmed  bool                   `json:"confirmed"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// For now, return a mock execution result
-	// In a full implementation, this would execute the suggested action
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"action":      request.Suggestion["action"],
-		"resource":    request.Suggestion["resource"],
-		"name":        request.Suggestion["name"],
-		"namespace":   request.Suggestion["namespace"],
-		"status":      "completed",
-		"started_at":  time.Now(),
-		"completed_at": time.Now(),
-		"error":       "",
 	})
 }
