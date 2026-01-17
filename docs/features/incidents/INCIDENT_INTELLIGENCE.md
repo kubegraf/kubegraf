@@ -894,6 +894,170 @@ GET /api/explain/pod?namespace=default&pod=my-pod
 
 ---
 
+---
+
+## Log Analysis Feature
+
+### Overview
+
+The Log Analyzer parses pod logs to extract insights beyond Kubernetes events. It identifies:
+
+- **External dependency issues** (backends down, connection refused)
+- **Application errors** (panics, unhandled exceptions)
+- **Memory issues** (OOM indicators in logs)
+- **Network problems** (timeouts, DNS failures)
+
+### Log Patterns
+
+#### Dependency Issues (External)
+
+| Pattern | Regex | Description |
+|---------|-------|-------------|
+| `haproxy_backend_down` | `Server\s+\S+\s+is\s+DOWN` | Backend server unavailable |
+| `haproxy_no_server` | `backend\s+\S+\s+has\s+no\s+server` | No healthy backends |
+| `redis_connection_lost` | `redis.*connection\s+lost` | Redis connectivity issue |
+| `database_connection_failed` | `database.*connection\s+failed` | DB connectivity issue |
+
+#### Network Issues
+
+| Pattern | Regex | Description |
+|---------|-------|-------------|
+| `layer4_timeout` | `Layer4\s+timeout\|L4TOUT` | Network layer timeout |
+| `connection_refused` | `connection\s+refused\|ECONNREFUSED` | Service not listening |
+| `connection_reset` | `connection\s+reset\|ECONNRESET` | Connection dropped |
+| `dns_resolution_failed` | `DNS\s+resolution\s+failed` | DNS lookup failed |
+
+#### Application Errors
+
+| Pattern | Regex | Description |
+|---------|-------|-------------|
+| `panic_crash` | `panic:\|fatal\s+error:\|SIGSEGV` | Application panic |
+| `unhandled_exception` | `unhandled\s+exception\|Traceback` | Uncaught exception |
+| `oom_killed` | `OOMKilled\|Out\s+of\s+memory` | Memory exhaustion |
+
+### Log Analysis Result
+
+```json
+{
+  "podName": "redis-haproxy-6899d4dc89-gmh7c",
+  "namespace": "default",
+  "analyzedAt": "2026-01-16T10:30:00Z",
+  "totalLines": 501,
+  "insights": [
+    {
+      "patternName": "haproxy_backend_down",
+      "category": "dependency",
+      "severity": "high",
+      "rootCause": "Backend server became unavailable - upstream dependency is down",
+      "recommendedFix": "Check the health of the backend service.",
+      "matchCount": 142,
+      "isUpstreamIssue": true,
+      "extractedDetails": {
+        "backend": "redis/redis-master"
+      }
+    }
+  ],
+  "summary": "External dependency issue detected. Found 4 issue type(s)...",
+  "overallSeverity": "critical",
+  "primaryRootCause": "Backend server became unavailable",
+  "isExternalIssue": true
+}
+```
+
+### External Issue Detection
+
+When `isExternalIssue: true`, the UI displays:
+
+> "The logs indicate this may be caused by an **external dependency** (backend service, database, etc.) rather than this pod itself."
+
+This helps operators quickly identify whether to investigate this pod or its upstream dependencies.
+
+### When Log Analysis Shows "No significant issues"
+
+Log Analysis runs for all Pod incidents but only shows detailed insights when actual problems are detected. When logs are healthy or contain no recognizable error patterns, you'll see:
+
+```json
+{
+  "summary": "No significant issues detected in logs",
+  "overallSeverity": "info",
+  "insights": [],
+  "totalLines": 10
+}
+```
+
+This is normal for pods that are experiencing issues detected through Kubernetes events/status rather than application-level errors in logs.
+
+---
+
+## Performance Optimizations
+
+### Background Scanning
+
+The incident system uses **background scanning** with caching to provide fast UI response times:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                  Background Scanning Flow                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  1. Server starts → triggers background scan after 2s delay          │
+│                                                                      │
+│  2. API request arrives:                                             │
+│     ├── Cache fresh? → Return immediately (< 100ms)                  │
+│     └── Cache stale? → Return current data +                         │
+│                        trigger background refresh                    │
+│                                                                      │
+│  3. Background scan completes → update cache timestamp               │
+│                                                                      │
+│  4. Next API request → return fresh data                             │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Cache Configuration
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| **Cache TTL** | 30 seconds | How long cached data is considered fresh |
+| **Snapshot TTL** | 5 minutes | How long individual snapshots remain valid |
+| **Startup Delay** | 2 seconds | Delay before initial scan (wait for connection) |
+
+### Implementation
+
+```go
+type IncidentIntelligence struct {
+    // Caching for fast incident loading
+    scanMu          sync.Mutex
+    lastScanTime    time.Time
+    scanInProgress  bool
+    scanCacheTTL    time.Duration // Default 30 seconds
+}
+
+func (ii *IncidentIntelligence) IsCacheFresh() bool {
+    ii.scanMu.Lock()
+    defer ii.scanMu.Unlock()
+    return !ii.lastScanTime.IsZero() &&
+           time.Since(ii.lastScanTime) < ii.scanCacheTTL
+}
+```
+
+### API Response with Scan Status
+
+The API includes `scanInProgress` to indicate when a refresh is happening:
+
+```json
+{
+  "incidents": [...],
+  "total": 3,
+  "summary": { "critical": 1, "high": 2 },
+  "scanInProgress": true
+}
+```
+
+The UI can show a subtle loading indicator while `scanInProgress` is true, without blocking user interaction.
+
+---
+
 ## Future Improvements
 
 - [x] Custom symptom rules via YAML config
@@ -907,3 +1071,6 @@ GET /api/explain/pod?namespace=default&pod=my-pod
 - [x] Production-grade incident detail view
 - [x] Snapshot API for instant loading
 - [x] Cluster context filtering
+- [x] Log Analysis for Pod incidents
+- [x] Background scanning with 30s cache TTL
+- [x] External dependency detection in logs

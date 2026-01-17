@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { api } from '../services/api';
 
 // Enhanced cluster types
@@ -41,7 +41,8 @@ export interface ClusterOperationState {
 const [enhancedClusters, setEnhancedClusters] = createSignal<EnhancedCluster[]>([]);
 const [activeCluster, setActiveCluster] = createSignal<EnhancedCluster | null>(null);
 const [sources, setSources] = createSignal<ClusterSource[]>([]);
-const [loading, setLoading] = createSignal(false);
+// Start with loading=true since we fetch on module load
+const [loading, setLoading] = createSignal(true);
 // Per-cluster operation states (key: clusterId, value: operation state)
 const [clusterOperations, setClusterOperations] = createSignal<Map<string, ClusterOperationState>>(new Map());
 
@@ -81,14 +82,30 @@ function clearClusterOperation(clusterId: string) {
   setClusterOperation(clusterId, null);
 }
 
+// Fast initial load using cached endpoint (optimistic UI pattern)
+async function refreshEnhancedClustersCached() {
+  try {
+    const data = await api.getClustersEnhancedCached();
+    console.log('[clusterEnhanced] Fast load clusters:', data.clusters?.length || 0, 'active:', data.active?.name);
+    setEnhancedClusters(data.clusters || []);
+    setActiveCluster(data.active || null);
+  } catch (err) {
+    console.error('[clusterEnhanced] Failed to load cached clusters', err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// Full refresh with health status (slower, use for manual refresh)
 async function refreshEnhancedClusters() {
   setLoading(true);
   try {
     const data = await api.getClustersEnhanced();
+    console.log('[clusterEnhanced] Full refresh clusters:', data.clusters?.length || 0, 'active:', data.active?.name);
     setEnhancedClusters(data.clusters || []);
     setActiveCluster(data.active || null);
   } catch (err) {
-    console.error('Failed to load enhanced clusters', err);
+    console.error('[clusterEnhanced] Failed to load enhanced clusters', err);
   } finally {
     setLoading(false);
   }
@@ -97,9 +114,10 @@ async function refreshEnhancedClusters() {
 async function refreshSources() {
   try {
     const data = await api.getClusterSources();
+    console.log('[clusterEnhanced] Loaded sources:', data.sources?.length || 0);
     setSources(data.sources || []);
   } catch (err) {
-    console.error('Failed to load sources', err);
+    console.error('[clusterEnhanced] Failed to load sources', err);
   }
 }
 
@@ -229,12 +247,13 @@ async function disconnectCluster() {
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 let statusPollInterval: ReturnType<typeof setInterval> | null = null;
 let isOnClusterManagerPage = false;
+let autoRefreshInitialized = false;
 
 // Call this when navigating to cluster manager page
 function enableClusterManagerRefresh() {
   isOnClusterManagerPage = true;
   // Do initial refresh when entering the page
-  refreshEnhancedClusters();
+  refreshEnhancedClustersCached();
   refreshSources();
 
   // Start faster polling for status updates (backend returns instantly)
@@ -243,7 +262,7 @@ function enableClusterManagerRefresh() {
   }
   statusPollInterval = setInterval(async () => {
     if (!autoRefreshPaused && isOnClusterManagerPage) {
-      await refreshEnhancedClusters();
+      await refreshEnhancedClustersCached();
     }
   }, 5000); // Poll every 5 seconds - backend returns cached data instantly
 }
@@ -259,31 +278,41 @@ function disableClusterManagerRefresh() {
 }
 
 function startAutoRefresh() {
-  // Clear existing interval
+  // Prevent multiple initializations
+  if (autoRefreshInitialized) return;
+  autoRefreshInitialized = true;
+
+  // Clear any existing interval
   if (refreshInterval) {
     clearInterval(refreshInterval);
   }
 
-  // Initial refresh (only once at app start)
-  refreshEnhancedClusters();
+  // FAST initial load using cached endpoint (optimistic UI)
+  refreshEnhancedClustersCached();
   refreshSources();
 
-  // Background refresh every 60 seconds (for when not on cluster manager page)
+  // Background refresh every 30 seconds (for when not on cluster manager page)
+  // Uses cached endpoint for instant response
   refreshInterval = setInterval(async () => {
     if (!autoRefreshPaused && !isOnClusterManagerPage) {
-      await refreshEnhancedClusters();
+      await refreshEnhancedClustersCached();
     }
-  }, 60000);
+  }, 30000);
 }
 
-createEffect(() => {
+function stopAutoRefresh() {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+  autoRefreshInitialized = false;
+}
+
+// Initialize auto-refresh when module loads (only once)
+if (typeof window !== 'undefined') {
+  console.log('[clusterEnhanced] Module loaded, starting auto-refresh with optimistic UI');
   startAutoRefresh();
-  return () => {
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-    }
-  };
-});
+}
 
 export {
   enhancedClusters,
@@ -292,6 +321,7 @@ export {
   loading,
   clusterOperations,
   refreshEnhancedClusters,
+  refreshEnhancedClustersCached,
   refreshSources,
   selectCluster,
   reconnectCluster,

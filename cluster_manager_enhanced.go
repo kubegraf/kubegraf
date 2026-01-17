@@ -678,6 +678,28 @@ func (ecm *EnhancedClusterManager) GetActiveCluster() (*database.EnhancedCluster
 	return activeCluster, nil
 }
 
+// GetActiveClusterCached returns the active cluster with cached status (fast, no health check)
+func (ecm *EnhancedClusterManager) GetActiveClusterCached() (*database.EnhancedClusterEntry, error) {
+	activeCluster, err := ecm.db.GetActiveCluster()
+	if err != nil || activeCluster == nil {
+		return activeCluster, err
+	}
+
+	// Only enrich with in-memory health status if available
+	state := ecm.healthChecker.GetStatus(activeCluster.ClusterID)
+	if state != nil && state.Status != cluster.StatusUnknown {
+		activeCluster.Status = string(state.Status)
+		activeCluster.LastChecked = &state.LastChecked
+		activeCluster.LastError = state.LastError
+		activeCluster.ConsecutiveFailures = state.ConsecutiveFailures
+		activeCluster.ConsecutiveSuccesses = state.ConsecutiveSuccesses
+	} else if activeCluster.Status == "" {
+		activeCluster.Status = "UNKNOWN"
+	}
+
+	return activeCluster, nil
+}
+
 // GetClusterStatus returns the health status of a cluster
 func (ecm *EnhancedClusterManager) GetClusterStatus(clusterID string) (*cluster.ClusterHealthState, error) {
 	state := ecm.healthChecker.GetStatus(clusterID)
@@ -754,6 +776,45 @@ func (ecm *EnhancedClusterManager) AddInlineSource(name, kubeconfigContent strin
 // ListSources returns all cluster sources
 func (ecm *EnhancedClusterManager) ListSources() ([]*database.ClusterSource, error) {
 	return ecm.db.ListClusterSources()
+}
+
+// ListClustersCached returns all clusters from database with cached status (no health check enrichment)
+// This is fast and suitable for initial page load - use ListClusters for real-time status
+func (ecm *EnhancedClusterManager) ListClustersCached() ([]*database.EnhancedClusterEntry, error) {
+	clusters, err := ecm.db.ListEnhancedClusters()
+	if err != nil {
+		return nil, err
+	}
+
+	// Only enrich with in-memory health status if available (no registration, no health checks)
+	for i := range clusters {
+		state := ecm.healthChecker.GetStatus(clusters[i].ClusterID)
+		if state != nil && state.Status != cluster.StatusUnknown {
+			clusters[i].Status = string(state.Status)
+			clusters[i].LastChecked = &state.LastChecked
+			clusters[i].LastError = state.LastError
+			clusters[i].ConsecutiveFailures = state.ConsecutiveFailures
+			clusters[i].ConsecutiveSuccesses = state.ConsecutiveSuccesses
+		} else if clusters[i].Status == "" {
+			clusters[i].Status = "UNKNOWN"
+		}
+	}
+
+	// Trigger background health checks for all clusters (non-blocking)
+	go ecm.triggerBackgroundHealthChecks(clusters)
+
+	return clusters, nil
+}
+
+// triggerBackgroundHealthChecks registers and checks all clusters in background
+func (ecm *EnhancedClusterManager) triggerBackgroundHealthChecks(clusters []*database.EnhancedClusterEntry) {
+	for _, c := range clusters {
+		state := ecm.healthChecker.GetStatus(c.ClusterID)
+		if state == nil || state.Status == cluster.StatusUnknown {
+			ecm.registerClusterForHealthCheck(c)
+			time.Sleep(50 * time.Millisecond) // Small delay between registrations
+		}
+	}
 }
 
 // ListClusters returns all clusters with their status

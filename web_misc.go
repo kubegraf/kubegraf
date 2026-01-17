@@ -1004,6 +1004,6 @@ func (ws *WebServer) syncActiveClusterFromContext() {
 			return
 		}
 	}
-	// Only log warning if context not found
-	fmt.Printf("⚠️  syncActiveCluster: Context '%s' not found in cluster list\n", currentContext)
+	// Only log warning if context is not found (unusual case)
+	// fmt.Printf("⚠️  syncActiveCluster: Context '%s' not found in cluster list\n", currentContext)
 }

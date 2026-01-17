@@ -359,7 +359,13 @@ const ClusterManager: Component = () => {
         </Show>
 
         {/* Enhanced Clusters */}
-        <Show when={enhancedClusters().length > 0} fallback={<p class="text-sm" style={{ color: 'var(--text-muted)' }}>No enhanced clusters found.</p>}>
+        <Show when={enhancedClusters().length > 0} fallback={
+          <Show when={!enhancedLoading()} fallback={
+            <p class="text-sm" style={{ color: 'var(--text-muted)' }}>Loading clusters...</p>
+          }>
+            <p class="text-sm" style={{ color: 'var(--text-muted)' }}>No enhanced clusters found.</p>
+          </Show>
+        }>
           <div class="space-y-1.5">
               <For each={enhancedClusters()}>
                 {(cluster) => {

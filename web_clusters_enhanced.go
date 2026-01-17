@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/kubegraf/kubegraf/internal/database"
 )
 
 // ClusterSourceRequest represents a request to add a cluster source
@@ -235,6 +237,7 @@ func (ws *WebServer) handleReconnectCluster(w http.ResponseWriter, r *http.Reque
 }
 
 // handleListClustersEnhanced handles GET /api/clusters/enhanced
+// Supports ?cached=true query param for fast cached response (optimistic UI)
 func (ws *WebServer) handleListClustersEnhanced(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -246,14 +249,46 @@ func (ws *WebServer) handleListClustersEnhanced(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	clusters, err := ws.enhancedClusterManager.ListClusters()
+	// Check if cached (fast) mode is requested
+	cached := r.URL.Query().Get("cached") == "true"
+
+	var clusters interface{}
+	var err error
+
+	if cached {
+		// Fast path: return cached data, trigger background health checks
+		clusters, err = ws.enhancedClusterManager.ListClustersCached()
+	} else {
+		// Slow path: full health status enrichment
+		clusters, err = ws.enhancedClusterManager.ListClusters()
+	}
+
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list clusters: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Get active cluster
-	active, _ := ws.enhancedClusterManager.GetActiveCluster()
+	// Get active cluster (also use cached version if requested)
+	active, _ := ws.enhancedClusterManager.GetActiveClusterCached()
+
+	// OPTIMISTIC UI: Use app's actual connection state for the active cluster
+	// This makes Cluster Manager show "Connected" immediately when ws.app.connected is true
+	// instead of waiting for background health checks to complete
+	if active != nil && ws.app.connected {
+		active.Status = "CONNECTED"
+		active.Connected = true
+	}
+
+	// Also update the active cluster's status in the clusters list for consistency
+	if clusterList, ok := clusters.([]*database.EnhancedClusterEntry); ok && ws.app.connected && active != nil {
+		for _, c := range clusterList {
+			if c.ClusterID == active.ClusterID {
+				c.Status = "CONNECTED"
+				c.Connected = true
+				break
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
