@@ -51,12 +51,10 @@ export function createCachedResource<T>(
   const loadFromCache = (): boolean => {
     const cached = getCachedResource<T>(resourceType);
     if (cached) {
-      console.log(`[${resourceType}] Loading from cache, ${cached.data.length} items, age: ${Date.now() - cached.lastUpdated}ms`);
       setData(cached.data);
       setError(undefined);
       return true;
     }
-    console.log(`[${resourceType}] No cache found`);
     return false;
   };
 
@@ -149,7 +147,6 @@ export function createCachedResource<T>(
     // If cache key changed (namespace/cluster changed), clear data immediately
     // to prevent showing stale data from previous namespace/cluster
     if (cacheKeyChanged && lastCacheKey() !== '') {
-      console.log(`[${resourceType}] Cache key changed from ${lastCacheKey()} to ${currentKey}, clearing data and fetching fresh`);
       setData(undefined);
       setError(undefined);
     }
@@ -160,6 +157,9 @@ export function createCachedResource<T>(
     // Set up periodic refresh if background refresh is enabled
     if (backgroundRefresh) {
       refreshTimer = setInterval(() => {
+        // Only refresh when tab is visible to save resources
+        if (document.hidden) return;
+
         const cached = getCachedResource<T>(resourceType);
         if (cached) {
           const age = Date.now() - cached.lastUpdated;
@@ -170,7 +170,7 @@ export function createCachedResource<T>(
             });
           }
         }
-      }, Math.min(ttl, 5000)); // Check every 5 seconds or TTL, whichever is smaller
+      }, Math.min(ttl, 15000)); // Check every 15 seconds or TTL, whichever is smaller
     }
   });
 

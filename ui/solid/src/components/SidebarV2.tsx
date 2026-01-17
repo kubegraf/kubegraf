@@ -102,7 +102,7 @@ const SidebarV2: Component = () => {
     fetchVersion();
     checkForUpdates(true); // Check on mount and show notification if available
     
-    const versionInterval = setInterval(fetchVersion, 10000);
+    const versionInterval = setInterval(fetchVersion, 60000);
     // Check for updates every 15 minutes to match backend cache expiration
     // This ensures long-running apps detect new releases quickly
     const updateInterval = setInterval(() => checkForUpdates(false), 15 * 60 * 1000); // Check every 15 minutes

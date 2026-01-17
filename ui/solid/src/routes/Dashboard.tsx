@@ -117,7 +117,6 @@ const Dashboard: Component = () => {
     async () => {
       try {
         const data = await api.getMetrics();
-        console.log('Dashboard: Metrics fetched:', data);
         return data;
       } catch (error) {
         console.error('Dashboard: Error fetching metrics:', error);
@@ -183,7 +182,6 @@ const Dashboard: Component = () => {
     async () => {
       try {
         const cost = await api.getClusterCost();
-        console.log('Dashboard: Cost fetched:', cost);
         return cost;
       } catch (e) {
         console.error('Dashboard cost API error:', e);
@@ -207,47 +205,24 @@ const Dashboard: Component = () => {
     }
   });
   
-  // Debug: Log cost resource state
-  createEffect(() => {
-    console.log('Dashboard: Cost resource state:', {
-      loading: clusterCost.loading,
-      error: clusterCost.error,
-      hasData: !!clusterCost(),
-      data: clusterCost(),
-      context: currentContext(),
-      refresh: refreshTrigger(),
-    });
-  });
-
-  // Debug: Log metrics resource state
-  createEffect(() => {
-    console.log('Dashboard: Metrics resource state:', {
-      loading: metrics.loading,
-      error: metrics.error,
-      hasData: !!metrics(),
-      data: metrics(),
-      context: currentContext(),
-      refresh: refreshTrigger(),
-    });
-  });
-
   // Trigger initial fetch on mount and set up auto-refresh for real-time graphs
   onMount(() => {
-    console.log('Dashboard: Component mounted, refetching metrics and cost');
     refetchMetrics();
     // Also try to fetch cost if not already loading
     if (!clusterCost.loading && !clusterCost()) {
       refetchCost();
     }
 
-    // Auto-refresh metrics every 5 seconds for live graphs (silent background refresh)
+    // Auto-refresh metrics every 30 seconds for live graphs (silent background refresh)
+    // Only refresh when tab is visible to save resources
     const refreshInterval = setInterval(() => {
-      // Silently refetch without showing loading state
-      refetchMetrics().catch(err => {
-        console.error('Background metrics refresh failed:', err);
-        // Don't show error to user for background refreshes
-      });
-    }, 5000);
+      if (!document.hidden) {
+        // Silently refetch without showing loading state
+        refetchMetrics().catch(() => {
+          // Don't show error to user for background refreshes
+        });
+      }
+    }, 30000);
 
     // Cleanup on unmount
     return () => clearInterval(refreshInterval);
