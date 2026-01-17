@@ -31,6 +31,8 @@ type KubeFixExecutor interface {
 	RollbackResource(ctx context.Context, ref KubeResourceRef, revision int64, dryRun bool) error
 	// DeleteResource deletes a resource
 	DeleteResource(ctx context.Context, ref KubeResourceRef, dryRun bool) error
+	// GetPodLogs retrieves logs from a pod (current or previous container)
+	GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines int64, previous bool) (string, error)
 }
 
 // NewFixExecutor creates a new fix executor.

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kubegraf/kubegraf/pkg/capabilities"
@@ -32,6 +33,12 @@ type IncidentIntelligence struct {
 	eventAdapter    *incidents.EventAdapter
 	kubeAdapter     *incidents.KubeClientAdapter
 	intelligenceSys *incidents.IntelligenceSystem
+
+	// Caching for fast incident loading
+	scanMu          sync.Mutex
+	lastScanTime    time.Time
+	scanInProgress  bool
+	scanCacheTTL    time.Duration // Default 30 seconds
 }
 
 // NewIncidentIntelligence creates a new incident intelligence system.
@@ -49,6 +56,7 @@ func NewIncidentIntelligence(app *App) *IncidentIntelligence {
 		app:          app,
 		manager:      manager,
 		eventAdapter: incidents.NewEventAdapter(manager),
+		scanCacheTTL: 30 * time.Second, // Cache incidents for 30 seconds
 	}
 
 	// Setup Kubernetes adapter
@@ -71,6 +79,73 @@ func NewIncidentIntelligence(app *App) *IncidentIntelligence {
 	}
 
 	return ii
+}
+
+// StartBackgroundScanner starts the background incident scanner.
+// This should be called when the app starts to pre-populate incidents.
+func (ii *IncidentIntelligence) StartBackgroundScanner() {
+	go func() {
+		// Wait a bit for the app to fully initialize
+		time.Sleep(2 * time.Second)
+
+		if ii.app.clientset == nil || !ii.app.connected {
+			log.Printf("[IncidentIntelligence] Background scanner: cluster not connected, will scan on demand")
+			return
+		}
+
+		log.Printf("[IncidentIntelligence] Starting initial background incident scan")
+		ii.triggerBackgroundScan()
+	}()
+}
+
+// triggerBackgroundScan triggers a background scan if not already in progress.
+// Returns true if a scan was triggered, false if one is already running or cache is fresh.
+func (ii *IncidentIntelligence) triggerBackgroundScan() bool {
+	ii.scanMu.Lock()
+
+	// Check if cache is still fresh
+	if !ii.lastScanTime.IsZero() && time.Since(ii.lastScanTime) < ii.scanCacheTTL {
+		ii.scanMu.Unlock()
+		return false // Cache is still fresh
+	}
+
+	// Check if scan is already in progress
+	if ii.scanInProgress {
+		ii.scanMu.Unlock()
+		return false // Scan already running
+	}
+
+	ii.scanInProgress = true
+	ii.scanMu.Unlock()
+
+	go func() {
+		defer func() {
+			ii.scanMu.Lock()
+			ii.scanInProgress = false
+			ii.lastScanTime = time.Now()
+			ii.scanMu.Unlock()
+		}()
+
+		ctx := context.Background()
+		ii.scanAndIngestIncidents(ctx)
+		log.Printf("[IncidentIntelligence] Background scan completed")
+	}()
+
+	return true
+}
+
+// IsCacheFresh returns true if the incident cache is still valid.
+func (ii *IncidentIntelligence) IsCacheFresh() bool {
+	ii.scanMu.Lock()
+	defer ii.scanMu.Unlock()
+	return !ii.lastScanTime.IsZero() && time.Since(ii.lastScanTime) < ii.scanCacheTTL
+}
+
+// IsScanInProgress returns true if a scan is currently running.
+func (ii *IncidentIntelligence) IsScanInProgress() bool {
+	ii.scanMu.Lock()
+	defer ii.scanMu.Unlock()
+	return ii.scanInProgress
 }
 
 // setupKubeAdapter sets up the Kubernetes client adapter for fix operations.
@@ -340,6 +415,48 @@ func (ii *IncidentIntelligence) setupKubeAdapter() {
 				return fmt.Errorf("delete not supported for kind: %s", ref.Kind)
 			}
 		},
+
+		GetPodLogsFunc: func(ctx context.Context, namespace, podName, container string, tailLines int64, previous bool) (string, error) {
+			if ii.app.clientset == nil {
+				return "", fmt.Errorf("no kubernetes client")
+			}
+
+			opts := &corev1.PodLogOptions{
+				Previous: previous,
+			}
+			if tailLines > 0 {
+				opts.TailLines = &tailLines
+			}
+			if container != "" {
+				opts.Container = container
+			}
+
+			req := ii.app.clientset.CoreV1().Pods(namespace).GetLogs(podName, opts)
+			stream, err := req.Stream(ctx)
+			if err != nil {
+				return "", fmt.Errorf("failed to get log stream: %w", err)
+			}
+			defer stream.Close()
+
+			// Read all logs
+			buf := make([]byte, 0, 64*1024)
+			tmp := make([]byte, 4096)
+			for {
+				n, err := stream.Read(tmp)
+				if n > 0 {
+					buf = append(buf, tmp[:n]...)
+				}
+				if err != nil {
+					break
+				}
+				// Limit to 1MB of logs
+				if len(buf) > 1024*1024 {
+					break
+				}
+			}
+
+			return string(buf), nil
+		},
 	}
 
 	ii.manager.SetKubeExecutor(ii.kubeAdapter)
@@ -427,6 +544,9 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 		return
 	}
 
+	// Track scan statistics for monitoring status
+	var podsScanned, nodesScanned int
+
 	// CRITICAL: Ensure manager's cluster context matches the current active cluster context
 	// This prevents incidents from being tagged with the wrong cluster context
 	currentContext := ii.app.GetCurrentContext()
@@ -444,8 +564,9 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 		log.Printf("[scanAndIngestIncidents] Error listing pods: %v", err)
 		return
 	}
-	
-	log.Printf("[scanAndIngestIncidents] Scanning %d pods for incidents", len(pods.Items))
+
+	podsScanned = len(pods.Items)
+	log.Printf("[scanAndIngestIncidents] Scanning %d pods for incidents", podsScanned)
 	signalCount := 0
 
 	for _, pod := range pods.Items {
@@ -524,6 +645,7 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 	// Scan nodes for pressure conditions and NotReady status
 	nodes, err := ii.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
+		nodesScanned = len(nodes.Items)
 		for _, node := range nodes.Items {
 			// Check for pressure conditions
 			for _, condition := range node.Status.Conditions {
@@ -809,11 +931,11 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 
 	// Update intelligence system stats with scan completion timestamp
 	// This ensures the monitoring status shows "Last scan: Xs ago" instead of "Never"
-	// Note: UpdateStats method commented out - not needed for basic evidence collection
-	// if ii.intelligenceSys != nil {
-	// 	ii.intelligenceSys.UpdateStats(0)
-	// 	log.Printf("[scanAndIngestIncidents] Updated intelligence stats - scan complete")
-	// }
+	if ii.intelligenceSys != nil {
+		scanTime := time.Now().Format(time.RFC3339)
+		ii.intelligenceSys.SetMonitoringStats(podsScanned, nodesScanned, signalCount, scanTime)
+		log.Printf("[scanAndIngestIncidents] Updated monitoring stats: pods=%d, nodes=%d, events=%d", podsScanned, nodesScanned, signalCount)
+	}
 }
 
 // Stop stops the incident intelligence system.
@@ -886,6 +1008,8 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 	if ws.app.incidentIntelligence == nil {
 		ws.app.incidentIntelligence = NewIncidentIntelligence(ws.app)
 		ws.app.incidentIntelligence.Start(ws.app.ctx)
+		// Start background scanner for fast incident loading
+		ws.app.incidentIntelligence.StartBackgroundScanner()
 	}
 
 	// Register our custom handler for /api/v2/incidents FIRST (before intelligence routes)
@@ -897,6 +1021,11 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 	if ws.app.incidentIntelligence != nil && ws.app.incidentIntelligence.intelligenceSys != nil {
 		apiHandler := ws.app.incidentIntelligence.intelligenceSys.GetAPIHandler()
 		if apiHandler != nil {
+			// Inject the kube adapter for log fetching
+			if ws.app.incidentIntelligence.kubeAdapter != nil {
+				apiHandler.SetKubeExecutor(ws.app.incidentIntelligence.kubeAdapter)
+				log.Printf("[Intelligence] Injected kubeAdapter into apiHandler for log analysis")
+			}
 			apiHandler.RegisterRoutes(http.DefaultServeMux)
 			log.Printf("[Intelligence] Registered /api/v2/incidents/* routes")
 		} else {
@@ -953,46 +1082,18 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// FALLBACK: If Manager has no incidents, use IncidentScanner to get live Kubernetes incidents
-	if len(incidentList) == 0 && ws.app.clientset != nil && ws.app.connected {
-		log.Printf("[handleIncidentsV2] Manager has no incidents, falling back to IncidentScanner")
-		scanner := NewIncidentScanner(ws.app)
-		k8sIncidents := scanner.ScanAllIncidents(namespace)
-		log.Printf("[handleIncidentsV2] Scanner found %d incidents", len(k8sIncidents))
-
-		// Convert KubernetesIncident to incidents.Incident format
-		for _, k8sInc := range k8sIncidents {
-			// Apply filters
-			if severityStr != "" && k8sInc.Severity != severityStr {
-				continue
+	// FAST PATH: Trigger background scan if cache is stale or no incidents
+	// This returns immediately with current data (even if empty) and scans in background
+	scanTriggered := false
+	if ws.app.incidentIntelligence != nil && ws.app.clientset != nil && ws.app.connected {
+		// Check if we need to refresh - either no incidents or cache is stale
+		needsRefresh := len(incidentList) == 0 || !ws.app.incidentIntelligence.IsCacheFresh()
+		if needsRefresh {
+			scanTriggered = ws.app.incidentIntelligence.triggerBackgroundScan()
+			if scanTriggered {
+				log.Printf("[handleIncidentsV2] Background scan triggered, returning current data immediately")
 			}
-
-			// Map incident type to failure pattern
-			pattern := mapTypeToPattern(k8sInc.Type)
-			if patternStr != "" && string(pattern) != patternStr {
-				continue
-			}
-
-			incident := &incidents.Incident{
-				ID:          k8sInc.ID,
-				Fingerprint: k8sInc.ID,
-				Pattern:     pattern,
-				Severity:    incidents.Severity(k8sInc.Severity),
-				Status:      incidents.StatusOpen,
-				Resource: incidents.KubeResourceRef{
-					Kind:      k8sInc.ResourceKind,
-					Name:      k8sInc.ResourceName,
-					Namespace: k8sInc.Namespace,
-				},
-				Title:       fmt.Sprintf("%s: %s", k8sInc.Type, k8sInc.ResourceName),
-				Description: k8sInc.Message,
-				Occurrences: k8sInc.Count,
-				FirstSeen:   k8sInc.FirstSeen,
-				LastSeen:    k8sInc.LastSeen,
-			}
-			incidentList = append(incidentList, incident)
 		}
-		log.Printf("[handleIncidentsV2] After filtering, returning %d incidents", len(incidentList))
 	}
 
 	// Add resolved incidents from database if filtering by resolved status
@@ -1077,12 +1178,19 @@ func (ws *WebServer) handleIncidentsV2(w http.ResponseWriter, r *http.Request) {
 		statMap[stat]++
 	}
 
+	// Check if scan is in progress for the response
+	scanInProgress := false
+	if ws.app.incidentIntelligence != nil {
+		scanInProgress = ws.app.incidentIntelligence.IsScanInProgress()
+	}
+
 	// Format response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"incidents": incidentList,
-		"total":     len(incidentList),
-		"summary":   summary,
+		"incidents":      incidentList,
+		"total":          len(incidentList),
+		"summary":        summary,
+		"scanInProgress": scanInProgress,
 	})
 }
 

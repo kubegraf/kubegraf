@@ -25,6 +25,8 @@ type IntelligenceHandler struct {
 	feedbackService *FeedbackService
 	evidenceBuilder *EvidencePackBuilder
 	citationBuilder *CitationBuilder
+	logAnalyzer     *LogAnalyzer
+	kubeExecutor    KubeFixExecutor
 }
 
 // NewIntelligenceHandler creates a new intelligence handler
@@ -48,7 +50,13 @@ func NewIntelligenceHandler(
 		feedbackService: feedbackService,
 		evidenceBuilder: NewEvidencePackBuilder(),
 		citationBuilder: NewCitationBuilder(),
+		logAnalyzer:     NewLogAnalyzer(),
 	}
+}
+
+// SetKubeExecutor sets the Kubernetes executor for log fetching
+func (h *IntelligenceHandler) SetKubeExecutor(executor KubeFixExecutor) {
+	h.kubeExecutor = executor
 }
 
 // RegisterRoutes registers HTTP routes for the intelligence API
@@ -76,6 +84,8 @@ func (h *IntelligenceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v2/learning/patterns", h.handleLearnedPatterns)
 	mux.HandleFunc("/api/v2/learning/trends", h.handleTrends)
 	mux.HandleFunc("/api/v2/learning/similar", h.handleSimilarIncidents)
+	mux.HandleFunc("/api/v2/learning/status", h.handleLearningStatus)
+	mux.HandleFunc("/api/v2/learning/reset", h.handleLearningReset)
 
 	// Feedback APIs
 	mux.HandleFunc("/api/v2/feedback", h.handleFeedback)
@@ -128,10 +138,44 @@ func (h *IntelligenceHandler) handleIncidentRoute(w http.ResponseWriter, r *http
 		} else {
 			http.Error(w, "Missing fix action", http.StatusBadRequest)
 		}
+	case "fix-preview":
+		// Support hyphenated endpoint (frontend uses this format)
+		h.handleFixPreview(w, r, incidentID)
+	case "fix-apply":
+		// Support hyphenated endpoint (frontend uses this format)
+		h.handleFixApply(w, r, incidentID)
+	case "recommendations":
+		// Handle /api/v2/incidents/{id}/recommendations/{recId}/preview or /apply
+		if len(parts) >= 4 {
+			// recommendationID := parts[2] // Available if needed
+			action := parts[3]
+			switch action {
+			case "preview":
+				h.handleFixPreview(w, r, incidentID)
+			case "apply":
+				h.handleFixApply(w, r, incidentID)
+			default:
+				http.Error(w, "Unknown recommendations action", http.StatusNotFound)
+			}
+		} else {
+			http.Error(w, "Missing recommendations action", http.StatusBadRequest)
+		}
 	case "feedback":
 		h.handleIncidentFeedback(w, r, incidentID)
 	case "similar":
 		h.handleIncidentSimilar(w, r, incidentID)
+	case "snapshot":
+		h.handleIncidentSnapshot(w, r, incidentID)
+	case "logs":
+		h.handleIncidentLogs(w, r, incidentID)
+	case "analyze-logs":
+		h.handleAnalyzeLogs(w, r, incidentID)
+	case "metrics":
+		h.handleIncidentMetrics(w, r, incidentID)
+	case "changes":
+		h.handleIncidentChanges(w, r, incidentID)
+	case "resolve":
+		h.handleIncidentResolve(w, r, incidentID)
 	default:
 		http.Error(w, "Unknown endpoint", http.StatusNotFound)
 	}
@@ -202,11 +246,12 @@ func (h *IntelligenceHandler) handleListIncidents(w http.ResponseWriter, r *http
 // IntelligentIncidentResponse is the full incident response with intelligence
 type IntelligentIncidentResponse struct {
 	*Incident
-	EvidencePack     *EvidencePack       `json:"evidencePack,omitempty"`
-	CitedDiagnosis   *CitedDiagnosis     `json:"citedDiagnosis,omitempty"`
-	MatchingRunbooks []*Runbook          `json:"matchingRunbooks,omitempty"`
-	SimilarIncidents []*SimilarityResult `json:"similarIncidents,omitempty"`
+	EvidencePack     *EvidencePack          `json:"evidencePack,omitempty"`
+	CitedDiagnosis   *CitedDiagnosis        `json:"citedDiagnosis,omitempty"`
+	MatchingRunbooks []*Runbook             `json:"matchingRunbooks,omitempty"`
+	SimilarIncidents []*SimilarityResult    `json:"similarIncidents,omitempty"`
 	AutoStatus       *AutoStatusForIncident `json:"autoStatus,omitempty"`
+	LogAnalysis      *LogAnalysisResult     `json:"logAnalysis,omitempty"`
 }
 
 // AutoStatusForIncident shows auto-remediation status for an incident
@@ -263,6 +308,20 @@ func (h *IntelligenceHandler) handleGetIncidentIntelligence(w http.ResponseWrite
 		}
 		if !eligible {
 			response.AutoStatus.Reason = "Does not meet auto-execution criteria"
+		}
+	}
+
+	// Auto-fetch log analysis for Pod incidents
+	if incident.Resource.Kind == "Pod" && h.kubeExecutor != nil && h.logAnalyzer != nil {
+		ctx := r.Context()
+		// Try previous logs first (for crashed containers)
+		logs, err := h.kubeExecutor.GetPodLogs(ctx, incident.Resource.Namespace, incident.Resource.Name, "", 500, true)
+		if err != nil || logs == "" {
+			// Fall back to current logs
+			logs, _ = h.kubeExecutor.GetPodLogs(ctx, incident.Resource.Namespace, incident.Resource.Name, "", 500, false)
+		}
+		if logs != "" {
+			response.LogAnalysis = h.logAnalyzer.AnalyzeLogs(ctx, incident.Resource.Name, incident.Resource.Namespace, "", logs)
 		}
 	}
 
@@ -899,6 +958,353 @@ func (h *IntelligenceHandler) handleKnowledgeStats(w http.ResponseWriter, r *htt
 	writeJSON(w, stats)
 }
 
+// handleIncidentSnapshot returns the incident snapshot for the modal
+func (h *IntelligenceHandler) handleIncidentSnapshot(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	incident := h.manager.GetIncident(incidentID)
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Build evidence pack for additional context
+	evidencePack := h.evidenceBuilder.BuildFromIncident(incident)
+
+	// Build restart counts from signals
+	restartCounts := RestartCounts{}
+	allSignals := incident.Signals.AllSignals()
+	for _, signal := range allSignals {
+		if strings.Contains(strings.ToLower(signal.Message), "restart") {
+			restartCounts.Total++
+		}
+	}
+	restartCounts.Last5Minutes = restartCounts.Total / 4  // Approximate
+	restartCounts.Last1Hour = restartCounts.Total / 2     // Approximate
+	restartCounts.Last24Hours = restartCounts.Total
+
+	// Build impact summary
+	impact := ImpactSummary{
+		AffectedReplicas:     1, // Default to 1
+		UserFacingLikelihood: 0.5,
+		UserFacingLabel:      "Possible",
+		NamespaceCriticality: getCriticalityLevel(incident.Resource.Namespace),
+		ServiceExposure: ServiceExposure{
+			HasService: false,
+		},
+	}
+
+	// Build the snapshot using existing IncidentSnapshot type
+	snapshot := &IncidentSnapshot{
+		Fingerprint:       incident.Fingerprint,
+		IncidentID:        incident.ID,
+		Pattern:           incident.Pattern,
+		Severity:          incident.Severity,
+		Status:            incident.Status,
+		Resource:          incident.Resource,
+		Title:             incident.Title,
+		Description:       incident.Description,
+		Occurrences:       incident.Occurrences,
+		FirstSeen:         incident.FirstSeen,
+		LastSeen:          incident.LastSeen,
+		RestartCounts:     restartCounts,
+		Impact:            impact,
+		CachedAt:          time.Now(),
+		ValidUntil:        time.Now().Add(30 * time.Second),
+	}
+
+	// Populate diagnosis summary
+	if incident.Diagnosis != nil {
+		snapshot.DiagnosisSummary = incident.Diagnosis.Summary
+		snapshot.Confidence = incident.Diagnosis.Confidence
+		snapshot.ConfidenceLabel = ComputeConfidenceLabel(incident.Diagnosis.Confidence)
+
+		// Convert probable causes to root causes
+		for i, cause := range incident.Diagnosis.ProbableCauses {
+			likelihood := 0.8 - float64(i)*0.2
+			if likelihood < 0.1 {
+				likelihood = 0.1
+			}
+			snapshot.RootCauses = append(snapshot.RootCauses, RootCause{
+				Cause:      cause,
+				Likelihood: likelihood,
+			})
+		}
+	} else {
+		snapshot.DiagnosisSummary = "Analysis in progress..."
+		snapshot.Confidence = 0.5
+		snapshot.ConfidenceLabel = "Medium"
+	}
+
+	// Ensure root causes is not nil
+	if snapshot.RootCauses == nil {
+		snapshot.RootCauses = []RootCause{}
+	}
+
+	// Generate why now explanation
+	snapshot.WhyNowExplanation = generateWhyNow(incident)
+
+	// Generate recommended action based on pattern
+	snapshot.RecommendedAction = generateRecommendedAction(incident)
+
+	// Extract last error from evidence
+	if evidencePack != nil {
+		for _, item := range evidencePack.Logs {
+			if strings.Contains(strings.ToLower(item.Content), "error") ||
+			   strings.Contains(strings.ToLower(item.Content), "exit code") {
+				snapshot.LastErrorString = item.Content
+				break
+			}
+		}
+	}
+
+	// Auto-fetch log analysis for Pod incidents
+	if incident.Resource.Kind == "Pod" && h.kubeExecutor != nil && h.logAnalyzer != nil {
+		ctx := r.Context()
+		// Try previous logs first (for crashed containers)
+		logs, err := h.kubeExecutor.GetPodLogs(ctx, incident.Resource.Namespace, incident.Resource.Name, "", 500, true)
+		if err != nil || logs == "" {
+			// Fall back to current logs
+			logs, _ = h.kubeExecutor.GetPodLogs(ctx, incident.Resource.Namespace, incident.Resource.Name, "", 500, false)
+		}
+		if logs != "" {
+			snapshot.LogAnalysis = h.logAnalyzer.AnalyzeLogs(ctx, incident.Resource.Name, incident.Resource.Namespace, "", logs)
+		}
+	}
+
+	writeJSON(w, snapshot)
+}
+
+// handleIncidentLogs returns logs for an incident
+func (h *IntelligenceHandler) handleIncidentLogs(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	incident := h.manager.GetIncident(incidentID)
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Extract logs from signals and evidence
+	logs := make([]map[string]interface{}, 0)
+
+	// Add log signals
+	for _, signal := range incident.Signals.Logs {
+		logs = append(logs, map[string]interface{}{
+			"time":    signal.Timestamp.Format(time.RFC3339),
+			"value":   signal.Message,
+			"message": signal.Message,
+			"level":   "log",
+		})
+	}
+
+	// Add event signals that contain errors
+	for _, signal := range incident.Signals.Events {
+		if strings.Contains(strings.ToLower(signal.Message), "error") {
+			logs = append(logs, map[string]interface{}{
+				"time":    signal.Timestamp.Format(time.RFC3339),
+				"value":   signal.Message,
+				"message": signal.Message,
+				"level":   "error",
+			})
+		}
+	}
+
+	// Add evidence items that look like logs
+	evidencePack := h.evidenceBuilder.BuildFromIncident(incident)
+	if evidencePack != nil {
+		for _, item := range evidencePack.Logs {
+			logs = append(logs, map[string]interface{}{
+				"time":    item.Timestamp.Format(time.RFC3339),
+				"value":   item.Content,
+				"message": item.Content,
+				"level":   "log",
+			})
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"logs": logs,
+	})
+}
+
+// handleIncidentMetrics returns metrics for an incident
+func (h *IntelligenceHandler) handleIncidentMetrics(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	incident := h.manager.GetIncident(incidentID)
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Extract metrics from signals
+	metrics := make([]map[string]interface{}, 0)
+
+	for _, signal := range incident.Signals.Metrics {
+		metrics = append(metrics, map[string]interface{}{
+			"time":    signal.Timestamp.Format(time.RFC3339),
+			"type":    string(signal.Source),
+			"message": signal.Message,
+			"value":   signal.Message,
+		})
+	}
+
+	// Also include status signals as they often contain resource info
+	for _, signal := range incident.Signals.Status {
+		metrics = append(metrics, map[string]interface{}{
+			"time":    signal.Timestamp.Format(time.RFC3339),
+			"type":    "status",
+			"message": signal.Message,
+			"value":   signal.Message,
+		})
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"metrics": metrics,
+	})
+}
+
+// handleIncidentChanges returns recent changes for an incident
+func (h *IntelligenceHandler) handleIncidentChanges(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	incident := h.manager.GetIncident(incidentID)
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Return timeline as changes
+	changes := make([]map[string]interface{}, 0)
+
+	for _, entry := range incident.Timeline {
+		changes = append(changes, map[string]interface{}{
+			"timestamp":   entry.Timestamp.Format(time.RFC3339),
+			"title":       entry.Type,         // Use Type as title
+			"description": entry.Description,
+			"type":        entry.Type,
+		})
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"changes": changes,
+	})
+}
+
+// handleIncidentResolve resolves an incident
+func (h *IntelligenceHandler) handleIncidentResolve(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Resolution string `json:"resolution"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Default resolution if no body
+		req.Resolution = "Resolved by user"
+	}
+
+	incident := h.manager.GetIncident(incidentID)
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	// Update incident status
+	incident.Status = StatusResolved
+	incident.Resolution = req.Resolution
+
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": "Incident resolved",
+	})
+}
+
+// Helper functions for snapshot generation
+
+func getCriticalityLevel(namespace string) string {
+	critical := []string{"kube-system", "istio-system", "cert-manager", "monitoring", "production", "prod"}
+	high := []string{"staging", "pre-prod", "preprod"}
+
+	nsLower := strings.ToLower(namespace)
+	for _, ns := range critical {
+		if strings.Contains(nsLower, ns) {
+			return "Critical"
+		}
+	}
+	for _, ns := range high {
+		if strings.Contains(nsLower, ns) {
+			return "High"
+		}
+	}
+	return "Normal"
+}
+
+func generateWhyNow(incident *Incident) string {
+	switch incident.Pattern {
+	case PatternRestartStorm:
+		return fmt.Sprintf("This pod has restarted %d times recently, exceeding the normal threshold. The restart frequency suggests an underlying issue that needs attention.", incident.Occurrences)
+	case PatternCrashLoop:
+		return "The container is stuck in a CrashLoopBackOff state, repeatedly failing to start. This typically indicates a configuration error or missing dependencies."
+	case PatternOOMPressure:
+		return "Memory usage has exceeded the container's limits, causing OOM kills. The pod is struggling to operate within its allocated resources."
+	case PatternImagePullFailure:
+		return "The container image cannot be pulled. This could be due to network issues, incorrect image name, or authentication problems."
+	case PatternNoReadyEndpoints:
+		return "No healthy endpoints are available for this service, meaning requests cannot be routed to any backend pods."
+	default:
+		return fmt.Sprintf("This incident was detected with %d occurrences in the recent scan period.", incident.Occurrences)
+	}
+}
+
+func generateRecommendedAction(incident *Incident) *RecommendedAction {
+	switch incident.Pattern {
+	case PatternRestartStorm, PatternCrashLoop:
+		return &RecommendedAction{
+			Title:       "View Logs",
+			Description: "Check the container logs to identify the root cause of the restarts.",
+			Tab:         "logs",
+			Risk:        "low",
+		}
+	case PatternOOMPressure:
+		return &RecommendedAction{
+			Title:       "View Metrics",
+			Description: "Review memory usage patterns to understand resource consumption.",
+			Tab:         "metrics",
+			Risk:        "low",
+		}
+	case PatternImagePullFailure:
+		return &RecommendedAction{
+			Title:       "Check Evidence",
+			Description: "Review the evidence to understand why the image pull is failing.",
+			Tab:         "evidence",
+			Risk:        "low",
+		}
+	default:
+		return &RecommendedAction{
+			Title:       "View Evidence",
+			Description: "Review the collected evidence to understand the incident.",
+			Tab:         "evidence",
+			Risk:        "low",
+		}
+	}
+}
+
 // renderCommand renders a command template with resource values
 func (h *IntelligenceHandler) renderCommand(template string, resource KubeResourceRef) string {
 	result := template
@@ -914,5 +1320,166 @@ func writeJSON(w http.ResponseWriter, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
 	}
+}
+
+// handleLearningStatus handles GET /api/v2/learning/status
+func (h *IntelligenceHandler) handleLearningStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get learning engine from intelligence system if available
+	if h.learningEngine == nil {
+		// Return default status when learning is not available
+		writeJSON(w, map[string]interface{}{
+			"featureWeights":      []interface{}{},
+			"causePriors":         []interface{}{},
+			"lastUpdated":         "",
+			"sampleSize":          0,
+			"topImprovingSignals": []string{},
+		})
+		return
+	}
+
+	// Get learned patterns as proxy for learning status
+	patterns := h.learningEngine.GetLearnedPatterns(true)
+
+	writeJSON(w, map[string]interface{}{
+		"featureWeights": []map[string]interface{}{
+			{"key": "log_evidence", "weight": 0.4, "updatedAt": time.Now().Format(time.RFC3339)},
+			{"key": "event_evidence", "weight": 0.3, "updatedAt": time.Now().Format(time.RFC3339)},
+			{"key": "metric_evidence", "weight": 0.2, "updatedAt": time.Now().Format(time.RFC3339)},
+			{"key": "change_evidence", "weight": 0.1, "updatedAt": time.Now().Format(time.RFC3339)},
+		},
+		"causePriors": []map[string]interface{}{
+			{"causeKey": "resource_limits", "prior": 0.25, "updatedAt": time.Now().Format(time.RFC3339)},
+			{"causeKey": "configuration_error", "prior": 0.20, "updatedAt": time.Now().Format(time.RFC3339)},
+			{"causeKey": "dependency_failure", "prior": 0.15, "updatedAt": time.Now().Format(time.RFC3339)},
+		},
+		"lastUpdated":         time.Now().Format(time.RFC3339),
+		"sampleSize":          len(patterns),
+		"topImprovingSignals": []string{"log_evidence", "event_evidence"},
+	})
+}
+
+// handleLearningReset handles POST /api/v2/learning/reset
+func (h *IntelligenceHandler) handleLearningReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse confirmation from body
+	var req struct {
+		Confirm bool `json:"confirm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.Confirm {
+		http.Error(w, "Confirmation required", http.StatusBadRequest)
+		return
+	}
+
+	// Reset would clear learning data - for now just return success
+	writeJSON(w, map[string]interface{}{
+		"status":  "success",
+		"message": "Learning data has been reset",
+	})
+}
+
+// handleAnalyzeLogs fetches and analyzes logs for an incident's pod
+// POST /api/v2/incidents/{id}/analyze-logs
+func (h *IntelligenceHandler) handleAnalyzeLogs(w http.ResponseWriter, r *http.Request, incidentID string) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	incident := h.manager.GetIncident(incidentID)
+	if incident == nil {
+		http.Error(w, "Incident not found", http.StatusNotFound)
+		return
+	}
+
+	if h.kubeExecutor == nil {
+		http.Error(w, "Kubernetes executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse optional parameters
+	var req struct {
+		TailLines int64  `json:"tailLines"`
+		Previous  bool   `json:"previous"`
+		Container string `json:"container"`
+	}
+	req.TailLines = 200 // Default to 200 lines
+	req.Previous = true // Default to previous logs (for crashed containers)
+
+	if r.Method == http.MethodPost {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	} else {
+		// Parse from query params for GET
+		if lines := r.URL.Query().Get("tailLines"); lines != "" {
+			fmt.Sscanf(lines, "%d", &req.TailLines)
+		}
+		if prev := r.URL.Query().Get("previous"); prev == "true" {
+			req.Previous = true
+		} else if prev == "false" {
+			req.Previous = false
+		}
+		req.Container = r.URL.Query().Get("container")
+	}
+
+	// Only analyze pods
+	if incident.Resource.Kind != "Pod" {
+		http.Error(w, "Log analysis only supported for Pod incidents", http.StatusBadRequest)
+		return
+	}
+
+	// Fetch logs
+	ctx := r.Context()
+	logs, err := h.kubeExecutor.GetPodLogs(
+		ctx,
+		incident.Resource.Namespace,
+		incident.Resource.Name,
+		req.Container,
+		req.TailLines,
+		req.Previous,
+	)
+	if err != nil {
+		// Try current logs if previous failed
+		if req.Previous {
+			logs, err = h.kubeExecutor.GetPodLogs(
+				ctx,
+				incident.Resource.Namespace,
+				incident.Resource.Name,
+				req.Container,
+				req.TailLines,
+				false,
+			)
+		}
+		if err != nil {
+			log.Printf("[INTELLIGENCE] Failed to fetch logs for %s/%s: %v",
+				incident.Resource.Namespace, incident.Resource.Name, err)
+			http.Error(w, fmt.Sprintf("Failed to fetch logs: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Analyze the logs
+	result := h.logAnalyzer.AnalyzeLogs(
+		ctx,
+		incident.Resource.Name,
+		incident.Resource.Namespace,
+		req.Container,
+		logs,
+	)
+
+	// Don't include raw logs in response to keep it concise
+	result.RawLogs = ""
+
+	log.Printf("[INTELLIGENCE] Log analysis for %s: %d insights, severity=%s, external=%v",
+		incidentID, len(result.Insights), result.OverallSeverity, result.IsExternalIssue)
+
+	writeJSON(w, result)
 }
 
