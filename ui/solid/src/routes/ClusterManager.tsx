@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, onMount, createSignal } from 'solid-js';
+import { Component, For, Show, createMemo, onMount, onCleanup, createSignal } from 'solid-js';
 import {
   clusterManagerStatus,
   refreshClusterStatus,
@@ -9,10 +9,15 @@ import {
   activeCluster,
   sources,
   loading as enhancedLoading,
+  clusterOperations,
   refreshEnhancedClusters,
   refreshSources,
   selectCluster,
   reconnectCluster,
+  enableClusterManagerRefresh,
+  disableClusterManagerRefresh,
+  getClusterOperation,
+  isClusterOperating,
 } from '../stores/clusterEnhanced';
 import { clusterStatus } from '../stores/cluster';
 import { addNotification, setCurrentView } from '../stores/ui';
@@ -23,11 +28,15 @@ const ClusterManager: Component = () => {
   const [sourcesExpanded, setSourcesExpanded] = createSignal(false);
 
   onMount(() => {
+    // Enable cluster manager auto-refresh (longer interval to prevent flickering)
+    enableClusterManagerRefresh();
     // Refresh cluster status to sync with header
     refreshClusterStatus();
-    // Refresh enhanced clusters and sources
-    refreshEnhancedClusters();
-    refreshSources();
+  });
+
+  onCleanup(() => {
+    // Disable auto-refresh when leaving this page
+    disableClusterManagerRefresh();
   });
 
   // Use same logic as header: check clusterManagerStatus first, then fallback to clusterStatus
@@ -407,48 +416,76 @@ const ClusterManager: Component = () => {
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <span class="text-xs font-medium" style={{ color: statusColor() }}>{statusLabel()}</span>
                         <Show when={!cluster.active}>
-                          <button
-                            class="px-2 py-1 text-xs rounded-md transition-all"
-                            style={{
-                              background: 'var(--accent-primary)',
-                              color: '#000'
-                            }}
-                            disabled={enhancedLoading()}
-                            onClick={async () => {
-                              try {
-                                console.log('Selecting cluster:', cluster.clusterId, cluster.name);
-                                await selectCluster(cluster.clusterId);
-                                addNotification(`Switched to ${cluster.name}`, 'success');
-                                await refreshEnhancedClusters();
-                              } catch (err: any) {
-                                console.error('Select cluster error:', err);
-                                addNotification(err?.message || 'Failed to select cluster', 'error');
-                              }
-                            }}
-                          >
-                            Select
-                          </button>
+                          {(() => {
+                            const operation = () => getClusterOperation(cluster.clusterId);
+                            const isSelecting = () => operation()?.operation === 'selecting';
+                            const hasError = () => operation()?.error;
+                            return (
+                              <button
+                                class="px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1"
+                                style={{
+                                  background: hasError() ? 'var(--error-color)' : 'var(--accent-primary)',
+                                  color: '#000',
+                                  opacity: isSelecting() ? 0.8 : 1,
+                                }}
+                                disabled={isSelecting()}
+                                onClick={async () => {
+                                  try {
+                                    console.log('Selecting cluster:', cluster.clusterId, cluster.name);
+                                    await selectCluster(cluster.clusterId);
+                                    addNotification(`Switched to ${cluster.name}`, 'success');
+                                  } catch (err: any) {
+                                    console.error('Select cluster error:', err);
+                                    addNotification(err?.message || 'Failed to select cluster', 'error');
+                                  }
+                                }}
+                                title={hasError() || ''}
+                              >
+                                <Show when={isSelecting()}>
+                                  <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                </Show>
+                                {isSelecting() ? 'Selecting...' : hasError() ? 'Failed' : 'Select'}
+                              </button>
+                            );
+                          })()}
                         </Show>
-                        <button
-                          class="px-2 py-1 text-xs rounded-md transition-all"
-                          style={{
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--bg-tertiary)',
-                            color: 'var(--text-primary)'
-                          }}
-                          disabled={enhancedLoading()}
-                          onClick={async () => {
-                            try {
-                              await reconnectCluster(cluster.clusterId);
-                              addNotification(`Reconnecting to ${cluster.name}...`, 'info');
-                              await refreshEnhancedClusters();
-                            } catch (err: any) {
-                              addNotification(err?.message || 'Failed to reconnect', 'error');
-                            }
-                          }}
-                        >
-                          Reconnect
-                        </button>
+                        {(() => {
+                          const operation = () => getClusterOperation(cluster.clusterId);
+                          const isReconnecting = () => operation()?.operation === 'reconnecting';
+                          const hasError = () => operation()?.error;
+                          return (
+                            <button
+                              class="px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1"
+                              style={{
+                                border: '1px solid var(--border-color)',
+                                background: hasError() ? 'var(--error-color)' : 'var(--bg-tertiary)',
+                                color: hasError() ? '#fff' : 'var(--text-primary)',
+                                opacity: isReconnecting() ? 0.8 : 1,
+                              }}
+                              disabled={isReconnecting()}
+                              onClick={async () => {
+                                try {
+                                  await reconnectCluster(cluster.clusterId);
+                                  addNotification(`Reconnected to ${cluster.name}`, 'success');
+                                } catch (err: any) {
+                                  addNotification(err?.message || 'Failed to reconnect', 'error');
+                                }
+                              }}
+                              title={hasError() || ''}
+                            >
+                              <Show when={isReconnecting()}>
+                                <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                              </Show>
+                              {isReconnecting() ? 'Reconnecting...' : hasError() ? 'Failed' : 'Reconnect'}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
                   );

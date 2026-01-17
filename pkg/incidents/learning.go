@@ -5,7 +5,6 @@ package incidents
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"sort"
 	"sync"
@@ -134,8 +133,7 @@ func (e *LearningEngine) LearnFromIncident(incident *Incident, evidencePack *Evi
 	if incident.Status == StatusResolved {
 		e.updateRunbookRankings(incident)
 	}
-
-	log.Printf("[LEARNING] Learned from incident %s (pattern=%s)", incident.ID, incident.Pattern)
+	// Per-incident learning log removed for production (too verbose)
 }
 
 // updateCluster updates or creates an incident cluster

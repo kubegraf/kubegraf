@@ -999,11 +999,11 @@ func (ws *WebServer) syncActiveClusterFromContext() {
 		if c.ContextName == currentContext {
 			if err := ws.db.SetActiveCluster(c.ClusterID); err != nil {
 				fmt.Printf("⚠️  syncActiveCluster: Failed to set active: %v\n", err)
-			} else {
-				fmt.Printf("✅ Synced active cluster: %s (context: %s)\n", c.Name, currentContext)
 			}
+			// Successfully synced - silently return (no verbose logging for production)
 			return
 		}
 	}
+	// Only log warning if context not found
 	fmt.Printf("⚠️  syncActiveCluster: Context '%s' not found in cluster list\n", currentContext)
 }

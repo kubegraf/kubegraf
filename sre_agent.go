@@ -318,7 +318,7 @@ func (agent *SREAgent) createIncident(event MonitoredEvent) *Incident {
 // analyzeIncident performs AI analysis of an incident
 func (agent *SREAgent) analyzeIncident(incident *Incident) {
 	if !agent.ai.IsAvailable() {
-		log.Printf("AI not available for incident analysis: %s", incident.ID)
+		// AI not available - silently skip analysis (no verbose logging for production)
 		return
 	}
 
@@ -1101,7 +1101,7 @@ func (agent *SREAgent) sendNotification(incident *Incident) {
 	agent.metrics.mu.Unlock()
 
 	// In a real implementation, this would send to Slack, PagerDuty, etc.
-	log.Printf("SRE Agent Notification: %s - %s", incident.Title, incident.Description)
+	// Notification logging removed for production - too verbose
 }
 
 // sendEscalationNotification sends an escalation notification
