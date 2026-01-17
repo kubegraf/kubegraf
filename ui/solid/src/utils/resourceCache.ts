@@ -158,19 +158,21 @@ export function createCachedResource<T>(
     initialLoad(cacheKeyChanged);
     
     // Set up periodic refresh if background refresh is enabled
+    // Only refresh when tab is visible to save CPU resources
     if (backgroundRefresh) {
       refreshTimer = setInterval(() => {
+        if (document.hidden) return; // Skip if tab is hidden
         const cached = getCachedResource<T>(resourceType);
         if (cached) {
           const age = Date.now() - cached.lastUpdated;
           // Refresh if cache is older than TTL
           if (age >= ttl) {
-            fetchFresh(true).catch(err => {
-              console.warn(`Background refresh failed for ${resourceType}:`, err);
+            fetchFresh(true).catch(() => {
+              // Silently ignore background refresh failures
             });
           }
         }
-      }, Math.min(ttl, 5000)); // Check every 5 seconds or TTL, whichever is smaller
+      }, Math.min(ttl, 15000)); // Check every 15 seconds or TTL, whichever is smaller
     }
   });
 

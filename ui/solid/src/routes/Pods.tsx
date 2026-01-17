@@ -216,15 +216,16 @@ const Pods: Component = () => {
     // Age ticker: update every 5 seconds for real-time age display (balances responsiveness vs performance)
     ageTimer = setInterval(() => setAgeTicker(t => t + 1), 5000);
     
-    // Auto-refresh pods every 2 seconds (silent background refresh)
+    // Auto-refresh pods every 15 seconds (silent background refresh)
     // but pause when action menu is open or hovered to allow user interaction
+    // Also pause when tab is not visible to save resources
     podsRefreshTimer = setInterval(() => {
-      // Only refresh if no action menu is open and not hovering
-      if (!openMenuPodUID() && !menuHovering()) {
+      // Only refresh if no action menu is open, not hovering, and tab is visible
+      if (!openMenuPodUID() && !menuHovering() && !document.hidden) {
         podsCache.refetch().catch(err => console.error('Background refresh error:', err));
         fetchMetrics();
       }
-    }, 2000);
+    }, 15000);
     
     // Keyboard navigation
     keyboardHandler = (e: KeyboardEvent) => {

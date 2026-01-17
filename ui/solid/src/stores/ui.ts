@@ -254,10 +254,7 @@ function toggleAIPanel() {
 }
 
 function toggleTerminal() {
-  const current = terminalOpen();
-  console.log('[ui.ts] toggleTerminal called - current:', current, '-> new:', !current);
-  setTerminalOpen(!current);
-  console.log('[ui.ts] terminalOpen after setState:', terminalOpen());
+  setTerminalOpen(!terminalOpen());
 }
 
 function openResourceDetail(resource: any) {

@@ -81,12 +81,8 @@ const Ingresses: Component = () => {
       setGlobalLoading(true);
       try {
         const namespaceParam = getNamespaceParam();
-        console.log('[Ingresses] Fetching ingresses with namespace:', namespaceParam);
-        const ingresses = await api.getIngresses(namespaceParam);
-        console.log('[Ingresses] Fetched ingresses:', ingresses);
-        return ingresses;
+        return await api.getIngresses(namespaceParam);
       } catch (error) {
-        console.error('[Ingresses] Error fetching ingresses:', error);
         addNotification(`❌ Failed to fetch ingresses: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
         throw error;
       } finally {
@@ -101,9 +97,7 @@ const Ingresses: Component = () => {
 
   // Get ingresses from cache
   const ingresses = createMemo(() => {
-    const data = ingressesCache.data();
-    console.log('[Ingresses] Current data from cache:', data);
-    return data || [];
+    return ingressesCache.data() || [];
   });
   
   // Refetch function for updates

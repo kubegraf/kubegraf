@@ -3,8 +3,6 @@ import { api } from '../services/api';
 import { namespace } from '../stores/cluster';
 
 const Logs: Component = () => {
-  console.log('[Logs] Component rendering');
-  
   const [selectedPod, setSelectedPod] = createSignal<string>('');
   const [selectedContainer, setSelectedContainer] = createSignal<string>('');
   const [selectedNamespace, setSelectedNamespace] = createSignal<string>('');
@@ -21,14 +19,10 @@ const Logs: Component = () => {
     () => namespace(),
     async (ns) => {
       try {
-        console.log('[Logs] Fetching pods for namespace:', ns);
         const nsParam = ns === '_all' ? undefined : ns;
         const podList = await api.getPods(nsParam);
-        console.log('[Logs] Fetched pods:', podList?.length || 0);
-        // Ensure we always return an array
         return Array.isArray(podList) ? podList : [];
       } catch (err) {
-        console.error('[Logs] Failed to fetch pods:', err);
         return [];
       }
     }
@@ -47,12 +41,8 @@ const Logs: Component = () => {
     async (params) => {
       if (!params) return null;
       try {
-        console.log('[Logs] Fetching pod details:', params);
-        const details = await api.getPodDetails(params.pod, params.namespace);
-        console.log('[Logs] Pod details:', details);
-        return details;
+        return await api.getPodDetails(params.pod, params.namespace);
       } catch (err) {
-        console.error('[Logs] Failed to fetch pod details:', err);
         return null;
       }
     }
@@ -64,16 +54,11 @@ const Logs: Component = () => {
       if (!details || !details.containers) {
         return [];
       }
-      // Ensure containers is an array
       if (!Array.isArray(details.containers)) {
-        console.warn('[Logs] podDetails.containers is not an array:', typeof details.containers, details.containers);
         return [];
       }
-      const conts = details.containers.map((c: any) => c.name || c).filter(Boolean);
-      console.log('[Logs] Containers:', conts);
-      return conts;
+      return details.containers.map((c: any) => c.name || c).filter(Boolean);
     } catch (err) {
-      console.error('[Logs] Error in containers memo:', err);
       return [];
     }
   });
@@ -170,7 +155,7 @@ const Logs: Component = () => {
   });
 
   onMount(() => {
-    console.log('[Logs] Component mounted successfully');
+    // Component mounted
   });
 
   onCleanup(() => {
@@ -180,27 +165,16 @@ const Logs: Component = () => {
   // Ensure pods() is always an array for For component
   const podsList = createMemo(() => {
     try {
-      // Check if resource is still loading or has error
       if (pods.loading) return [];
-      if (pods.error) {
-        console.error('[Logs] pods resource error:', pods.error);
-        return [];
-      }
+      if (pods.error) return [];
       const p = pods();
-      // Handle undefined, null, or non-array values
       if (p === undefined || p === null) return [];
-      if (!Array.isArray(p)) {
-        console.warn('[Logs] pods() returned non-array:', typeof p, p);
-        return [];
-      }
+      if (!Array.isArray(p)) return [];
       return p;
     } catch (err) {
-      console.error('[Logs] Error in podsList memo:', err);
       return [];
     }
   });
-
-  console.log('[Logs] Component rendering - RETURNING JSX');
   return (
     <div class="space-y-4">
       {/* Header */}
