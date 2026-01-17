@@ -237,7 +237,7 @@ func (em *EventMonitor) processKubernetesEvent(ev *corev1.Event) {
 		return
 	}
 
-	log.Printf("[EventMonitor] Processing event: %s - %s", monitoredEvent.Title, monitoredEvent.Category)
+	// Processing logged only for debug - removed for production to reduce log spam
 
 	// Add to monitored events
 	em.mu.Lock()

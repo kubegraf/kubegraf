@@ -1000,7 +1000,7 @@ func (ws *WebServer) syncActiveClusterFromContext() {
 			if err := ws.db.SetActiveCluster(c.ClusterID); err != nil {
 				fmt.Printf("⚠️  syncActiveCluster: Failed to set active: %v\n", err)
 			}
-			// No-op success - don't log to avoid spam on frequent polling
+			// Successfully synced - silently return (no verbose logging for production)
 			return
 		}
 	}

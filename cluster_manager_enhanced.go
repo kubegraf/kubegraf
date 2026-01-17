@@ -818,43 +818,64 @@ func (ecm *EnhancedClusterManager) triggerBackgroundHealthChecks(clusters []*dat
 }
 
 // ListClusters returns all clusters with their status
+// This returns cached database status IMMEDIATELY for fast page loads
+// Health checks run in background and update the database asynchronously
 func (ecm *EnhancedClusterManager) ListClusters() ([]*database.EnhancedClusterEntry, error) {
 	clusters, err := ecm.db.ListEnhancedClusters()
 	if err != nil {
 		return nil, err
 	}
 
-	// Enrich with health status and ensure all clusters are registered
+	// Return cached database status immediately for fast page load
+	// Only enrich with in-memory health checker status if available (no blocking)
 	for i := range clusters {
-		// Ensure cluster is registered with health checker
+		// Quick check if health checker has fresher data (non-blocking)
 		state := ecm.healthChecker.GetStatus(clusters[i].ClusterID)
-		if state == nil || state.Status == cluster.StatusUnknown {
-			// Cluster not registered or status unknown, try to register it
-			ecm.registerClusterForHealthCheck(clusters[i])
-			// Get updated status after registration
-			state = ecm.healthChecker.GetStatus(clusters[i].ClusterID)
-			// Trigger immediate health check in background
-			if state != nil {
-				go func(clusterID string) {
-					time.Sleep(100 * time.Millisecond) // Small delay to ensure registration is complete
-					_ = ecm.healthChecker.CheckCluster(clusterID)
-				}(clusters[i].ClusterID)
-			}
-		}
-
 		if state != nil && state.Status != cluster.StatusUnknown {
+			// Use health checker data if available
 			clusters[i].Status = string(state.Status)
 			clusters[i].LastChecked = &state.LastChecked
 			clusters[i].LastError = state.LastError
 			clusters[i].ConsecutiveFailures = state.ConsecutiveFailures
 			clusters[i].ConsecutiveSuccesses = state.ConsecutiveSuccesses
 		} else {
-			// If still no state or UNKNOWN, check database status or default to UNKNOWN
+			// Use cached database status (default to UNKNOWN if empty)
 			if clusters[i].Status == "" {
 				clusters[i].Status = "UNKNOWN"
 			}
 		}
 	}
 
+	// Trigger background registration and health checks (non-blocking)
+	go ecm.ensureClustersRegisteredAndHealthy(clusters)
+
 	return clusters, nil
+}
+
+// ensureClustersRegisteredAndHealthy registers unregistered clusters and runs health checks
+// This runs in the background and doesn't block the API response
+func (ecm *EnhancedClusterManager) ensureClustersRegisteredAndHealthy(clusters []*database.EnhancedClusterEntry) {
+	for _, c := range clusters {
+		clusterID := c.ClusterID
+
+		// Check if already registered with health checker
+		state := ecm.healthChecker.GetStatus(clusterID)
+		if state == nil || state.Status == cluster.StatusUnknown {
+			// Not registered, register now
+			ecm.registerClusterForHealthCheck(c)
+		}
+
+		// Trigger health check for this cluster
+		// This will update the database when complete
+		go func(id string) {
+			if err := ecm.healthChecker.CheckCluster(id); err == nil {
+				// Update database with result
+				newState := ecm.healthChecker.GetStatus(id)
+				if newState != nil {
+					ecm.db.UpdateClusterStatus(id, string(newState.Status), newState.LastError,
+						newState.ConsecutiveFailures, newState.ConsecutiveSuccesses)
+				}
+			}
+		}(clusterID)
+	}
 }

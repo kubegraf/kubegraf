@@ -1026,8 +1026,6 @@ func (ws *WebServer) handleStaticFiles(webFS fs.FS) http.HandlerFunc {
 	}
 }
 
-// handleConnectionStatus returns the cluster connection status
-
 // handleCheckUpdates checks for available updates
 
 // handleInstallUpdate downloads and installs the latest version

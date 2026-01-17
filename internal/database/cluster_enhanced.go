@@ -328,6 +328,11 @@ func (d *Database) GetActiveCluster() (*EnhancedClusterEntry, error) {
 // UpdateClusterStatus updates the status and health check fields for a cluster
 func (d *Database) UpdateClusterStatus(clusterID string, status string, lastError string, consecutiveFailures, consecutiveSuccesses int) error {
 	now := time.Now()
+	// Determine connected status based on the new status
+	connected := 0
+	if status == "CONNECTED" || status == "DEGRADED" {
+		connected = 1
+	}
 	_, err := d.db.Exec(`
 		UPDATE clusters
 		SET status = ?,
@@ -335,10 +340,10 @@ func (d *Database) UpdateClusterStatus(clusterID string, status string, lastErro
 		    last_error = ?,
 		    consecutive_failures = ?,
 		    consecutive_successes = ?,
-		    connected = CASE WHEN status IN ('CONNECTED', 'DEGRADED') THEN 1 ELSE 0 END,
+		    connected = ?,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE cluster_id = ?
-	`, status, now, lastError, consecutiveFailures, consecutiveSuccesses, clusterID)
+	`, status, now, lastError, consecutiveFailures, consecutiveSuccesses, connected, clusterID)
 	return err
 }
 

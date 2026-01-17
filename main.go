@@ -31,6 +31,7 @@ import (
 	oldtelemetry "github.com/kubegraf/kubegraf/pkg/telemetry"
 )
 
+
 func main() {
 	// Catch panics and show useful error
 	defer func() {

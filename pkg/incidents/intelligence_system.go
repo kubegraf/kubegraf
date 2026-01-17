@@ -213,9 +213,7 @@ func (s *IntelligenceSystem) ProcessIncident(incident *Incident) {
 	if s.autoEngine != nil && s.config.EnableAutoRemediation {
 		s.autoEngine.EnqueueIncident(incident)
 	}
-
-	log.Printf("[INTELLIGENCE] Processed incident %s (pattern=%s, confidence=%.2f)",
-		incident.ID, incident.Pattern, citedDiagnosis.Confidence)
+	// Per-incident processing log removed for production (too verbose)
 }
 
 // GetAPIHandler returns the API handler for route registration
