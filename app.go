@@ -83,6 +83,23 @@ func (a *App) Initialize() error {
 	// Web mode doesn't need TUI components
 	// This will be called separately when running TUI mode
 
+	// Initialize simple cluster manager
+	if scm, err := NewSimpleClusterManager(a.GetKubeconfigPath()); err != nil {
+		fmt.Printf("⚠️  Simple cluster manager not available: %v\n", err)
+	} else {
+		a.simpleClusterManager = scm
+		// Sync with current active cluster if connected
+		if a.cluster != "" && a.connected {
+			if err := scm.SwitchCluster(a.cluster); err != nil {
+				fmt.Printf("⚠️  Failed to sync active cluster %s: %v\n", a.cluster, err)
+			} else {
+				fmt.Printf("✅ Simple cluster manager initialized (active: %s)\n", a.cluster)
+			}
+		} else {
+			fmt.Println("✅ Simple cluster manager initialized")
+		}
+	}
+
 	return nil
 }
 
@@ -486,4 +503,13 @@ func (a *App) GetClientset() interface{} {
 // IsConnected returns whether the app is connected to a Kubernetes cluster
 func (a *App) IsConnected() bool {
 	return a.connected && a.clientset != nil
+}
+
+// GetKubeconfigPath returns the path to the kubeconfig file
+func (a *App) GetKubeconfigPath() string {
+	if kubeconfig := os.Getenv("KUBECONFIG"); kubeconfig != "" {
+		return kubeconfig
+	}
+	home, _ := os.UserHomeDir()
+	return home + "/.kube/config"
 }

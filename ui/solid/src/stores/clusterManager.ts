@@ -1,8 +1,9 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { api, type ClusterEntry, type DiscoveredKubeconfig, type ClusterManagerStatus, type ClusterConnectPayload, type RuntimeClusterContext } from '../services/api';
 import { addNotification, setCurrentView } from './ui';
 import { wsService } from '../services/websocket';
 import { clusterStatus } from './cluster';
+import { clusterSimpleStore } from './clusterSimple';
 
 const [clusters, setClusters] = createSignal<ClusterEntry[]>([]);
 const [discoveredClusters, setDiscoveredClusters] = createSignal<DiscoveredKubeconfig[]>([]);
@@ -13,11 +14,16 @@ const [clusterLoading, setClusterLoading] = createSignal(false);
 async function refreshClusterData() {
   setClusterLoading(true);
   try {
-    const data = await api.getClusters();
-    setClusters(data.clusters || []);
-    setDiscoveredClusters(data.discovered || []);
-    setClusterManagerStatus(data.status || null);
-    setRuntimeContexts(data.contexts || []);
+    // Use simple cluster store instead of old API
+    await clusterSimpleStore.refetchClusters();
+    const current = clusterSimpleStore.currentCluster();
+    if (current) {
+      setClusterManagerStatus({
+        connected: current.isReachable,
+        clusterName: current.name,
+        contextName: current.contextName,
+      } as ClusterManagerStatus);
+    }
   } catch (err) {
     console.error('Failed to load clusters', err);
   } finally {
@@ -27,8 +33,15 @@ async function refreshClusterData() {
 
 async function refreshClusterStatus() {
   try {
-    const status = await api.getClusterManagerStatus();
-    setClusterManagerStatus(status);
+    // Use simple cluster store instead of old API
+    const current = clusterSimpleStore.currentCluster();
+    if (current) {
+      setClusterManagerStatus({
+        connected: current.isReachable,
+        clusterName: current.name,
+        contextName: current.contextName,
+      } as ClusterManagerStatus);
+    }
   } catch (err) {
     console.error('Failed to fetch cluster status', err);
   }

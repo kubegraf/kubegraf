@@ -206,8 +206,8 @@ type WebServer struct {
 	confidenceLearner *incidents.ConfidenceLearner
 	// Cluster manager for multi-cluster support
 	clusterManager *cluster.ClusterManager
-	// Enhanced cluster manager with sources and health checking
-	enhancedClusterManager *EnhancedClusterManager
+	// Simple cluster manager (NEW - industry standard approach)
+	simpleClusterManager *SimpleClusterManager
 	// Performance instrumentation store
 	perfStore instrumentation.PerformanceStore
 	// Security features
@@ -318,32 +318,15 @@ func NewWebServer(app *App) *WebServer {
 		if ws.clusterService == nil {
 			ws.clusterService = NewClusterService(app, ws.db)
 		}
-		
-		// Initialize enhanced cluster manager (only if not already initialized)
-		if ws.enhancedClusterManager == nil {
-			enhancedMgr, err := NewEnhancedClusterManager(app, ws.db)
-			if err != nil {
-				fmt.Printf("⚠️  Failed to initialize enhanced cluster manager: %v\n", err)
-			} else {
-				ws.enhancedClusterManager = enhancedMgr
 
-				// Set cache cleanup callback for cluster switching
-				if ws.cache != nil {
-					ws.enhancedClusterManager.cacheCleanupFunc = func() error {
-						return ws.cache.Clear()
-					}
-					fmt.Printf("✅ Cache cleanup callback registered with cluster manager\n")
-				}
-
-				// Note: Active cluster sync happens in handleConnectionStatus after app.Initialize()
-				// because app.contextManager is not available until Initialize() is called
-
-				fmt.Printf("✅ Enhanced cluster manager assigned to web server\n")
-			}
-		} else {
-			fmt.Printf("✅ Enhanced cluster manager already initialized\n")
+		// Initialize simple cluster manager (NEW - industry standard)
+		if ws.simpleClusterManager == nil && app.simpleClusterManager != nil {
+			ws.simpleClusterManager = app.simpleClusterManager
+			fmt.Printf("✅ Simple cluster manager assigned to web server\n")
+		} else if ws.simpleClusterManager != nil {
+			fmt.Printf("✅ Simple cluster manager already initialized\n")
 		}
-		
+
 		// Initialize backup configuration
 		backupDir = filepath.Join(kubegrafDir, "backups")
 		backupInterval = 6 * time.Hour
@@ -368,12 +351,9 @@ func NewWebServer(app *App) *WebServer {
 	} else {
 		ws.cache = cache
 
-		// Register cache cleanup callback with enhanced cluster manager if available
-		if ws.enhancedClusterManager != nil {
-			ws.enhancedClusterManager.cacheCleanupFunc = func() error {
-				return ws.cache.Clear()
-			}
-			fmt.Printf("✅ Cache cleanup callback registered with cluster manager\n")
+		// Register cache cleanup callback with simple cluster manager if available
+		if ws.simpleClusterManager != nil {
+			fmt.Printf("✅ Cache initialized (simple cluster manager doesn't require cleanup callbacks)\n")
 		}
 	}
 
@@ -465,6 +445,14 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/nodes", ws.handleNodes)
 	http.HandleFunc("/api/topology", ws.handleTopology)
 	http.HandleFunc("/api/resourcemap", ws.handleResourceMap)
+
+	// Simple cluster manager routes (NEW - industry standard cluster management)
+	http.HandleFunc("/api/v2/clusters", ws.handleClustersList)
+	http.HandleFunc("/api/v2/clusters/switch", ws.handleClusterSwitch)
+	http.HandleFunc("/api/v2/clusters/health", ws.handleClusterHealthSimple)
+	http.HandleFunc("/api/v2/clusters/refresh", ws.handleRefreshClustersList)
+	fmt.Println("✅ Simple cluster routes registered at /api/v2/clusters/*")
+
 	http.HandleFunc("/ws", ws.handleWebSocket)
 
 	// Multi-cluster context endpoints
@@ -490,32 +478,6 @@ func (ws *WebServer) Start(port int) error {
 	http.HandleFunc("/api/announcements/status", ws.handleAnnouncementsStatus)
 	http.HandleFunc("/api/announcements/opt-in", ws.handleAnnouncementsOptIn)
 	http.HandleFunc("/api/announcements/check", ws.handleAnnouncementsCheck)
-
-	// Cluster manager endpoints
-	// Legacy cluster endpoints (keep for backward compatibility)
-	http.HandleFunc("/api/clusters", ws.handleClusters)
-	http.HandleFunc("/api/clusters/connect", ws.handleClusterConnect)
-	http.HandleFunc("/api/clusters/status", ws.handleClusterStatus)
-	http.HandleFunc("/api/clusters/health", ws.handleClusterHealth)
-	http.HandleFunc("/api/clusters/health/check", ws.handleClusterHealthCheck)
-
-	// New cluster manager endpoints (fast, pre-warmed)
-	http.HandleFunc("/api/clusters/list", ws.handleListClustersNew)
-	http.HandleFunc("/api/clusters/namespaces", ws.handleGetClusterNamespacesNew)
-	http.HandleFunc("/api/clusters/pods", ws.handleGetClusterPodsNew)
-	http.HandleFunc("/api/clusters/events", ws.handleGetClusterEventsNew)
-	http.HandleFunc("/api/clusters/refresh", ws.handleRefreshClusters)
-
-	// Enhanced cluster manager endpoints
-	http.HandleFunc("/api/cluster-sources", ws.handleClusterSources)
-	http.HandleFunc("/api/cluster-sources/file", ws.handleAddClusterSourceFile)
-	http.HandleFunc("/api/cluster-sources/inline", ws.handleAddClusterSourceInline)
-	http.HandleFunc("/api/clusters/enhanced", ws.handleListClustersEnhanced)
-	http.HandleFunc("/api/clusters/active", ws.handleGetActiveCluster)
-	http.HandleFunc("/api/clusters/select", ws.handleSelectCluster)
-	http.HandleFunc("/api/clusters/reconnect", ws.handleReconnectCluster)
-	http.HandleFunc("/api/clusters/disconnect", ws.handleDisconnectCluster)
-	http.HandleFunc("/api/clusters/refresh-catalog", ws.handleRefreshClusterCatalog)
 
 	// File dialog endpoint
 	http.HandleFunc("/api/file/dialog", ws.handleFileDialog)

@@ -4,21 +4,7 @@ import {
   refreshClusterStatus,
   disconnectActiveCluster,
 } from '../stores/clusterManager';
-import {
-  enhancedClusters,
-  activeCluster,
-  sources,
-  loading as enhancedLoading,
-  clusterOperations,
-  refreshEnhancedClusters,
-  refreshSources,
-  selectCluster,
-  reconnectCluster,
-  enableClusterManagerRefresh,
-  disableClusterManagerRefresh,
-  getClusterOperation,
-  isClusterOperating,
-} from '../stores/clusterEnhanced';
+import { clusterSimpleStore } from '../stores/clusterSimple';
 import { clusterStatus } from '../stores/cluster';
 import { addNotification, setCurrentView } from '../stores/ui';
 import AuthErrorHelper from '../components/AuthErrorHelper';
@@ -28,15 +14,10 @@ const ClusterManager: Component = () => {
   const [sourcesExpanded, setSourcesExpanded] = createSignal(false);
 
   onMount(() => {
-    // Enable cluster manager auto-refresh (longer interval to prevent flickering)
-    enableClusterManagerRefresh();
     // Refresh cluster status to sync with header
     refreshClusterStatus();
-  });
-
-  onCleanup(() => {
-    // Disable auto-refresh when leaving this page
-    disableClusterManagerRefresh();
+    // Initial load of clusters
+    clusterSimpleStore.refetchClusters();
   });
 
   // Use same logic as header: check clusterManagerStatus first, then fallback to clusterStatus
