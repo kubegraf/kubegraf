@@ -49,7 +49,7 @@ const Timeline = lazy(() => import('./Timeline'));
 const TimeHelix = lazy(() => import('./TimeHelix'));
 const ResourceWaterfall = lazy(() => import('./ResourceWaterfall'));
 const Apps = lazy(() => import('./Apps'));
-const ClusterManager = lazy(() => import('./ClusterManager'));
+const ClusterManager = lazy(() => import('./ClusterManagerSimple'));
 const Connect = lazy(() => import('./Connect'));
 const Storage = lazy(() => import('./Storage'));
 const RBAC = lazy(() => import('./RBAC'));

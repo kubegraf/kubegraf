@@ -159,6 +159,11 @@ func launchWebUI(port int, ephemeralMode bool) {
 			fmt.Fprintf(os.Stderr, "⚠️  Failed to connect to cluster: %v\n", initErr)
 		} else {
 			app.connected = true
+			// Assign simple cluster manager to web server after initialization
+			if app.simpleClusterManager != nil {
+				webServer.simpleClusterManager = app.simpleClusterManager
+				fmt.Println("✅ Simple cluster manager assigned to web server (post-init)")
+			}
 		}
 	}()
 

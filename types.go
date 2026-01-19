@@ -112,6 +112,8 @@ type App struct {
 	healthMonitor *health.ClusterHealthMonitor
 	// Background Metrics Collector
 	metricsCollector *MetricsCollector
+	// Simple Cluster Manager (NEW - industry standard approach)
+	simpleClusterManager *SimpleClusterManager
 }
 
 // TableData holds the current table information

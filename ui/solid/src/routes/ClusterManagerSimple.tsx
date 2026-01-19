@@ -1,0 +1,253 @@
+import { Component, For, Show, createMemo, onMount } from 'solid-js';
+import { clusterSimpleStore } from '../stores/clusterSimple';
+import { addNotification, setCurrentView } from '../stores/ui';
+
+const ClusterManagerSimple: Component = () => {
+  onMount(() => {
+    // Initial load of clusters
+    clusterSimpleStore.refetchClusters();
+  });
+
+  const clusters = clusterSimpleStore.clusters;
+  const currentCluster = clusterSimpleStore.currentCluster;
+  const loading = clusterSimpleStore.isLoading;
+  const error = clusterSimpleStore.getError;
+
+  // Get reachable clusters
+  const reachableClusters = createMemo(() => {
+    return clusters().filter((c) => c.isReachable);
+  });
+
+  // Get unreachable clusters
+  const unreachableClusters = createMemo(() => {
+    return clusters().filter((c) => !c.isReachable);
+  });
+
+  const handleSwitchCluster = async (contextName: string) => {
+    try {
+      await clusterSimpleStore.switchCluster(contextName);
+      addNotification(`Switched to cluster: ${contextName}`, 'success');
+      // Redirect to dashboard after successful switch
+      setCurrentView('dashboard');
+    } catch (err: any) {
+      addNotification(err?.message || 'Failed to switch cluster', 'error');
+    }
+  };
+
+  const handleRefresh = async () => {
+    try {
+      await clusterSimpleStore.refreshClusters();
+      addNotification('Clusters refreshed', 'success');
+    } catch (err: any) {
+      addNotification(err?.message || 'Failed to refresh clusters', 'error');
+    }
+  };
+
+  return (
+    <div class="space-y-6" style={{ background: 'var(--bg-primary)' }}>
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>Cluster Manager</h1>
+            <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Discover, connect, and manage every Kubernetes cluster from one place.
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              class="px-3 py-1.5 rounded-md text-sm transition-colors"
+              style={{
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)',
+              }}
+              disabled={loading()}
+              onClick={handleRefresh}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Loading state */}
+      <Show when={loading()}>
+        <div class="flex items-center justify-center p-8">
+          <div class="text-sm" style={{ color: 'var(--text-muted)' }}>
+            Loading clusters...
+          </div>
+        </div>
+      </Show>
+
+      {/* Error state */}
+      <Show when={error()}>
+        <div class="p-4 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--error-color)' }}>
+          <p class="text-sm" style={{ color: 'var(--error-color)' }}>{error()}</p>
+        </div>
+      </Show>
+
+      {/* Show when no clusters found */}
+      <Show when={!loading() && clusters().length === 0}>
+        <div class="flex items-center justify-center min-h-[60vh] p-8">
+          <div class="max-w-3xl w-full">
+            <div class="text-center mb-8">
+              <div class="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.15)' }}>
+                <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent-primary)' }}>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </div>
+              <h2 class="text-3xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
+                No Clusters Found
+              </h2>
+              <p class="text-base mb-8" style={{ color: 'var(--text-secondary)' }}>
+                Ensure your kubeconfig file is properly configured at ~/.kube/config
+              </p>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* Simple Cluster Manager - Show clusters */}
+      <div class="mt-8 p-6 rounded-xl border" style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Clusters</h2>
+            <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Available clusters from kubeconfig
+            </p>
+          </div>
+        </div>
+
+        {/* Reachable clusters */}
+        <Show when={reachableClusters().length > 0}>
+          <div class="mb-6">
+            <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Reachable Clusters</h3>
+            <div class="space-y-1.5">
+              <For each={reachableClusters()}>
+                {(cluster) => (
+                  <div
+                    class="p-3 rounded-lg border flex items-center justify-between gap-3"
+                    style={{
+                      border: '1px solid var(--border-color)',
+                      background: cluster.isActive ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-card)'
+                    }}
+                  >
+                    <div class="flex items-center gap-3">
+                      <span class="w-2 h-2 rounded-full" style={{ background: 'var(--success-color)' }}></span>
+                      <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{cluster.name}</span>
+                      <Show when={cluster.isActive}>
+                        <span
+                          class="px-1.5 py-0.5 text-xs rounded-full"
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: 'var(--success-color)'
+                          }}
+                        >
+                          Active
+                        </span>
+                      </Show>
+                    </div>
+                    <Show when={cluster.isActive} fallback={
+                      <button
+                        class="px-3 py-1.5 text-sm rounded-md transition-all"
+                        style={{
+                          background: 'var(--accent-primary)',
+                          color: '#000'
+                        }}
+                        onClick={() => handleSwitchCluster(cluster.contextName)}
+                      >
+                        Select
+                      </button>
+                    }>
+                      <button
+                        class="px-3 py-1.5 text-sm rounded-md transition-all"
+                        style={{
+                          background: 'var(--success-color)',
+                          color: '#000'
+                        }}
+                        onClick={() => setCurrentView('dashboard')}
+                      >
+                        Go to Dashboard
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* Unreachable clusters */}
+        <Show when={unreachableClusters().length > 0}>
+          <div>
+            <h3 class="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Unreachable Clusters</h3>
+            <div class="space-y-1.5">
+              <For each={unreachableClusters()}>
+                {(cluster) => (
+                  <div
+                    class="p-3 rounded-lg border flex items-center justify-between gap-3"
+                    style={{
+                      border: '1px solid var(--border-color)',
+                      background: cluster.isActive ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-card)'
+                    }}
+                    title={cluster.error || 'Unreachable'}
+                  >
+                    <div class="flex items-center gap-3">
+                      <span class="w-2 h-2 rounded-full" style={{ background: 'var(--error-color)' }}></span>
+                      <span class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{cluster.name}</span>
+                      <Show when={cluster.error}>
+                        <span class="text-xs" style={{ color: 'var(--error-color)' }}>
+                          {cluster.error}
+                        </span>
+                      </Show>
+                    </div>
+                    <Show when={!cluster.isActive}>
+                      <button
+                        class="px-3 py-1.5 text-sm rounded-md transition-all"
+                        style={{
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border-color)'
+                        }}
+                        onClick={() => handleSwitchCluster(cluster.contextName)}
+                        disabled
+                        title={cluster.error || 'Cluster unreachable'}
+                      >
+                        Unreachable
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Current cluster info */}
+      <Show when={currentCluster()}>
+        <div class="p-4 rounded-lg mt-6" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+          <h3 class="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Current Cluster</h3>
+          <div class="text-sm space-y-1">
+            <div style={{ color: 'var(--text-primary)' }}>
+              <strong>{currentCluster()?.name}</strong>
+            </div>
+            <div style={{ color: 'var(--text-secondary)' }}>
+              Context: {currentCluster()?.contextName}
+            </div>
+            <div style={{ color: 'var(--text-secondary)' }}>
+              Kubeconfig: {currentCluster()?.kubeconfigPath}
+            </div>
+            <Show when={currentCluster()?.error}>
+              <div style={{ color: 'var(--error-color)' }}>
+                Error: {currentCluster()?.error}
+              </div>
+            </Show>
+          </div>
+        </div>
+      </Show>
+    </div>
+  );
+};
+
+export default ClusterManagerSimple;
