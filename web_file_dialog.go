@@ -48,7 +48,8 @@ func (ws *WebServer) handleFileDialog(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Use defaults if no body provided
 		req.Title = "Select kubeconfig file"
-		req.DefaultPath = filepath.Join(os.Getenv("HOME"), ".kube")
+		homeDir, _ := os.UserHomeDir()
+		req.DefaultPath = filepath.Join(homeDir, ".kube")
 	}
 
 	selectedPath, err := openNativeFileDialog(req.Title, req.DefaultPath, req.Filter)

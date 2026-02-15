@@ -64,6 +64,7 @@ func (scm *SimpleClusterManager) loadContexts() error {
 	scm.mu.Lock()
 	defer scm.mu.Unlock()
 
+	// Load all contexts
 	for name, ctx := range config.Contexts {
 		scm.contexts[name] = ctx
 		scm.clusters[name] = &ClusterInfo{
@@ -71,6 +72,17 @@ func (scm *SimpleClusterManager) loadContexts() error {
 			ContextName:    name,
 			KubeconfigPath: scm.kubeconfigPath,
 			IsActive:       false,
+		}
+	}
+
+	// Set the current context from kubeconfig (industry standard pattern)
+	// Similar to how Headlamp, Lens, and k9s detect the active context
+	if config.CurrentContext != "" {
+		if _, exists := scm.contexts[config.CurrentContext]; exists {
+			scm.currentContext = config.CurrentContext
+			if cluster, ok := scm.clusters[config.CurrentContext]; ok {
+				cluster.IsActive = true
+			}
 		}
 	}
 
@@ -262,12 +274,20 @@ func (scm *SimpleClusterManager) Refresh() error {
 	// Clear existing contexts but preserve active state
 	currentBeforeRefresh := scm.currentContext
 
-	// Reload from file
-	if err := scm.loadContexts(); err != nil {
+	// Clear maps
+	scm.clusters = make(map[string]*ClusterInfo)
+	scm.contexts = make(map[string]*api.Context)
+
+	// Temporarily unlock to call loadContexts (it needs to lock)
+	scm.mu.Unlock()
+	err := scm.loadContexts()
+	scm.mu.Lock()
+
+	if err != nil {
 		return fmt.Errorf("failed to refresh: %w", err)
 	}
 
-	// Restore active context
+	// Restore active context (preserve app's selection)
 	if currentBeforeRefresh != "" {
 		if _, exists := scm.contexts[currentBeforeRefresh]; exists {
 			scm.currentContext = currentBeforeRefresh
@@ -282,15 +302,8 @@ func (scm *SimpleClusterManager) Refresh() error {
 
 // getDisplayName creates a human-readable cluster name from context name
 func getDisplayName(contextName string) string {
-	// Try to extract a readable name from the context
-	// If context is too complex, return as-is
-	if len(contextName) > 50 {
-		// For very long names, try to extract the last meaningful part
-		parts := splitContextName(contextName)
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
-		}
-	}
+	// Return the full context name - users should see exactly what cluster they're connected to
+	// This matches kubectl behavior and avoids confusion
 	return contextName
 }
 
