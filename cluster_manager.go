@@ -80,12 +80,10 @@ func NewClusterService(app *App, db *database.Database) *ClusterService {
 	}
 	service.activePath = filepath.Join(dir, "active-kubeconfig")
 
-	// If an active kubeconfig exists and no explicit env var is set, prefer it
-	if os.Getenv("KUBECONFIG") == "" {
-		if _, err := os.Stat(service.activePath); err == nil {
-			_ = os.Setenv("KUBECONFIG", service.activePath)
-		}
-	}
+	// REMOVED: Automatic KUBECONFIG override
+	// Now respects user's actual kubeconfig (~/.kube/config or $KUBECONFIG)
+	// This follows industry standard (Headlamp, Lens, k9s pattern)
+	// active-kubeconfig is still used by Connect() for explicit connections
 
 	return service
 }

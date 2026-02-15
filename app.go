@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -511,5 +512,5 @@ func (a *App) GetKubeconfigPath() string {
 		return kubeconfig
 	}
 	home, _ := os.UserHomeDir()
-	return home + "/.kube/config"
+	return filepath.Join(home, ".kube", "config")
 }

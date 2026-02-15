@@ -8,6 +8,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 // ClusterListResponse represents the response for listing clusters
@@ -126,8 +127,27 @@ func (ws *WebServer) handleClusterSwitch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Update app state
+	// Update app state with the new cluster's clientset
 	ws.app.cluster = req.ContextName
+
+	// CRITICAL: Update app's clientset to the new cluster's clientset
+	// Without this, the app continues using the old cluster's clientset
+	if clientset, err := ws.simpleClusterManager.GetClientset(req.ContextName); err == nil {
+		// Type assertion: Interface -> Concrete type
+		if concreteClientset, ok := clientset.(*kubernetes.Clientset); ok {
+			ws.app.clientset = concreteClientset
+		}
+	} else {
+		fmt.Printf("⚠️  Failed to get clientset for cluster %s: %v\n", req.ContextName, err)
+	}
+
+	// Update metrics client
+	if metricsClient, err := ws.simpleClusterManager.GetMetricsClient(); err == nil {
+		// Type assertion: Interface -> Concrete type
+		if concreteMetricsClient, ok := metricsClient.(*metricsclientset.Clientset); ok {
+			ws.app.metricsClient = concreteMetricsClient
+		}
+	}
 
 	// Reinitialize metrics collector with new cluster
 	ws.reinitializeMetricsCollector()

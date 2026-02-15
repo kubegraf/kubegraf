@@ -220,6 +220,16 @@ const Header: Component = () => {
       setCtxSearch('');
       return;
     }
+
+    // Check if cluster is reachable before attempting switch
+    const targetCluster = simpleClusters().find(c => c.contextName === contextName);
+    if (targetCluster && !targetCluster.isReachable) {
+      addNotification(`Cannot switch to ${contextName} - cluster is unreachable`, 'error');
+      setCtxDropdownOpen(false);
+      setCtxSearch('');
+      return;
+    }
+
     setSwitching(true);
     try {
       await clusterSimpleStore.switchCluster(contextName);
@@ -546,10 +556,13 @@ const Header: Component = () => {
                         return (
                           <button
                             onClick={() => selectContext(cluster.contextName)}
+                            disabled={!cluster.isReachable}
                             class="w-full px-3 py-2 text-sm text-left flex items-center gap-2 transition-colors"
                             style={{
                               background: cluster.isActive ? 'var(--bg-tertiary)' : 'transparent',
                               color: cluster.isActive ? 'var(--accent-primary)' : 'var(--text-primary)',
+                              opacity: cluster.isReachable ? 1 : 0.5,
+                              cursor: cluster.isReachable ? 'pointer' : 'not-allowed',
                             }}
                           >
                             <span class="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColor() }}></span>
@@ -586,13 +599,17 @@ const Header: Component = () => {
                 <span>{simpleClusters().length} cluster{simpleClusters().length !== 1 ? 's' : ''} available</span>
                 <div class="flex items-center gap-2">
                   <button
-                    class="underline"
+                    class="px-4 py-2 rounded-md font-medium text-sm hover:opacity-80 transition-opacity"
+                    style={{
+                      background: 'var(--accent-primary)',
+                      color: '#000'
+                    }}
                     onClick={() => {
                       setCtxDropdownOpen(false);
                       goToClusterManager();
                     }}
                   >
-                    Manage
+                    Manage Clusters
                   </button>
                 </div>
               </div>
