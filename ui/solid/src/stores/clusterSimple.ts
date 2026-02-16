@@ -2,6 +2,8 @@
 // Simplified cluster management store based on industry standards
 import { createSignal, createResource, createEffect } from 'solid-js';
 import { fetchAPI } from '../services/api';
+import { setCluster } from './globalStore';
+import { refreshAll } from './cluster';
 
 // Types
 export interface ClusterInfo {
@@ -44,8 +46,9 @@ const clearErrorTimeout = () => {
 };
 
 // Fetch clusters from API
-const fetchClusters = async (): Promise<ClusterListResponse> => {
-  return fetchAPI<ClusterListResponse>('/v2/clusters');
+const fetchClusters = async (checkHealth = false): Promise<ClusterListResponse> => {
+  const url = checkHealth ? '/v2/clusters?checkHealth=true' : '/v2/clusters';
+  return fetchAPI<ClusterListResponse>(url);
 };
 
 // Resource for automatic data fetching
@@ -80,6 +83,12 @@ export const switchCluster = async (contextName: string): Promise<ClusterSwitchR
       throw new Error(response.error || 'Failed to switch cluster');
     }
 
+    // Update global store to trigger cache invalidation and UI updates
+    setCluster(contextName);
+
+    // Refresh all resources including namespaces
+    refreshAll();
+
     // Refresh cluster list to get updated state
     await refetchClusters();
 
@@ -96,7 +105,7 @@ export const switchCluster = async (contextName: string): Promise<ClusterSwitchR
 };
 
 /**
- * Refresh the cluster list from kubeconfig
+ * Refresh the cluster list from kubeconfig and check health
  */
 export const refreshClusters = async (): Promise<void> => {
   setLoading(true);
@@ -112,8 +121,20 @@ export const refreshClusters = async (): Promise<void> => {
       throw new Error(response.error || 'Failed to refresh clusters');
     }
 
-    // Refresh the data
-    await refetchClusters();
+    // Wait a bit for health checks to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Refresh the data with health check
+    const data = await fetchClusters(true);
+    setClusters(data.clusters || []);
+    setCurrentCluster(data.current || null);
+
+    // Poll for updated health status
+    setTimeout(async () => {
+      const updatedData = await fetchClusters(false);
+      setClusters(updatedData.clusters || []);
+      setCurrentCluster(updatedData.current || null);
+    }, 3000);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';
     setError(`Failed to refresh clusters: ${errorMsg}`);
@@ -121,6 +142,26 @@ export const refreshClusters = async (): Promise<void> => {
     throw err;
   } finally {
     setLoading(false);
+  }
+};
+
+/**
+ * Check health of all clusters in the background
+ */
+export const checkAllClustersHealth = async (): Promise<void> => {
+  try {
+    // Trigger health check
+    const data = await fetchClusters(true);
+
+    // Poll for updated results after health checks complete
+    setTimeout(async () => {
+      const updatedData = await fetchClusters(false);
+      setClusters(updatedData.clusters || []);
+      setCurrentCluster(updatedData.current || null);
+    }, 4000); // Wait 4 seconds for health checks to complete
+
+  } catch (err) {
+    console.error('Failed to check cluster health:', err);
   }
 };
 
@@ -253,6 +294,7 @@ export const clusterSimpleStore = {
   switchCluster,
   refreshClusters,
   checkClusterHealth,
+  checkAllClustersHealth,
   clearError,
 
   // Getters

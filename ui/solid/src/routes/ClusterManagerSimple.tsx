@@ -6,6 +6,11 @@ const ClusterManagerSimple: Component = () => {
   onMount(() => {
     // Initial load of clusters
     clusterSimpleStore.refetchClusters();
+
+    // Check health of all clusters after a short delay
+    setTimeout(() => {
+      clusterSimpleStore.checkAllClustersHealth();
+    }, 1000);
   });
 
   const clusters = clusterSimpleStore.clusters;

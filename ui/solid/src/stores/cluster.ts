@@ -389,7 +389,7 @@ async function switchContext(contextName: string): Promise<void> {
 }
 
 // Create resources with fine-grained reactivity
-const [namespacesResource] = createResource(fetchNamespaces);
+const [namespacesResource, { refetch: refetchNamespaces }] = createResource(fetchNamespaces);
 const [statusResource, { refetch: refetchStatus }] = createResource(fetchClusterStatus);
 const [contextsResource, { refetch: refetchContexts }] = createResource(fetchContexts);
 
@@ -484,12 +484,13 @@ function onClusterSwitch(callback: () => void) {
 
 // Refresh all resources
 function refreshAll() {
+  refetchNamespaces();
   refetchPods();
   refetchDeployments();
   refetchServices();
   refetchNodes();
   refetchStatus();
-  
+
   // Notify all registered callbacks (page-specific cache invalidation)
   clusterSwitchCallbacks.forEach(cb => {
     try {
@@ -498,7 +499,7 @@ function refreshAll() {
       logger.error('Cluster', 'Error in cluster switch callback', e);
     }
   });
-  
+
   // Increment refresh trigger for reactive updates
   setRefreshTrigger(prev => prev + 1);
 }
@@ -532,6 +533,7 @@ export {
   refetchNodes,
   refetchStatus,
   refetchContexts,
+  refetchNamespaces,
   refreshTrigger,
   onClusterSwitch,
   workspaceVersion,
