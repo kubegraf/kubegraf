@@ -88,17 +88,39 @@ func toKubectlYAML(obj k8sruntime.Object, gvk schema.GroupVersionKind) ([]byte, 
 	return yaml.Marshal(obj)
 }
 
+// getCurrentContext returns the current cluster context name
+func (ws *WebServer) getCurrentContext() string {
+	if ws.simpleClusterManager != nil {
+		currentCluster := ws.simpleClusterManager.GetCurrentCluster()
+		if currentCluster != nil {
+			return currentCluster.ContextName
+		}
+	}
+	if ws.app.cluster != "" {
+		return ws.app.cluster
+	}
+	return ""
+}
+
 // runKubectlDescribe runs kubectl describe and returns the output
 // resourceType: pod, deployment, service, statefulset, daemonset, cronjob, job, ingress, configmap, node
 func runKubectlDescribe(resourceType, name, namespace string) (string, error) {
-	var cmd *exec.Cmd
+	return runKubectlDescribeWithContext(resourceType, name, namespace, "")
+}
+
+// runKubectlDescribeWithContext runs kubectl describe with optional context
+func runKubectlDescribeWithContext(resourceType, name, namespace, context string) (string, error) {
+	args := []string{"describe", resourceType, name}
+
 	if namespace != "" {
-		cmd = exec.Command("kubectl", "describe", resourceType, name, "-n", namespace)
-	} else {
-		// For cluster-scoped resources like nodes
-		cmd = exec.Command("kubectl", "describe", resourceType, name)
+		args = append(args, "-n", namespace)
 	}
 
+	if context != "" {
+		args = append(args, "--context", context)
+	}
+
+	cmd := exec.Command("kubectl", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("kubectl describe failed: %s - %v", string(output), err)
@@ -4487,7 +4509,7 @@ func (ws *WebServer) handlePodUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handlePodDescribe returns the describe output for a pod using kubectl describe
+// handlePodDescribe returns the describe output for a pod
 func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -4505,7 +4527,7 @@ func (ws *WebServer) handlePodDescribe(w http.ResponseWriter, r *http.Request) {
 		namespace = ws.app.namespace
 	}
 
-	describe, err := runKubectlDescribe("pod", name, namespace)
+	describe, err := runKubectlDescribeWithContext("pod", name, namespace, ws.getCurrentContext())
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4595,7 +4617,7 @@ func (ws *WebServer) handleDeploymentDescribe(w http.ResponseWriter, r *http.Req
 		namespace = ws.app.namespace
 	}
 
-	describe, err := runKubectlDescribe("deployment", name, namespace)
+	describe, err := runKubectlDescribeWithContext("deployment", name, namespace, ws.getCurrentContext())
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4685,7 +4707,7 @@ func (ws *WebServer) handleServiceDescribe(w http.ResponseWriter, r *http.Reques
 		namespace = ws.app.namespace
 	}
 
-	describe, err := runKubectlDescribe("service", name, namespace)
+	describe, err := runKubectlDescribeWithContext("service", name, namespace, ws.getCurrentContext())
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,

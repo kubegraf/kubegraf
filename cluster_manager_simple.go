@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -264,6 +265,59 @@ func (scm *SimpleClusterManager) updateClusterHealth(contextName string, reachab
 			cluster.Error = ""
 		}
 	}
+}
+
+// CheckAllClustersHealth checks the health of all clusters concurrently
+func (scm *SimpleClusterManager) CheckAllClustersHealth() {
+	scm.mu.RLock()
+	contextNames := make([]string, 0, len(scm.contexts))
+	for name := range scm.contexts {
+		contextNames = append(contextNames, name)
+	}
+	scm.mu.RUnlock()
+
+	// Check clusters concurrently with a limit
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 5) // Limit to 5 concurrent checks
+
+	for _, contextName := range contextNames {
+		wg.Add(1)
+		go func(ctx string) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire
+			defer func() { <-semaphore }() // Release
+
+			// Quick health check
+			loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: scm.kubeconfigPath}
+			configOverrides := &clientcmd.ConfigOverrides{CurrentContext: ctx}
+			kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+
+			restConfig, err := kubeConfig.ClientConfig()
+			if err != nil {
+				scm.updateClusterHealth(ctx, false, err.Error())
+				return
+			}
+
+			// Set a short timeout for health checks
+			restConfig.Timeout = 3 * time.Second
+
+			clientset, err := kubernetes.NewForConfig(restConfig)
+			if err != nil {
+				scm.updateClusterHealth(ctx, false, err.Error())
+				return
+			}
+
+			// Check if cluster is reachable
+			_, err = clientset.Discovery().ServerVersion()
+			if err != nil {
+				scm.updateClusterHealth(ctx, false, err.Error())
+			} else {
+				scm.updateClusterHealth(ctx, true, "")
+			}
+		}(contextName)
+	}
+
+	wg.Wait()
 }
 
 // Refresh reloads contexts from kubeconfig file

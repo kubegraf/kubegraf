@@ -61,6 +61,13 @@ func (ws *WebServer) handleClustersList(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check if health check is requested
+	checkHealth := r.URL.Query().Get("checkHealth")
+	if checkHealth == "true" {
+		// Run health check in background to avoid blocking
+		go ws.simpleClusterManager.CheckAllClustersHealth()
+	}
+
 	clusters := ws.simpleClusterManager.ListClusters()
 	current := ws.simpleClusterManager.GetCurrentCluster()
 
@@ -271,9 +278,12 @@ func (ws *WebServer) handleRefreshClustersList(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Check health of all clusters after refresh
+	go ws.simpleClusterManager.CheckAllClustersHealth()
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": "Clusters refreshed successfully",
+		"message": "Clusters refreshed successfully, checking health...",
 	})
 }
