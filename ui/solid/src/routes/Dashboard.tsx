@@ -671,17 +671,34 @@ const Dashboard: Component = () => {
               </p>
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <div 
-              class="w-2 h-2 rounded-full animate-pulse"
-              style={{ 
-                background: metricsStatus().connected ? '#22c55e' : '#ef4444',
-                'box-shadow': `0 0 8px ${metricsStatus().connected ? '#22c55e' : '#ef4444'}`,
-              }}
-            />
-            <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
-              {metricsStatus().connected ? 'Live' : metricsStatus().reconnecting ? 'Reconnecting...' : 'Disconnected'}
-            </span>
+          <div class="flex items-center gap-3">
+            {/* Connection Status */}
+            <div class="flex items-center gap-2">
+              <div
+                class="w-2 h-2 rounded-full animate-pulse"
+                style={{
+                  background: metricsStatus().connected ? '#22c55e' : '#ef4444',
+                  'box-shadow': `0 0 8px ${metricsStatus().connected ? '#22c55e' : '#ef4444'}`,
+                }}
+              />
+              <span class="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                {metricsStatus().connected ? 'Live' : metricsStatus().reconnecting ? 'Reconnecting...' : 'Disconnected'}
+              </span>
+            </div>
+
+            {/* Data Source Indicator */}
+            <Show when={latestPoint()?.source && latestPoint()?.source !== 'unavailable'}>
+              <div
+                class="px-2 py-1 rounded text-xs font-medium"
+                style={{
+                  background: latestPoint()?.source === 'metrics_api' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                  color: latestPoint()?.source === 'metrics_api' ? 'var(--success-color)' : 'var(--warning-color)',
+                  border: `1px solid ${latestPoint()?.source === 'metrics_api' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                }}
+              >
+                {latestPoint()?.source === 'metrics_api' ? '📊 Metrics API' : '⚡ Summary API'}
+              </div>
+            </Show>
           </div>
         </div>
         <CpuMemChart height={200} showLegend />
