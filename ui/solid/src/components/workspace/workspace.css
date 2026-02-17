@@ -1,0 +1,729 @@
+/**
+ * Intelligent Workspace Styles
+ * KubeGraf Unique UI Design
+ */
+
+/* ============================================
+   Variables
+   ============================================ */
+:root {
+  /* Intelligence Blue (KubeGraf Identity) */
+  --intelligence-primary: #4F46E5;
+  --intelligence-light: #818CF8;
+  --intelligence-dark: #3730A3;
+  --intelligence-glow: rgba(79, 70, 229, 0.3);
+
+  /* Confidence Gradients */
+  --confidence-high: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  --confidence-medium: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  --confidence-low: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+
+  /* Severity Colors */
+  --severity-critical: #DC2626;
+  --severity-high: #F59E0B;
+  --severity-medium: #FCD34D;
+  --severity-low: #60A5FA;
+
+  /* Backgrounds */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F9FAFB;
+  --bg-elevated: linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%);
+  --bg-intelligence: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+
+  /* Text */
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+
+  /* Borders */
+  --border-color: #E5E7EB;
+  --border-dark: #D1D5DB;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   Workspace Container
+   ============================================ */
+.intelligent-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background: var(--bg-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* ============================================
+   Workspace Header
+   ============================================ */
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-intelligence);
+  border-bottom: 1px solid var(--border-color);
+  height: 64px;
+  flex-shrink: 0;
+}
+
+.workspace-title h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--intelligence-dark);
+  letter-spacing: 0.5px;
+}
+
+.workspace-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.status-icon {
+  font-size: 16px;
+}
+
+.status-icon.live-pulse {
+  animation: intelligence-pulse 3s ease-in-out infinite;
+}
+
+@keyframes intelligence-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+.workspace-settings-btn,
+.workspace-close-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: var(--space-2);
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s ease;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-settings-btn:hover,
+.workspace-close-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--intelligence-primary);
+}
+
+/* ============================================
+   Three-Panel Layout
+   ============================================ */
+.workspace-panels {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 1px;
+  background: var(--border-color);
+}
+
+/* Context Navigator (Left - 20%) */
+.context-navigator {
+  width: 20%;
+  min-width: 250px;
+  max-width: 350px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+/* Investigation Workspace (Center - 60%) */
+.investigation-workspace {
+  flex: 1;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Intelligence Assistant (Right - 20%) */
+.intelligence-assistant {
+  width: 20%;
+  min-width: 250px;
+  max-width: 350px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+/* ============================================
+   Context Navigator Styles
+   ============================================ */
+.panel-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.panel-header h2 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+.filter-section {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.filter-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.filter-chip:hover {
+  border-color: var(--intelligence-primary);
+  background: var(--intelligence-primary);
+  color: white;
+}
+
+.filter-chip.active {
+  background: var(--intelligence-primary);
+  border-color: var(--intelligence-primary);
+  color: white;
+  font-weight: 600;
+}
+
+.filter-chip.filter-critical.active {
+  background: var(--severity-critical);
+  border-color: var(--severity-critical);
+}
+
+.filter-chip.filter-high.active {
+  background: var(--severity-high);
+  border-color: var(--severity-high);
+}
+
+/* Incident List */
+.incident-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.incident-mini-card {
+  background: var(--bg-secondary);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.incident-mini-card:hover {
+  background: white;
+  border-color: var(--intelligence-light);
+  box-shadow: var(--shadow-md);
+  transform: translateX(4px);
+}
+
+.incident-mini-card.selected {
+  background: var(--bg-intelligence);
+  border-color: var(--intelligence-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.incident-mini-card.critical {
+  border-left: 4px solid var(--severity-critical);
+}
+
+.incident-mini-card.high {
+  border-left: 4px solid var(--severity-high);
+}
+
+.incident-mini-card.medium {
+  border-left: 4px solid var(--severity-medium);
+}
+
+.mini-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mini-card-indicator {
+  font-size: 16px;
+  color: var(--intelligence-primary);
+}
+
+.mini-card-id {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.mini-card-pattern {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-card-confidence {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.confidence-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  background: var(--confidence-high);
+  transition: width 0.3s ease;
+}
+
+.confidence-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 35px;
+  text-align: right;
+}
+
+.mini-card-fixes {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ============================================
+   Investigation Workspace Styles
+   ============================================ */
+.workspace-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  color: var(--text-secondary);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--intelligence-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.incident-header {
+  padding: var(--space-6);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.incident-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.incident-title h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.severity-badge {
+  padding: var(--space-1) var(--space-3);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.severity-badge[data-severity="critical"] {
+  background: var(--severity-critical);
+  color: white;
+}
+
+.severity-badge[data-severity="high"] {
+  background: var(--severity-high);
+  color: white;
+}
+
+.severity-badge[data-severity="medium"] {
+  background: var(--severity-medium);
+  color: var(--text-primary);
+}
+
+.incident-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.incident-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+
+.content-placeholder {
+  background: var(--bg-secondary);
+  border: 2px dashed var(--border-dark);
+  border-radius: 8px;
+  padding: var(--space-8);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.content-placeholder p {
+  margin: var(--space-2) 0;
+}
+
+.content-placeholder ul {
+  text-align: left;
+  max-width: 400px;
+  margin: var(--space-4) auto;
+}
+
+/* Action Footer */
+.action-footer {
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.action-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.action-btn.primary {
+  background: var(--intelligence-primary);
+  color: white;
+  border-color: var(--intelligence-primary);
+}
+
+.action-btn.primary:hover {
+  background: var(--intelligence-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.action-btn.secondary {
+  background: white;
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.action-btn.secondary:hover {
+  border-color: var(--intelligence-primary);
+  color: var(--intelligence-primary);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   Intelligence Assistant Styles
+   ============================================ */
+.intelligence-section {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.intelligence-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0 0 var(--space-3) 0;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.insights-content,
+.related-content,
+.actions-content,
+.learning-content {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.insight-item,
+.related-item {
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.quick-action-btn {
+  width: 100%;
+  background: var(--bg-intelligence);
+  border: 1px solid var(--intelligence-light);
+  border-radius: 8px;
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.quick-action-btn:hover {
+  background: var(--intelligence-primary);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.action-icon {
+  font-size: 16px;
+}
+
+.action-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.action-confidence {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) 0;
+  font-size: 12px;
+}
+
+.stat-label {
+  color: var(--text-secondary);
+}
+
+.stat-value {
+  font-weight: 600;
+  color: var(--intelligence-primary);
+}
+
+.health-score {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.health-gauge {
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.health-fill {
+  height: 100%;
+  background: var(--confidence-high);
+  transition: width 0.5s ease;
+}
+
+.health-label {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--intelligence-primary);
+  text-align: center;
+}
+
+/* ============================================
+   Workspace Footer
+   ============================================ */
+.workspace-footer {
+  padding: var(--space-2) var(--space-6);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.shortcut-hints {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+  color: var(--text-muted);
+  justify-content: center;
+}
+
+.shortcut-hint {
+  font-family: monospace;
+  background: var(--bg-primary);
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.shortcut-separator {
+  opacity: 0.5;
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+  .context-navigator,
+  .intelligence-assistant {
+    width: 280px;
+    min-width: 280px;
+  }
+}
+
+/* Mobile (<768px) */
+@media (max-width: 768px) {
+  .intelligent-workspace[data-mobile="true"] .workspace-panels {
+    flex-direction: column;
+  }
+
+  .intelligent-workspace[data-mobile="true"] .context-navigator,
+  .intelligent-workspace[data-mobile="true"] .intelligence-assistant {
+    display: none;
+  }
+
+  .intelligent-workspace[data-mobile="true"] .investigation-workspace {
+    width: 100%;
+  }
+
+  .workspace-header {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .workspace-title h1 {
+    font-size: 14px;
+  }
+
+  .action-footer {
+    flex-wrap: wrap;
+  }
+
+  .action-btn {
+    flex: 1;
+    min-width: 120px;
+  }
+}
+
+/* Dark Mode Support (placeholder) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1F2937;
+    --bg-secondary: #374151;
+    --text-primary: #F9FAFB;
+    --text-secondary: #D1D5DB;
+    --text-muted: #9CA3AF;
+    --border-color: #4B5563;
+    --border-dark: #6B7280;
+  }
+}
