@@ -4,6 +4,9 @@
  */
 
 export { default as IntelligentWorkspace } from './IntelligentWorkspace';
+export { default as ContextNavigator } from './ContextNavigator';
+export { default as InvestigationWorkspace } from './InvestigationWorkspace';
+export { default as IntelligenceAssistant } from './IntelligenceAssistant';
 
 // Export types
-export type { } from './IntelligentWorkspace';
+export type { FilterState } from './ContextNavigator';

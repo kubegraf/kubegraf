@@ -5,13 +5,17 @@
  *
  * Features:
  * - Adaptive layout based on confidence
- * - Keyboard navigation (J/K, Enter, ESC)
+ * - Keyboard navigation (J/K, Enter, ESC, [/])
  * - Responsive design
  * - Spatial memory navigation
+ * - Integrated panel components
  */
 
-import { Component, createSignal, createEffect, Show, For, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, createMemo, Show, onMount, onCleanup } from 'solid-js';
 import { Incident } from '../../services/api';
+import ContextNavigator, { FilterState } from './ContextNavigator';
+import InvestigationWorkspace from './InvestigationWorkspace';
+import IntelligenceAssistant from './IntelligenceAssistant';
 import './workspace.css';
 
 interface IntelligentWorkspaceProps {
@@ -39,49 +43,92 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     isMobile: false,
   });
 
-  const [filterState, setFilterState] = createSignal({
-    severity: [] as string[],
-    pattern: [] as string[],
-    namespace: [] as string[],
-    status: [] as string[],
+  const [filters, setFilters] = createSignal<FilterState>({
+    severity: [],
+    pattern: [],
+    namespace: [],
+    status: [],
+    searchQuery: '',
   });
 
   // Computed values
-  const currentIncident = () => {
+  const currentIncident = createMemo(() => {
     const incidents = props.incidents || [];
     const idx = state().selectedIndex;
     return incidents[idx] || null;
+  });
+
+  // Calculate cluster health
+  const clusterHealth = createMemo(() => {
+    const incidents = props.incidents || [];
+    if (incidents.length === 0) return 100;
+
+    const critical = incidents.filter((i) => i.severity === 'critical').length;
+    const high = incidents.filter((i) => i.severity === 'high').length;
+
+    // Simple health calculation: 100 - (critical * 10) - (high * 5)
+    const health = Math.max(0, 100 - critical * 10 - high * 5);
+    return health;
+  });
+
+  // Handlers
+  const handleSelectIncident = (index: number) => {
+    const incident = props.incidents[index];
+    setState((prev) => ({
+      ...prev,
+      selectedIndex: index,
+      currentIncidentId: incident?.id || null,
+    }));
+
+    if (incident && props.onIncidentSelect) {
+      props.onIncidentSelect(incident);
+    }
   };
 
-  const filteredIncidents = () => {
-    const incidents = props.incidents || [];
-    const filters = filterState();
+  const handleFilterChange = (newFilters: FilterState) => {
+    setFilters(newFilters);
+    // Reset selection when filters change
+    setState((prev) => ({ ...prev, selectedIndex: 0 }));
+  };
 
-    return incidents.filter((inc) => {
-      if (filters.severity.length > 0 && !filters.severity.includes(inc.severity)) {
-        return false;
-      }
-      if (filters.pattern.length > 0 && !filters.pattern.includes(inc.pattern || '')) {
-        return false;
-      }
-      return true;
-    });
+  const handlePrevious = () => {
+    if (state().selectedIndex > 0) {
+      handleSelectIncident(state().selectedIndex - 1);
+    }
+  };
+
+  const handleNext = () => {
+    if (state().selectedIndex < props.incidents.length - 1) {
+      handleSelectIncident(state().selectedIndex + 1);
+    }
+  };
+
+  const handleResolve = () => {
+    console.log('Resolve incident:', currentIncident()?.id);
+    // TODO: Implement resolve functionality in Phase 4
+  };
+
+  const handleDownloadRCA = () => {
+    console.log('Download RCA for incident:', currentIncident()?.id);
+    // TODO: Implement RCA download in Phase 4
+  };
+
+  const handleQuickAction = (actionId: string) => {
+    console.log('Quick action:', actionId, 'for incident:', currentIncident()?.id);
+    // TODO: Implement quick action execution in Phase 4
   };
 
   // Keyboard navigation
   const handleKeyDown = (e: KeyboardEvent) => {
     const currentState = state();
-    const incidents = filteredIncidents();
+    const incidents = props.incidents || [];
 
     switch (e.key) {
       case 'j':
       case 'ArrowDown':
         e.preventDefault();
         if (currentState.selectedIndex < incidents.length - 1) {
-          setState({
-            ...currentState,
-            selectedIndex: currentState.selectedIndex + 1,
-          });
+          handleNext();
         }
         break;
 
@@ -89,10 +136,7 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
       case 'ArrowUp':
         e.preventDefault();
         if (currentState.selectedIndex > 0) {
-          setState({
-            ...currentState,
-            selectedIndex: currentState.selectedIndex - 1,
-          });
+          handlePrevious();
         }
         break;
 
@@ -114,26 +158,26 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
       case '[':
         if (e.metaKey || e.ctrlKey) {
           e.preventDefault();
-          setState({
-            ...currentState,
-            contextNavigatorVisible: !currentState.contextNavigatorVisible,
-          });
+          setState((prev) => ({
+            ...prev,
+            contextNavigatorVisible: !prev.contextNavigatorVisible,
+          }));
         }
         break;
 
       case ']':
         if (e.metaKey || e.ctrlKey) {
           e.preventDefault();
-          setState({
-            ...currentState,
-            intelligenceAssistantVisible: !currentState.intelligenceAssistantVisible,
-          });
+          setState((prev) => ({
+            ...prev,
+            intelligenceAssistantVisible: !prev.intelligenceAssistantVisible,
+          }));
         }
         break;
 
       case '?':
         e.preventDefault();
-        // Show keyboard shortcuts help (TODO: implement)
+        // Show keyboard shortcuts help (TODO: implement in Phase 5)
         console.log('Keyboard shortcuts help');
         break;
     }
@@ -173,19 +217,6 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('resize', checkMobile);
   });
-
-  // Calculate cluster health (placeholder)
-  const clusterHealth = () => {
-    const incidents = props.incidents || [];
-    if (incidents.length === 0) return 100;
-
-    const critical = incidents.filter((i) => i.severity === 'critical').length;
-    const high = incidents.filter((i) => i.severity === 'high').length;
-
-    // Simple health calculation: 100 - (critical * 10) - (high * 5)
-    const health = Math.max(0, 100 - (critical * 10) - (high * 5));
-    return health;
-  };
 
   return (
     <div class="intelligent-workspace" data-mobile={state().isMobile}>
@@ -228,256 +259,36 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
       <div class="workspace-panels">
         {/* Context Navigator (Left Panel - 20%) */}
         <Show when={state().contextNavigatorVisible}>
-          <aside class="context-navigator" role="navigation" aria-label="Incident list">
-            <div class="panel-header">
-              <h2>CONTEXT</h2>
-            </div>
-
-            <div class="filter-section">
-              <div class="filter-label">🔍 Filter</div>
-              <div class="filter-chips">
-                <button
-                  class="filter-chip"
-                  classList={{ active: filterState().severity.length === 0 }}
-                  onClick={() => setFilterState({ ...filterState(), severity: [] })}
-                >
-                  All ({props.incidents?.length || 0})
-                </button>
-                <button
-                  class="filter-chip filter-critical"
-                  classList={{ active: filterState().severity.includes('critical') }}
-                  onClick={() => {
-                    const current = filterState().severity;
-                    const updated = current.includes('critical')
-                      ? current.filter((s) => s !== 'critical')
-                      : ['critical'];
-                    setFilterState({ ...filterState(), severity: updated });
-                  }}
-                >
-                  🔴 Critical
-                </button>
-                <button
-                  class="filter-chip filter-high"
-                  classList={{ active: filterState().severity.includes('high') }}
-                  onClick={() => {
-                    const current = filterState().severity;
-                    const updated = current.includes('high')
-                      ? current.filter((s) => s !== 'high')
-                      : ['high'];
-                    setFilterState({ ...filterState(), severity: updated });
-                  }}
-                >
-                  🟠 High
-                </button>
-              </div>
-            </div>
-
-            <div class="incident-list">
-              <For each={filteredIncidents()}>
-                {(incident, index) => (
-                  <button
-                    class="incident-mini-card"
-                    classList={{
-                      selected: index() === state().selectedIndex,
-                      critical: incident.severity === 'critical',
-                      high: incident.severity === 'high',
-                      medium: incident.severity === 'medium',
-                    }}
-                    onClick={() => {
-                      setState((prev) => ({
-                        ...prev,
-                        selectedIndex: index(),
-                        currentIncidentId: incident.id,
-                      }));
-                      if (props.onIncidentSelect) {
-                        props.onIncidentSelect(incident);
-                      }
-                    }}
-                    aria-selected={index() === state().selectedIndex}
-                    aria-label={`Incident ${index() + 1}: ${incident.title}, ${incident.severity} severity`}
-                  >
-                    <div class="mini-card-header">
-                      <span class="mini-card-indicator">
-                        {index() === state().selectedIndex ? '●' : '○'}
-                      </span>
-                      <span class="mini-card-id">#{index() + 1}</span>
-                    </div>
-
-                    <div class="mini-card-pattern">
-                      {incident.pattern || 'UNKNOWN'}
-                    </div>
-
-                    <div class="mini-card-confidence">
-                      <div class="confidence-bar">
-                        <div
-                          class="confidence-fill"
-                          style={{
-                            width: `${incident.diagnosis?.confidence || 0}%`,
-                          }}
-                        />
-                      </div>
-                      <span class="confidence-label">
-                        {Math.round(incident.diagnosis?.confidence || 0)}%
-                      </span>
-                    </div>
-
-                    <div class="mini-card-fixes">
-                      {incident.recommendations?.length || 0} fixes
-                    </div>
-                  </button>
-                )}
-              </For>
-            </div>
-          </aside>
+          <ContextNavigator
+            incidents={props.incidents || []}
+            currentIndex={state().selectedIndex}
+            onSelectIncident={handleSelectIncident}
+            onFilterChange={handleFilterChange}
+          />
         </Show>
 
         {/* Investigation Workspace (Center Panel - 60%) */}
-        <main class="investigation-workspace" role="main" aria-label="Incident details">
-          <Show
-            when={!props.isLoading && currentIncident()}
-            fallback={
-              <div class="workspace-loading">
-                <div class="loading-spinner" />
-                <p>Loading incident details...</p>
-              </div>
-            }
-          >
-            <div class="workspace-content">
-              <div class="incident-header">
-                <div class="incident-title">
-                  <span class="severity-badge" data-severity={currentIncident()?.severity}>
-                    {currentIncident()?.severity?.toUpperCase()}
-                  </span>
-                  <h2>{currentIncident()?.resource?.name || 'Unknown Resource'}</h2>
-                </div>
-
-                <div class="incident-meta">
-                  <span>
-                    {currentIncident()?.resource?.namespace || 'default'}/
-                    {currentIncident()?.resource?.kind || 'Unknown'}
-                  </span>
-                  <span>•</span>
-                  <span>First: {currentIncident()?.firstSeen ? new Date(currentIncident()!.firstSeen).toLocaleString() : 'Unknown'}</span>
-                  <span>•</span>
-                  <span>Occurrences: {currentIncident()?.occurrences || 0}</span>
-                </div>
-              </div>
-
-              {/* Placeholder for adaptive layouts */}
-              <div class="incident-content">
-                <div class="content-placeholder">
-                  <p>📊 Incident content will be rendered here</p>
-                  <p>Layout adapts based on confidence level:</p>
-                  <ul>
-                    <li>≥95% confidence: Action-first layout</li>
-                    <li>&lt;95% confidence: Investigation layout</li>
-                  </ul>
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <footer class="action-footer">
-                <button
-                  class="action-btn secondary"
-                  onClick={() => {
-                    const idx = state().selectedIndex;
-                    if (idx > 0) {
-                      setState((prev) => ({
-                        ...prev,
-                        selectedIndex: idx - 1,
-                      }));
-                    }
-                  }}
-                  disabled={state().selectedIndex === 0}
-                >
-                  ◄ Previous
-                </button>
-
-                <button class="action-btn secondary">
-                  Download RCA
-                </button>
-
-                <button class="action-btn primary">
-                  Mark Resolved
-                </button>
-
-                <button
-                  class="action-btn secondary"
-                  onClick={() => {
-                    const idx = state().selectedIndex;
-                    const incidents = filteredIncidents();
-                    if (idx < incidents.length - 1) {
-                      setState((prev) => ({
-                        ...prev,
-                        selectedIndex: idx + 1,
-                      }));
-                    }
-                  }}
-                  disabled={state().selectedIndex >= filteredIncidents().length - 1}
-                >
-                  Next ►
-                </button>
-              </footer>
-            </div>
-          </Show>
-        </main>
+        <InvestigationWorkspace
+          incident={currentIncident()}
+          isLoading={props.isLoading}
+          onPrevious={handlePrevious}
+          onNext={handleNext}
+          onResolve={handleResolve}
+          onDownloadRCA={handleDownloadRCA}
+          canNavigatePrevious={state().selectedIndex > 0}
+          canNavigateNext={state().selectedIndex < (props.incidents?.length || 0) - 1}
+          currentIndex={state().selectedIndex}
+          totalIncidents={props.incidents?.length || 0}
+        />
 
         {/* Intelligence Assistant (Right Panel - 20%) */}
         <Show when={state().intelligenceAssistantVisible}>
-          <aside class="intelligence-assistant" role="complementary" aria-label="Intelligence insights">
-            <div class="panel-header">
-              <h2>INTELLIGENCE</h2>
-            </div>
-
-            <div class="intelligence-section">
-              <h3>💡 Insights</h3>
-              <div class="insights-content">
-                <p class="insight-item">Pattern matching in progress...</p>
-              </div>
-            </div>
-
-            <div class="intelligence-section">
-              <h3>🔗 Related</h3>
-              <div class="related-content">
-                <p class="related-item">Finding similar incidents...</p>
-              </div>
-            </div>
-
-            <div class="intelligence-section">
-              <h3>🎯 Actions</h3>
-              <div class="actions-content">
-                <button class="quick-action-btn">
-                  <span class="action-icon">⚡</span>
-                  <span class="action-label">Quick Fix</span>
-                  <span class="action-confidence">95% ✓</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="intelligence-section">
-              <h3>📚 Learning</h3>
-              <div class="learning-content">
-                <div class="stat-item">
-                  <span class="stat-label">Incidents this week:</span>
-                  <span class="stat-value">{props.incidents?.length || 0}</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Auto-fixed:</span>
-                  <span class="stat-value">0</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="intelligence-section">
-              <h3>🏥 Health</h3>
-              <div class="health-score">
-                <div class="health-gauge">
-                  <div class="health-fill" style={{ width: `${clusterHealth()}%` }} />
-                </div>
-                <span class="health-label">{clusterHealth()}%</span>
-              </div>
-            </div>
-          </aside>
+          <IntelligenceAssistant
+            incident={currentIncident()}
+            allIncidents={props.incidents}
+            clusterHealth={clusterHealth()}
+            onQuickAction={handleQuickAction}
+          />
         </Show>
       </div>
 
@@ -489,6 +300,8 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
           <span class="shortcut-hint">Enter: Select</span>
           <span class="shortcut-separator">•</span>
           <span class="shortcut-hint">ESC: Close</span>
+          <span class="shortcut-separator">•</span>
+          <span class="shortcut-hint">Cmd+[/]: Toggle Panels</span>
           <span class="shortcut-separator">•</span>
           <span class="shortcut-hint">?: Help</span>
         </div>
