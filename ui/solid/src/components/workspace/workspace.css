@@ -1542,16 +1542,95 @@
    Responsive Design
    ============================================ */
 
-/* Tablet (768px - 1024px) */
-@media (max-width: 1024px) {
+/* Large Desktop (>1440px) */
+@media (min-width: 1441px) {
   .context-navigator,
   .intelligence-assistant {
-    width: 280px;
-    min-width: 280px;
+    max-width: 400px;
+  }
+
+  .incident-title h2 {
+    font-size: 22px;
+  }
+
+  .mini-card-pattern,
+  .related-pattern {
+    font-size: 13px;
   }
 }
 
-/* Mobile (<768px) */
+/* Standard Desktop (1024px - 1440px) */
+@media (min-width: 1025px) and (max-width: 1440px) {
+  .context-navigator,
+  .intelligence-assistant {
+    width: 22%;
+    min-width: 280px;
+    max-width: 320px;
+  }
+}
+
+/* Tablet & Small Desktop (768px - 1024px) */
+@media (max-width: 1024px) {
+  .context-navigator,
+  .intelligence-assistant {
+    width: 25%;
+    min-width: 240px;
+    max-width: 280px;
+  }
+
+  .workspace-title h1 {
+    font-size: 14px;
+  }
+
+  .status-item {
+    font-size: 13px;
+  }
+
+  .incident-header {
+    padding: var(--space-4);
+  }
+
+  .incident-title h2 {
+    font-size: 18px;
+  }
+
+  .meta-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .incident-content-area {
+    padding: var(--space-4);
+  }
+}
+
+/* Tablet Portrait (max-width: 900px) */
+@media (max-width: 900px) {
+  .workspace-status {
+    gap: var(--space-2);
+  }
+
+  .status-item .status-label {
+    display: none;
+  }
+
+  .status-icon {
+    font-size: 18px;
+  }
+
+  .shortcut-hints {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .shortcut-hint {
+    font-size: 10px;
+    padding: 2px 4px;
+  }
+}
+
+/* Mobile & Small Tablet (<768px) */
 @media (max-width: 768px) {
   .intelligent-workspace[data-mobile="true"] .workspace-panels {
     flex-direction: column;
@@ -1568,19 +1647,148 @@
 
   .workspace-header {
     padding: var(--space-3) var(--space-4);
+    height: auto;
   }
 
   .workspace-title h1 {
+    font-size: 13px;
+    letter-spacing: 0.3px;
+  }
+
+  .workspace-settings-btn,
+  .workspace-close-btn {
+    width: 28px;
+    height: 28px;
     font-size: 14px;
   }
 
-  .action-footer {
+  .incident-header {
+    padding: var(--space-3);
+  }
+
+  .incident-badges {
     flex-wrap: wrap;
+  }
+
+  .incident-title h2 {
+    font-size: 16px;
+  }
+
+  .meta-item {
+    font-size: 12px;
+  }
+
+  .meta-icon {
+    font-size: 12px;
+  }
+
+  .incident-content-area {
+    padding: var(--space-3);
+  }
+
+  .content-placeholder {
+    padding: var(--space-4);
+  }
+
+  .info-section h3 {
+    font-size: 13px;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .section-content {
+    padding: var(--space-3);
+  }
+
+  .action-footer {
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .footer-navigation,
+  .footer-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .action-btn {
     flex: 1;
-    min-width: 120px;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    font-size: 13px;
+  }
+
+  .action-btn .btn-label {
+    display: none;
+  }
+
+  .action-btn .btn-icon {
+    font-size: 16px;
+  }
+
+  .workspace-footer {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .shortcut-hints {
+    display: none;
+  }
+}
+
+/* Mobile Small (<480px) */
+@media (max-width: 480px) {
+  .workspace-header {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .workspace-title h1 {
+    font-size: 12px;
+  }
+
+  .workspace-status {
+    gap: var(--space-1);
+  }
+
+  .status-item {
+    gap: var(--space-1);
+  }
+
+  .workspace-settings-btn,
+  .workspace-close-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+
+  .incident-header {
+    padding: var(--space-2);
+  }
+
+  .incident-title h2 {
+    font-size: 14px;
+  }
+
+  .severity-badge {
+    font-size: 10px;
+    padding: 2px var(--space-2);
+  }
+
+  .incident-content-area {
+    padding: var(--space-2);
+  }
+
+  .layout-badge {
+    font-size: 11px;
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .action-footer {
+    padding: var(--space-2);
+  }
+
+  .action-btn {
+    padding: var(--space-2);
+    font-size: 12px;
   }
 }
 
