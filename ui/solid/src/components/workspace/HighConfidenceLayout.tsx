@@ -10,12 +10,14 @@
  * - Collapsed diagnosis details
  */
 
-import { Component, Show, For, createSignal } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { Incident } from '../../services/api';
 import IncidentStory from './IncidentStory';
+import { FixSuccessPredictor } from './fixSuccessPredictor';
 
 interface HighConfidenceLayoutProps {
   incident: Incident;
+  allIncidents?: Incident[];
   onApplyFix?: (fixId: string) => void;
   onViewDetails?: () => void;
 }
@@ -58,12 +60,17 @@ const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
     setSelectedFixId(null);
   };
 
-  // Calculate success probability (mock - will be ML-based in production)
-  const successProbability = () => {
-    const conf = confidence();
-    // High confidence incidents have high success probability
-    return Math.min(99, Math.round(conf * 0.95 + Math.random() * 5));
-  };
+  // Calculate success probability using ML-ready predictor
+  const successPrediction = createMemo(() => {
+    const fixId = primaryFix()?.id || 'primary-fix';
+    return FixSuccessPredictor.predictSuccess(
+      props.incident,
+      fixId,
+      props.allIncidents || []
+    );
+  });
+
+  const successProbability = () => successPrediction().probability;
 
   return (
     <div class="high-confidence-layout">

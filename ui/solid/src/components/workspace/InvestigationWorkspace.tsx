@@ -16,6 +16,7 @@ import InvestigationLayout from './InvestigationLayout';
 
 interface InvestigationWorkspaceProps {
   incident: Incident | null;
+  allIncidents?: Incident[];
   isLoading?: boolean;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -192,6 +193,7 @@ const InvestigationWorkspace: Component<InvestigationWorkspaceProps> = (props) =
                 {/* High Confidence Mode Layout (≥ 95% confidence) */}
                 <HighConfidenceLayout
                   incident={props.incident!}
+                  allIncidents={props.allIncidents}
                   onApplyFix={handleApplyFix}
                   onViewDetails={handleViewDetails}
                 />

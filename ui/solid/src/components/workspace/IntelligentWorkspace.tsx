@@ -270,6 +270,7 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
         {/* Investigation Workspace (Center Panel - 60%) */}
         <InvestigationWorkspace
           incident={currentIncident()}
+          allIncidents={props.incidents}
           isLoading={props.isLoading}
           onPrevious={handlePrevious}
           onNext={handleNext}
