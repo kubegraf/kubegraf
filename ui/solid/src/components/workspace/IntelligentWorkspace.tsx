@@ -16,6 +16,7 @@ import { Incident } from '../../services/api';
 import ContextNavigator, { FilterState } from './ContextNavigator';
 import InvestigationWorkspace from './InvestigationWorkspace';
 import IntelligenceAssistant from './IntelligenceAssistant';
+import WorkspaceErrorBoundary from './ErrorBoundary';
 import './workspace.css';
 
 interface IntelligentWorkspaceProps {
@@ -259,37 +260,43 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
       <div class="workspace-panels">
         {/* Context Navigator (Left Panel - 20%) */}
         <Show when={state().contextNavigatorVisible}>
-          <ContextNavigator
-            incidents={props.incidents || []}
-            currentIndex={state().selectedIndex}
-            onSelectIncident={handleSelectIncident}
-            onFilterChange={handleFilterChange}
-          />
+          <WorkspaceErrorBoundary componentName="ContextNavigator">
+            <ContextNavigator
+              incidents={props.incidents || []}
+              currentIndex={state().selectedIndex}
+              onSelectIncident={handleSelectIncident}
+              onFilterChange={handleFilterChange}
+            />
+          </WorkspaceErrorBoundary>
         </Show>
 
         {/* Investigation Workspace (Center Panel - 60%) */}
-        <InvestigationWorkspace
-          incident={currentIncident()}
-          allIncidents={props.incidents}
-          isLoading={props.isLoading}
-          onPrevious={handlePrevious}
-          onNext={handleNext}
-          onResolve={handleResolve}
-          onDownloadRCA={handleDownloadRCA}
-          canNavigatePrevious={state().selectedIndex > 0}
-          canNavigateNext={state().selectedIndex < (props.incidents?.length || 0) - 1}
-          currentIndex={state().selectedIndex}
-          totalIncidents={props.incidents?.length || 0}
-        />
+        <WorkspaceErrorBoundary componentName="InvestigationWorkspace">
+          <InvestigationWorkspace
+            incident={currentIncident()}
+            allIncidents={props.incidents}
+            isLoading={props.isLoading}
+            onPrevious={handlePrevious}
+            onNext={handleNext}
+            onResolve={handleResolve}
+            onDownloadRCA={handleDownloadRCA}
+            canNavigatePrevious={state().selectedIndex > 0}
+            canNavigateNext={state().selectedIndex < (props.incidents?.length || 0) - 1}
+            currentIndex={state().selectedIndex}
+            totalIncidents={props.incidents?.length || 0}
+          />
+        </WorkspaceErrorBoundary>
 
         {/* Intelligence Assistant (Right Panel - 20%) */}
         <Show when={state().intelligenceAssistantVisible}>
-          <IntelligenceAssistant
-            incident={currentIncident()}
-            allIncidents={props.incidents}
-            clusterHealth={clusterHealth()}
-            onQuickAction={handleQuickAction}
-          />
+          <WorkspaceErrorBoundary componentName="IntelligenceAssistant">
+            <IntelligenceAssistant
+              incident={currentIncident()}
+              allIncidents={props.incidents}
+              clusterHealth={clusterHealth()}
+              onQuickAction={handleQuickAction}
+            />
+          </WorkspaceErrorBoundary>
         </Show>
       </div>
 

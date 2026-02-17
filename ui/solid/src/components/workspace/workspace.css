@@ -3629,3 +3629,316 @@
     --border-dark: #6B7280;
   }
 }
+
+/* ============================================
+   Error Boundary Styles
+   ============================================ */
+
+.error-boundary-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: var(--space-8);
+  background: var(--bg-secondary);
+}
+
+.error-container {
+  max-width: 600px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: var(--space-8);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.error-icon {
+  font-size: 64px;
+  margin-bottom: var(--space-4);
+  animation: errorPulse 2s ease-in-out infinite;
+}
+
+@keyframes errorPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.error-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.error-message {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-6) 0;
+  line-height: 1.6;
+}
+
+.error-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  margin-bottom: var(--space-4);
+}
+
+.error-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.error-btn.primary {
+  background: var(--intelligence-primary);
+  color: white;
+}
+
+.error-btn.primary:hover {
+  background: var(--intelligence-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.error-btn.secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.error-btn.secondary:hover {
+  background: var(--bg-primary);
+  border-color: var(--border-dark);
+}
+
+.error-details {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  text-align: left;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.error-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.error-details-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.copy-error-btn {
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.copy-error-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--intelligence-primary);
+}
+
+.error-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.error-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.error-info-item strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.error-info-item code {
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.error-stack {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-hint {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Compact error display for smaller components */
+.error-boundary-fallback.compact {
+  min-height: 200px;
+  padding: var(--space-4);
+}
+
+.error-boundary-fallback.compact .error-container {
+  padding: var(--space-4);
+}
+
+.error-boundary-fallback.compact .error-icon {
+  font-size: 32px;
+  margin-bottom: var(--space-2);
+}
+
+.error-boundary-fallback.compact .error-title {
+  font-size: 18px;
+  margin-bottom: var(--space-2);
+}
+
+.error-boundary-fallback.compact .error-message {
+  font-size: 14px;
+  margin-bottom: var(--space-4);
+}
+
+/* Error toast notification (for non-critical errors) */
+.error-toast {
+  position: fixed;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  max-width: 400px;
+  background: white;
+  border-left: 4px solid var(--severity-critical);
+  border-radius: 8px;
+  padding: var(--space-4);
+  box-shadow: var(--shadow-xl);
+  animation: slideInFromRight 0.3s ease;
+  z-index: 10000;
+}
+
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.error-toast-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.error-toast-icon {
+  font-size: 20px;
+}
+
+.error-toast-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.error-toast-close {
+  margin-left: auto;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+}
+
+.error-toast-close:hover {
+  color: var(--text-primary);
+}
+
+.error-toast-message {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.error-toast-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.error-toast-btn {
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.error-toast-btn.primary {
+  background: var(--intelligence-primary);
+  color: white;
+}
+
+.error-toast-btn.primary:hover {
+  background: var(--intelligence-dark);
+}
+
+.error-toast-btn.secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.error-toast-btn.secondary:hover {
+  background: var(--bg-primary);
+}

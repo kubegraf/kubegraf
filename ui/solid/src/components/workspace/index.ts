@@ -17,12 +17,20 @@ export { default as IncidentStory } from './IncidentStory';
 
 // Workflow Components
 export { default as FixExecutionModal } from './FixExecutionModal';
+export { default as WorkspaceErrorBoundary } from './ErrorBoundary';
 
 // Intelligence Engines & Utilities
 export { InsightsEngine } from './insightsEngine';
 export { RelatedIncidentsEngine } from './relatedIncidentsEngine';
 export { FixSuccessPredictor } from './fixSuccessPredictor';
 export { RCAReportGenerator } from './rcaReportGenerator';
+export {
+  useAsyncError,
+  createSafeAsyncHandler,
+  categorizeError,
+  ErrorCategory,
+  CategorizedError,
+} from './ErrorBoundary';
 
 // Export types
 export type { FilterState } from './ContextNavigator';
