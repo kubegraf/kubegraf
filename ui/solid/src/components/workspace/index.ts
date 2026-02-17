@@ -19,6 +19,22 @@ export { default as IncidentStory } from './IncidentStory';
 export { default as FixExecutionModal } from './FixExecutionModal';
 export { default as WorkspaceErrorBoundary } from './ErrorBoundary';
 
+// Loading Components
+export {
+  default as Skeleton,
+  SkeletonIncidentCard,
+  SkeletonInvestigationWorkspace,
+  SkeletonIntelligenceAssistant,
+  SkeletonIncidentStory,
+  SkeletonFixExecution,
+  SkeletonChart,
+  SkeletonText,
+  SkeletonTable,
+  SkeletonList,
+  PulsingLoader,
+  Spinner,
+} from './SkeletonLoader';
+
 // Intelligence Engines & Utilities
 export { InsightsEngine } from './insightsEngine';
 export { RelatedIncidentsEngine } from './relatedIncidentsEngine';

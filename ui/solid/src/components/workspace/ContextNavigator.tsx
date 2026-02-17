@@ -12,6 +12,7 @@
 import { Component, For, Show, createSignal, createMemo, onMount } from 'solid-js';
 import { Incident } from '../../services/api';
 import { debounce } from './performanceUtils';
+import { SkeletonIncidentCard } from './SkeletonLoader';
 
 interface ContextNavigatorProps {
   incidents: Incident[];
