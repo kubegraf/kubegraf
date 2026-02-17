@@ -18,5 +18,15 @@ export { default as IncidentStory } from './IncidentStory';
 // Workflow Components
 export { default as FixExecutionModal } from './FixExecutionModal';
 
+// Intelligence Engines & Utilities
+export { InsightsEngine } from './insightsEngine';
+export { RelatedIncidentsEngine } from './relatedIncidentsEngine';
+export { FixSuccessPredictor } from './fixSuccessPredictor';
+export { RCAReportGenerator } from './rcaReportGenerator';
+
 // Export types
 export type { FilterState } from './ContextNavigator';
+export type { Insight } from './insightsEngine';
+export type { RelatedIncident } from './relatedIncidentsEngine';
+export type { SuccessPrediction } from './fixSuccessPredictor';
+export type { RCAReport } from './rcaReportGenerator';

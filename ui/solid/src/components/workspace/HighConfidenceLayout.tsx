@@ -14,6 +14,7 @@ import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { Incident } from '../../services/api';
 import IncidentStory from './IncidentStory';
 import { FixSuccessPredictor } from './fixSuccessPredictor';
+import FixExecutionModal from './FixExecutionModal';
 
 interface HighConfidenceLayoutProps {
   incident: Incident;
@@ -23,8 +24,8 @@ interface HighConfidenceLayoutProps {
 }
 
 const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
-  const [showConfirmation, setShowConfirmation] = createSignal(false);
-  const [selectedFixId, setSelectedFixId] = createSignal<string | null>(null);
+  const [showFixExecutionModal, setShowFixExecutionModal] = createSignal(false);
+  const [selectedFix, setSelectedFix] = createSignal<any>(null);
   const [expandedSections, setExpandedSections] = createSignal({
     diagnosis: false,
     evidence: false,
@@ -42,22 +43,28 @@ const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
   const primaryFix = () => props.incident.recommendations?.[0];
   const alternativeFixes = () => props.incident.recommendations?.slice(1) || [];
 
-  const handleApplyClick = (fixId: string) => {
-    setSelectedFixId(fixId);
-    setShowConfirmation(true);
+  const handleApplyClick = (fix: any) => {
+    setSelectedFix(fix);
+    setShowFixExecutionModal(true);
   };
 
-  const handleConfirmApply = () => {
-    if (selectedFixId() && props.onApplyFix) {
-      props.onApplyFix(selectedFixId()!);
+  const handleFixSuccess = () => {
+    console.log('Fix applied successfully');
+    setShowFixExecutionModal(false);
+    setSelectedFix(null);
+    if (props.onApplyFix) {
+      props.onApplyFix(selectedFix()?.id || 'primary-fix');
     }
-    setShowConfirmation(false);
-    setSelectedFixId(null);
   };
 
-  const handleCancelApply = () => {
-    setShowConfirmation(false);
-    setSelectedFixId(null);
+  const handleFixFailure = (error: string) => {
+    console.error('Fix application failed:', error);
+    // Keep modal open to show failure state
+  };
+
+  const handleCloseModal = () => {
+    setShowFixExecutionModal(false);
+    setSelectedFix(null);
   };
 
   // Calculate success probability using ML-ready predictor
@@ -145,7 +152,7 @@ const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
             <div class="fix-actions">
               <button
                 class="apply-fix-btn primary"
-                onClick={() => handleApplyClick(primaryFix()?.id || 'primary-fix')}
+                onClick={() => handleApplyClick(primaryFix())}
               >
                 <span class="btn-icon">⚡</span>
                 <span class="btn-label">Apply Fix Now</span>
@@ -162,55 +169,17 @@ const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
         </div>
       </Show>
 
-      {/* Confirmation Modal */}
-      <Show when={showConfirmation()}>
-        <div class="confirmation-overlay" onClick={handleCancelApply}>
-          <div class="confirmation-modal" onClick={(e) => e.stopPropagation()}>
-            <div class="confirmation-header">
-              <h3>Confirm Fix Application</h3>
-              <button class="close-modal-btn" onClick={handleCancelApply}>✕</button>
-            </div>
-            <div class="confirmation-content">
-              <div class="confirmation-warning">
-                <span class="warning-icon">⚠️</span>
-                <p>This will apply the recommended fix to your cluster.</p>
-              </div>
-              <div class="confirmation-details">
-                <div class="detail-item">
-                  <span class="detail-label">Resource:</span>
-                  <span class="detail-value">
-                    {props.incident.resource?.kind}/{props.incident.resource?.name}
-                  </span>
-                </div>
-                <div class="detail-item">
-                  <span class="detail-label">Namespace:</span>
-                  <span class="detail-value">
-                    {props.incident.resource?.namespace || 'default'}
-                  </span>
-                </div>
-                <div class="detail-item">
-                  <span class="detail-label">Success Rate:</span>
-                  <span class="detail-value success-rate">
-                    {successProbability()}%
-                  </span>
-                </div>
-              </div>
-              <div class="confirmation-safety">
-                <span class="safety-icon">✓</span>
-                <p>Automatic rollback is enabled if health checks fail</p>
-              </div>
-            </div>
-            <div class="confirmation-actions">
-              <button class="confirm-btn secondary" onClick={handleCancelApply}>
-                Cancel
-              </button>
-              <button class="confirm-btn primary" onClick={handleConfirmApply}>
-                <span class="btn-icon">⚡</span>
-                <span class="btn-label">Confirm & Apply</span>
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Fix Execution Modal */}
+      <Show when={showFixExecutionModal()}>
+        <FixExecutionModal
+          incident={props.incident}
+          fixId={selectedFix()?.id || 'primary-fix'}
+          fixTitle={selectedFix()?.title || 'Apply Automated Fix'}
+          fixDescription={selectedFix()?.description || 'System has identified a high-confidence solution for this incident.'}
+          onClose={handleCloseModal}
+          onSuccess={handleFixSuccess}
+          onFailure={handleFixFailure}
+        />
       </Show>
 
       {/* Incident Story */}
@@ -243,7 +212,7 @@ const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
                       </p>
                       <button
                         class="apply-alternative-btn"
-                        onClick={() => handleApplyClick(fix.id)}
+                        onClick={() => handleApplyClick(fix)}
                       >
                         Apply This Fix
                       </button>

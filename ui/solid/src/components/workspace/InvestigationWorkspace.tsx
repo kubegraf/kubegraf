@@ -13,6 +13,7 @@ import { Component, Show, createMemo, createSignal } from 'solid-js';
 import { Incident } from '../../services/api';
 import HighConfidenceLayout from './HighConfidenceLayout';
 import InvestigationLayout from './InvestigationLayout';
+import { RCAReportGenerator } from './rcaReportGenerator';
 
 interface InvestigationWorkspaceProps {
   incident: Incident | null;
@@ -59,6 +60,18 @@ const InvestigationWorkspace: Component<InvestigationWorkspaceProps> = (props) =
   const handleSelectHypothesis = (hypothesis: string) => {
     console.log('Selected hypothesis:', hypothesis);
     // TODO: Implement hypothesis testing in Phase 3
+  };
+
+  const handleDownloadRCA = (format: 'markdown' | 'json' | 'html' = 'markdown') => {
+    if (!props.incident) return;
+
+    const report = RCAReportGenerator.generateReport(props.incident);
+    RCAReportGenerator.downloadReport(report, format);
+
+    // Also call the parent handler if provided
+    if (props.onDownloadRCA) {
+      props.onDownloadRCA();
+    }
   };
 
   // Format date helper
@@ -226,7 +239,7 @@ const InvestigationWorkspace: Component<InvestigationWorkspaceProps> = (props) =
               <div class="footer-actions">
                 <button
                   class="action-btn secondary"
-                  onClick={props.onDownloadRCA}
+                  onClick={() => handleDownloadRCA('markdown')}
                   aria-label="Download RCA report"
                 >
                   <span class="btn-icon">📄</span>
