@@ -2559,14 +2559,27 @@
 
 .insight-item[data-type="success"] {
   border-left-color: #10B981;
+  background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
 }
 
 .insight-item[data-type="warning"] {
   border-left-color: #F59E0B;
+  background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
 }
 
 .insight-item[data-type="info"] {
   border-left-color: var(--intelligence-primary);
+  background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+}
+
+.insight-item[data-type="trend"] {
+  border-left-color: #8B5CF6;
+  background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%);
+}
+
+.insight-item[data-type="recommendation"] {
+  border-left-color: #06B6D4;
+  background: linear-gradient(135deg, #ECFEFF 0%, #CFFAFE 100%);
 }
 
 .insight-icon {

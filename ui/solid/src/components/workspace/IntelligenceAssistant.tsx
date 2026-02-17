@@ -12,6 +12,7 @@
 
 import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { Incident } from '../../services/api';
+import { InsightsEngine, Insight } from './insightsEngine';
 
 interface IntelligenceAssistantProps {
   incident: Incident | null;
@@ -28,11 +29,6 @@ interface QuickAction {
   description: string;
 }
 
-interface Insight {
-  icon: string;
-  text: string;
-  type: 'info' | 'warning' | 'success';
-}
 
 const IntelligenceAssistant: Component<IntelligenceAssistantProps> = (props) => {
   // Expandable sections state
@@ -51,50 +47,11 @@ const IntelligenceAssistant: Component<IntelligenceAssistantProps> = (props) => 
     }));
   };
 
-  // Generate insights based on incident (placeholder for Phase 3)
+  // Generate insights using advanced engine
   const insights = createMemo((): Insight[] => {
     if (!props.incident) return [];
-
-    const insights: Insight[] = [];
-    const confidence = props.incident.diagnosis?.confidence || 0;
-
-    if (confidence >= 95) {
-      insights.push({
-        icon: '✓',
-        text: 'High confidence diagnosis - Safe to apply automated fix',
-        type: 'success',
-      });
-    } else if (confidence >= 70) {
-      insights.push({
-        icon: '⚠️',
-        text: 'Moderate confidence - Review fix before applying',
-        type: 'warning',
-      });
-    } else {
-      insights.push({
-        icon: 'ℹ️',
-        text: 'Low confidence - Manual investigation recommended',
-        type: 'info',
-      });
-    }
-
-    if (props.incident.occurrences && props.incident.occurrences > 5) {
-      insights.push({
-        icon: '🔄',
-        text: `Recurring issue - ${props.incident.occurrences} occurrences detected`,
-        type: 'warning',
-      });
-    }
-
-    if (props.incident.pattern?.includes('CRASH')) {
-      insights.push({
-        icon: '💥',
-        text: 'CrashLoop pattern detected - Check resource limits',
-        type: 'info',
-      });
-    }
-
-    return insights;
+    const allIncidents = props.allIncidents || [];
+    return InsightsEngine.generateInsights(props.incident, allIncidents);
   });
 
   // Find related incidents (placeholder for Phase 3)
