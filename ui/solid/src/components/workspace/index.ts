@@ -31,6 +31,20 @@ export {
   ErrorCategory,
   CategorizedError,
 } from './ErrorBoundary';
+export {
+  debounce,
+  throttle,
+  createDeepMemo,
+  useVirtualList,
+  memoize,
+  PerformanceMonitor,
+  globalPerformanceMonitor,
+  CacheManager,
+  deepEqual,
+  shallowEqual,
+  requestIdleTask,
+  cancelIdleTask,
+} from './performanceUtils';
 
 // Export types
 export type { FilterState } from './ContextNavigator';

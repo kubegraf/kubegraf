@@ -9,8 +9,9 @@
  * - Keyboard navigation support
  */
 
-import { Component, For, Show, createSignal, createMemo } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo, onMount } from 'solid-js';
 import { Incident } from '../../services/api';
+import { debounce } from './performanceUtils';
 
 interface ContextNavigatorProps {
   incidents: Incident[];
@@ -42,6 +43,13 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
     namespace: false,
     status: false,
   });
+
+  // Debounced filter change notification (300ms delay)
+  const debouncedFilterChange = debounce((newFilters: FilterState) => {
+    if (props.onFilterChange) {
+      props.onFilterChange(newFilters);
+    }
+  }, 300);
 
   // Get unique values for filter options
   const uniqueSeverities = createMemo(() => {
@@ -207,9 +215,8 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
           onInput={(e) => {
             const newFilters = { ...filters(), searchQuery: e.currentTarget.value };
             setFilters(newFilters);
-            if (props.onFilterChange) {
-              props.onFilterChange(newFilters);
-            }
+            // Debounce filter change notification for search
+            debouncedFilterChange(newFilters);
           }}
         />
       </div>
