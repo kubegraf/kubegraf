@@ -1034,6 +1034,10 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 	} else {
 		log.Printf("[Intelligence] Warning: Intelligence system not initialized, routes not registered")
 	}
+
+	// Register Intelligence Workspace UI API routes
+	ws.RegisterIntelligenceWorkspaceRoutes()
+	log.Printf("[Intelligence] Registered /api/v2/workspace/* routes for Intelligence UI")
 }
 
 // handleIncidentsV2 handles GET /api/v2/incidents
