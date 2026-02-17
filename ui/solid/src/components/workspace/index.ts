@@ -15,5 +15,8 @@ export { default as InvestigationLayout } from './InvestigationLayout';
 // Intelligence Components
 export { default as IncidentStory } from './IncidentStory';
 
+// Workflow Components
+export { default as FixExecutionModal } from './FixExecutionModal';
+
 // Export types
 export type { FilterState } from './ContextNavigator';
