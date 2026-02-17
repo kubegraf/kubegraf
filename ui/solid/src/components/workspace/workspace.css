@@ -2135,6 +2135,134 @@
   box-shadow: 0 4px 8px rgba(79, 70, 229, 0.3);
 }
 
+/* ============================================
+   Incident Story Component
+   ============================================ */
+.incident-story {
+  background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+  border: 2px solid #FBBF24;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(251, 191, 36, 0.2);
+}
+
+.story-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid #FCD34D;
+}
+
+.story-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.story-title-section {
+  flex: 1;
+}
+
+.story-main-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 var(--space-1) 0;
+  color: #78350F;
+}
+
+.story-subtitle {
+  font-size: 14px;
+  margin: 0;
+  color: #92400E;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.story-content {
+  padding: var(--space-4) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.story-placeholder {
+  margin: 0;
+  color: #92400E;
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-4);
+}
+
+.story-section {
+  padding: var(--space-4);
+  background: white;
+  border-radius: 8px;
+  border-left: 4px solid #FBBF24;
+  transition: all 0.2s ease;
+}
+
+.story-section:hover {
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.2);
+  transform: translateX(4px);
+}
+
+.story-section[data-severity="warning"] {
+  border-left-color: #F59E0B;
+  background: #FFFBEB;
+}
+
+.story-section[data-severity="critical"] {
+  border-left-color: #DC2626;
+  background: #FEF2F2;
+}
+
+.story-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.story-section-icon {
+  font-size: 20px;
+}
+
+.story-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: #78350F;
+}
+
+.story-section-content {
+  margin: 0;
+  font-size: 14px;
+  color: #1F2937;
+  line-height: 1.7;
+}
+
+.story-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: rgba(255, 255, 255, 0.7);
+  border-top: 1px solid #FCD34D;
+}
+
+.story-footer-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.story-footer-text {
+  margin: 0;
+  font-size: 13px;
+  color: #92400E;
+  font-weight: 500;
+}
+
 /* Legacy support */
 .investigation-layout,
 .high-confidence-layout {

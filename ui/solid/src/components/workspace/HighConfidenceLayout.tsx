@@ -12,6 +12,7 @@
 
 import { Component, Show, For, createSignal } from 'solid-js';
 import { Incident } from '../../services/api';
+import IncidentStory from './IncidentStory';
 
 interface HighConfidenceLayoutProps {
   incident: Incident;
@@ -204,6 +205,9 @@ const HighConfidenceLayout: Component<HighConfidenceLayoutProps> = (props) => {
           </div>
         </div>
       </Show>
+
+      {/* Incident Story */}
+      <IncidentStory incident={props.incident} />
 
       {/* Alternative Fixes - Collapsed */}
       <Show when={alternativeFixes().length > 0}>

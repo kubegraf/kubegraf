@@ -12,5 +12,8 @@ export { default as IntelligenceAssistant } from './IntelligenceAssistant';
 export { default as HighConfidenceLayout } from './HighConfidenceLayout';
 export { default as InvestigationLayout } from './InvestigationLayout';
 
+// Intelligence Components
+export { default as IncidentStory } from './IncidentStory';
+
 // Export types
 export type { FilterState } from './ContextNavigator';

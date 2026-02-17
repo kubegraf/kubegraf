@@ -13,6 +13,7 @@
 
 import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { Incident } from '../../services/api';
+import IncidentStory from './IncidentStory';
 
 interface InvestigationLayoutProps {
   incident: Incident;
@@ -166,6 +167,9 @@ const InvestigationLayout: Component<InvestigationLayoutProps> = (props) => {
           </div>
         </Show>
       </div>
+
+      {/* Incident Story */}
+      <IncidentStory incident={props.incident} />
 
       {/* Timeline & Events */}
       <div class="investigation-section">
