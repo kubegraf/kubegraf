@@ -9,8 +9,10 @@
  * - Keyboard navigation support
  */
 
-import { Component, Show, createMemo } from 'solid-js';
+import { Component, Show, createMemo, createSignal } from 'solid-js';
 import { Incident } from '../../services/api';
+import HighConfidenceLayout from './HighConfidenceLayout';
+import InvestigationLayout from './InvestigationLayout';
 
 interface InvestigationWorkspaceProps {
   incident: Incident | null;
@@ -26,13 +28,37 @@ interface InvestigationWorkspaceProps {
 }
 
 const InvestigationWorkspace: Component<InvestigationWorkspaceProps> = (props) => {
-  // Get confidence level for adaptive layout (Phase 2)
+  // Layout override (for manual switching if needed)
+  const [layoutOverride, setLayoutOverride] = createSignal<'high' | 'investigation' | null>(null);
+
+  // Get confidence level for adaptive layout
   const confidence = createMemo(() => {
     return props.incident?.diagnosis?.confidence || 0;
   });
 
-  // Determine if this is a high-confidence incident
-  const isHighConfidence = createMemo(() => confidence() >= 95);
+  // Determine if this is a high-confidence incident (≥95%)
+  const isHighConfidence = createMemo(() => {
+    if (layoutOverride()) {
+      return layoutOverride() === 'high';
+    }
+    return confidence() >= 95;
+  });
+
+  // Handlers for layout components
+  const handleApplyFix = (fixId: string) => {
+    console.log('Apply fix:', fixId, 'for incident:', props.incident?.id);
+    // TODO: Implement in Phase 4
+  };
+
+  const handleViewDetails = () => {
+    // Switch to investigation mode to see more details
+    setLayoutOverride('investigation');
+  };
+
+  const handleSelectHypothesis = (hypothesis: string) => {
+    console.log('Selected hypothesis:', hypothesis);
+    // TODO: Implement hypothesis testing in Phase 3
+  };
 
   // Format date helper
   const formatDate = (date: string | undefined) => {
@@ -150,96 +176,26 @@ const InvestigationWorkspace: Component<InvestigationWorkspaceProps> = (props) =
               </Show>
             </header>
 
-            {/* Content Area - Adaptive Layouts (Phase 2) */}
-            <div class="incident-content-area">
+            {/* Content Area - Adaptive Layouts */}
+            <div class="incident-content-area adaptive-layout-container">
               <Show
                 when={isHighConfidence()}
                 fallback={
                   // Investigation Mode Layout (< 95% confidence)
-                  <div class="investigation-layout">
-                    <div class="layout-badge">
-                      <span class="badge-icon">🔍</span>
-                      <span class="badge-text">Investigation Mode</span>
-                      <span class="badge-confidence">{Math.round(confidence())}%</span>
-                    </div>
-                    <div class="content-placeholder">
-                      <p>📊 Investigation layout will be rendered here (Phase 2)</p>
-                      <ul>
-                        <li>Timeline & Events</li>
-                        <li>Resource Details</li>
-                        <li>Related Logs</li>
-                        <li>Hypothesis Testing</li>
-                        <li>Diagnosis Information</li>
-                        <li>Suggested Fixes</li>
-                      </ul>
-                    </div>
-                  </div>
+                  <InvestigationLayout
+                    incident={props.incident!}
+                    onApplyFix={handleApplyFix}
+                    onSelectHypothesis={handleSelectHypothesis}
+                  />
                 }
               >
                 {/* High Confidence Mode Layout (≥ 95% confidence) */}
-                <div class="high-confidence-layout">
-                  <div class="layout-badge">
-                    <span class="badge-icon">✓</span>
-                    <span class="badge-text">High Confidence</span>
-                    <span class="badge-confidence">{Math.round(confidence())}%</span>
-                  </div>
-                  <div class="content-placeholder">
-                    <p>⚡ Action-first layout will be rendered here (Phase 2)</p>
-                    <ul>
-                      <li>Quick Fix Card (prominent)</li>
-                      <li>One-Click Apply</li>
-                      <li>Expected Outcome</li>
-                      <li>Rollback Plan</li>
-                      <li>Diagnosis Summary (collapsed)</li>
-                      <li>Supporting Evidence (collapsed)</li>
-                    </ul>
-                  </div>
-                </div>
+                <HighConfidenceLayout
+                  incident={props.incident!}
+                  onApplyFix={handleApplyFix}
+                  onViewDetails={handleViewDetails}
+                />
               </Show>
-
-              {/* Placeholder Info Sections */}
-              <div class="info-sections">
-                <div class="info-section">
-                  <h3>
-                    <span class="section-icon">💡</span>
-                    Diagnosis
-                  </h3>
-                  <div class="section-content">
-                    <Show when={props.incident?.diagnosis?.summary}>
-                      <p>{props.incident?.diagnosis?.summary}</p>
-                    </Show>
-                    <Show when={!props.incident?.diagnosis?.summary}>
-                      <p class="placeholder-text">Diagnosis information will appear here</p>
-                    </Show>
-                  </div>
-                </div>
-
-                <Show when={props.incident?.recommendations && props.incident.recommendations.length > 0}>
-                  <div class="info-section">
-                    <h3>
-                      <span class="section-icon">🔧</span>
-                      Recommended Fixes ({props.incident.recommendations.length})
-                    </h3>
-                    <div class="section-content">
-                      <p class="placeholder-text">
-                        Fix recommendations will be displayed here (Phase 2)
-                      </p>
-                    </div>
-                  </div>
-                </Show>
-
-                <div class="info-section">
-                  <h3>
-                    <span class="section-icon">📚</span>
-                    Related Incidents & Learning
-                  </h3>
-                  <div class="section-content">
-                    <p class="placeholder-text">
-                      Related incidents and historical patterns (Phase 2)
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Action Footer */}

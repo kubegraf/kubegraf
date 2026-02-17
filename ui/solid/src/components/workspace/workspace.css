@@ -898,6 +898,25 @@
   gap: var(--space-6);
 }
 
+.adaptive-layout-container {
+  position: relative;
+}
+
+.adaptive-layout-container > * {
+  animation: layoutFadeIn 0.3s ease;
+}
+
+@keyframes layoutFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .incident-content-area::-webkit-scrollbar {
   width: 8px;
 }
