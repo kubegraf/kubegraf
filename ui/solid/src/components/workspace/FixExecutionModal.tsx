@@ -12,6 +12,7 @@
 
 import { Component, Show, For, createSignal, onMount, onCleanup } from 'solid-js';
 import { Incident } from '../../services/api';
+import { setupAccessibleModal, globalAnnouncer } from './accessibilityUtils';
 
 interface FixExecutionModalProps {
   incident: Incident;
@@ -51,6 +52,7 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
 
   // Rollback window countdown
   let rollbackInterval: number | undefined;
+  let modalCleanup: (() => void) | undefined;
 
   const startRollbackTimer = () => {
     setCanRollback(true);
@@ -68,8 +70,17 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
     }, 1000);
   };
 
+  // Setup accessibility on mount
+  onMount(() => {
+    const modalElement = document.querySelector('.fix-execution-modal');
+    if (modalElement instanceof HTMLElement) {
+      modalCleanup = setupAccessibleModal(modalElement);
+    }
+  });
+
   onCleanup(() => {
     if (rollbackInterval) clearInterval(rollbackInterval);
+    if (modalCleanup) modalCleanup();
   });
 
   // Generate execution steps based on pattern
@@ -162,6 +173,7 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
   const executeFix = async () => {
     setStatus('executing');
     addLog('Starting fix execution...');
+    globalAnnouncer.announce('Fix execution started', 'assertive');
 
     for (let i = 0; i < executionSteps().length; i++) {
       setCurrentStep(i);
@@ -170,6 +182,7 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
       // Update step to running
       updateStepStatus(i, 'running');
       addLog(`[${step.title}] Starting...`);
+      globalAnnouncer.announce(`Step ${i + 1}: ${step.title}`, 'polite');
 
       // Simulate execution (replace with actual API calls)
       await executeStep(step, i);
@@ -189,6 +202,7 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
           updateStepStatus(index, 'failed', 'Execution failed');
           addLog(`[${step.title}] ❌ Failed: ${step.title} execution error`);
           setStatus('failed');
+          globalAnnouncer.announce(`Fix execution failed at step: ${step.title}`, 'assertive');
           props.onFailure(`Failed at step: ${step.title}`);
         } else {
           updateStepStatus(index, 'success');
@@ -199,11 +213,13 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
             setStatus('success');
             addLog('✓ Fix applied successfully!');
             addLog('Starting 30-second monitoring window...');
+            globalAnnouncer.announce('Fix applied successfully. Monitoring stability.', 'assertive');
             startRollbackTimer();
 
             setTimeout(() => {
               if (status() === 'success') {
                 addLog('✓ Monitoring complete. Fix verified stable.');
+                globalAnnouncer.announce('Fix verified stable. Monitoring complete.', 'polite');
                 props.onSuccess();
               }
             }, 2000);
@@ -304,15 +320,21 @@ const FixExecutionModal: Component<FixExecutionModalProps> = (props) => {
   };
 
   return (
-    <div class="fix-execution-overlay" onClick={(e) => e.target === e.currentTarget && handleCancel()}>
+    <div
+      class="fix-execution-overlay"
+      onClick={(e) => e.target === e.currentTarget && handleCancel()}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
       <div class="fix-execution-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div class="execution-modal-header" data-status={status()}>
+        <div class="execution-modal-header" data-status={status()} role="banner">
           <div class="execution-status-indicator">
-            <span class="status-icon">{getStatusIcon()}</span>
+            <span class="status-icon" aria-hidden="true">{getStatusIcon()}</span>
             <div class="status-text-group">
-              <h3>{getStatusText()}</h3>
-              <p class="execution-subtitle">{props.fixTitle}</p>
+              <h3 id="modal-title">{getStatusText()}</h3>
+              <p class="execution-subtitle" id="modal-description">{props.fixTitle}</p>
             </div>
           </div>
           <button

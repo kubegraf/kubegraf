@@ -45,6 +45,21 @@ export {
   requestIdleTask,
   cancelIdleTask,
 } from './performanceUtils';
+export {
+  FocusManager,
+  globalFocusManager,
+  ScreenReaderAnnouncer,
+  globalAnnouncer,
+  createKeyboardNavigation,
+  createSkipLink,
+  getContrastRatio,
+  createAriaAttributes,
+  setupFocusVisible,
+  RovingTabIndex,
+  prefersReducedMotion,
+  prefersHighContrast,
+  setupAccessibleModal,
+} from './accessibilityUtils';
 
 // Export types
 export type { FilterState } from './ContextNavigator';
