@@ -13,6 +13,7 @@
 import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { Incident } from '../../services/api';
 import { InsightsEngine, Insight } from './insightsEngine';
+import { RelatedIncidentsEngine, RelatedIncident } from './relatedIncidentsEngine';
 
 interface IntelligenceAssistantProps {
   incident: Incident | null;
@@ -54,23 +55,14 @@ const IntelligenceAssistant: Component<IntelligenceAssistantProps> = (props) => 
     return InsightsEngine.generateInsights(props.incident, allIncidents);
   });
 
-  // Find related incidents (placeholder for Phase 3)
-  const relatedIncidents = createMemo(() => {
+  // Find related incidents using advanced engine
+  const relatedIncidents = createMemo((): RelatedIncident[] => {
     if (!props.incident || !props.allIncidents) return [];
-
-    return props.allIncidents
-      .filter((inc) => {
-        // Filter out current incident
-        if (inc.id === props.incident?.id) return false;
-
-        // Match by pattern or resource namespace
-        const samePattern = inc.pattern === props.incident?.pattern;
-        const sameNamespace =
-          inc.resource?.namespace === props.incident?.resource?.namespace;
-
-        return samePattern || sameNamespace;
-      })
-      .slice(0, 5); // Limit to 5 related incidents
+    return RelatedIncidentsEngine.findRelatedIncidents(
+      props.incident,
+      props.allIncidents,
+      5
+    );
   });
 
   // Generate quick actions (placeholder for Phase 3)
@@ -224,21 +216,35 @@ const IntelligenceAssistant: Component<IntelligenceAssistantProps> = (props) => 
             >
               <div class="related-list">
                 <For each={relatedIncidents()}>
-                  {(incident) => (
+                  {(relatedIncident) => (
                     <div class="related-item">
                       <div class="related-header">
-                        <span class="related-severity" data-severity={incident.severity}>
-                          {incident.severity === 'critical' && '🔴'}
-                          {incident.severity === 'high' && '🟠'}
-                          {incident.severity === 'medium' && '🟡'}
-                          {incident.severity === 'low' && '🔵'}
+                        <span class="related-severity" data-severity={relatedIncident.incident.severity}>
+                          {relatedIncident.incident.severity === 'critical' && '🔴'}
+                          {relatedIncident.incident.severity === 'high' && '🟠'}
+                          {relatedIncident.incident.severity === 'medium' && '🟡'}
+                          {relatedIncident.incident.severity === 'low' && '🔵'}
                         </span>
-                        <span class="related-pattern">{incident.pattern || 'Unknown'}</span>
+                        <span class="related-pattern">
+                          {relatedIncident.incident.pattern || 'Unknown'}
+                        </span>
+                        <span class="similarity-score" title="Similarity Score">
+                          {relatedIncident.similarityScore}%
+                        </span>
                       </div>
                       <div class="related-resource">
-                        {incident.resource?.namespace || 'default'}/
-                        {incident.resource?.name || 'unknown'}
+                        {relatedIncident.incident.resource?.namespace || 'default'}/
+                        {relatedIncident.incident.resource?.name || 'unknown'}
                       </div>
+                      <Show when={relatedIncident.matchReasons.length > 0}>
+                        <div class="match-reasons">
+                          <For each={relatedIncident.matchReasons.slice(0, 2)}>
+                            {(reason) => (
+                              <span class="match-reason-badge">{reason}</span>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
                     </div>
                   )}
                 </For>

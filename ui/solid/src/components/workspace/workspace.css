@@ -2625,18 +2625,48 @@
 
 .related-severity {
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .related-pattern {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 11px;
+  flex: 1;
+}
+
+.similarity-score {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--intelligence-primary);
+  background: var(--bg-intelligence);
+  padding: 2px var(--space-1);
+  border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .related-resource {
   font-size: 11px;
   color: var(--text-muted);
   font-family: monospace;
+  margin-bottom: var(--space-1);
+}
+
+.match-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.match-reason-badge {
+  font-size: 9px;
+  font-weight: 500;
+  color: #6B7280;
+  background: #F3F4F6;
+  padding: 2px var(--space-1);
+  border-radius: 3px;
+  text-transform: lowercase;
+  line-height: 1;
 }
 
 /* Legacy support */
