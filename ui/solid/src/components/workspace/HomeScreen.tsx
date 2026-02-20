@@ -57,12 +57,15 @@ const HomeScreen: Component<HomeScreenProps> = (props) => {
   const [nodeCount, setNodeCount] = createSignal<number | null>(null);
   const [cpuUsage, setCpuUsage] = createSignal<number | null>(null);
 
+  // Health score and SLOs use real (non-demo) incidents only
+  const realIncidents = createMemo(() => props.incidents.filter(i => !i.metadata?.['is_demo']));
+
   const healthScore = createMemo(() => {
-    const total = props.incidents.length;
+    const real = realIncidents();
+    const total = real.length;
     if (total === 0) return 100;
-    const crit = props.incidents.filter(i => i.severity === 'critical').length;
-    const high = props.incidents.filter(i => i.severity === 'high').length;
-    // Percentage-based formula: crit incidents hurt more
+    const crit = real.filter(i => i.severity === 'critical').length;
+    const high = real.filter(i => i.severity === 'high').length;
     const critPct = crit / total;
     const highPct = high / total;
     const score = 100 - critPct * 60 - highPct * 25;
@@ -77,8 +80,9 @@ const HomeScreen: Component<HomeScreenProps> = (props) => {
   });
 
   const sloData = createMemo(() => {
-    const critCount = props.incidents.filter(i => i.severity === 'critical').length;
-    const total = props.incidents.length;
+    const real = realIncidents();
+    const critCount = real.filter(i => i.severity === 'critical').length;
+    const total = real.length;
     const errorRate = total > 0 ? Math.min(100, (critCount / total) * 100) : 0;
     const availability = Math.max(94, 100 - errorRate * 0.5);
     const latency = Math.min(99.5, 100 - critCount * 0.5);
@@ -106,9 +110,9 @@ const HomeScreen: Component<HomeScreenProps> = (props) => {
     drawRing(ringRef, healthScore());
   });
 
-  const critCount = createMemo(() => props.incidents.filter(i => i.severity === 'critical').length);
-  const warnCount = createMemo(() => props.incidents.filter(i => i.severity === 'high').length);
-  const okCount = createMemo(() => props.incidents.filter(i => !['critical', 'high'].includes(i.severity || '')).length);
+  const critCount = createMemo(() => realIncidents().filter(i => i.severity === 'critical').length);
+  const warnCount = createMemo(() => realIncidents().filter(i => i.severity === 'high').length);
+  const okCount = createMemo(() => realIncidents().filter(i => !['critical', 'high'].includes(i.severity || '')).length);
 
   return (
     <div class="home-body">

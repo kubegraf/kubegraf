@@ -47,10 +47,11 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [activeSeverity, setActiveSeverity] = createSignal<string | null>(null);
 
-  // SLO derived from incidents
+  // SLO derived from real (non-demo) incidents only
   const sloData = createMemo(() => {
-    const critCount = props.incidents.filter(i => i.severity === 'critical').length;
-    const total = props.incidents.length;
+    const real = props.incidents.filter(i => !i.metadata?.['is_demo']);
+    const critCount = real.filter(i => i.severity === 'critical').length;
+    const total = real.length;
     const errorRate = total > 0 ? Math.min(100, (critCount / total) * 100) : 0;
     const availability = Math.max(94, 100 - errorRate * 0.5);
     const latencyPct = Math.min(99.5, 100 - critCount * 0.5);
@@ -74,9 +75,10 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
     ];
   });
 
+  // Counts for health chips — real incidents only
   const counts = createMemo(() => {
     const c = { critical: 0, high: 0, ok: 0 };
-    props.incidents.forEach((i) => {
+    props.incidents.filter(i => !i.metadata?.['is_demo']).forEach((i) => {
       if (i.severity === 'critical') c.critical++;
       else if (i.severity === 'high') c.high++;
       else c.ok++;
