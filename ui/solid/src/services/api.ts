@@ -1260,6 +1260,8 @@ export const api = {
     const query = params.toString();
     return fetchAPI<{ changes: any[] }>(`/v2/incidents/${id}/changes${query ? `?${query}` : ''}`);
   },
+  getPodEvents: (namespace: string, podName: string) =>
+    fetchAPI<{ events: any[]; total: number }>(`/v1/namespaces/${namespace}/pods/${podName}/events`),
   getIncidentRunbooks: async (id: string) => {
     return fetchAPI<{ runbooks: any[] }>(`/v2/incidents/${id}/runbooks`);
   },
@@ -1784,6 +1786,17 @@ export const api = {
     fetchAPI<{ success: boolean; message: string }>('/api/metrics/collector/clear', {
       method: 'POST',
     }),
+
+  // ============ YAML Apply ============
+  applyResourceYAML: (kind: string, name: string, namespace: string, yaml: string) =>
+    fetchAPI<{ success: boolean; message: string }>('/v1/apply', {
+      method: 'POST',
+      body: JSON.stringify({ kind, name, namespace, yaml }),
+    }),
+
+  // ============ RCA (full report from workspace API) ============
+  generateRCA: (incidentId: string, format: 'json' | 'markdown' = 'json') =>
+    fetchAPI<any>(`/v2/workspace/incidents/${incidentId}/rca?format=${format}`),
 };
 
 interface Connector {

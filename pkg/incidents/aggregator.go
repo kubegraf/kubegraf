@@ -458,6 +458,39 @@ func (a *IncidentAggregator) ClearIncidentsFromOtherClusters(currentClusterConte
 	return clearedCount
 }
 
+// InjectIncident directly stores an incident, skipping the signal pipeline.
+// Used for demo/seed incidents. Deduplicates by ID.
+func (a *IncidentAggregator) InjectIncident(incident *Incident) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Dedup by ID
+	if _, exists := a.incidentsByID[incident.ID]; exists {
+		return
+	}
+
+	a.incidents[incident.Fingerprint] = incident
+	a.incidentsByID[incident.ID] = incident
+}
+
+// UpsertScannedIncident upserts a live-scan-detected incident.
+// If an incident with the same fingerprint already exists, it updates LastSeen
+// and increments Occurrences (stable across periodic re-scans).
+// If no existing incident, it is created fresh.
+func (a *IncidentAggregator) UpsertScannedIncident(incident *Incident) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if existing, exists := a.incidents[incident.Fingerprint]; exists {
+		existing.LastSeen = time.Now()
+		existing.Occurrences++
+		return
+	}
+
+	a.incidents[incident.Fingerprint] = incident
+	a.incidentsByID[incident.ID] = incident
+}
+
 // GetIncident returns an incident by ID.
 func (a *IncidentAggregator) GetIncident(id string) *Incident {
 	a.mu.RLock()

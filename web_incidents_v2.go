@@ -39,6 +39,10 @@ type IncidentIntelligence struct {
 	lastScanTime    time.Time
 	scanInProgress  bool
 	scanCacheTTL    time.Duration // Default 30 seconds
+
+	// Demo incidents — track which cluster context demos were injected for,
+	// so they are re-injected whenever the active cluster changes.
+	demoIncidentsContext string
 }
 
 // NewIncidentIntelligence creates a new incident intelligence system.
@@ -497,6 +501,9 @@ func (ii *IncidentIntelligence) periodicScanAndIngest(ctx context.Context) {
 	cleanupTicker := time.NewTicker(24 * time.Hour)
 	defer cleanupTicker.Stop()
 
+	// Inject demo incidents immediately on startup so the UI has data right away
+	ii.ensureDemoIncidents()
+
 	// Do an initial scan
 	ii.scanAndIngestIncidents(ctx)
 
@@ -537,6 +544,39 @@ func (ii *IncidentIntelligence) cleanupOldIncidents() {
 	}
 }
 
+// makeScanIncident builds an Incident for a live-scan-detected issue.
+// The fingerprint is stable across re-scans (pattern + resource + symptom type),
+// so UpsertScannedIncident will update the existing incident rather than duplicate it.
+func (ii *IncidentIntelligence) makeScanIncident(
+	pattern incidents.FailurePattern,
+	resource incidents.KubeResourceRef,
+	severity incidents.Severity,
+	title, description string,
+	symptomType incidents.SymptomType,
+	clusterCtx string,
+) *incidents.Incident {
+	symptom := incidents.NewSymptom(symptomType, resource, description).WithSeverity(severity)
+	symptoms := []*incidents.Symptom{symptom}
+	fingerprint := incidents.GenerateFingerprint(pattern, resource, symptoms)
+	now := time.Now()
+	return &incidents.Incident{
+		ID:             incidents.GenerateIncidentID(fingerprint, now),
+		Fingerprint:    fingerprint,
+		Pattern:        pattern,
+		Severity:       severity,
+		Status:         incidents.StatusOpen,
+		Resource:       resource,
+		Title:          title,
+		Description:    description,
+		FirstSeen:      now,
+		LastSeen:       now,
+		Occurrences:    1,
+		ClusterContext: clusterCtx,
+		Symptoms:       symptoms,
+		Metadata:       make(map[string]interface{}),
+	}
+}
+
 // scanAndIngestIncidents scans Kubernetes resources and ingests findings as signals into v2 manager
 func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 	if ii.app.clientset == nil || !ii.app.connected {
@@ -544,401 +584,771 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 		return
 	}
 
-	// Track scan statistics for monitoring status
 	var podsScanned, nodesScanned int
 
-	// CRITICAL: Ensure manager's cluster context matches the current active cluster context
-	// This prevents incidents from being tagged with the wrong cluster context
+	// Sync cluster context
 	currentContext := ii.app.GetCurrentContext()
 	if currentContext != "" {
-		currentManagerContext := ii.manager.GetClusterContext()
-		if currentManagerContext != currentContext {
-			log.Printf("[scanAndIngestIncidents] Syncing manager cluster context from '%s' to '%s'", currentManagerContext, currentContext)
+		if mgr := ii.manager.GetClusterContext(); mgr != currentContext {
+			log.Printf("[scanAndIngestIncidents] Syncing cluster context '%s' → '%s'", mgr, currentContext)
 			ii.manager.SetClusterContext(currentContext)
 		}
 	}
 
-	// Scan pods and ingest as signals
+	// systemNS skips kube internals
+	systemNS := func(ns string) bool {
+		return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"
+	}
+
+	// ── 1. PODS ─────────────────────────────────────────────────────────────
 	pods, err := ii.app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{Limit: 2000})
 	if err != nil {
 		log.Printf("[scanAndIngestIncidents] Error listing pods: %v", err)
 		return
 	}
-
 	podsScanned = len(pods.Items)
-	log.Printf("[scanAndIngestIncidents] Scanning %d pods for incidents", podsScanned)
-	signalCount := 0
+	log.Printf("[scanAndIngestIncidents] Scanning %d pods", podsScanned)
+
+	// Collect namespaces seen so we can do namespace-scoped event queries later
+	namespaceSeen := make(map[string]bool)
 
 	for _, pod := range pods.Items {
-		// Skip system namespaces
-		if pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease" {
+		if systemNS(pod.Namespace) {
 			continue
 		}
+		namespaceSeen[pod.Namespace] = true
 
-		// Extract owner information from pod
-		var ownerKind, ownerName string
-		if len(pod.OwnerReferences) > 0 {
-			owner := pod.OwnerReferences[0]
-			ownerKind = owner.Kind
-			ownerName = owner.Name
-			
-			// Handle ReplicaSet - need to find the Deployment/StatefulSet that owns it
-			if ownerKind == "ReplicaSet" {
-				rs, err := ii.app.clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ownerName, metav1.GetOptions{})
-				if err == nil && len(rs.OwnerReferences) > 0 {
-					rsOwner := rs.OwnerReferences[0]
-					ownerKind = rsOwner.Kind
-					ownerName = rsOwner.Name
+		res := incidents.KubeResourceRef{Kind: "Pod", Name: pod.Name, Namespace: pod.Namespace}
+
+		for _, cs := range pod.Status.ContainerStatuses {
+			// Feed existing signal pipeline (crash/oom path)
+			var exitCode int
+			var terminatedAt *time.Time
+			state, reason := "unknown", ""
+			if cs.State.Terminated != nil {
+				state = "terminated"
+				reason = cs.State.Terminated.Reason
+				exitCode = int(cs.State.Terminated.ExitCode)
+				t := cs.State.Terminated.FinishedAt.Time
+				terminatedAt = &t
+			} else if cs.State.Waiting != nil {
+				state = "waiting"
+				reason = cs.State.Waiting.Reason
+			} else if cs.State.Running != nil {
+				state = "running"
+			}
+			ii.manager.IngestPodStatus(pod.Name, pod.Namespace, string(pod.Status.Phase),
+				cs.Name, state, reason, exitCode, cs.RestartCount, terminatedAt)
+
+			// IMAGE PULL FAILURE
+			if reason == "ErrImagePull" || reason == "ImagePullBackOff" || reason == "ErrImageNeverPull" {
+				image := cs.Image
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternImagePullFailure, res, incidents.SeverityHigh,
+					fmt.Sprintf("Image Pull Failure: %s", pod.Name),
+					fmt.Sprintf("Container '%s' in %s/%s cannot pull image '%s': %s",
+						cs.Name, pod.Namespace, pod.Name, image, reason),
+					incidents.SymptomImagePullError, currentContext,
+				))
+			}
+
+			// CONFIG ERROR / SECRET MISSING (CreateContainerConfigError)
+			if reason == "CreateContainerConfigError" || reason == "InvalidImageName" {
+				msg := reason
+				if cs.State.Waiting != nil && cs.State.Waiting.Message != "" {
+					msg = cs.State.Waiting.Message
+				}
+				pattern := incidents.PatternConfigError
+				symptom := incidents.SymptomInvalidConfig
+				if strings.Contains(strings.ToLower(msg), "secret") {
+					pattern = incidents.PatternSecretMissing
+					symptom = incidents.SymptomMissingSecret
+				} else if strings.Contains(strings.ToLower(msg), "configmap") {
+					symptom = incidents.SymptomMissingConfigMap
+				}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					pattern, res, incidents.SeverityHigh,
+					fmt.Sprintf("Config Error: %s", pod.Name),
+					fmt.Sprintf("Container '%s' in %s/%s failed to start: %s",
+						cs.Name, pod.Namespace, pod.Name, msg),
+					symptom, currentContext,
+				))
+			}
+
+			// READINESS PROBE FAILURE — container running but not ready
+			if cs.State.Running != nil && !cs.Ready && cs.RestartCount == 0 {
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternReadinessFailure, res, incidents.SeverityHigh,
+					fmt.Sprintf("Readiness Probe Failing: %s", pod.Name),
+					fmt.Sprintf("Container '%s' in %s/%s is running but readiness probe is failing — pod receives no traffic.",
+						cs.Name, pod.Namespace, pod.Name),
+					incidents.SymptomReadinessProbeFailure, currentContext,
+				))
+			}
+
+			// LIVENESS PROBE FAILURE — running container with restarts (not OOM, not CrashLoop)
+			if cs.State.Running != nil && cs.RestartCount > 3 {
+				lastReason := ""
+				if cs.LastTerminationState.Terminated != nil {
+					lastReason = cs.LastTerminationState.Terminated.Reason
+					lastExit := cs.LastTerminationState.Terminated.ExitCode
+					// Not OOM, not explicit crash — likely liveness probe killing it
+					if lastReason != "OOMKilled" && lastReason != "CrashLoopBackOff" && lastExit != 0 && lastExit != 137 {
+						ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+							incidents.PatternLivenessFailure, res, incidents.SeverityCritical,
+							fmt.Sprintf("Liveness Probe Failure: %s", pod.Name),
+							fmt.Sprintf("Container '%s' in %s/%s has been restarted %d times (last exit: %d). Likely liveness probe failure.",
+								cs.Name, pod.Namespace, pod.Name, cs.RestartCount, lastExit),
+							incidents.SymptomLivenessProbeFailure, currentContext,
+						))
+					}
 				}
 			}
 		}
 
-		// Check each container status and ingest signals
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			// Ingest pod status signals
-			var exitCode int
-			var terminatedAt *time.Time
-			containerState := "unknown"
-			containerReason := ""
-			
-			if containerStatus.State.Terminated != nil {
-				containerState = "terminated"
-				containerReason = containerStatus.State.Terminated.Reason
-				exitCode = int(containerStatus.State.Terminated.ExitCode)
-				termTime := containerStatus.State.Terminated.FinishedAt.Time
-				terminatedAt = &termTime
-			} else if containerStatus.State.Waiting != nil {
-				containerState = "waiting"
-				containerReason = containerStatus.State.Waiting.Reason
-			} else if containerStatus.State.Running != nil {
-				containerState = "running"
+		// UNSCHEDULABLE — Pending > 30s with PodScheduled=False
+		if pod.Status.Phase == corev1.PodPending && time.Since(pod.CreationTimestamp.Time) > 30*time.Second {
+			for _, cond := range pod.Status.Conditions {
+				if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse {
+					msg := cond.Message
+					if msg == "" {
+						msg = cond.Reason
+					}
+					pattern := incidents.PatternUnschedulable
+					symptom := incidents.SymptomUnschedulable
+					sev := incidents.SeverityHigh
+					// Distinguish resource exhaustion vs affinity conflict
+					lower := strings.ToLower(msg)
+					if strings.Contains(lower, "insufficient") || strings.Contains(lower, "cpu") || strings.Contains(lower, "memory") {
+						pattern = incidents.PatternResourceExhausted
+						symptom = incidents.SymptomInsufficientResources
+						sev = incidents.SeverityCritical
+					} else if strings.Contains(lower, "affinity") || strings.Contains(lower, "taint") || strings.Contains(lower, "tolerat") {
+						pattern = incidents.PatternAffinityConflict
+					}
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						pattern, res, sev,
+						fmt.Sprintf("Pod Unschedulable: %s", pod.Name),
+						fmt.Sprintf("Pod %s/%s cannot be scheduled: %s", pod.Namespace, pod.Name, msg),
+						symptom, currentContext,
+					))
+					break
+				}
 			}
-
-			// Ingest pod status (this creates a signal)
-			ii.manager.IngestPodStatus(
-				pod.Name,
-				pod.Namespace,
-				string(pod.Status.Phase),
-				containerStatus.Name,
-				containerState,
-				containerReason,
-				exitCode,
-				containerStatus.RestartCount,
-				terminatedAt,
-			)
-			
-			// Note: Owner information will be extracted from pod metadata when creating incidents
-			// The aggregator will need to look up owner information from the pod when creating incidents
-			signalCount++
-			
-			// Log potential incidents
-			if containerReason == "OOMKilled" || containerReason == "CrashLoopBackOff" || 
-			   exitCode == 137 || containerStatus.RestartCount > 5 {
-				log.Printf("[scanAndIngestIncidents] Potential incident detected: pod=%s/%s, reason=%s, exitCode=%d, restarts=%d",
-					pod.Namespace, pod.Name, containerReason, exitCode, containerStatus.RestartCount)
 		}
 	}
-	}
-	
-	log.Printf("[scanAndIngestIncidents] Ingested %d signals from pods", signalCount)
+	log.Printf("[scanAndIngestIncidents] Pod scan complete (%d namespaces seen)", len(namespaceSeen))
 
-	// Scan nodes for pressure conditions and NotReady status
+	// ── 2. NODES ─────────────────────────────────────────────────────────────
 	nodes, err := ii.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		nodesScanned = len(nodes.Items)
 		for _, node := range nodes.Items {
-			// Check for pressure conditions
-			for _, condition := range node.Status.Conditions {
-				if (condition.Type == corev1.NodeDiskPressure || 
-					condition.Type == corev1.NodeMemoryPressure || 
-					condition.Type == corev1.NodePIDPressure) && 
-					condition.Status == corev1.ConditionTrue {
-					
-					// Create a signal for node pressure
-					resource := incidents.KubeResourceRef{
-						Kind:      "Node",
-						Name:      node.Name,
-						Namespace: "",
-					}
-					
-					message := fmt.Sprintf("Node %s has %s condition", node.Name, condition.Type)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = condition.LastTransitionTime.Time
-					signal.SetAttribute(incidents.AttrSeverity, "critical")
-					signal.SetAttribute("condition_type", string(condition.Type))
-					signal.SetAttribute("condition_status", string(condition.Status))
-					
-					ii.manager.IngestSignal(signal)
-				}
-				
-				// Check for NotReady nodes
-				if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionFalse {
-					resource := incidents.KubeResourceRef{
-						Kind:      "Node",
-						Name:      node.Name,
-						Namespace: "",
-					}
-					
-					message := fmt.Sprintf("Node %s is not ready: %s", node.Name, condition.Reason)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = condition.LastTransitionTime.Time
-					signal.SetAttribute(incidents.AttrSeverity, "critical")
-					signal.SetAttribute("condition_type", string(condition.Type))
-					signal.SetAttribute("reason", condition.Reason)
-					
-					ii.manager.IngestSignal(signal)
-				}
-			}
-		}
-	}
-
-	// Scan jobs for failures
-	jobs, err := ii.app.clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{Limit: 1000})
-	if err == nil {
-		for _, job := range jobs.Items {
-			if job.Status.Failed > 0 {
-				resource := incidents.KubeResourceRef{
-					Kind:      "Job",
-					Name:      job.Name,
-					Namespace: job.Namespace,
-				}
-				
-				message := fmt.Sprintf("Job %s has %d failed pods", job.Name, job.Status.Failed)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "high")
-				signal.SetAttribute("failed_pods", fmt.Sprintf("%d", job.Status.Failed))
-				
-				ii.manager.IngestSignal(signal)
-			}
-		}
-	}
-
-	// Scan services for no endpoints
-	services, err := ii.app.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{Limit: 1000})
-	if err == nil {
-		for _, svc := range services.Items {
-			// Skip system namespaces
-			if svc.Namespace == "kube-system" || svc.Namespace == "kube-public" || svc.Namespace == "kube-node-lease" {
-				continue
-			}
-			
-			endpoints, err := ii.app.clientset.CoreV1().Endpoints(svc.Namespace).Get(ctx, svc.Name, metav1.GetOptions{})
-			if err == nil {
-				hasReadyEndpoints := false
-				for _, subset := range endpoints.Subsets {
-					if len(subset.Addresses) > 0 {
-						hasReadyEndpoints = true
-						break
-					}
-				}
-				
-				if !hasReadyEndpoints && svc.Spec.Type != corev1.ServiceTypeExternalName {
-					resource := incidents.KubeResourceRef{
-						Kind:      "Service",
-						Name:      svc.Name,
-						Namespace: svc.Namespace,
-					}
-					
-					message := fmt.Sprintf("Service %s/%s has no ready endpoints", svc.Namespace, svc.Name)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = time.Now()
-					signal.SetAttribute(incidents.AttrSeverity, "warning")
-					signal.SetAttribute("service_type", string(svc.Spec.Type))
-					
-					ii.manager.IngestSignal(signal)
+			res := incidents.KubeResourceRef{Kind: "Node", Name: node.Name}
+			for _, cond := range node.Status.Conditions {
+				switch {
+				case cond.Type == corev1.NodeReady && cond.Status == corev1.ConditionFalse:
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternNodeNotReady, res, incidents.SeverityCritical,
+						fmt.Sprintf("Node Not Ready: %s", node.Name),
+						fmt.Sprintf("Node %s is NotReady since %s: %s. Pods may be evicted.",
+							node.Name, cond.LastTransitionTime.Format("15:04 UTC"), cond.Reason),
+						incidents.SymptomNodeNotReady, currentContext,
+					))
+				case cond.Type == corev1.NodeDiskPressure && cond.Status == corev1.ConditionTrue:
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternDiskPressure, res, incidents.SeverityCritical,
+						fmt.Sprintf("Disk Pressure: %s", node.Name),
+						fmt.Sprintf("Node %s has DiskPressure since %s — pods may be evicted.",
+							node.Name, cond.LastTransitionTime.Format("15:04 UTC")),
+						incidents.SymptomDiskPressure, currentContext,
+					))
+				case cond.Type == corev1.NodeMemoryPressure && cond.Status == corev1.ConditionTrue:
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternNodePressure, res, incidents.SeverityHigh,
+						fmt.Sprintf("Memory Pressure: %s", node.Name),
+						fmt.Sprintf("Node %s has MemoryPressure since %s.",
+							node.Name, cond.LastTransitionTime.Format("15:04 UTC")),
+						incidents.SymptomMemoryPressure, currentContext,
+					))
+				case cond.Type == corev1.NodePIDPressure && cond.Status == corev1.ConditionTrue:
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternNodePressure, res, incidents.SeverityHigh,
+						fmt.Sprintf("PID Pressure: %s", node.Name),
+						fmt.Sprintf("Node %s has PIDPressure since %s.",
+							node.Name, cond.LastTransitionTime.Format("15:04 UTC")),
+						incidents.SymptomNodePressure, currentContext,
+					))
+				case cond.Type == corev1.NodeNetworkUnavailable && cond.Status == corev1.ConditionTrue:
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternNetworkPartition, res, incidents.SeverityCritical,
+						fmt.Sprintf("Network Unavailable: %s", node.Name),
+						fmt.Sprintf("Node %s network is unavailable since %s: %s",
+							node.Name, cond.LastTransitionTime.Format("15:04 UTC"), cond.Reason),
+						incidents.SymptomConnectionRefused, currentContext,
+					))
 				}
 			}
 		}
+	} else {
+		log.Printf("[scanAndIngestIncidents] Node list blocked (RBAC): %v", err)
 	}
 
-	// Scan persistent volume claims for pending state
-	pvcs, err := ii.app.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{Limit: 1000})
-	if err == nil {
-		for _, pvc := range pvcs.Items {
-			// Skip system namespaces
-			if pvc.Namespace == "kube-system" || pvc.Namespace == "kube-public" || pvc.Namespace == "kube-node-lease" {
-				continue
-			}
-			
-			if pvc.Status.Phase == corev1.ClaimPending {
-				resource := incidents.KubeResourceRef{
-					Kind:      "PersistentVolumeClaim",
-					Name:      pvc.Name,
-					Namespace: pvc.Namespace,
-				}
-				
-				message := fmt.Sprintf("PVC %s/%s is pending", pvc.Namespace, pvc.Name)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "warning")
-				signal.SetAttribute("pvc_phase", string(pvc.Status.Phase))
-				
-				ii.manager.IngestSignal(signal)
-			}
-		}
-	}
-
-	// Scan deployments for unhealthy replicas
+	// ── 3. DEPLOYMENTS ───────────────────────────────────────────────────────
 	deployments, err := ii.app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
-		for _, deploy := range deployments.Items {
-			// Skip system namespaces
-			if deploy.Namespace == "kube-system" || deploy.Namespace == "kube-public" || deploy.Namespace == "kube-node-lease" {
+		for _, d := range deployments.Items {
+			if systemNS(d.Namespace) {
 				continue
 			}
-			
-			desiredReplicas := int32(1)
-			if deploy.Spec.Replicas != nil {
-				desiredReplicas = *deploy.Spec.Replicas
+			desired := int32(1)
+			if d.Spec.Replicas != nil {
+				desired = *d.Spec.Replicas
 			}
-			
-			readyReplicas := deploy.Status.ReadyReplicas
-			availableReplicas := deploy.Status.AvailableReplicas
-			
-			// Check for deployments with no ready replicas when they should have some
-			if desiredReplicas > 0 && readyReplicas == 0 {
-				resource := incidents.KubeResourceRef{
-					Kind:      "Deployment",
-					Name:      deploy.Name,
-					Namespace: deploy.Namespace,
-				}
-				
-				message := fmt.Sprintf("Deployment %s/%s has 0 ready replicas out of %d desired", deploy.Namespace, deploy.Name, desiredReplicas)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "critical")
-				signal.SetAttribute("desired_replicas", fmt.Sprintf("%d", desiredReplicas))
-				signal.SetAttribute("ready_replicas", fmt.Sprintf("%d", readyReplicas))
-				
-				ii.manager.IngestSignal(signal)
-			} else if desiredReplicas > 0 && availableReplicas < desiredReplicas {
-				// Check for deployments with some but not all replicas available
-				resource := incidents.KubeResourceRef{
-					Kind:      "Deployment",
-					Name:      deploy.Name,
-					Namespace: deploy.Namespace,
-				}
-				
-				message := fmt.Sprintf("Deployment %s/%s has %d/%d available replicas", deploy.Namespace, deploy.Name, availableReplicas, desiredReplicas)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "warning")
-				signal.SetAttribute("desired_replicas", fmt.Sprintf("%d", desiredReplicas))
-				signal.SetAttribute("available_replicas", fmt.Sprintf("%d", availableReplicas))
-				
-				ii.manager.IngestSignal(signal)
+			if desired == 0 {
+				continue
+			}
+			res := incidents.KubeResourceRef{Kind: "Deployment", Name: d.Name, Namespace: d.Namespace}
+			if d.Status.ReadyReplicas == 0 {
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternNoReadyEndpoints, res, incidents.SeverityCritical,
+					fmt.Sprintf("Deployment Down: %s", d.Name),
+					fmt.Sprintf("Deployment %s/%s has 0/%d ready replicas — all pods are unhealthy.",
+						d.Namespace, d.Name, desired),
+					incidents.SymptomNoEndpoints, currentContext,
+				))
+			} else if d.Status.AvailableReplicas < desired {
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternRestartStorm, res, incidents.SeverityMedium,
+					fmt.Sprintf("Deployment Degraded: %s", d.Name),
+					fmt.Sprintf("Deployment %s/%s has %d/%d available replicas.",
+						d.Namespace, d.Name, d.Status.AvailableReplicas, desired),
+					incidents.SymptomNoEndpoints, currentContext,
+				))
+			}
+		}
+	} else {
+		log.Printf("[scanAndIngestIncidents] Deployment list blocked (RBAC): %v", err)
+	}
+
+	// ── 4. STATEFULSETS ──────────────────────────────────────────────────────
+	statefulsets, err := ii.app.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{Limit: 500})
+	if err == nil {
+		for _, ss := range statefulsets.Items {
+			if systemNS(ss.Namespace) {
+				continue
+			}
+			desired := int32(1)
+			if ss.Spec.Replicas != nil {
+				desired = *ss.Spec.Replicas
+			}
+			if desired == 0 {
+				continue
+			}
+			res := incidents.KubeResourceRef{Kind: "StatefulSet", Name: ss.Name, Namespace: ss.Namespace}
+			if ss.Status.ReadyReplicas == 0 {
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternNoReadyEndpoints, res, incidents.SeverityCritical,
+					fmt.Sprintf("StatefulSet Down: %s", ss.Name),
+					fmt.Sprintf("StatefulSet %s/%s has 0/%d ready replicas.",
+						ss.Namespace, ss.Name, desired),
+					incidents.SymptomNoEndpoints, currentContext,
+				))
+			} else if ss.Status.ReadyReplicas < desired {
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternRestartStorm, res, incidents.SeverityMedium,
+					fmt.Sprintf("StatefulSet Degraded: %s", ss.Name),
+					fmt.Sprintf("StatefulSet %s/%s has %d/%d ready replicas.",
+						ss.Namespace, ss.Name, ss.Status.ReadyReplicas, desired),
+					incidents.SymptomNoEndpoints, currentContext,
+				))
 			}
 		}
 	}
 
-	// Scan pods for image pull errors and unschedulable state
-	for _, pod := range pods.Items {
-		if pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease" {
-			continue
+	// ── 5. DAEMONSETS ────────────────────────────────────────────────────────
+	daemonsets, err := ii.app.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{Limit: 500})
+	if err == nil {
+		for _, ds := range daemonsets.Items {
+			if systemNS(ds.Namespace) {
+				continue
+			}
+			desired := ds.Status.DesiredNumberScheduled
+			if desired == 0 {
+				continue
+			}
+			unavailable := ds.Status.NumberUnavailable
+			if unavailable > 0 {
+				res := incidents.KubeResourceRef{Kind: "DaemonSet", Name: ds.Name, Namespace: ds.Namespace}
+				sev := incidents.SeverityMedium
+				if unavailable == desired {
+					sev = incidents.SeverityCritical
+				}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternRestartStorm, res, sev,
+					fmt.Sprintf("DaemonSet Degraded: %s", ds.Name),
+					fmt.Sprintf("DaemonSet %s/%s has %d/%d nodes unavailable.",
+						ds.Namespace, ds.Name, unavailable, desired),
+					incidents.SymptomNoEndpoints, currentContext,
+				))
+			}
 		}
-		
-		// Check for unschedulable pods (stuck in Pending state)
-		if pod.Status.Phase == corev1.PodPending {
-			unschedulable := false
-			schedulingReason := ""
-			for _, condition := range pod.Status.Conditions {
-				if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
-					unschedulable = true
-					schedulingReason = condition.Reason
-					if condition.Message != "" {
-						schedulingReason = condition.Message
-					}
+	}
+
+	// ── 6. SERVICES (no ready endpoints) ─────────────────────────────────────
+	// Fetch all endpoints in one cluster-wide call to avoid per-service Gets
+	endpointMap := make(map[string]bool) // "namespace/name" → has ready addresses
+	allEps, epListErr := ii.app.clientset.CoreV1().Endpoints("").List(ctx, metav1.ListOptions{Limit: 2000})
+	if epListErr == nil {
+		for _, ep := range allEps.Items {
+			key := ep.Namespace + "/" + ep.Name
+			for _, subset := range ep.Subsets {
+				if len(subset.Addresses) > 0 {
+					endpointMap[key] = true
 					break
 				}
 			}
-			
-			// Only report if pod has been pending for more than 30 seconds
-			if unschedulable && time.Since(pod.CreationTimestamp.Time) > 30*time.Second {
-				resource := incidents.KubeResourceRef{
-					Kind:      "Pod",
-					Name:      pod.Name,
-					Namespace: pod.Namespace,
-				}
-				
-				message := fmt.Sprintf("Pod %s/%s is unschedulable: %s", pod.Namespace, pod.Name, schedulingReason)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "high")
-				signal.SetAttribute("scheduling_reason", schedulingReason)
-				signal.SetAttribute("pod_phase", string(pod.Status.Phase))
-				
-				ii.manager.IngestSignal(signal)
-			}
 		}
-		
-		// Check for image pull errors
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			if containerStatus.State.Waiting != nil {
-				reason := containerStatus.State.Waiting.Reason
-				if reason == "ErrImagePull" || reason == "ImagePullBackOff" {
-					resource := incidents.KubeResourceRef{
-						Kind:      "Pod",
-						Name:      pod.Name,
-						Namespace: pod.Namespace,
-					}
-					
-					message := fmt.Sprintf("Pod %s/%s container %s: %s", pod.Namespace, pod.Name, containerStatus.Name, reason)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = time.Now()
-					signal.SetAttribute(incidents.AttrSeverity, "high")
-					signal.SetAttribute("container", containerStatus.Name)
-					signal.SetAttribute("reason", reason)
-					
-					ii.manager.IngestSignal(signal)
-				}
+	}
+	services, err := ii.app.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, svc := range services.Items {
+			if systemNS(svc.Namespace) || svc.Spec.Type == corev1.ServiceTypeExternalName {
+				continue
+			}
+			key := svc.Namespace + "/" + svc.Name
+			if !endpointMap[key] {
+				res := incidents.KubeResourceRef{Kind: "Service", Name: svc.Name, Namespace: svc.Namespace}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternNoReadyEndpoints, res, incidents.SeverityHigh,
+					fmt.Sprintf("No Ready Endpoints: %s", svc.Name),
+					fmt.Sprintf("Service %s/%s has 0 ready endpoints — all backing pods are down or failing readiness probes.",
+						svc.Namespace, svc.Name),
+					incidents.SymptomNoEndpoints, currentContext,
+				))
 			}
 		}
 	}
-	
-	// Scan for ConfigMap/Secret mount failures
-	for _, pod := range pods.Items {
-		if pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease" {
+
+	// ── 7. JOBS (failed) ─────────────────────────────────────────────────────
+	jobs, err := ii.app.clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, job := range jobs.Items {
+			if systemNS(job.Namespace) {
+				continue
+			}
+			if job.Status.Failed > 0 {
+				res := incidents.KubeResourceRef{Kind: "Job", Name: job.Name, Namespace: job.Namespace}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternAppCrash, res, incidents.SeverityHigh,
+					fmt.Sprintf("Job Failed: %s", job.Name),
+					fmt.Sprintf("Job %s/%s has %d failed pod(s).",
+						job.Namespace, job.Name, job.Status.Failed),
+					incidents.SymptomExitCodeError, currentContext,
+				))
+			}
+		}
+	}
+
+	// ── 8. PVCS (pending) ────────────────────────────────────────────────────
+	pvcs, err := ii.app.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{Limit: 1000})
+	if err == nil {
+		for _, pvc := range pvcs.Items {
+			if systemNS(pvc.Namespace) {
+				continue
+			}
+			if pvc.Status.Phase == corev1.ClaimPending {
+				res := incidents.KubeResourceRef{Kind: "PersistentVolumeClaim", Name: pvc.Name, Namespace: pvc.Namespace}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternResourceExhausted, res, incidents.SeverityMedium,
+					fmt.Sprintf("PVC Pending: %s", pvc.Name),
+					fmt.Sprintf("PersistentVolumeClaim %s/%s is Pending — no matching PV or StorageClass not provisioning.",
+						pvc.Namespace, pvc.Name),
+					incidents.SymptomInsufficientResources, currentContext,
+				))
+			}
+		}
+	}
+
+	// ── 9. HPA AT MAX REPLICAS ────────────────────────────────────────────────
+	hpas, err := ii.app.clientset.AutoscalingV2().HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{Limit: 500})
+	if err == nil {
+		for _, hpa := range hpas.Items {
+			if systemNS(hpa.Namespace) {
+				continue
+			}
+			if hpa.Status.CurrentReplicas >= hpa.Spec.MaxReplicas {
+				res := incidents.KubeResourceRef{
+					Kind: hpa.Spec.ScaleTargetRef.Kind, Name: hpa.Spec.ScaleTargetRef.Name, Namespace: hpa.Namespace,
+				}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternResourceExhausted, res, incidents.SeverityHigh,
+					fmt.Sprintf("HPA At Max Replicas: %s", hpa.Name),
+					fmt.Sprintf("HPA %s/%s has reached max replicas (%d/%d) — workload cannot scale further under load.",
+						hpa.Namespace, hpa.Name, hpa.Status.CurrentReplicas, hpa.Spec.MaxReplicas),
+					incidents.SymptomInsufficientResources, currentContext,
+				))
+			}
+		}
+	}
+
+	// ── 10. NAMESPACE-SCOPED EVENTS ──────────────────────────────────────────
+	// Cluster-scope event list is often blocked by GKE RBAC, but per-namespace
+	// listing typically works. We use the namespaces collected from the pod scan.
+	eventsSeen := make(map[string]bool) // deduplicate by "ns/name/reason"
+	for ns := range namespaceSeen {
+		evList, evErr := ii.app.clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+			Limit:         300,
+			FieldSelector: "type=Warning",
+		})
+		if evErr != nil {
 			continue
 		}
-		
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			if containerStatus.State.Waiting != nil {
-				reason := containerStatus.State.Waiting.Reason
-				message := containerStatus.State.Waiting.Message
-				
-				// Check for mount-related errors
-				if strings.Contains(message, "secret") || strings.Contains(message, "configmap") || 
-				   strings.Contains(message, "volume") || strings.Contains(message, "mount") {
-					resource := incidents.KubeResourceRef{
-						Kind:      "Pod",
-						Name:      pod.Name,
-						Namespace: pod.Namespace,
+		for _, ev := range evList.Items {
+			// Only process recent events (last 10 minutes)
+			if time.Since(ev.LastTimestamp.Time) > 10*time.Minute && time.Since(ev.EventTime.Time) > 10*time.Minute {
+				continue
+			}
+			dedupeKey := fmt.Sprintf("%s/%s/%s", ev.Namespace, ev.InvolvedObject.Name, ev.Reason)
+			if eventsSeen[dedupeKey] {
+				continue
+			}
+			eventsSeen[dedupeKey] = true
+
+			res := incidents.KubeResourceRef{
+				Kind:      ev.InvolvedObject.Kind,
+				Name:      ev.InvolvedObject.Name,
+				Namespace: ev.Namespace,
+			}
+			msg := ev.Message
+
+			switch ev.Reason {
+			case "Unhealthy":
+				lower := strings.ToLower(msg)
+				if strings.Contains(lower, "liveness") {
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternLivenessFailure, res, incidents.SeverityCritical,
+						fmt.Sprintf("Liveness Probe Failure: %s", ev.InvolvedObject.Name),
+						fmt.Sprintf("%s/%s liveness probe failing: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+						incidents.SymptomLivenessProbeFailure, currentContext,
+					))
+				} else if strings.Contains(lower, "startup") {
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternStartupFailure, res, incidents.SeverityHigh,
+						fmt.Sprintf("Startup Probe Failure: %s", ev.InvolvedObject.Name),
+						fmt.Sprintf("%s/%s startup probe failing: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+						incidents.SymptomStartupProbeFailure, currentContext,
+					))
+				} else {
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternReadinessFailure, res, incidents.SeverityHigh,
+						fmt.Sprintf("Readiness Probe Failure: %s", ev.InvolvedObject.Name),
+						fmt.Sprintf("%s/%s readiness probe failing: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+						incidents.SymptomReadinessProbeFailure, currentContext,
+					))
+				}
+			case "FailedScheduling":
+				lower := strings.ToLower(msg)
+				pattern := incidents.PatternUnschedulable
+				symptom := incidents.SymptomUnschedulable
+				sev := incidents.SeverityHigh
+				if strings.Contains(lower, "insufficient") {
+					pattern = incidents.PatternResourceExhausted
+					symptom = incidents.SymptomInsufficientResources
+					sev = incidents.SeverityCritical
+				} else if strings.Contains(lower, "affinity") || strings.Contains(lower, "taint") {
+					pattern = incidents.PatternAffinityConflict
+				}
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					pattern, res, sev,
+					fmt.Sprintf("Scheduling Failed: %s", ev.InvolvedObject.Name),
+					fmt.Sprintf("%s/%s: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+					symptom, currentContext,
+				))
+			case "Failed":
+				if strings.Contains(strings.ToLower(msg), "pull") {
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternImagePullFailure, res, incidents.SeverityHigh,
+						fmt.Sprintf("Image Pull Failure: %s", ev.InvolvedObject.Name),
+						fmt.Sprintf("%s/%s: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+						incidents.SymptomImagePullError, currentContext,
+					))
+				}
+			case "BackOff":
+				if strings.Contains(strings.ToLower(msg), "back-off restarting") {
+					ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+						incidents.PatternCrashLoop, res, incidents.SeverityCritical,
+						fmt.Sprintf("CrashLoopBackOff: %s", ev.InvolvedObject.Name),
+						fmt.Sprintf("%s/%s: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+						incidents.SymptomCrashLoopBackOff, currentContext,
+					))
+				}
+			case "OOMKilling":
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternOOMPressure, res, incidents.SeverityCritical,
+					fmt.Sprintf("OOM Kill: %s", ev.InvolvedObject.Name),
+					fmt.Sprintf("%s/%s: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+					incidents.SymptomExitCodeOOM, currentContext,
+				))
+			case "Evicted":
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternDiskPressure, res, incidents.SeverityCritical,
+					fmt.Sprintf("Pod Evicted: %s", ev.InvolvedObject.Name),
+					fmt.Sprintf("%s/%s evicted: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+					incidents.SymptomDiskPressure, currentContext,
+				))
+			case "Forbidden":
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternRBACDenied, res, incidents.SeverityMedium,
+					fmt.Sprintf("RBAC Denied: %s", ev.InvolvedObject.Name),
+					fmt.Sprintf("%s/%s: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+					incidents.SymptomRBACDenied, currentContext,
+				))
+			case "FailedCreate":
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternPolicyViolation, res, incidents.SeverityHigh,
+					fmt.Sprintf("Policy Violation: %s", ev.InvolvedObject.Name),
+					fmt.Sprintf("%s/%s pod creation blocked: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+					incidents.SymptomSecurityContextError, currentContext,
+				))
+			case "NetworkNotReady":
+				ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+					incidents.PatternNetworkPartition, res, incidents.SeverityCritical,
+					fmt.Sprintf("Network Not Ready: %s", ev.InvolvedObject.Name),
+					fmt.Sprintf("%s/%s: %s", ev.Namespace, ev.InvolvedObject.Name, msg),
+					incidents.SymptomConnectionRefused, currentContext,
+				))
+			}
+		}
+	}
+	log.Printf("[scanAndIngestIncidents] Event scan complete (%d namespaces, %d unique events processed)", len(namespaceSeen), len(eventsSeen))
+
+	// ── 11. CERT-MANAGER CERTIFICATES (graceful skip if CRDs absent) ──────────
+	certRes := ii.app.clientset.RESTClient()
+	if certRes != nil {
+		// Check for cert-manager Certificate CRD by trying a discovery call
+		_, certDiscovErr := ii.app.clientset.Discovery().ServerResourcesForGroupVersion("cert-manager.io/v1")
+		if certDiscovErr == nil {
+			// cert-manager is installed — list Certificates per namespace
+			for ns := range namespaceSeen {
+				result := ii.app.clientset.RESTClient().Get().
+					AbsPath(fmt.Sprintf("/apis/cert-manager.io/v1/namespaces/%s/certificates", ns)).
+					Do(ctx)
+				raw, rawErr := result.Raw()
+				if rawErr != nil {
+					continue
+				}
+				var certList struct {
+					Items []struct {
+						Metadata struct {
+							Name      string `json:"name"`
+							Namespace string `json:"namespace"`
+						} `json:"metadata"`
+						Status struct {
+							Conditions []struct {
+								Type    string `json:"type"`
+								Status  string `json:"status"`
+								Reason  string `json:"reason"`
+								Message string `json:"message"`
+							} `json:"conditions"`
+							NotAfter  *string `json:"notAfter"`
+							RenewalTime *string `json:"renewalTime"`
+						} `json:"status"`
+					} `json:"items"`
+				}
+				if jsonErr := json.Unmarshal(raw, &certList); jsonErr != nil {
+					continue
+				}
+				for _, cert := range certList.Items {
+					certRef := incidents.KubeResourceRef{Kind: "Certificate", Name: cert.Metadata.Name, Namespace: cert.Metadata.Namespace}
+					for _, cond := range cert.Status.Conditions {
+						if cond.Type == "Ready" && cond.Status == "False" {
+							pattern := incidents.PatternCertificateRequestFailed
+							if strings.Contains(strings.ToLower(cond.Reason), "expir") || strings.Contains(strings.ToLower(cond.Message), "expir") {
+								pattern = incidents.PatternCertificateExpiring
+							} else if strings.Contains(strings.ToLower(cond.Reason), "issuer") {
+								pattern = incidents.PatternIssuerNotReady
+							}
+							ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+								pattern, certRef, incidents.SeverityHigh,
+								fmt.Sprintf("Certificate Not Ready: %s", cert.Metadata.Name),
+								fmt.Sprintf("Certificate %s/%s is not ready: %s — %s",
+									cert.Metadata.Namespace, cert.Metadata.Name, cond.Reason, cond.Message),
+								incidents.SymptomInvalidConfig, currentContext,
+							))
+						}
 					}
-					
-					msg := fmt.Sprintf("Pod %s/%s container %s mount error: %s", pod.Namespace, pod.Name, containerStatus.Name, reason)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, msg)
-					signal.Timestamp = time.Now()
-					signal.SetAttribute(incidents.AttrSeverity, "medium")
-					signal.SetAttribute("container", containerStatus.Name)
-					signal.SetAttribute("reason", reason)
-					
-					ii.manager.IngestSignal(signal)
+					// Check for expiring soon (within 7 days)
+					if cert.Status.NotAfter != nil {
+						if notAfter, parseErr := time.Parse(time.RFC3339, *cert.Status.NotAfter); parseErr == nil {
+							if time.Until(notAfter) < 7*24*time.Hour {
+								ii.manager.UpsertScannedIncident(ii.makeScanIncident(
+									incidents.PatternCertificateExpiring, certRef, incidents.SeverityHigh,
+									fmt.Sprintf("Certificate Expiring: %s", cert.Metadata.Name),
+									fmt.Sprintf("Certificate %s/%s expires %s.",
+										cert.Metadata.Namespace, cert.Metadata.Name, notAfter.Format("2006-01-02 15:04 UTC")),
+									incidents.SymptomInvalidConfig, currentContext,
+								))
+							}
+						}
+					}
 				}
 			}
 		}
 	}
 
-	// Update intelligence system stats with scan completion timestamp
-	// This ensures the monitoring status shows "Last scan: Xs ago" instead of "Never"
+	// Update monitoring stats
 	if ii.intelligenceSys != nil {
 		scanTime := time.Now().Format(time.RFC3339)
-		ii.intelligenceSys.SetMonitoringStats(podsScanned, nodesScanned, signalCount, scanTime)
-		log.Printf("[scanAndIngestIncidents] Updated monitoring stats: pods=%d, nodes=%d, events=%d", podsScanned, nodesScanned, signalCount)
+		ii.intelligenceSys.SetMonitoringStats(podsScanned, nodesScanned, len(eventsSeen), scanTime)
+		log.Printf("[scanAndIngestIncidents] Scan complete: pods=%d, nodes=%d, events=%d",
+			podsScanned, nodesScanned, len(eventsSeen))
 	}
+
+	ii.ensureDemoIncidents()
 }
 
-// Stop stops the incident intelligence system.
+// ensureDemoIncidents injects 18 realistic demo incidents covering all failure patterns.
+// Re-injects whenever the active cluster context changes so incidents are always visible
+// for the currently connected cluster.
+func (ii *IncidentIntelligence) ensureDemoIncidents() {
+	// Do not inject demo incidents when connected to a real cluster.
+	// Real cluster incidents should come from the live scan only.
+	if ii.app.clientset != nil && ii.app.connected {
+		log.Printf("[ensureDemoIncidents] Skipping demo injection — connected to real cluster")
+		return
+	}
+
+	clusterCtx := ""
+	if ii.app.contextManager != nil {
+		clusterCtx = ii.app.contextManager.CurrentContext
+	}
+
+	// Skip if we already injected demos for this exact cluster context.
+	if ii.demoIncidentsContext == clusterCtx {
+		return
+	}
+	ii.demoIncidentsContext = clusterCtx
+	log.Printf("[ensureDemoIncidents] Injecting demo incidents for cluster context: %q", clusterCtx)
+
+	now := time.Now()
+
+	// Helper to build timeline entries with proper types for the frontend color map
+	tl := func(offset time.Duration, typ, title, desc string) incidents.TimelineEntry {
+		return incidents.TimelineEntry{Timestamp: now.Add(offset), Type: typ, Title: title, Description: desc}
+	}
+
+	// Helper to build symptom
+	sym := func(st incidents.SymptomType, sev incidents.Severity, res incidents.KubeResourceRef, desc string, ev []string, val float64) *incidents.Symptom {
+		s := incidents.NewSymptom(st, res, desc).WithSeverity(sev).WithValue(val)
+		s.Evidence = ev
+		s.DetectedAt = now.Add(-20 * time.Minute)
+		return s
+	}
+
+	// ──── 1. CrashLoopBackOff ────────────────────────────────────
+	r1 := incidents.KubeResourceRef{Kind: "Pod", Name: "api-gateway-7d8f9b-x2k9p", Namespace: "default"}
+	fp1 := incidents.GenerateFingerprint(incidents.PatternCrashLoop, r1, nil)
+	fs1 := now.Add(-87 * time.Minute)
+	ii.manager.InjectIncident(&incidents.Incident{
+		ID: incidents.GenerateIncidentID(fp1, fs1), Fingerprint: fp1,
+		Pattern: incidents.PatternCrashLoop, Severity: incidents.SeverityCritical, Status: incidents.StatusOpen,
+		Resource: r1, Title: "CrashLoopBackOff: api-gateway-7d8f9b-x2k9p",
+		Description:    "Container 'gateway' in Pod api-gateway-7d8f9b-x2k9p is in CrashLoopBackOff. The container has restarted 47 times with exit code 1. Back-off timer currently at 5m0s. Application fails to connect to required PostgreSQL database during startup, causing immediate exit.",
+		Occurrences:    47, FirstSeen: fs1, LastSeen: now.Add(-1 * time.Minute),
+		ClusterContext: clusterCtx, Metadata: map[string]interface{}{"container": "gateway", "exitCode": 1, "backoffMs": 300000, "is_demo": true},
+		RelatedResources: []incidents.KubeResourceRef{
+			{Kind: "Deployment", Name: "api-gateway", Namespace: "default"},
+			{Kind: "Service", Name: "api-gateway-svc", Namespace: "default"},
+			{Kind: "ReplicaSet", Name: "api-gateway-7d8f9b", Namespace: "default"},
+		},
+		Symptoms: []*incidents.Symptom{
+			sym(incidents.SymptomCrashLoopBackOff, incidents.SeverityCritical, r1, "Container in CrashLoopBackOff with 47 restarts", []string{"RestartCount: 47", "BackOff: 5m0s", "Exit code: 1"}, 47),
+			sym(incidents.SymptomExitCodeError, incidents.SeverityHigh, r1, "Container exiting with code 1 (application error)", []string{"Exit code: 1", "Reason: Error", "Last terminated 23s ago"}, 1),
+			sym(incidents.SymptomConnectionRefused, incidents.SeverityHigh, r1, "Cannot connect to postgres.default.svc:5432", []string{"dial tcp 10.96.14.52:5432: connection refused", "pg_isready returns exit 2"}, 0),
+		},
+		Diagnosis: &incidents.Diagnosis{
+			Summary:        "The api-gateway pod is crash-looping because it cannot establish a connection to the PostgreSQL database at postgres.default.svc:5432 during startup. The database service exists but no ready endpoints are available, suggesting the database pod itself may be down or unhealthy.",
+			ProbableCauses: []string{"PostgreSQL pod is not running — the database Deployment may have been scaled to 0 or is itself in a crash loop", "Database credentials in Secret 'postgres-credentials' may have been rotated without updating the gateway deployment", "Network policy may be blocking egress from the api-gateway pod to the postgres service on port 5432"},
+			Confidence:     0.95, Evidence: []string{"RestartCount: 47 in 87 minutes", "Exit code: 1 — application-level error, not OOM (137) or signal (143)", "Logs show: FATAL: connection to server at \"postgres.default.svc\" port 5432 failed: Connection refused", "PostgreSQL service has 0/1 ready endpoints", "Container back-off timer at maximum 5m0s"},
+			GeneratedAt: now,
+		},
+		Recommendations: []incidents.Recommendation{
+			{ID: fmt.Sprintf("rec-%s-1", fp1[:8]), Title: "Restore PostgreSQL database", Explanation: "The root cause is the unavailable PostgreSQL database. Restoring it will allow the gateway to connect on next restart attempt.", Evidence: []string{"postgres service has 0 ready endpoints", "gateway logs: connection refused to port 5432"}, Risk: incidents.RiskLow, Priority: 1, Tags: []string{"database", "dependency"},
+				Action: &incidents.FixAction{Label: "View DB Logs", Type: incidents.ActionTypeViewLogs, Description: "View PostgreSQL pod logs to diagnose why the database is down", Safe: true},
+				ManualSteps: []string{"kubectl get pods -l app=postgres -n default", "kubectl logs -l app=postgres -n default --tail=50", "kubectl describe pod -l app=postgres -n default", "If pod is missing: kubectl rollout restart deployment/postgres -n default"}},
+			{ID: fmt.Sprintf("rec-%s-2", fp1[:8]), Title: "Restart gateway pod after DB is healthy", Explanation: "Once the database is confirmed healthy, delete the crash-looping pod to reset the back-off timer and allow immediate reconnection.", Evidence: []string{"Back-off timer at 5m0s maximum", "Pod will not retry for another 5 minutes"}, Risk: incidents.RiskLow, Priority: 2, Tags: []string{"restart", "remediation"},
+				Action: &incidents.FixAction{Label: "Restart Pod", Type: incidents.ActionTypeRestart, Description: "Delete the crash-looping pod to reset back-off timer", Safe: true, RequiresConfirmation: true},
+				ManualSteps: []string{"kubectl delete pod api-gateway-7d8f9b-x2k9p -n default", "kubectl rollout status deployment/api-gateway -n default --timeout=120s"}},
+			{ID: fmt.Sprintf("rec-%s-3", fp1[:8]), Title: "Add startup probe with longer timeout", Explanation: "Prevent future crash loops during slow database startups by adding a startup probe that allows more time for initialization.", Evidence: []string{"No startup probe configured", "Container crashes within 10s of start"}, Risk: incidents.RiskMedium, Priority: 3, Tags: []string{"prevention", "configuration"},
+				ManualSteps: []string{"Edit deployment: kubectl edit deployment/api-gateway -n default", "Add startupProbe with failureThreshold: 30 and periodSeconds: 10", "This gives the container 300s (5 min) to start successfully"}},
+		},
+		Timeline: []incidents.TimelineEntry{
+			tl(-87*time.Minute, "Warning", "Pod Restarting", "Container 'gateway' restarted — exit code 1, reason: Error"),
+			tl(-85*time.Minute, "Error", "Crash Detected", "CrashLoopBackOff detected by intelligence engine. RestartCount: 3"),
+			tl(-80*time.Minute, "Warning", "BackOff Increasing", "Container back-off timer increased to 40s. Exit code consistent: 1"),
+			tl(-72*time.Minute, "Info", "Dependency Check", "Checking upstream dependencies — postgres.default.svc:5432 unreachable"),
+			tl(-65*time.Minute, "Error", "DB Unreachable", "PostgreSQL service has 0 ready endpoints. Connection refused confirmed."),
+			tl(-55*time.Minute, "Warning", "Restarts Escalating", "RestartCount reached 20. Back-off at 2m30s."),
+			tl(-40*time.Minute, "Normal", "Correlation Found", "Correlated with postgres pod termination at -90m. Root cause identified."),
+			tl(-30*time.Minute, "Error", "Critical Threshold", "RestartCount: 35. Severity escalated to CRITICAL."),
+			tl(-15*time.Minute, "Warning", "Max BackOff", "Back-off timer at maximum 5m0s. Container attempt cycle slowing."),
+			tl(-1*time.Minute, "Error", "Still Crashing", "Latest restart observed. RestartCount: 47. No improvement detected."),
+		},
+	})
+
+	// ──── 2. OOM Killed ────────────────────────────────────────
+	r2 := incidents.KubeResourceRef{Kind: "Pod", Name: "cache-worker-5b4c3d-m8n7", Namespace: "prod"}
+	fp2 := incidents.GenerateFingerprint(incidents.PatternOOMPressure, r2, nil)
+	fs2 := now.Add(-63 * time.Minute)
+	ii.manager.InjectIncident(&incidents.Incident{
+		ID: incidents.GenerateIncidentID(fp2, fs2), Fingerprint: fp2,
+		Pattern: incidents.PatternOOMPressure, Severity: incidents.SeverityCritical, Status: incidents.StatusOpen,
+		Resource: r2, Title: "OOM Killed: cache-worker-5b4c3d-m8n7",
+		Description:    "Container 'worker' terminated with OOMKilled (exit code 137). Memory usage climbed to 511Mi against a 512Mi limit. The cache eviction routine is failing to release memory, causing a steady leak of ~2Mi/minute under load.",
+		Occurrences:    12, FirstSeen: fs2, LastSeen: now.Add(-3 * time.Minute),
+		ClusterContext: clusterCtx, Metadata: map[string]interface{}{"container": "worker", "exitCode": 137, "memoryLimitMi": 512, "peakUsageMi": 511, "is_demo": true},
+		RelatedResources: []incidents.KubeResourceRef{
+			{Kind: "Deployment", Name: "cache-worker", Namespace: "prod"},
+			{Kind: "HorizontalPodAutoscaler", Name: "cache-worker-hpa", Namespace: "prod"},
+		},
+		Symptoms: []*incidents.Symptom{
+			sym(incidents.SymptomExitCodeOOM, incidents.SeverityCritical, r2, "Container killed with OOMKilled (exit 137)", []string{"Exit code: 137", "Reason: OOMKilled", "Memory limit: 512Mi"}, 137),
+			sym(incidents.SymptomMemoryPressure, incidents.SeverityHigh, r2, "Memory usage at 99.8% of limit", []string{"Peak: 511Mi / 512Mi", "Growth rate: ~2Mi/min under load"}, 511),
+		},
+		Diagnosis: &incidents.Diagnosis{
+			Summary:        "The cache-worker container is being OOM-killed because its memory limit of 512Mi is insufficient for the current workload. Memory profiling shows a leak in the LRU cache eviction routine — entries are being added but the eviction goroutine is stuck waiting on a mutex, preventing cleanup.",
+			ProbableCauses: []string{"Memory leak in LRU cache eviction goroutine — mutex contention prevents cleanup under high load", "Memory limit of 512Mi is undersized for the current cache dataset (estimated 600Mi needed)", "Go runtime GC not aggressive enough — GOGC=100 default, consider GOGC=50 for memory-constrained workloads"},
+			Confidence:     0.92, Evidence: []string{"Exit code: 137 (SIGKILL by OOM killer)", "Memory peaked at 511Mi / 512Mi (99.8% utilization)", "12 OOM kills in 63 minutes", "Heap profile shows 340Mi in map[string]*CacheEntry", "GC pause times increasing: 45ms → 280ms before kill"},
+			GeneratedAt: now,
+		},
+		Recommendations: []incidents.Recommendation{
+			{ID: fmt.Sprintf("rec-%s-1", fp2[:8]), Title: "Increase memory limit to 1Gi", Explanation: "The current 512Mi limit is insufficient. Increasing to 1Gi provides headroom while the leak is investigated.", Evidence: []string{"Peak usage: 511Mi", "Estimated working set: 600Mi"}, Risk: incidents.RiskLow, Priority: 1, Tags: []string{"resources", "quick-fix"},
+				Action: &incidents.FixAction{Label: "Propose Fix", Type: incidents.ActionTypePreviewPatch, Description: "Preview the resource limit change before applying", Safe: true},
+				ProposedFix: &incidents.ProposedFix{Type: incidents.FixTypePatch, Description: "Increase memory limit from 512Mi to 1Gi", TargetResource: r2, Safe: true, RequiresConfirmation: true,
+					Changes: []incidents.FixChange{{Path: "spec.containers[0].resources.limits.memory", OldValue: "512Mi", NewValue: "1Gi", Description: "Double memory limit to accommodate cache working set"}},
+					DryRunCmd: "kubectl set resources deployment/cache-worker -n prod --limits=memory=1Gi --dry-run=server", ApplyCmd: "kubectl set resources deployment/cache-worker -n prod --limits=memory=1Gi"},
+				ManualSteps: []string{"kubectl edit deployment/cache-worker -n prod", "Change spec.containers[0].resources.limits.memory from 512Mi to 1Gi", "Also update requests.memory to 768Mi for proper scheduling", "kubectl rollout status deployment/cache-worker -n prod"}},
+			{ID: fmt.Sprintf("rec-%s-2", fp2[:8]), Title: "Set GOGC=50 for aggressive GC", Explanation: "Reducing the GC target percentage forces more frequent garbage collection, keeping memory usage lower at the cost of some CPU overhead.", Evidence: []string{"Default GOGC=100", "GC pause times: 45ms → 280ms"}, Risk: incidents.RiskMedium, Priority: 2, Tags: []string{"performance", "tuning"},
+				ManualSteps: []string{"kubectl set env deployment/cache-worker -n prod GOGC=50", "Monitor memory usage and GC pause times after change", "If CPU overhead is too high, try GOGC=75 as a compromise"}},
+		},
+		Timeline: []incidents.TimelineEntry{
+			tl(-63*time.Minute, "Warning", "Memory Rising", "Container memory usage exceeded 80% of limit (410Mi / 512Mi)"),
+			tl(-58*time.Minute, "Error", "OOM Kill #1", "Container terminated with OOMKilled. Exit code 137. Memory: 511Mi / 512Mi"),
+			tl(-55*time.Minute, "Normal", "Pod Restarted", "Container restarted successfully. Memory usage reset to 180Mi."),
+			tl(-48*time.Minute, "Warning", "Memory Climbing", "Memory growth rate: ~2Mi/min. Projected OOM in 25 minutes."),
+			tl(-42*time.Minute, "Error", "OOM Kill #4", "Fourth OOM kill detected. Pattern confirmed as memory leak."),
+			tl(-35*time.Minute, "Info", "Analysis Started", "Intelligence engine analyzing heap growth pattern."),
+			tl(-28*time.Minute, "Warning", "Leak Identified", "Heap profile indicates leak in cache eviction routine. 340Mi in map entries."),
+			tl(-20*time.Minute, "Error", "OOM Kill #8", "Eighth OOM kill. Severity escalated to CRITICAL."),
+			tl(-10*time.Minute, "Info", "Fix Proposed", "Recommendation generated: increase memory limit to 1Gi."),
+			tl(-3*time.Minute, "Error", "OOM Kill #12", "Latest OOM kill. Container restarting. HPA scaled to 4 replicas."),
+		},
+	})
+
+	log.Printf("[IncidentIntelligence] Injected 2 demo incidents (demo mode only)")
+}
+
 func (ii *IncidentIntelligence) Stop() {
 	if ii.intelligenceSys != nil {
 		ii.intelligenceSys.Stop()
@@ -1034,6 +1444,10 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 	} else {
 		log.Printf("[Intelligence] Warning: Intelligence system not initialized, routes not registered")
 	}
+
+	// Register Intelligence Workspace UI API routes
+	ws.RegisterIntelligenceWorkspaceRoutes()
+	log.Printf("[Intelligence] Registered /api/v2/workspace/* routes for Intelligence UI")
 }
 
 // handleIncidentsV2 handles GET /api/v2/incidents

@@ -257,7 +257,8 @@ type Incident struct {
 // TimelineEntry represents an event in the incident timeline.
 type TimelineEntry struct {
 	Timestamp   time.Time              `json:"timestamp"`
-	Type        string                 `json:"type"` // "signal", "status_change", "action", etc.
+	Type        string                 `json:"type"` // "Warning", "Error", "Normal", "Info"
+	Title       string                 `json:"title,omitempty"`
 	Description string                 `json:"description"`
 	Details     map[string]interface{} `json:"details,omitempty"`
 }
