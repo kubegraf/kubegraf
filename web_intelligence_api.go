@@ -20,6 +20,9 @@ func (ws *WebServer) RegisterIntelligenceWorkspaceRoutes() {
 
 	// Get incident story (narrative)
 	http.HandleFunc("/api/v2/workspace/incidents/", ws.handleWorkspaceIncidentRoute)
+
+	// YAML apply endpoint — POST /api/v1/apply { yaml, kind, name, namespace }
+	http.HandleFunc("/api/v1/apply", ws.handleYAMLApply)
 }
 
 // handleWorkspaceInsights generates insights for all active incidents
@@ -39,7 +42,7 @@ func (ws *WebServer) handleWorkspaceInsights(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get all incidents
-	allIncidents := ws.incidentIntelligence.manager.ListIncidents()
+	allIncidents := ws.incidentIntelligence.manager.GetAllIncidents()
 
 	// Generate insights
 	insights := generateWorkspaceInsights(allIncidents)
@@ -125,7 +128,7 @@ func (ws *WebServer) handleRelatedIncidents(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Get all incidents for comparison
-	allIncidents := ws.incidentIntelligence.manager.ListIncidents()
+	allIncidents := ws.incidentIntelligence.manager.GetAllIncidents()
 
 	// Calculate similarity scores
 	related := findRelatedIncidents(incident, allIncidents, 5)
@@ -166,7 +169,7 @@ func (ws *WebServer) handlePredictSuccess(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get all incidents for historical success rate
-	allIncidents := ws.incidentIntelligence.manager.ListIncidents()
+	allIncidents := ws.incidentIntelligence.manager.GetAllIncidents()
 
 	prediction := predictFixSuccess(incident, req.FixID, allIncidents)
 
@@ -288,13 +291,13 @@ type WorkspaceInsight struct {
 }
 
 // generateWorkspaceInsights generates insights from all incidents
-func generateWorkspaceInsights(incidents []*incidents.Incident) []WorkspaceInsight {
+func generateWorkspaceInsights(incidentList []*incidents.Incident) []WorkspaceInsight {
 	insights := []WorkspaceInsight{}
 
 	// Confidence insights
 	highConfidenceCount := 0
 	lowConfidenceCount := 0
-	for _, inc := range incidents {
+	for _, inc := range incidentList {
 		if inc.Diagnosis != nil {
 			if inc.Diagnosis.Confidence >= 0.95 {
 				highConfidenceCount++
@@ -330,7 +333,7 @@ func generateWorkspaceInsights(incidents []*incidents.Incident) []WorkspaceInsig
 
 	// Pattern insights
 	patternCounts := make(map[incidents.FailurePattern]int)
-	for _, inc := range incidents {
+	for _, inc := range incidentList {
 		if inc.IsActive() {
 			patternCounts[inc.Pattern]++
 		}
@@ -354,7 +357,7 @@ func generateWorkspaceInsights(incidents []*incidents.Incident) []WorkspaceInsig
 	last24h := 0
 	prev24h := 0
 	now := time.Now()
-	for _, inc := range incidents {
+	for _, inc := range incidentList {
 		age := now.Sub(inc.FirstSeen)
 		if age <= 24*time.Hour {
 			last24h++
@@ -380,7 +383,7 @@ func generateWorkspaceInsights(incidents []*incidents.Incident) []WorkspaceInsig
 
 	// Impact insights
 	criticalCount := 0
-	for _, inc := range incidents {
+	for _, inc := range incidentList {
 		if inc.Severity == incidents.SeverityCritical && inc.IsActive() {
 			criticalCount++
 		}
@@ -486,27 +489,6 @@ func generateIncidentStory(incident *incidents.Incident) IncidentStory {
 	}
 
 	return story
-}
-
-// formatDuration formats a duration in human-readable form
-func formatDuration(d time.Duration) string {
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
-
-	if hours > 24 {
-		days := hours / 24
-		hours = hours % 24
-		if days == 1 {
-			return fmt.Sprintf("1 day %d hours", hours)
-		}
-		return fmt.Sprintf("%d days %d hours", days, hours)
-	}
-
-	if hours > 0 {
-		return fmt.Sprintf("%d hours %d minutes", hours, minutes)
-	}
-
-	return fmt.Sprintf("%d minutes", minutes)
 }
 
 // RelatedIncidentResult represents a related incident with similarity score
@@ -648,8 +630,8 @@ func predictFixSuccess(incident *incidents.Incident, fixID string, allIncidents 
 	patternScore := 0.0
 	knownPatterns := []incidents.FailurePattern{
 		incidents.PatternCrashLoop,
-		incidents.PatternOOMKilled,
-		incidents.PatternImagePull,
+		incidents.PatternOOMPressure,
+		incidents.PatternImagePullFailure,
 	}
 	for _, known := range knownPatterns {
 		if incident.Pattern == known {

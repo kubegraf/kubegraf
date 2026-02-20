@@ -1,11 +1,5 @@
 /**
  * SkeletonLoader - Loading state placeholders
- *
- * Features:
- * - Smooth skeleton animations
- * - Component-specific skeletons
- * - Responsive designs
- * - Reduced motion support
  */
 
 import { Component } from 'solid-js';
@@ -32,7 +26,7 @@ export const Skeleton: Component<{
 };
 
 /**
- * Skeleton for incident card in ContextNavigator
+ * Skeleton for incident card in sidebar
  */
 export const SkeletonIncidentCard: Component = () => {
   return (
@@ -52,86 +46,46 @@ export const SkeletonIncidentCard: Component = () => {
 };
 
 /**
- * Skeleton for Investigation Workspace
+ * Skeleton for IncidentDetail (main content area)
  */
-export const SkeletonInvestigationWorkspace: Component = () => {
+export const SkeletonIncidentDetail: Component = () => {
   return (
     <div class="skeleton-investigation-workspace">
-      {/* Header skeleton */}
+      {/* Topbar skeleton */}
       <div class="skeleton-incident-header">
         <div class="skeleton-badges">
           <Skeleton width="80px" height="24px" borderRadius="12px" />
           <Skeleton width="100px" height="24px" borderRadius="12px" />
         </div>
-        <Skeleton width="60%" height="32px" />
+        <Skeleton width="60%" height="28px" />
         <div class="skeleton-meta">
-          <Skeleton width="200px" height="14px" />
-          <Skeleton width="150px" height="14px" />
+          <Skeleton width="120px" height="14px" />
+          <Skeleton width="100px" height="14px" />
+          <Skeleton width="80px" height="14px" />
         </div>
       </div>
 
-      {/* Content skeleton */}
+      {/* AI card skeleton */}
+      <Skeleton width="100%" height="90px" borderRadius="10px" />
+
+      {/* Impact grid skeleton */}
+      <div style={{ display: 'grid', 'grid-template-columns': 'repeat(4, 1fr)', gap: '10px' }}>
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+      </div>
+
+      {/* Content sections */}
       <div class="skeleton-content-area">
         <div class="skeleton-section">
-          <Skeleton width="40%" height="24px" />
-          <Skeleton width="100%" height="100px" borderRadius="8px" />
+          <Skeleton width="40%" height="20px" />
+          <Skeleton width="100%" height="120px" borderRadius="8px" />
         </div>
         <div class="skeleton-section">
-          <Skeleton width="50%" height="24px" />
-          <Skeleton width="100%" height="200px" borderRadius="8px" />
+          <Skeleton width="50%" height="20px" />
+          <Skeleton width="100%" height="80px" borderRadius="8px" />
         </div>
-      </div>
-
-      {/* Footer skeleton */}
-      <div class="skeleton-footer">
-        <Skeleton width="100px" height="40px" borderRadius="8px" />
-        <Skeleton width="120px" height="40px" borderRadius="8px" />
-      </div>
-    </div>
-  );
-};
-
-/**
- * Skeleton for Intelligence Assistant
- */
-export const SkeletonIntelligenceAssistant: Component = () => {
-  return (
-    <div class="skeleton-intelligence-assistant">
-      <div class="skeleton-section">
-        <Skeleton width="60%" height="20px" />
-        <div class="skeleton-insight-list">
-          <Skeleton width="100%" height="60px" borderRadius="8px" />
-          <Skeleton width="100%" height="60px" borderRadius="8px" />
-          <Skeleton width="100%" height="60px" borderRadius="8px" />
-        </div>
-      </div>
-
-      <div class="skeleton-section">
-        <Skeleton width="70%" height="20px" />
-        <div class="skeleton-related-list">
-          <Skeleton width="100%" height="40px" borderRadius="8px" />
-          <Skeleton width="100%" height="40px" borderRadius="8px" />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/**
- * Skeleton for Incident Story
- */
-export const SkeletonIncidentStory: Component = () => {
-  return (
-    <div class="skeleton-incident-story">
-      <div class="skeleton-story-header">
-        <Skeleton width="32px" height="32px" borderRadius="50%" />
-        <Skeleton width="40%" height="24px" />
-      </div>
-      <div class="skeleton-story-content">
-        <Skeleton width="100%" height="16px" />
-        <Skeleton width="95%" height="16px" />
-        <Skeleton width="90%" height="16px" />
-        <Skeleton width="85%" height="16px" />
       </div>
     </div>
   );
@@ -201,14 +155,11 @@ export const SkeletonTable: Component<{ rows?: number; cols?: number }> = (props
 
   return (
     <div class="skeleton-table">
-      {/* Header */}
       <div class="skeleton-table-header">
         {Array.from({ length: cols }).map(() => (
           <Skeleton width="100%" height="20px" />
         ))}
       </div>
-
-      {/* Rows */}
       {Array.from({ length: rows }).map(() => (
         <div class="skeleton-table-row">
           {Array.from({ length: cols }).map(() => (

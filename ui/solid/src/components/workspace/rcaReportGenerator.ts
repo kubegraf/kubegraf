@@ -285,12 +285,12 @@ export class RCAReportGenerator {
       type: 'error',
     });
 
-    if (incident.events && incident.events.length > 0) {
-      incident.events.slice(0, 10).forEach((event) => {
+    if (incident.timeline && incident.timeline.length > 0) {
+      incident.timeline.slice(0, 10).forEach((entry) => {
         timeline.push({
-          timestamp: new Date(event.timestamp),
-          event: event.message,
-          type: event.type === 'Warning' ? 'warning' : event.type === 'Error' ? 'error' : 'info',
+          timestamp: new Date(entry.timestamp),
+          event: entry.title + ': ' + entry.description,
+          type: entry.type === 'Warning' ? 'warning' : entry.type === 'Error' ? 'error' : 'info',
         });
       });
     }
@@ -305,7 +305,7 @@ export class RCAReportGenerator {
   }
 
   private static generateRootCause(incident: Incident): RootCauseSection {
-    const primaryCause = incident.diagnosis?.rootCause || this.inferRootCause(incident);
+    const primaryCause = incident.diagnosis?.probableCauses?.[0] || this.inferRootCause(incident);
     const contributingFactors = this.identifyContributingFactors(incident);
     const technicalDetails = incident.diagnosis?.summary || 'Technical analysis in progress';
     const confidenceLevel = incident.diagnosis?.confidence || 50;
@@ -345,7 +345,7 @@ export class RCAReportGenerator {
         steps.push({
           step: index + 1,
           action: rec.title || 'Apply remediation',
-          result: rec.description || 'Fix applied',
+          result: rec.explanation || 'Fix applied',
         });
       });
     } else {
@@ -403,9 +403,9 @@ export class RCAReportGenerator {
   private static generateEvidence(incident: Incident): EvidenceSection {
     const logs: string[] = [];
 
-    if (incident.events && incident.events.length > 0) {
-      incident.events.forEach((event) => {
-        logs.push(`[${new Date(event.timestamp).toLocaleString()}] ${event.type}: ${event.message}`);
+    if (incident.timeline && incident.timeline.length > 0) {
+      incident.timeline.forEach((entry) => {
+        logs.push(`[${new Date(entry.timestamp).toLocaleString()}] ${entry.type}: ${entry.title}: ${entry.description}`);
       });
     }
 

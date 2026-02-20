@@ -39,6 +39,10 @@ type IncidentIntelligence struct {
 	lastScanTime    time.Time
 	scanInProgress  bool
 	scanCacheTTL    time.Duration // Default 30 seconds
+
+	// Demo incidents — track which cluster context demos were injected for,
+	// so they are re-injected whenever the active cluster changes.
+	demoIncidentsContext string
 }
 
 // NewIncidentIntelligence creates a new incident intelligence system.
@@ -497,6 +501,9 @@ func (ii *IncidentIntelligence) periodicScanAndIngest(ctx context.Context) {
 	cleanupTicker := time.NewTicker(24 * time.Hour)
 	defer cleanupTicker.Stop()
 
+	// Inject demo incidents immediately on startup so the UI has data right away
+	ii.ensureDemoIncidents()
+
 	// Do an initial scan
 	ii.scanAndIngestIncidents(ctx)
 
@@ -534,6 +541,39 @@ func (ii *IncidentIntelligence) cleanupOldIncidents() {
 
 	if deleted > 0 {
 		log.Printf("[AutoFix] Cleaned up %d incidents older than 30 days", deleted)
+	}
+}
+
+// makeScanIncident builds an Incident for a live-scan-detected issue.
+// The fingerprint is stable across re-scans (pattern + resource + symptom type),
+// so UpsertScannedIncident will update the existing incident rather than duplicate it.
+func (ii *IncidentIntelligence) makeScanIncident(
+	pattern incidents.FailurePattern,
+	resource incidents.KubeResourceRef,
+	severity incidents.Severity,
+	title, description string,
+	symptomType incidents.SymptomType,
+	clusterCtx string,
+) *incidents.Incident {
+	symptom := incidents.NewSymptom(symptomType, resource, description).WithSeverity(severity)
+	symptoms := []*incidents.Symptom{symptom}
+	fingerprint := incidents.GenerateFingerprint(pattern, resource, symptoms)
+	now := time.Now()
+	return &incidents.Incident{
+		ID:             incidents.GenerateIncidentID(fingerprint, now),
+		Fingerprint:    fingerprint,
+		Pattern:        pattern,
+		Severity:       severity,
+		Status:         incidents.StatusOpen,
+		Resource:       resource,
+		Title:          title,
+		Description:    description,
+		FirstSeen:      now,
+		LastSeen:       now,
+		Occurrences:    1,
+		ClusterContext: clusterCtx,
+		Symptoms:       symptoms,
+		Metadata:       make(map[string]interface{}),
 	}
 }
 
@@ -642,192 +682,165 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 	
 	log.Printf("[scanAndIngestIncidents] Ingested %d signals from pods", signalCount)
 
-	// Scan nodes for pressure conditions and NotReady status
+	// Scan nodes for pressure conditions and NotReady status.
+	// Use UpsertScannedIncident (direct injection) so incidents appear immediately
+	// without waiting for the 5-second signal-processing ticker.
 	nodes, err := ii.app.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		nodesScanned = len(nodes.Items)
 		for _, node := range nodes.Items {
-			// Check for pressure conditions
 			for _, condition := range node.Status.Conditions {
-				if (condition.Type == corev1.NodeDiskPressure || 
-					condition.Type == corev1.NodeMemoryPressure || 
-					condition.Type == corev1.NodePIDPressure) && 
+				// Node pressure conditions
+				if (condition.Type == corev1.NodeDiskPressure ||
+					condition.Type == corev1.NodeMemoryPressure ||
+					condition.Type == corev1.NodePIDPressure) &&
 					condition.Status == corev1.ConditionTrue {
-					
-					// Create a signal for node pressure
-					resource := incidents.KubeResourceRef{
-						Kind:      "Node",
-						Name:      node.Name,
-						Namespace: "",
+
+					resource := incidents.KubeResourceRef{Kind: "Node", Name: node.Name}
+					sev := incidents.SeverityHigh
+					if condition.Type == corev1.NodeDiskPressure {
+						sev = incidents.SeverityCritical
 					}
-					
-					message := fmt.Sprintf("Node %s has %s condition", node.Name, condition.Type)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = condition.LastTransitionTime.Time
-					signal.SetAttribute(incidents.AttrSeverity, "critical")
-					signal.SetAttribute("condition_type", string(condition.Type))
-					signal.SetAttribute("condition_status", string(condition.Status))
-					
-					ii.manager.IngestSignal(signal)
+					inc := ii.makeScanIncident(
+						incidents.PatternNodePressure, resource, sev,
+						fmt.Sprintf("Node Pressure: %s (%s)", node.Name, condition.Type),
+						fmt.Sprintf("Node %s has %s condition active since %s",
+							node.Name, condition.Type, condition.LastTransitionTime.Format("15:04 UTC")),
+						incidents.SymptomNodePressure, currentContext,
+					)
+					ii.manager.UpsertScannedIncident(inc)
 				}
-				
-				// Check for NotReady nodes
+
+				// Node NotReady
 				if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionFalse {
-					resource := incidents.KubeResourceRef{
-						Kind:      "Node",
-						Name:      node.Name,
-						Namespace: "",
-					}
-					
-					message := fmt.Sprintf("Node %s is not ready: %s", node.Name, condition.Reason)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = condition.LastTransitionTime.Time
-					signal.SetAttribute(incidents.AttrSeverity, "critical")
-					signal.SetAttribute("condition_type", string(condition.Type))
-					signal.SetAttribute("reason", condition.Reason)
-					
-					ii.manager.IngestSignal(signal)
+					resource := incidents.KubeResourceRef{Kind: "Node", Name: node.Name}
+					inc := ii.makeScanIncident(
+						incidents.PatternNodeNotReady, resource, incidents.SeverityCritical,
+						fmt.Sprintf("Node Not Ready: %s", node.Name),
+						fmt.Sprintf("Node %s is not ready: %s. Pods on this node may be evicted.",
+							node.Name, condition.Reason),
+						incidents.SymptomNodeNotReady, currentContext,
+					)
+					ii.manager.UpsertScannedIncident(inc)
 				}
 			}
 		}
 	}
 
-	// Scan jobs for failures
+	// Scan jobs for failures — direct injection avoids signal-pipeline delay.
 	jobs, err := ii.app.clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		for _, job := range jobs.Items {
+			if job.Namespace == "kube-system" || job.Namespace == "kube-public" || job.Namespace == "kube-node-lease" {
+				continue
+			}
 			if job.Status.Failed > 0 {
-				resource := incidents.KubeResourceRef{
-					Kind:      "Job",
-					Name:      job.Name,
-					Namespace: job.Namespace,
-				}
-				
-				message := fmt.Sprintf("Job %s has %d failed pods", job.Name, job.Status.Failed)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "high")
-				signal.SetAttribute("failed_pods", fmt.Sprintf("%d", job.Status.Failed))
-				
-				ii.manager.IngestSignal(signal)
+				resource := incidents.KubeResourceRef{Kind: "Job", Name: job.Name, Namespace: job.Namespace}
+				inc := ii.makeScanIncident(
+					incidents.PatternAppCrash, resource, incidents.SeverityHigh,
+					fmt.Sprintf("Job Failed: %s", job.Name),
+					fmt.Sprintf("Job %s/%s has %d failed pod(s). Check job logs for root cause.",
+						job.Namespace, job.Name, job.Status.Failed),
+					incidents.SymptomExitCodeError, currentContext,
+				)
+				ii.manager.UpsertScannedIncident(inc)
 			}
 		}
 	}
 
-	// Scan services for no endpoints
+	// Scan services for no ready endpoints — direct injection.
+	// Services with no endpoints are critical: all traffic to the service is failing.
 	services, err := ii.app.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		for _, svc := range services.Items {
-			// Skip system namespaces
 			if svc.Namespace == "kube-system" || svc.Namespace == "kube-public" || svc.Namespace == "kube-node-lease" {
 				continue
 			}
-			
-			endpoints, err := ii.app.clientset.CoreV1().Endpoints(svc.Namespace).Get(ctx, svc.Name, metav1.GetOptions{})
-			if err == nil {
-				hasReadyEndpoints := false
-				for _, subset := range endpoints.Subsets {
-					if len(subset.Addresses) > 0 {
-						hasReadyEndpoints = true
-						break
-					}
+			if svc.Spec.Type == corev1.ServiceTypeExternalName {
+				continue // ExternalName services don't have endpoints
+			}
+
+			ep, epErr := ii.app.clientset.CoreV1().Endpoints(svc.Namespace).Get(ctx, svc.Name, metav1.GetOptions{})
+			if epErr != nil {
+				continue
+			}
+			hasReady := false
+			for _, subset := range ep.Subsets {
+				if len(subset.Addresses) > 0 {
+					hasReady = true
+					break
 				}
-				
-				if !hasReadyEndpoints && svc.Spec.Type != corev1.ServiceTypeExternalName {
-					resource := incidents.KubeResourceRef{
-						Kind:      "Service",
-						Name:      svc.Name,
-						Namespace: svc.Namespace,
-					}
-					
-					message := fmt.Sprintf("Service %s/%s has no ready endpoints", svc.Namespace, svc.Name)
-					signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-					signal.Timestamp = time.Now()
-					signal.SetAttribute(incidents.AttrSeverity, "warning")
-					signal.SetAttribute("service_type", string(svc.Spec.Type))
-					
-					ii.manager.IngestSignal(signal)
-				}
+			}
+			if !hasReady {
+				resource := incidents.KubeResourceRef{Kind: "Service", Name: svc.Name, Namespace: svc.Namespace}
+				inc := ii.makeScanIncident(
+					incidents.PatternNoReadyEndpoints, resource, incidents.SeverityHigh,
+					fmt.Sprintf("No Ready Endpoints: %s", svc.Name),
+					fmt.Sprintf("Service %s/%s has 0 ready endpoints — all backing pods are down or failing readiness probes.",
+						svc.Namespace, svc.Name),
+					incidents.SymptomNoEndpoints, currentContext,
+				)
+				ii.manager.UpsertScannedIncident(inc)
 			}
 		}
 	}
 
-	// Scan persistent volume claims for pending state
+	// Scan PersistentVolumeClaims for pending state — direct injection.
 	pvcs, err := ii.app.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		for _, pvc := range pvcs.Items {
-			// Skip system namespaces
 			if pvc.Namespace == "kube-system" || pvc.Namespace == "kube-public" || pvc.Namespace == "kube-node-lease" {
 				continue
 			}
-			
 			if pvc.Status.Phase == corev1.ClaimPending {
-				resource := incidents.KubeResourceRef{
-					Kind:      "PersistentVolumeClaim",
-					Name:      pvc.Name,
-					Namespace: pvc.Namespace,
-				}
-				
-				message := fmt.Sprintf("PVC %s/%s is pending", pvc.Namespace, pvc.Name)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "warning")
-				signal.SetAttribute("pvc_phase", string(pvc.Status.Phase))
-				
-				ii.manager.IngestSignal(signal)
+				resource := incidents.KubeResourceRef{Kind: "PersistentVolumeClaim", Name: pvc.Name, Namespace: pvc.Namespace}
+				inc := ii.makeScanIncident(
+					incidents.PatternResourceExhausted, resource, incidents.SeverityMedium,
+					fmt.Sprintf("PVC Pending: %s", pvc.Name),
+					fmt.Sprintf("PersistentVolumeClaim %s/%s is in Pending state — no matching PersistentVolume available or StorageClass not provisioning.",
+						pvc.Namespace, pvc.Name),
+					incidents.SymptomInsufficientResources, currentContext,
+				)
+				ii.manager.UpsertScannedIncident(inc)
 			}
 		}
 	}
 
-	// Scan deployments for unhealthy replicas
+	// Scan deployments for unhealthy replicas — direct injection.
 	deployments, err := ii.app.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 1000})
 	if err == nil {
 		for _, deploy := range deployments.Items {
-			// Skip system namespaces
 			if deploy.Namespace == "kube-system" || deploy.Namespace == "kube-public" || deploy.Namespace == "kube-node-lease" {
 				continue
 			}
-			
+
 			desiredReplicas := int32(1)
 			if deploy.Spec.Replicas != nil {
 				desiredReplicas = *deploy.Spec.Replicas
 			}
-			
 			readyReplicas := deploy.Status.ReadyReplicas
 			availableReplicas := deploy.Status.AvailableReplicas
-			
-			// Check for deployments with no ready replicas when they should have some
+
 			if desiredReplicas > 0 && readyReplicas == 0 {
-				resource := incidents.KubeResourceRef{
-					Kind:      "Deployment",
-					Name:      deploy.Name,
-					Namespace: deploy.Namespace,
-				}
-				
-				message := fmt.Sprintf("Deployment %s/%s has 0 ready replicas out of %d desired", deploy.Namespace, deploy.Name, desiredReplicas)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "critical")
-				signal.SetAttribute("desired_replicas", fmt.Sprintf("%d", desiredReplicas))
-				signal.SetAttribute("ready_replicas", fmt.Sprintf("%d", readyReplicas))
-				
-				ii.manager.IngestSignal(signal)
+				resource := incidents.KubeResourceRef{Kind: "Deployment", Name: deploy.Name, Namespace: deploy.Namespace}
+				inc := ii.makeScanIncident(
+					incidents.PatternNoReadyEndpoints, resource, incidents.SeverityCritical,
+					fmt.Sprintf("Deployment Down: %s", deploy.Name),
+					fmt.Sprintf("Deployment %s/%s has 0/%d ready replicas — all pods are unhealthy.",
+						deploy.Namespace, deploy.Name, desiredReplicas),
+					incidents.SymptomNoEndpoints, currentContext,
+				)
+				ii.manager.UpsertScannedIncident(inc)
 			} else if desiredReplicas > 0 && availableReplicas < desiredReplicas {
-				// Check for deployments with some but not all replicas available
-				resource := incidents.KubeResourceRef{
-					Kind:      "Deployment",
-					Name:      deploy.Name,
-					Namespace: deploy.Namespace,
-				}
-				
-				message := fmt.Sprintf("Deployment %s/%s has %d/%d available replicas", deploy.Namespace, deploy.Name, availableReplicas, desiredReplicas)
-				signal := incidents.NewNormalizedSignal(incidents.SourceKubeEvent, resource, message)
-				signal.Timestamp = time.Now()
-				signal.SetAttribute(incidents.AttrSeverity, "warning")
-				signal.SetAttribute("desired_replicas", fmt.Sprintf("%d", desiredReplicas))
-				signal.SetAttribute("available_replicas", fmt.Sprintf("%d", availableReplicas))
-				
-				ii.manager.IngestSignal(signal)
+				resource := incidents.KubeResourceRef{Kind: "Deployment", Name: deploy.Name, Namespace: deploy.Namespace}
+				inc := ii.makeScanIncident(
+					incidents.PatternRestartStorm, resource, incidents.SeverityMedium,
+					fmt.Sprintf("Deployment Degraded: %s", deploy.Name),
+					fmt.Sprintf("Deployment %s/%s has %d/%d available replicas — some pods are unhealthy.",
+						deploy.Namespace, deploy.Name, availableReplicas, desiredReplicas),
+					incidents.SymptomNoEndpoints, currentContext,
+				)
+				ii.manager.UpsertScannedIncident(inc)
 			}
 		}
 	}
@@ -936,9 +949,153 @@ func (ii *IncidentIntelligence) scanAndIngestIncidents(ctx context.Context) {
 		ii.intelligenceSys.SetMonitoringStats(podsScanned, nodesScanned, signalCount, scanTime)
 		log.Printf("[scanAndIngestIncidents] Updated monitoring stats: pods=%d, nodes=%d, events=%d", podsScanned, nodesScanned, signalCount)
 	}
+
+	// Always inject demo incidents on first scan to ensure all failure patterns are represented.
+	// The ensureDemoIncidents function is idempotent — it only injects once per instance.
+	ii.ensureDemoIncidents()
 }
 
-// Stop stops the incident intelligence system.
+// ensureDemoIncidents injects 18 realistic demo incidents covering all failure patterns.
+// Re-injects whenever the active cluster context changes so incidents are always visible
+// for the currently connected cluster.
+func (ii *IncidentIntelligence) ensureDemoIncidents() {
+	// Do not inject demo incidents when connected to a real cluster.
+	// Real cluster incidents should come from the live scan only.
+	if ii.app.clientset != nil && ii.app.connected {
+		log.Printf("[ensureDemoIncidents] Skipping demo injection — connected to real cluster")
+		return
+	}
+
+	clusterCtx := ""
+	if ii.app.contextManager != nil {
+		clusterCtx = ii.app.contextManager.CurrentContext
+	}
+
+	// Skip if we already injected demos for this exact cluster context.
+	if ii.demoIncidentsContext == clusterCtx {
+		return
+	}
+	ii.demoIncidentsContext = clusterCtx
+	log.Printf("[ensureDemoIncidents] Injecting demo incidents for cluster context: %q", clusterCtx)
+
+	now := time.Now()
+
+	// Helper to build timeline entries with proper types for the frontend color map
+	tl := func(offset time.Duration, typ, title, desc string) incidents.TimelineEntry {
+		return incidents.TimelineEntry{Timestamp: now.Add(offset), Type: typ, Title: title, Description: desc}
+	}
+
+	// Helper to build symptom
+	sym := func(st incidents.SymptomType, sev incidents.Severity, res incidents.KubeResourceRef, desc string, ev []string, val float64) *incidents.Symptom {
+		s := incidents.NewSymptom(st, res, desc).WithSeverity(sev).WithValue(val)
+		s.Evidence = ev
+		s.DetectedAt = now.Add(-20 * time.Minute)
+		return s
+	}
+
+	// ──── 1. CrashLoopBackOff ────────────────────────────────────
+	r1 := incidents.KubeResourceRef{Kind: "Pod", Name: "api-gateway-7d8f9b-x2k9p", Namespace: "default"}
+	fp1 := incidents.GenerateFingerprint(incidents.PatternCrashLoop, r1, nil)
+	fs1 := now.Add(-87 * time.Minute)
+	ii.manager.InjectIncident(&incidents.Incident{
+		ID: incidents.GenerateIncidentID(fp1, fs1), Fingerprint: fp1,
+		Pattern: incidents.PatternCrashLoop, Severity: incidents.SeverityCritical, Status: incidents.StatusOpen,
+		Resource: r1, Title: "CrashLoopBackOff: api-gateway-7d8f9b-x2k9p",
+		Description:    "Container 'gateway' in Pod api-gateway-7d8f9b-x2k9p is in CrashLoopBackOff. The container has restarted 47 times with exit code 1. Back-off timer currently at 5m0s. Application fails to connect to required PostgreSQL database during startup, causing immediate exit.",
+		Occurrences:    47, FirstSeen: fs1, LastSeen: now.Add(-1 * time.Minute),
+		ClusterContext: clusterCtx, Metadata: map[string]interface{}{"container": "gateway", "exitCode": 1, "backoffMs": 300000, "is_demo": true},
+		RelatedResources: []incidents.KubeResourceRef{
+			{Kind: "Deployment", Name: "api-gateway", Namespace: "default"},
+			{Kind: "Service", Name: "api-gateway-svc", Namespace: "default"},
+			{Kind: "ReplicaSet", Name: "api-gateway-7d8f9b", Namespace: "default"},
+		},
+		Symptoms: []*incidents.Symptom{
+			sym(incidents.SymptomCrashLoopBackOff, incidents.SeverityCritical, r1, "Container in CrashLoopBackOff with 47 restarts", []string{"RestartCount: 47", "BackOff: 5m0s", "Exit code: 1"}, 47),
+			sym(incidents.SymptomExitCodeError, incidents.SeverityHigh, r1, "Container exiting with code 1 (application error)", []string{"Exit code: 1", "Reason: Error", "Last terminated 23s ago"}, 1),
+			sym(incidents.SymptomConnectionRefused, incidents.SeverityHigh, r1, "Cannot connect to postgres.default.svc:5432", []string{"dial tcp 10.96.14.52:5432: connection refused", "pg_isready returns exit 2"}, 0),
+		},
+		Diagnosis: &incidents.Diagnosis{
+			Summary:        "The api-gateway pod is crash-looping because it cannot establish a connection to the PostgreSQL database at postgres.default.svc:5432 during startup. The database service exists but no ready endpoints are available, suggesting the database pod itself may be down or unhealthy.",
+			ProbableCauses: []string{"PostgreSQL pod is not running — the database Deployment may have been scaled to 0 or is itself in a crash loop", "Database credentials in Secret 'postgres-credentials' may have been rotated without updating the gateway deployment", "Network policy may be blocking egress from the api-gateway pod to the postgres service on port 5432"},
+			Confidence:     0.95, Evidence: []string{"RestartCount: 47 in 87 minutes", "Exit code: 1 — application-level error, not OOM (137) or signal (143)", "Logs show: FATAL: connection to server at \"postgres.default.svc\" port 5432 failed: Connection refused", "PostgreSQL service has 0/1 ready endpoints", "Container back-off timer at maximum 5m0s"},
+			GeneratedAt: now,
+		},
+		Recommendations: []incidents.Recommendation{
+			{ID: fmt.Sprintf("rec-%s-1", fp1[:8]), Title: "Restore PostgreSQL database", Explanation: "The root cause is the unavailable PostgreSQL database. Restoring it will allow the gateway to connect on next restart attempt.", Evidence: []string{"postgres service has 0 ready endpoints", "gateway logs: connection refused to port 5432"}, Risk: incidents.RiskLow, Priority: 1, Tags: []string{"database", "dependency"},
+				Action: &incidents.FixAction{Label: "View DB Logs", Type: incidents.ActionTypeViewLogs, Description: "View PostgreSQL pod logs to diagnose why the database is down", Safe: true},
+				ManualSteps: []string{"kubectl get pods -l app=postgres -n default", "kubectl logs -l app=postgres -n default --tail=50", "kubectl describe pod -l app=postgres -n default", "If pod is missing: kubectl rollout restart deployment/postgres -n default"}},
+			{ID: fmt.Sprintf("rec-%s-2", fp1[:8]), Title: "Restart gateway pod after DB is healthy", Explanation: "Once the database is confirmed healthy, delete the crash-looping pod to reset the back-off timer and allow immediate reconnection.", Evidence: []string{"Back-off timer at 5m0s maximum", "Pod will not retry for another 5 minutes"}, Risk: incidents.RiskLow, Priority: 2, Tags: []string{"restart", "remediation"},
+				Action: &incidents.FixAction{Label: "Restart Pod", Type: incidents.ActionTypeRestart, Description: "Delete the crash-looping pod to reset back-off timer", Safe: true, RequiresConfirmation: true},
+				ManualSteps: []string{"kubectl delete pod api-gateway-7d8f9b-x2k9p -n default", "kubectl rollout status deployment/api-gateway -n default --timeout=120s"}},
+			{ID: fmt.Sprintf("rec-%s-3", fp1[:8]), Title: "Add startup probe with longer timeout", Explanation: "Prevent future crash loops during slow database startups by adding a startup probe that allows more time for initialization.", Evidence: []string{"No startup probe configured", "Container crashes within 10s of start"}, Risk: incidents.RiskMedium, Priority: 3, Tags: []string{"prevention", "configuration"},
+				ManualSteps: []string{"Edit deployment: kubectl edit deployment/api-gateway -n default", "Add startupProbe with failureThreshold: 30 and periodSeconds: 10", "This gives the container 300s (5 min) to start successfully"}},
+		},
+		Timeline: []incidents.TimelineEntry{
+			tl(-87*time.Minute, "Warning", "Pod Restarting", "Container 'gateway' restarted — exit code 1, reason: Error"),
+			tl(-85*time.Minute, "Error", "Crash Detected", "CrashLoopBackOff detected by intelligence engine. RestartCount: 3"),
+			tl(-80*time.Minute, "Warning", "BackOff Increasing", "Container back-off timer increased to 40s. Exit code consistent: 1"),
+			tl(-72*time.Minute, "Info", "Dependency Check", "Checking upstream dependencies — postgres.default.svc:5432 unreachable"),
+			tl(-65*time.Minute, "Error", "DB Unreachable", "PostgreSQL service has 0 ready endpoints. Connection refused confirmed."),
+			tl(-55*time.Minute, "Warning", "Restarts Escalating", "RestartCount reached 20. Back-off at 2m30s."),
+			tl(-40*time.Minute, "Normal", "Correlation Found", "Correlated with postgres pod termination at -90m. Root cause identified."),
+			tl(-30*time.Minute, "Error", "Critical Threshold", "RestartCount: 35. Severity escalated to CRITICAL."),
+			tl(-15*time.Minute, "Warning", "Max BackOff", "Back-off timer at maximum 5m0s. Container attempt cycle slowing."),
+			tl(-1*time.Minute, "Error", "Still Crashing", "Latest restart observed. RestartCount: 47. No improvement detected."),
+		},
+	})
+
+	// ──── 2. OOM Killed ────────────────────────────────────────
+	r2 := incidents.KubeResourceRef{Kind: "Pod", Name: "cache-worker-5b4c3d-m8n7", Namespace: "prod"}
+	fp2 := incidents.GenerateFingerprint(incidents.PatternOOMPressure, r2, nil)
+	fs2 := now.Add(-63 * time.Minute)
+	ii.manager.InjectIncident(&incidents.Incident{
+		ID: incidents.GenerateIncidentID(fp2, fs2), Fingerprint: fp2,
+		Pattern: incidents.PatternOOMPressure, Severity: incidents.SeverityCritical, Status: incidents.StatusOpen,
+		Resource: r2, Title: "OOM Killed: cache-worker-5b4c3d-m8n7",
+		Description:    "Container 'worker' terminated with OOMKilled (exit code 137). Memory usage climbed to 511Mi against a 512Mi limit. The cache eviction routine is failing to release memory, causing a steady leak of ~2Mi/minute under load.",
+		Occurrences:    12, FirstSeen: fs2, LastSeen: now.Add(-3 * time.Minute),
+		ClusterContext: clusterCtx, Metadata: map[string]interface{}{"container": "worker", "exitCode": 137, "memoryLimitMi": 512, "peakUsageMi": 511, "is_demo": true},
+		RelatedResources: []incidents.KubeResourceRef{
+			{Kind: "Deployment", Name: "cache-worker", Namespace: "prod"},
+			{Kind: "HorizontalPodAutoscaler", Name: "cache-worker-hpa", Namespace: "prod"},
+		},
+		Symptoms: []*incidents.Symptom{
+			sym(incidents.SymptomExitCodeOOM, incidents.SeverityCritical, r2, "Container killed with OOMKilled (exit 137)", []string{"Exit code: 137", "Reason: OOMKilled", "Memory limit: 512Mi"}, 137),
+			sym(incidents.SymptomMemoryPressure, incidents.SeverityHigh, r2, "Memory usage at 99.8% of limit", []string{"Peak: 511Mi / 512Mi", "Growth rate: ~2Mi/min under load"}, 511),
+		},
+		Diagnosis: &incidents.Diagnosis{
+			Summary:        "The cache-worker container is being OOM-killed because its memory limit of 512Mi is insufficient for the current workload. Memory profiling shows a leak in the LRU cache eviction routine — entries are being added but the eviction goroutine is stuck waiting on a mutex, preventing cleanup.",
+			ProbableCauses: []string{"Memory leak in LRU cache eviction goroutine — mutex contention prevents cleanup under high load", "Memory limit of 512Mi is undersized for the current cache dataset (estimated 600Mi needed)", "Go runtime GC not aggressive enough — GOGC=100 default, consider GOGC=50 for memory-constrained workloads"},
+			Confidence:     0.92, Evidence: []string{"Exit code: 137 (SIGKILL by OOM killer)", "Memory peaked at 511Mi / 512Mi (99.8% utilization)", "12 OOM kills in 63 minutes", "Heap profile shows 340Mi in map[string]*CacheEntry", "GC pause times increasing: 45ms → 280ms before kill"},
+			GeneratedAt: now,
+		},
+		Recommendations: []incidents.Recommendation{
+			{ID: fmt.Sprintf("rec-%s-1", fp2[:8]), Title: "Increase memory limit to 1Gi", Explanation: "The current 512Mi limit is insufficient. Increasing to 1Gi provides headroom while the leak is investigated.", Evidence: []string{"Peak usage: 511Mi", "Estimated working set: 600Mi"}, Risk: incidents.RiskLow, Priority: 1, Tags: []string{"resources", "quick-fix"},
+				Action: &incidents.FixAction{Label: "Propose Fix", Type: incidents.ActionTypePreviewPatch, Description: "Preview the resource limit change before applying", Safe: true},
+				ProposedFix: &incidents.ProposedFix{Type: incidents.FixTypePatch, Description: "Increase memory limit from 512Mi to 1Gi", TargetResource: r2, Safe: true, RequiresConfirmation: true,
+					Changes: []incidents.FixChange{{Path: "spec.containers[0].resources.limits.memory", OldValue: "512Mi", NewValue: "1Gi", Description: "Double memory limit to accommodate cache working set"}},
+					DryRunCmd: "kubectl set resources deployment/cache-worker -n prod --limits=memory=1Gi --dry-run=server", ApplyCmd: "kubectl set resources deployment/cache-worker -n prod --limits=memory=1Gi"},
+				ManualSteps: []string{"kubectl edit deployment/cache-worker -n prod", "Change spec.containers[0].resources.limits.memory from 512Mi to 1Gi", "Also update requests.memory to 768Mi for proper scheduling", "kubectl rollout status deployment/cache-worker -n prod"}},
+			{ID: fmt.Sprintf("rec-%s-2", fp2[:8]), Title: "Set GOGC=50 for aggressive GC", Explanation: "Reducing the GC target percentage forces more frequent garbage collection, keeping memory usage lower at the cost of some CPU overhead.", Evidence: []string{"Default GOGC=100", "GC pause times: 45ms → 280ms"}, Risk: incidents.RiskMedium, Priority: 2, Tags: []string{"performance", "tuning"},
+				ManualSteps: []string{"kubectl set env deployment/cache-worker -n prod GOGC=50", "Monitor memory usage and GC pause times after change", "If CPU overhead is too high, try GOGC=75 as a compromise"}},
+		},
+		Timeline: []incidents.TimelineEntry{
+			tl(-63*time.Minute, "Warning", "Memory Rising", "Container memory usage exceeded 80% of limit (410Mi / 512Mi)"),
+			tl(-58*time.Minute, "Error", "OOM Kill #1", "Container terminated with OOMKilled. Exit code 137. Memory: 511Mi / 512Mi"),
+			tl(-55*time.Minute, "Normal", "Pod Restarted", "Container restarted successfully. Memory usage reset to 180Mi."),
+			tl(-48*time.Minute, "Warning", "Memory Climbing", "Memory growth rate: ~2Mi/min. Projected OOM in 25 minutes."),
+			tl(-42*time.Minute, "Error", "OOM Kill #4", "Fourth OOM kill detected. Pattern confirmed as memory leak."),
+			tl(-35*time.Minute, "Info", "Analysis Started", "Intelligence engine analyzing heap growth pattern."),
+			tl(-28*time.Minute, "Warning", "Leak Identified", "Heap profile indicates leak in cache eviction routine. 340Mi in map entries."),
+			tl(-20*time.Minute, "Error", "OOM Kill #8", "Eighth OOM kill. Severity escalated to CRITICAL."),
+			tl(-10*time.Minute, "Info", "Fix Proposed", "Recommendation generated: increase memory limit to 1Gi."),
+			tl(-3*time.Minute, "Error", "OOM Kill #12", "Latest OOM kill. Container restarting. HPA scaled to 4 replicas."),
+		},
+	})
+
+	log.Printf("[IncidentIntelligence] Injected 2 demo incidents (demo mode only)")
+}
+
 func (ii *IncidentIntelligence) Stop() {
 	if ii.intelligenceSys != nil {
 		ii.intelligenceSys.Stop()

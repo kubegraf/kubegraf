@@ -23,6 +23,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -32,6 +33,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
 )
 
 // handleCacheStats returns cache performance statistics (production monitoring)
@@ -281,6 +283,119 @@ func (ws *WebServer) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Empty namespace means all namespaces
 	topology := ws.buildTopologyData(namespace)
 	json.NewEncoder(w).Encode(topology)
+}
+
+// handlePodEvents fetches real Kubernetes events for a specific pod using
+// namespace-scoped access (works even without cluster-wide event list permission).
+// GET /api/v1/namespaces/{namespace}/pods/{name}/events
+func (ws *WebServer) handlePodEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Parse path: /api/v1/namespaces/{ns}/pods/{name}/events
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// parts: ["api","v1","namespaces",ns,"pods",name,"events"]
+	if len(parts) < 7 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"events": []interface{}{}, "error": "invalid path"})
+		return
+	}
+	namespace := parts[3]
+	podName := parts[5]
+
+	// Get clientset — prefer simpleClusterManager which is always available
+	var clientset kubernetes.Interface
+	var err error
+	if ws.simpleClusterManager != nil {
+		clientset, err = ws.simpleClusterManager.GetClientset()
+	} else if ws.app != nil && ws.app.clientset != nil {
+		clientset, err = ws.app.clientset, nil
+	} else {
+		err = fmt.Errorf("no cluster connection")
+	}
+
+	if err != nil || clientset == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"events": []interface{}{}, "error": "cluster not connected"})
+		return
+	}
+
+	type eventItem struct {
+		Type      string `json:"type"`
+		Reason    string `json:"reason"`
+		Message   string `json:"message"`
+		Count     int32  `json:"count"`
+		LastTime  string `json:"lastTime"`
+		FirstTime string `json:"firstTime"`
+		Source    string `json:"source"`
+		Object    string `json:"object"`
+	}
+
+	toItem := func(ev v1.Event) eventItem {
+		ts := ev.LastTimestamp.Time
+		if ts.IsZero() {
+			ts = ev.EventTime.Time
+		}
+		return eventItem{
+			Type:      ev.Type,
+			Reason:    ev.Reason,
+			Message:   ev.Message,
+			Count:     ev.Count,
+			LastTime:  ts.Format(time.RFC3339),
+			FirstTime: ev.FirstTimestamp.Time.Format(time.RFC3339),
+			Source:    ev.Source.Component,
+			Object:    ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
+		}
+	}
+
+	seen := map[string]bool{}
+	result := make([]eventItem, 0)
+
+	// Phase 1: exact match via field selector (fast path — finds pod-level events)
+	fieldSelector := "involvedObject.name=" + podName + ",involvedObject.namespace=" + namespace
+	eventList, err := clientset.CoreV1().Events(namespace).List(r.Context(), metav1.ListOptions{
+		FieldSelector: fieldSelector,
+		Limit:         100,
+	})
+	if err == nil {
+		for _, ev := range eventList.Items {
+			key := string(ev.UID)
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, toItem(ev))
+			}
+		}
+	}
+
+	// Phase 2: if no exact matches (pod events typically expire after ~1 h), do a broader
+	// prefix search across all namespace events to surface Deployment / ReplicaSet events.
+	// Two-way prefix: event object is a prefix of podName ("redis-haproxy" ⊂ "redis-haproxy-6899d4dc89-ct4tz")
+	// OR podName is a prefix of event object (exact replica-set match).
+	if len(result) == 0 {
+		allEvents, err2 := clientset.CoreV1().Events(namespace).List(r.Context(), metav1.ListOptions{Limit: 300})
+		if err2 == nil {
+			podLower := strings.ToLower(podName)
+			for _, ev := range allEvents.Items {
+				invLower := strings.ToLower(ev.InvolvedObject.Name)
+				// Require at least 4 chars to avoid false-positive prefix matches
+				if len(invLower) < 4 {
+					continue
+				}
+				if strings.HasPrefix(podLower, invLower) || strings.HasPrefix(invLower, podLower) {
+					key := string(ev.UID)
+					if !seen[key] {
+						seen[key] = true
+						result = append(result, toItem(ev))
+					}
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"events":    result,
+		"total":     len(result),
+		"pod":       podName,
+		"namespace": namespace,
+	})
 }
 
 // handleEvents returns recent Kubernetes events

@@ -1,18 +1,10 @@
 /**
- * ContextNavigator - Left panel for spatial memory incident navigation
- *
- * Features:
- * - Mini-card incident list with confidence visualization
- * - Multi-dimensional filtering (severity, pattern, namespace, status)
- * - Visual selection indicators
- * - Hover actions
- * - Keyboard navigation support
+ * ContextNavigator — Komodor-style sidebar matching kubegraf-final-white.html
  */
 
-import { Component, For, Show, createSignal, createMemo, onMount } from 'solid-js';
+import { Component, For, Show, createSignal, createMemo } from 'solid-js';
 import { Incident } from '../../services/api';
-import { debounce } from './performanceUtils';
-import { SkeletonIncidentCard } from './SkeletonLoader';
+import { currentContext } from '../../stores/cluster';
 
 interface ContextNavigatorProps {
   incidents: Incident[];
@@ -29,425 +21,293 @@ export interface FilterState {
   searchQuery: string;
 }
 
+function timeSince(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const ms = Date.now() - new Date(dateStr).getTime();
+  if (ms < 0) return 'just now';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+}
+
+function sevOrder(inc: Incident): number {
+  switch (inc.severity) {
+    case 'critical': return 0;
+    case 'high':     return 1;
+    case 'medium':   return 2;
+    default:         return 3;
+  }
+}
+
 const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
-  const [filters, setFilters] = createSignal<FilterState>({
-    severity: [],
-    pattern: [],
-    namespace: [],
-    status: [],
-    searchQuery: '',
+  const [searchQuery, setSearchQuery] = createSignal('');
+  const [activeSeverity, setActiveSeverity] = createSignal<string | null>(null);
+
+  // SLO derived from incidents
+  const sloData = createMemo(() => {
+    const critCount = props.incidents.filter(i => i.severity === 'critical').length;
+    const total = props.incidents.length;
+    const errorRate = total > 0 ? Math.min(100, (critCount / total) * 100) : 0;
+    const availability = Math.max(94, 100 - errorRate * 0.5);
+    const latencyPct = Math.min(99.5, 100 - critCount * 0.5);
+    return [
+      {
+        name: 'Availability',
+        pct: availability,
+        val: availability.toFixed(1) + '%',
+        target: '99.9%',
+        ok: errorRate < 5,
+        meta: `Target 99.9% · ${errorRate < 5 ? 'On track' : 'Error budget burning fast'}`,
+      },
+      {
+        name: 'Latency p99',
+        pct: latencyPct,
+        val: latencyPct.toFixed(1) + '%',
+        target: '99.5%',
+        ok: critCount < 2,
+        meta: `Target 99.5% · ${critCount < 2 ? 'Healthy' : 'Degrading'}`,
+      },
+    ];
   });
 
-  const [expandedFilters, setExpandedFilters] = createSignal({
-    severity: true,
-    pattern: false,
-    namespace: false,
-    status: false,
-  });
-
-  // Debounced filter change notification (300ms delay)
-  const debouncedFilterChange = debounce((newFilters: FilterState) => {
-    if (props.onFilterChange) {
-      props.onFilterChange(newFilters);
-    }
-  }, 300);
-
-  // Get unique values for filter options
-  const uniqueSeverities = createMemo(() => {
-    const severities = new Set(props.incidents.map((i) => i.severity));
-    return Array.from(severities).sort();
-  });
-
-  const uniquePatterns = createMemo(() => {
-    const patterns = new Set(
-      props.incidents.map((i) => i.pattern || 'UNKNOWN').filter(Boolean)
-    );
-    return Array.from(patterns).sort();
-  });
-
-  const uniqueNamespaces = createMemo(() => {
-    const namespaces = new Set(
-      props.incidents.map((i) => i.resource?.namespace || 'default')
-    );
-    return Array.from(namespaces).sort();
-  });
-
-  const uniqueStatuses = createMemo(() => {
-    const statuses = new Set(props.incidents.map((i) => i.status || 'open'));
-    return Array.from(statuses).sort();
-  });
-
-  // Apply filters
-  const filteredIncidents = createMemo(() => {
-    const filterState = filters();
-    let filtered = props.incidents;
-
-    // Search query
-    if (filterState.searchQuery) {
-      const query = filterState.searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (inc) =>
-          inc.title?.toLowerCase().includes(query) ||
-          inc.resource?.name?.toLowerCase().includes(query) ||
-          inc.pattern?.toLowerCase().includes(query)
-      );
-    }
-
-    // Severity filter
-    if (filterState.severity.length > 0) {
-      filtered = filtered.filter((inc) =>
-        filterState.severity.includes(inc.severity)
-      );
-    }
-
-    // Pattern filter
-    if (filterState.pattern.length > 0) {
-      filtered = filtered.filter((inc) =>
-        filterState.pattern.includes(inc.pattern || 'UNKNOWN')
-      );
-    }
-
-    // Namespace filter
-    if (filterState.namespace.length > 0) {
-      filtered = filtered.filter((inc) =>
-        filterState.namespace.includes(inc.resource?.namespace || 'default')
-      );
-    }
-
-    // Status filter
-    if (filterState.status.length > 0) {
-      filtered = filtered.filter((inc) =>
-        filterState.status.includes(inc.status || 'open')
-      );
-    }
-
-    return filtered;
-  });
-
-  // Count by severity
-  const severityCounts = createMemo(() => {
-    const counts: Record<string, number> = {};
-    props.incidents.forEach((inc) => {
-      counts[inc.severity] = (counts[inc.severity] || 0) + 1;
+  const counts = createMemo(() => {
+    const c = { critical: 0, high: 0, ok: 0 };
+    props.incidents.forEach((i) => {
+      if (i.severity === 'critical') c.critical++;
+      else if (i.severity === 'high') c.high++;
+      else c.ok++;
     });
-    return counts;
+    return c;
   });
 
-  // Toggle filter
-  const toggleFilter = (
-    category: 'severity' | 'pattern' | 'namespace' | 'status',
-    value: string
-  ) => {
-    const current = filters()[category];
-    const updated = current.includes(value)
-      ? current.filter((v) => v !== value)
-      : [...current, value];
+  const filteredIncidents = createMemo(() => {
+    let list = [...props.incidents];
+    const q = searchQuery().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (i) =>
+          i.title?.toLowerCase().includes(q) ||
+          i.resource?.name?.toLowerCase().includes(q) ||
+          i.pattern?.toLowerCase().includes(q) ||
+          i.resource?.namespace?.toLowerCase().includes(q)
+      );
+    }
+    const sev = activeSeverity();
+    if (sev) {
+      list = list.filter((i) => i.severity === sev);
+    }
+    list.sort((a, b) => {
+      const so = sevOrder(a) - sevOrder(b);
+      if (so !== 0) return so;
+      return new Date(b.firstSeen || 0).getTime() - new Date(a.firstSeen || 0).getTime();
+    });
+    return list;
+  });
 
-    const newFilters = { ...filters(), [category]: updated };
-    setFilters(newFilters);
+  const isDemo = (inc: Incident) => inc.metadata?.['is_demo'] === true;
 
+  const realIncidents = createMemo(() => filteredIncidents().filter(i => !isDemo(i)));
+  const demoIncidents = createMemo(() => filteredIncidents().filter(i => isDemo(i)));
+
+  const grouped = createMemo(() => {
+    const map = new Map<string, { incident: Incident; originalIndex: number }[]>();
+    realIncidents().forEach((inc) => {
+      const ns = inc.resource?.namespace || 'default';
+      const origIdx = props.incidents.indexOf(inc);
+      if (!map.has(ns)) map.set(ns, []);
+      map.get(ns)!.push({ incident: inc, originalIndex: origIdx });
+    });
+    return map;
+  });
+
+  const getStatusDot = (inc: Incident): string => {
+    if (inc.severity === 'critical') return 'crit';
+    if (inc.severity === 'high') return 'warn';
+    return 'ok';
+  };
+
+  const getNameClass = (inc: Incident): string => {
+    if (inc.severity === 'critical') return 'svc-name crit';
+    if (inc.severity === 'high') return 'svc-name warn';
+    return 'svc-name';
+  };
+
+  const handleChipClick = (sev: string | null) => {
+    setActiveSeverity(sev === activeSeverity() ? null : sev);
     if (props.onFilterChange) {
-      props.onFilterChange(newFilters);
+      props.onFilterChange({
+        severity: sev ? [sev] : [],
+        pattern: [],
+        namespace: [],
+        status: [],
+        searchQuery: searchQuery(),
+      });
     }
-  };
-
-  // Clear all filters
-  const clearFilters = () => {
-    const newFilters: FilterState = {
-      severity: [],
-      pattern: [],
-      namespace: [],
-      status: [],
-      searchQuery: '',
-    };
-    setFilters(newFilters);
-    if (props.onFilterChange) {
-      props.onFilterChange(newFilters);
-    }
-  };
-
-  // Get severity icon
-  const getSeverityIcon = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return '🔴';
-      case 'high':
-        return '🟠';
-      case 'medium':
-        return '🟡';
-      case 'low':
-        return '🔵';
-      default:
-        return '⚪';
-    }
-  };
-
-  // Get pattern icon
-  const getPatternIcon = (pattern: string) => {
-    if (pattern?.includes('CRASH')) return '💥';
-    if (pattern?.includes('OOM')) return '💾';
-    if (pattern?.includes('IMAGE')) return '📦';
-    if (pattern?.includes('NETWORK')) return '🌐';
-    if (pattern?.includes('CONFIG')) return '⚙️';
-    return '❓';
-  };
-
-  // Get confidence color class
-  const getConfidenceClass = (confidence: number) => {
-    if (confidence >= 95) return 'confidence-high';
-    if (confidence >= 70) return 'confidence-medium';
-    return 'confidence-low';
   };
 
   return (
-    <aside class="context-navigator" role="navigation" aria-label="Incident list">
-      <div class="navigator-header">
-        <h2>CONTEXT</h2>
-        <span class="incident-count">{filteredIncidents().length}</span>
-      </div>
+    <aside class="sidebar" role="navigation" aria-label="Incident list">
+      {/* Cluster selector */}
+      <div class="sb-head">
+        <div class="cluster-sel">
+          <div class="live-dot" />
+          <span class="cluster-name">{currentContext() || 'prod-cluster-01'}</span>
 
-      {/* Search Bar */}
-      <div class="search-section">
-        <input
-          type="text"
-          class="search-input"
-          placeholder="Search incidents..."
-          value={filters().searchQuery}
-          onInput={(e) => {
-            const newFilters = { ...filters(), searchQuery: e.currentTarget.value };
-            setFilters(newFilters);
-            // Debounce filter change notification for search
-            debouncedFilterChange(newFilters);
-          }}
-        />
-      </div>
-
-      {/* Quick Filters */}
-      <div class="quick-filters">
-        <button
-          class="quick-filter-btn"
-          classList={{ active: filters().severity.length === 0 }}
-          onClick={clearFilters}
-        >
-          All ({props.incidents.length})
-        </button>
-        <button
-          class="quick-filter-btn quick-filter-critical"
-          classList={{ active: filters().severity.includes('critical') }}
-          onClick={() => toggleFilter('severity', 'critical')}
-        >
-          🔴 {severityCounts().critical || 0}
-        </button>
-        <button
-          class="quick-filter-btn quick-filter-high"
-          classList={{ active: filters().severity.includes('high') }}
-          onClick={() => toggleFilter('severity', 'high')}
-        >
-          🟠 {severityCounts().high || 0}
-        </button>
-        <button
-          class="quick-filter-btn quick-filter-medium"
-          classList={{ active: filters().severity.includes('medium') }}
-          onClick={() => toggleFilter('severity', 'medium')}
-        >
-          🟡 {severityCounts().medium || 0}
-        </button>
-      </div>
-
-      {/* Advanced Filters */}
-      <div class="advanced-filters">
-        <button
-          class="filter-toggle"
-          onClick={() =>
-            setExpandedFilters((prev) => ({ ...prev, pattern: !prev.pattern }))
-          }
-        >
-          <span class="toggle-icon">{expandedFilters().pattern ? '▼' : '▶'}</span>
-          <span>Pattern</span>
-          <Show when={filters().pattern.length > 0}>
-            <span class="filter-badge">{filters().pattern.length}</span>
-          </Show>
-        </button>
-
-        <Show when={expandedFilters().pattern}>
-          <div class="filter-options">
-            <For each={uniquePatterns()}>
-              {(pattern) => (
-                <label class="filter-option">
-                  <input
-                    type="checkbox"
-                    checked={filters().pattern.includes(pattern)}
-                    onChange={() => toggleFilter('pattern', pattern)}
-                  />
-                  <span class="option-label">
-                    {getPatternIcon(pattern)} {pattern}
-                  </span>
-                </label>
-              )}
-            </For>
-          </div>
-        </Show>
-
-        <button
-          class="filter-toggle"
-          onClick={() =>
-            setExpandedFilters((prev) => ({ ...prev, namespace: !prev.namespace }))
-          }
-        >
-          <span class="toggle-icon">{expandedFilters().namespace ? '▼' : '▶'}</span>
-          <span>Namespace</span>
-          <Show when={filters().namespace.length > 0}>
-            <span class="filter-badge">{filters().namespace.length}</span>
-          </Show>
-        </button>
-
-        <Show when={expandedFilters().namespace}>
-          <div class="filter-options">
-            <For each={uniqueNamespaces()}>
-              {(namespace) => (
-                <label class="filter-option">
-                  <input
-                    type="checkbox"
-                    checked={filters().namespace.includes(namespace)}
-                    onChange={() => toggleFilter('namespace', namespace)}
-                  />
-                  <span class="option-label">{namespace}</span>
-                </label>
-              )}
-            </For>
-          </div>
-        </Show>
-
-        <button
-          class="filter-toggle"
-          onClick={() =>
-            setExpandedFilters((prev) => ({ ...prev, status: !prev.status }))
-          }
-        >
-          <span class="toggle-icon">{expandedFilters().status ? '▼' : '▶'}</span>
-          <span>Status</span>
-          <Show when={filters().status.length > 0}>
-            <span class="filter-badge">{filters().status.length}</span>
-          </Show>
-        </button>
-
-        <Show when={expandedFilters().status}>
-          <div class="filter-options">
-            <For each={uniqueStatuses()}>
-              {(status) => (
-                <label class="filter-option">
-                  <input
-                    type="checkbox"
-                    checked={filters().status.includes(status)}
-                    onChange={() => toggleFilter('status', status)}
-                  />
-                  <span class="option-label">{status}</span>
-                </label>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
-
-      {/* Clear Filters */}
-      <Show
-        when={
-          filters().severity.length > 0 ||
-          filters().pattern.length > 0 ||
-          filters().namespace.length > 0 ||
-          filters().status.length > 0 ||
-          filters().searchQuery
-        }
-      >
-        <div class="filter-actions">
-          <button class="clear-filters-btn" onClick={clearFilters}>
-            Clear all filters
-          </button>
+          <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-      </Show>
+        <div class="sb-search">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input
+            class="sb-input"
+            placeholder="Filter services..."
+            value={searchQuery()}
+            onInput={(e) => {
+              setSearchQuery(e.currentTarget.value);
+              if (props.onFilterChange) {
+                props.onFilterChange({
+                  severity: activeSeverity() ? [activeSeverity()!] : [],
+                  pattern: [],
+                  namespace: [],
+                  status: [],
+                  searchQuery: e.currentTarget.value,
+                });
+              }
+            }}
+          />
+        </div>
+      </div>
 
-      {/* Incident List */}
-      <div class="incident-list-container">
-        <Show
-          when={filteredIncidents().length > 0}
-          fallback={
-            <div class="empty-state">
-              <p>No incidents match your filters</p>
-              <button class="clear-filters-btn-small" onClick={clearFilters}>
-                Clear filters
-              </button>
+      {/* SLO Status */}
+      <div class="sb-head" style={{ padding: '10px 12px' }}>
+        <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '8px' }}>
+          <span style={{ 'font-size': '9.5px', 'font-weight': '700', color: 'var(--t5)', 'text-transform': 'uppercase', 'letter-spacing': '.5px' }}>SLO Status</span>
+          <span style={{ 'font-size': '9.5px', color: 'var(--crit)', 'font-weight': '700' }}>
+            {counts().critical > 0 ? 'Burning fast' : 'On track'}
+          </span>
+        </div>
+        <For each={sloData()}>{(slo, idx) => (
+          <div class="slo-item" style={{ 'margin-bottom': idx() < sloData().length - 1 ? '8px' : '0' }}>
+            <div class="slo-top">
+              <span class="slo-name">{slo.name}</span>
+              <span class="slo-val" style={{ color: slo.ok ? 'var(--ok)' : slo.pct < 97 ? 'var(--crit)' : 'var(--warn)' }}>{slo.val}</span>
             </div>
-          }
-        >
-          <For each={filteredIncidents()}>
-            {(incident, index) => {
-              const isSelected = index() === props.currentIndex;
-              const confidence = incident.diagnosis?.confidence || 0;
+            <div class="slo-track">
+              <div class="slo-fill" style={{
+                width: `${slo.pct}%`,
+                background: slo.ok ? 'var(--ok)' : slo.pct < 97 ? 'var(--crit)' : 'var(--warn)',
+              }} />
+            </div>
+            <div class="slo-meta">{slo.meta}</div>
+          </div>
+        )}</For>
+      </div>
 
+      {/* Health chips */}
+      <div class="sb-head" style={{ padding: '8px 12px' }}>
+        <div class="health-chips">
+          <div class={`hchip crit ${activeSeverity() === 'critical' ? '' : ''}`} onClick={() => handleChipClick('critical')} style={{ cursor: 'pointer' }}>
+            <div class="hchip-dot" />
+            {counts().critical} Critical
+          </div>
+          <div class="hchip warn" onClick={() => handleChipClick('high')} style={{ cursor: 'pointer' }}>
+            <div class="hchip-dot" />
+            {counts().high} Warn
+          </div>
+          <div class="hchip ok" onClick={() => handleChipClick(null)} style={{ cursor: 'pointer' }}>
+            <div class="hchip-dot" />
+            {counts().ok} OK
+          </div>
+        </div>
+      </div>
+
+      {/* Service list */}
+      <div class="sb-scroll">
+        <For each={Array.from(grouped().entries())}>
+          {([namespace, items]) => (
+            <>
+              <div class="ns-label">
+                {namespace}
+                <span class="ns-count">{items.length}</span>
+              </div>
+              <For each={items}>
+                {(item) => {
+                  const isSelected = item.originalIndex === props.currentIndex;
+                  const dotClass = getStatusDot(item.incident);
+                  const nameClass = getNameClass(item.incident);
+                  const restarts = item.incident.occurrences || 0;
+                  return (
+                    <div
+                      class={`svc-row${isSelected ? ' sel' : ''}`}
+                      onClick={() => props.onSelectIncident(item.originalIndex)}
+                    >
+                      <div class="svc-tree-line">
+                        <div class={`status-dot ${dotClass}`} style={{ 'margin-top': '11px' }} />
+                      </div>
+                      <div class="svc-inner">
+                        <span class={nameClass}>
+                          {item.incident.resource?.name || item.incident.title || 'unknown'}
+                        </span>
+                        <span class="svc-kind">{item.incident.resource?.kind || 'Deploy'}</span>
+                        <Show when={restarts > 1}>
+                          <span class="svc-restarts">{restarts}x</span>
+                        </Show>
+                      </div>
+                    </div>
+                  );
+                }}
+              </For>
+            </>
+          )}
+        </For>
+
+        <Show when={realIncidents().length === 0 && demoIncidents().length === 0}>
+          <div style={{ padding: '32px 16px', 'text-align': 'center', color: 'var(--t4)', 'font-size': '12px' }}>
+            {searchQuery() ? `No matches for "${searchQuery()}"` : 'No active incidents'}
+          </div>
+        </Show>
+
+        {/* Demo section */}
+        <Show when={demoIncidents().length > 0}>
+          <div class="ns-label" style={{
+            'margin-top': realIncidents().length > 0 ? '8px' : '0',
+            background: 'rgba(139, 92, 246, 0.07)',
+            color: 'var(--t4)',
+            'border-top': realIncidents().length > 0 ? '1px solid var(--border)' : 'none',
+          }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style={{ 'margin-right': '4px', opacity: '.6' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Demo
+            <span class="ns-count" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#7C3AED' }}>{demoIncidents().length}</span>
+          </div>
+          <For each={demoIncidents()}>
+            {(inc) => {
+              const origIdx = props.incidents.indexOf(inc);
+              const isSelected = origIdx === props.currentIndex;
+              const dotClass = getStatusDot(inc);
+              const nameClass = getNameClass(inc);
+              const restarts = inc.occurrences || 0;
               return (
-                <button
-                  class="incident-mini-card"
-                  classList={{
-                    selected: isSelected,
-                    critical: incident.severity === 'critical',
-                    high: incident.severity === 'high',
-                    medium: incident.severity === 'medium',
-                    low: incident.severity === 'low',
-                  }}
-                  onClick={() => props.onSelectIncident(index())}
-                  aria-selected={isSelected}
-                  aria-label={`Incident ${index() + 1}: ${incident.title || incident.pattern}, ${incident.severity} severity, ${Math.round(confidence)}% confidence`}
+                <div
+                  class={`svc-row${isSelected ? ' sel' : ''}`}
+                  style={{ opacity: '0.75' }}
+                  onClick={() => props.onSelectIncident(origIdx)}
                 >
-                  {/* Card Header */}
-                  <div class="mini-card-header">
-                    <span class="mini-card-indicator">
-                      {isSelected ? '●' : '○'}
+                  <div class="svc-tree-line">
+                    <div class={`status-dot ${dotClass}`} style={{ 'margin-top': '11px' }} />
+                  </div>
+                  <div class="svc-inner">
+                    <span class={nameClass}>
+                      {inc.resource?.name || inc.title || 'unknown'}
                     </span>
-                    <span class="mini-card-id">#{index() + 1}</span>
-                    <span class="mini-card-severity">
-                      {getSeverityIcon(incident.severity)}
-                    </span>
+                    <span class="svc-kind" style={{ color: '#7C3AED', 'font-size': '8.5px' }}>DEMO</span>
+                    <Show when={restarts > 1}>
+                      <span class="svc-restarts">{restarts}x</span>
+                    </Show>
                   </div>
-
-                  {/* Pattern */}
-                  <div class="mini-card-pattern">
-                    {getPatternIcon(incident.pattern || '')}
-                    {' '}
-                    {incident.pattern || 'UNKNOWN'}
-                  </div>
-
-                  {/* Resource */}
-                  <div class="mini-card-resource">
-                    {incident.resource?.namespace || 'default'}/
-                    {incident.resource?.name || 'unknown'}
-                  </div>
-
-                  {/* Confidence */}
-                  <div class="mini-card-confidence">
-                    <div class="confidence-bar">
-                      <div
-                        class={`confidence-fill ${getConfidenceClass(confidence)}`}
-                        style={{ width: `${confidence}%` }}
-                      />
-                    </div>
-                    <span class="confidence-label">{Math.round(confidence)}%</span>
-                  </div>
-
-                  {/* Fixes */}
-                  <Show when={incident.recommendations && incident.recommendations.length > 0}>
-                    <div class="mini-card-fixes">
-                      🔧 {incident.recommendations.length} fix
-                      {incident.recommendations.length !== 1 ? 'es' : ''}
-                    </div>
-                  </Show>
-
-                  {/* Occurrences */}
-                  <Show when={incident.occurrences && incident.occurrences > 1}>
-                    <div class="mini-card-occurrences">
-                      🔄 {incident.occurrences}x
-                    </div>
-                  </Show>
-                </button>
+                </div>
               );
             }}
           </For>

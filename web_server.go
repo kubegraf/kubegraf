@@ -509,6 +509,8 @@ func (ws *WebServer) Start(port int) error {
 
 	// Real-time events endpoint
 	http.HandleFunc("/api/events", ws.handleEvents)
+	// Namespace-scoped pod events (works with namespace-level RBAC)
+	http.HandleFunc("/api/v1/namespaces/", ws.handlePodEvents)
 
 	// Live execution history endpoints for the execution panel
 	http.HandleFunc("/api/executions", ws.handleExecutionList)

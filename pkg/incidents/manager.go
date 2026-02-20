@@ -263,6 +263,18 @@ func (m *Manager) RegisterCallback(cb func(*Incident)) {
 	m.callbacks = append(m.callbacks, cb)
 }
 
+// InjectIncident directly stores an incident, skipping the signal pipeline.
+// Used for demo/seed incidents.
+func (m *Manager) InjectIncident(incident *Incident) {
+	m.aggregator.InjectIncident(incident)
+}
+
+// UpsertScannedIncident upserts a live-scan-detected incident by fingerprint.
+// Updates LastSeen/Occurrences if already present, otherwise creates a new incident.
+func (m *Manager) UpsertScannedIncident(incident *Incident) {
+	m.aggregator.UpsertScannedIncident(incident)
+}
+
 // GetIncident returns an incident by ID.
 func (m *Manager) GetIncident(id string) *Incident {
 	return m.aggregator.GetIncident(id)

@@ -1,19 +1,14 @@
 /**
  * Workspace Components
- * Intelligent 3-panel incident investigation UI
+ * Komodor-inspired incident investigation UI
  */
 
 export { default as IntelligentWorkspace } from './IntelligentWorkspace';
 export { default as ContextNavigator } from './ContextNavigator';
-export { default as InvestigationWorkspace } from './InvestigationWorkspace';
-export { default as IntelligenceAssistant } from './IntelligenceAssistant';
-
-// Adaptive Layout Components
-export { default as HighConfidenceLayout } from './HighConfidenceLayout';
-export { default as InvestigationLayout } from './InvestigationLayout';
-
-// Intelligence Components
-export { default as IncidentStory } from './IncidentStory';
+export { default as IncidentDetail } from './IncidentDetail';
+export { default as HomeScreen } from './HomeScreen';
+export { default as ContextGraphScreen } from './ContextGraphScreen';
+export { default as WorkloadScreen } from './WorkloadScreen';
 
 // Workflow Components
 export { default as FixExecutionModal } from './FixExecutionModal';
@@ -23,9 +18,7 @@ export { default as WorkspaceErrorBoundary } from './ErrorBoundary';
 export {
   default as Skeleton,
   SkeletonIncidentCard,
-  SkeletonInvestigationWorkspace,
-  SkeletonIntelligenceAssistant,
-  SkeletonIncidentStory,
+  SkeletonIncidentDetail,
   SkeletonFixExecution,
   SkeletonChart,
   SkeletonText,

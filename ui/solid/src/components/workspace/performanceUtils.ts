@@ -356,6 +356,13 @@ export function cancelIdleTask(id: number): void {
 }
 
 /**
+ * Scale confidence from 0-1 API range to 0-100 percentage
+ */
+export function scaleConfidence(raw: number): number {
+  return raw > 0 && raw <= 1 ? raw * 100 : raw;
+}
+
+/**
  * Deep equality check for objects
  */
 export function deepEqual(a: any, b: any): boolean {
