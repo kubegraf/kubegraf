@@ -19,6 +19,7 @@ import { trackIncidentListLoad } from '../stores/performance';
 import { capabilities } from '../stores/capabilities';
 import { settings, updateSetting } from '../stores/settings';
 import { extractNamespaceNames } from '../utils/namespaceResponse';
+import IntelligentWorkspace from '../components/workspace/IntelligentWorkspace';
 
 // Separate component for intelligence panels - conditionally rendered based on capabilities
 const IntelligencePanels: Component = () => {
@@ -81,15 +82,20 @@ const Incidents: Component = () => {
   const [selectedIncident, setSelectedIncident] = createSignal<Incident | null>(null);
   const [detailModalOpen, setDetailModalOpen] = createSignal(false);
   const [showSidePanels, setShowSidePanels] = createSignal(false);
-  
+  const [useWorkspaceView, setUseWorkspaceView] = createSignal(true);
+
   // Initialize with empty array to show loading state
   const [localIncidents, setLocalIncidents] = createSignal<Incident[]>([]);
   const [isRefreshing, setIsRefreshing] = createSignal(false); // Subtle indicator, doesn't block UI
   const [isInitialLoad, setIsInitialLoad] = createSignal(true); // Track if this is the first load - MUST start as true
   const [namespaces, setNamespaces] = createSignal<string[]>([]);
-  
+
   // Track if we've ever loaded incidents (to distinguish between "loading" and "no incidents")
   const [hasLoadedOnce, setHasLoadedOnce] = createSignal(false);
+
+  // One-shot retry timer: fires once if the first fetch returns 0 incidents while a background
+  // scan is still running (e.g. after connecting to a new cluster).
+  let scanRetryTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Fast background fetch - never blocks UI
   const fetchIncidentsBackground = async () => {
@@ -119,6 +125,17 @@ const Incidents: Component = () => {
       setHasLoadedOnce(true); // Mark that we've loaded at least once
       // Save with current cluster context for cache validation
       setCachedIncidentsData(incidents, currentContext());
+
+      // If we got 0 incidents the backend likely triggered a background scan.
+      // Schedule a single one-shot retry so we pick up real/demo incidents once
+      // the scan completes (~3-10 s) without requiring the user to manually refresh.
+      if (incidents.length === 0 && !scanRetryTimer) {
+        scanRetryTimer = setTimeout(() => {
+          scanRetryTimer = undefined;
+          console.log('[Incidents] scan-retry: re-fetching after empty initial response');
+          fetchIncidentsBackground();
+        }, 5000);
+      }
     } catch (error) {
       console.error('[Incidents] fetchIncidentsBackground: Error fetching incidents:', error);
       setHasLoadedOnce(true); // Even on error, we've attempted to load
@@ -168,6 +185,11 @@ const Incidents: Component = () => {
     // Register for cluster switch notifications
     const unsubscribe = onClusterSwitch(() => {
       console.log('[Incidents] Cluster switched - refreshing data');
+      // Cancel any pending scan-retry so it doesn't fire for the old cluster
+      if (scanRetryTimer) {
+        clearTimeout(scanRetryTimer);
+        scanRetryTimer = undefined;
+      }
       // Invalidate cache and clear local data
       invalidateIncidentsCache();
       setLocalIncidents([]);
@@ -180,6 +202,10 @@ const Incidents: Component = () => {
     // Cleanup on unmount
     onCleanup(() => {
       unsubscribe();
+      if (scanRetryTimer) {
+        clearTimeout(scanRetryTimer);
+        scanRetryTimer = undefined;
+      }
     });
   });
 
@@ -286,33 +312,67 @@ const Incidents: Component = () => {
 
   return (
     <div class="p-4">
-      {/* Header */}
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-3">
-          <div>
-            <h1 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              Incident Intelligence
-            </h1>
-            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              AI-powered detection with root cause analysis and remediation recommendations
-            </p>
+      {/* Conditionally render Workspace or Table View */}
+      <Show when={useWorkspaceView()}>
+        <IntelligentWorkspace
+          incidents={localIncidents()}
+          isLoading={isInitialLoad()}
+          onClose={() => setUseWorkspaceView(false)}
+        />
+      </Show>
+
+      <Show when={!useWorkspaceView()}>
+        {/* Header */}
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <div>
+              <h1 class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                Incident Intelligence
+              </h1>
+              <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                AI-powered detection with root cause analysis and remediation recommendations
+              </p>
+            </div>
+            {/* Roadmap toggle button */}
+            <button
+              onClick={() => setShowRoadmap(!showRoadmap())}
+              class="px-2 py-1 rounded text-xs font-medium transition-all"
+              style={{
+                background: showRoadmap() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
+                color: showRoadmap() ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                border: `1px solid ${showRoadmap() ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                cursor: 'pointer'
+              }}
+              title={showRoadmap() ? 'Hide roadmap' : 'Show roadmap'}
+            >
+              Roadmap
+            </button>
+            {/* Intelligence Workspace toggle button */}
+            <button
+              onClick={() => setUseWorkspaceView(true)}
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              style={{
+                background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
+                color: 'white',
+                border: '1px solid rgba(255,255,255,0.2)',
+                cursor: 'pointer',
+                'box-shadow': '0 2px 8px rgba(79, 70, 229, 0.3)',
+                transform: 'scale(1)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.05)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(79, 70, 229, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(79, 70, 229, 0.3)';
+              }}
+              title="Open Intelligence Workspace - 3-panel adaptive UI with smart insights"
+            >
+              🧠 Intelligence Workspace
+            </button>
           </div>
-          {/* Roadmap toggle button */}
-          <button
-            onClick={() => setShowRoadmap(!showRoadmap())}
-            class="px-2 py-1 rounded text-xs font-medium transition-all"
-            style={{
-              background: showRoadmap() ? 'var(--accent-primary)20' : 'var(--bg-secondary)',
-              color: showRoadmap() ? 'var(--accent-primary)' : 'var(--text-secondary)',
-              border: `1px solid ${showRoadmap() ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-              cursor: 'pointer'
-            }}
-            title={showRoadmap() ? 'Hide roadmap' : 'Show roadmap'}
-          >
-            Roadmap
-          </button>
-        </div>
-        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3">
           {/* Auto-refresh interval selector */}
           <div class="flex items-center gap-2">
             <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>Auto-refresh:</span>
@@ -792,6 +852,7 @@ const Incidents: Component = () => {
         isOpen={detailModalOpen()}
         onClose={closeDetailModal}
       />
+      </Show>
     </div>
   );
 };

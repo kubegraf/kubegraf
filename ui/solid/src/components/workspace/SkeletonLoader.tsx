@@ -1,0 +1,231 @@
+/**
+ * SkeletonLoader - Loading state placeholders
+ */
+
+import { Component } from 'solid-js';
+
+/**
+ * Base skeleton element
+ */
+export const Skeleton: Component<{
+  width?: string;
+  height?: string;
+  borderRadius?: string;
+  className?: string;
+}> = (props) => {
+  return (
+    <div
+      class={`skeleton ${props.className || ''}`}
+      style={{
+        width: props.width || '100%',
+        height: props.height || '20px',
+        'border-radius': props.borderRadius || '4px',
+      }}
+    />
+  );
+};
+
+/**
+ * Skeleton for incident card in sidebar
+ */
+export const SkeletonIncidentCard: Component = () => {
+  return (
+    <div class="skeleton-incident-card">
+      <div class="skeleton-card-header">
+        <Skeleton width="24px" height="24px" borderRadius="50%" />
+        <Skeleton width="60%" height="16px" />
+      </div>
+      <Skeleton width="80%" height="14px" />
+      <Skeleton width="40%" height="12px" />
+      <div class="skeleton-card-footer">
+        <Skeleton width="30%" height="12px" />
+        <Skeleton width="20%" height="12px" />
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Skeleton for IncidentDetail (main content area)
+ */
+export const SkeletonIncidentDetail: Component = () => {
+  return (
+    <div class="skeleton-investigation-workspace">
+      {/* Topbar skeleton */}
+      <div class="skeleton-incident-header">
+        <div class="skeleton-badges">
+          <Skeleton width="80px" height="24px" borderRadius="12px" />
+          <Skeleton width="100px" height="24px" borderRadius="12px" />
+        </div>
+        <Skeleton width="60%" height="28px" />
+        <div class="skeleton-meta">
+          <Skeleton width="120px" height="14px" />
+          <Skeleton width="100px" height="14px" />
+          <Skeleton width="80px" height="14px" />
+        </div>
+      </div>
+
+      {/* AI card skeleton */}
+      <Skeleton width="100%" height="90px" borderRadius="10px" />
+
+      {/* Impact grid skeleton */}
+      <div style={{ display: 'grid', 'grid-template-columns': 'repeat(4, 1fr)', gap: '10px' }}>
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+        <Skeleton width="100%" height="100px" borderRadius="10px" />
+      </div>
+
+      {/* Content sections */}
+      <div class="skeleton-content-area">
+        <div class="skeleton-section">
+          <Skeleton width="40%" height="20px" />
+          <Skeleton width="100%" height="120px" borderRadius="8px" />
+        </div>
+        <div class="skeleton-section">
+          <Skeleton width="50%" height="20px" />
+          <Skeleton width="100%" height="80px" borderRadius="8px" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Skeleton for Fix Execution Steps
+ */
+export const SkeletonFixExecution: Component = () => {
+  return (
+    <div class="skeleton-fix-execution">
+      <Skeleton width="100%" height="80px" borderRadius="8px" />
+      <div class="skeleton-steps">
+        <Skeleton width="100%" height="60px" borderRadius="8px" />
+        <Skeleton width="100%" height="60px" borderRadius="8px" />
+        <Skeleton width="100%" height="60px" borderRadius="8px" />
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Skeleton for charts/graphs
+ */
+export const SkeletonChart: Component<{ height?: string }> = (props) => {
+  return (
+    <div class="skeleton-chart" style={{ height: props.height || '200px' }}>
+      <div class="skeleton-chart-bars">
+        <Skeleton width="20%" height="60%" />
+        <Skeleton width="20%" height="80%" />
+        <Skeleton width="20%" height="50%" />
+        <Skeleton width="20%" height="90%" />
+        <Skeleton width="20%" height="70%" />
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Skeleton for text lines
+ */
+export const SkeletonText: Component<{
+  lines?: number;
+  lastLineWidth?: string;
+}> = (props) => {
+  const lines = props.lines || 3;
+  const lastLineWidth = props.lastLineWidth || '70%';
+
+  return (
+    <div class="skeleton-text">
+      {Array.from({ length: lines }).map((_, i) => (
+        <Skeleton
+          width={i === lines - 1 ? lastLineWidth : '100%'}
+          height="16px"
+        />
+      ))}
+    </div>
+  );
+};
+
+/**
+ * Skeleton for tables
+ */
+export const SkeletonTable: Component<{ rows?: number; cols?: number }> = (props) => {
+  const rows = props.rows || 5;
+  const cols = props.cols || 4;
+
+  return (
+    <div class="skeleton-table">
+      <div class="skeleton-table-header">
+        {Array.from({ length: cols }).map(() => (
+          <Skeleton width="100%" height="20px" />
+        ))}
+      </div>
+      {Array.from({ length: rows }).map(() => (
+        <div class="skeleton-table-row">
+          {Array.from({ length: cols }).map(() => (
+            <Skeleton width="100%" height="16px" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * Skeleton for list items
+ */
+export const SkeletonList: Component<{ items?: number }> = (props) => {
+  const items = props.items || 5;
+
+  return (
+    <div class="skeleton-list">
+      {Array.from({ length: items }).map(() => (
+        <div class="skeleton-list-item">
+          <Skeleton width="40px" height="40px" borderRadius="50%" />
+          <div class="skeleton-list-content">
+            <Skeleton width="80%" height="16px" />
+            <Skeleton width="60%" height="14px" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * Pulsing loader for inline loading states
+ */
+export const PulsingLoader: Component<{
+  size?: 'small' | 'medium' | 'large';
+}> = (props) => {
+  const size = props.size || 'medium';
+  return (
+    <div class={`pulsing-loader pulsing-loader-${size}`}>
+      <div class="pulse-dot" />
+      <div class="pulse-dot" />
+      <div class="pulse-dot" />
+    </div>
+  );
+};
+
+/**
+ * Spinner loader
+ */
+export const Spinner: Component<{
+  size?: 'small' | 'medium' | 'large';
+  color?: string;
+}> = (props) => {
+  const size = props.size || 'medium';
+  return (
+    <div
+      class={`spinner spinner-${size}`}
+      style={{ 'border-color': props.color ? `${props.color} transparent transparent transparent` : undefined }}
+      role="status"
+      aria-label="Loading"
+    >
+      <span class="sr-only">Loading...</span>
+    </div>
+  );
+};
+
+export default Skeleton;
