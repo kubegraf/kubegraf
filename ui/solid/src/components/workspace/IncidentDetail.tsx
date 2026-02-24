@@ -385,6 +385,13 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [podNode, setPodNode] = createSignal('—');
   const [podImage, setPodImage] = createSignal('—');
   const [copiedKey, setCopiedKey] = createSignal('');
+  const [logsData, setLogsData] = createSignal<any[]>([]);
+  const [logsLoading, setLogsLoading] = createSignal(false);
+  const [metricsData, setMetricsData] = createSignal<any[]>([]);
+  const [metricsLoading, setMetricsLoading] = createSignal(false);
+  const [rawYaml, setRawYaml] = createSignal('');
+  const [podDetails, setPodDetails] = createSignal<any>(null);
+  const [configLoading, setConfigLoading] = createSignal(false);
   const copyVal = (key: string, val: string) => {
     navigator.clipboard.writeText(val).then(() => {
       setCopiedKey(key);
@@ -552,6 +559,31 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     return { image, replicas, restarts, memory, cpu, node, related, blastRadius };
   });
 
+  // Parse config from rawYaml for Config tab
+  const parsedConfig = createMemo(() => {
+    const yaml = rawYaml();
+    const envVars: { k: string; v: string; src: string }[] = [];
+    if (yaml) {
+      // Match "- name: KEY\n  value: VAL" and "- name: KEY\n  valueFrom:"
+      const re = /- name:\s*(\S+)\n\s+(?:value:\s*(.*)|valueFrom:)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(yaml)) !== null) {
+        envVars.push({ k: m[1], v: m[2]?.trim() ?? '***', src: m[2] !== undefined ? 'Direct' : 'Secret/ConfigMap ref' });
+      }
+    }
+    // Resource limits from YAML or symptom data
+    const cpuReq = yaml.match(/requests:\s*\n(?:\s+memory:[^\n]*\n)?\s+cpu:\s*"?([^"\n]+)"?/)?.[1]?.trim() || resourceMeta().cpu || '—';
+    const cpuLim = yaml.match(/limits:\s*\n(?:\s+memory:[^\n]*\n)?\s+cpu:\s*"?([^"\n]+)"?/)?.[1]?.trim() || '—';
+    const memReq = yaml.match(/requests:\s*\n\s+memory:\s*"?([^"\n]+)"?/)?.[1]?.trim() || '—';
+    const memLim = yaml.match(/limits:\s*\n\s+memory:\s*"?([^"\n]+)"?/)?.[1]?.trim() || resourceMeta().memory || '—';
+    // Probes
+    const readPath = yaml.match(/readinessProbe[\s\S]{0,300}?path:\s*(\S+)/)?.[1] || '';
+    const readPort = yaml.match(/readinessProbe[\s\S]{0,300}?port:\s*(\S+)/)?.[1] || '';
+    const livePath = yaml.match(/livenessProbe[\s\S]{0,300}?path:\s*(\S+)/)?.[1] || '';
+    const livePort = yaml.match(/livenessProbe[\s\S]{0,300}?port:\s*(\S+)/)?.[1] || '';
+    return { envVars, cpuReq, cpuLim, memReq, memLim, readPath, readPort, livePath, livePort };
+  });
+
   // Reset fetched data when incident changes; redraw health ring; background-fetch node/image
   createEffect(() => {
     const inc = props.incident;
@@ -563,6 +595,13 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setYamlSaveMsg('');
     setPodNode('—');
     setPodImage('—');
+    setLogsData([]);
+    setLogsLoading(false);
+    setMetricsData([]);
+    setMetricsLoading(false);
+    setRawYaml('');
+    setPodDetails(null);
+    setConfigLoading(false);
     setTimeout(() => drawRpRing(rpRingRef || null, score), 50);
     // Background fetch to extract nodeName + image from pod YAML
     if (!inc?.resource) return;
@@ -573,6 +612,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     const yamlFetch = kind === 'Pod' ? api.getPodYAML(name, ns) : api.getDeploymentYAML(name, ns);
     yamlFetch.then((r: any) => {
       const raw: string = typeof r === 'string' ? r : (r?.yaml || r?.data || '');
+      setRawYaml(raw);
       // Extract nodeName: from YAML spec
       const nodeMatch = /nodeName:\s*(\S+)/.exec(raw);
       if (nodeMatch) setPodNode(nodeMatch[1]);
@@ -673,6 +713,50 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
         `  namespace: ${ns}`,
       ].join('\n'));
     }).finally(() => setYamlLoading(false));
+  });
+
+  // Fetch real logs via /api/v2/incidents/{id}/logs when logs tab is active
+  createEffect(() => {
+    if (activeTab() !== 'logs') return;
+    const inc = props.incident;
+    if (!inc?.id) return;
+    if (untrack(logsLoading) || untrack(logsData).length > 0) return;
+    setLogsLoading(true);
+    api.getIncidentLogs(inc.id, 50).then(r => {
+      setLogsData(r?.logs || []);
+    }).catch(() => {
+      setLogsData([]);
+    }).finally(() => setLogsLoading(false));
+  });
+
+  // Fetch real metrics via /api/v2/incidents/{id}/metrics when metrics tab is active
+  createEffect(() => {
+    if (activeTab() !== 'metrics') return;
+    const inc = props.incident;
+    if (!inc?.id) return;
+    if (untrack(metricsLoading) || untrack(metricsData).length > 0) return;
+    setMetricsLoading(true);
+    api.getIncidentMetrics(inc.id).then(r => {
+      setMetricsData(r?.metrics || []);
+    }).catch(() => {
+      setMetricsData([]);
+    }).finally(() => setMetricsLoading(false));
+  });
+
+  // Fetch pod details for Config tab
+  createEffect(() => {
+    if (activeTab() !== 'config') return;
+    const inc = props.incident;
+    if (!inc?.resource?.name) return;
+    if (untrack(configLoading) || untrack(podDetails) !== null) return;
+    setConfigLoading(true);
+    const ns = inc.resource.namespace || 'default';
+    const name = inc.resource.name;
+    api.getPodDetails(name, ns).then(r => {
+      setPodDetails(r);
+    }).catch(() => {
+      setPodDetails({});
+    }).finally(() => setConfigLoading(false));
   });
 
   // Draw metrics charts when metrics tab activates
@@ -1017,32 +1101,38 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
             <div class="log-block" style={{ flex: '1', overflow: 'hidden', display: 'flex', 'flex-direction': 'column' }}>
               <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', padding: '8px 14px', 'border-bottom': '1px solid var(--b2)', 'flex-shrink': '0' }}>
                 <span class="chip new">LIVE</span>
-                <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>{incName()} · {incNs()} · last 14 lines</span>
-                <span style={{ 'margin-left': 'auto', 'font-size': '11px', color: 'var(--t5)' }}>14:20–14:27 UTC</span>
+                <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>{incName()} · {incNs()}</span>
+                <Show when={logsData().length > 0}>
+                  <span style={{ 'margin-left': 'auto', 'font-size': '11px', color: 'var(--t5)' }}>{logsData().length} lines</span>
+                </Show>
               </div>
               <div class="log-body">
-                {[
-                  { ts: '14:20:01', lvl: 'info', msg: 'Application started successfully on port 8080' },
-                  { ts: '14:21:13', lvl: 'info', msg: `[scheduler] Initializing ${incName()} worker threads` },
-                  { ts: '14:22:05', lvl: 'warn', msg: 'Heap usage at 72% (184Mi / 256Mi) — GC pressure increasing' },
-                  { ts: '14:22:31', lvl: 'warn', msg: 'GC pause detected: 340ms — full GC triggered (G1GC)' },
-                  { ts: '14:23:02', lvl: 'warn', msg: 'Heap usage at 84% (215Mi / 256Mi) — approaching limit' },
-                  { ts: '14:23:29', lvl: 'err',  msg: 'OutOfMemoryError: Java heap space — at java.util.Arrays.copyOf' },
-                  { ts: '14:23:29', lvl: 'err',  msg: 'FATAL: JVM out of memory — container will be OOMKilled (exit 137)' },
-                  { ts: '14:23:30', lvl: 'err',  msg: `signal: killed — container ${incName()} exited with code 137` },
-                  { ts: '14:23:35', lvl: 'info', msg: `[kubelet] Container ${incName()} restarting (restart #1)` },
-                  { ts: '14:24:11', lvl: 'warn', msg: 'Readiness probe failed: connection refused — pod not ready' },
-                  { ts: '14:24:55', lvl: 'err',  msg: 'OutOfMemoryError: GC overhead limit exceeded' },
-                  { ts: '14:24:56', lvl: 'err',  msg: `signal: killed — container ${incName()} exited with code 137` },
-                  { ts: '14:25:10', lvl: 'info', msg: `[kubelet] Container ${incName()} restarting (restart #2)` },
-                  { ts: '14:26:47', lvl: 'err',  msg: 'Back-off restarting failed container — CrashLoopBackOff' },
-                ].map(line => (
-                  <div class="log-line">
-                    <span class="log-ts">{line.ts}</span>
-                    <span class={`log-level ${line.lvl}`}>{line.lvl.toUpperCase()}</span>
-                    <span class="log-msg">{line.msg}</span>
+                <Show when={logsLoading()}>
+                  <div style={{ padding: '24px', 'text-align': 'center', color: 'var(--t5)', 'font-size': '12px' }}>Loading logs…</div>
+                </Show>
+                <Show when={!logsLoading() && logsData().length === 0}>
+                  <div style={{ padding: '20px 14px', color: 'var(--t5)', 'font-size': '12px', 'line-height': '1.6' }}>
+                    <div>No logs available for <span style={{ 'font-family': 'var(--mono)', color: 'var(--t3)' }}>{incName()}</span>.</div>
+                    <div style={{ 'font-size': '11px', color: 'var(--t6)', 'margin-top': '4px' }}>
+                      Logs are available for Pod-kind incidents. Try: <span style={{ 'font-family': 'var(--mono)' }}>kubectl logs -n {incNs()} {incName()}</span>
+                    </div>
                   </div>
-                ))}
+                </Show>
+                <Show when={!logsLoading() && logsData().length > 0}>
+                  <For each={logsData()}>{(line) => {
+                    const ts = line.time ? new Date(line.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                    const lvl = (line.severity === 'critical' || line.type === 'CRASH_LOG') ? 'err'
+                      : (line.severity === 'high' || line.type === 'WARN_LOG') ? 'warn'
+                      : 'info';
+                    return (
+                      <div class="log-line">
+                        <span class="log-ts">{ts}</span>
+                        <span class={`log-level ${lvl}`}>{lvl.toUpperCase()}</span>
+                        <span class="log-msg">{line.message || line.value || line.key || ''}</span>
+                      </div>
+                    );
+                  }}</For>
+                </Show>
               </div>
             </div>
           </Show>
@@ -1084,131 +1174,204 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
           {/* ── METRICS TAB ── */}
           <Show when={activeTab() === 'metrics'}>
             <div style={{ flex: '1', overflow: 'auto', padding: '14px', display: 'flex', 'flex-direction': 'column', gap: '14px' }}>
-              <div class="card">
-                <div class="card-head">
-                  <div class="accent-dot brand" />
-                  <span class="card-title">CPU Usage</span>
-                  <span style={{ 'font-family': 'var(--mono)', 'font-size': '11px', 'font-weight': '700', color: 'var(--blue)', 'margin-left': 'auto' }}>620m / 1000m</span>
-                </div>
-                <div class="spark-row" style={{ padding: '0 14px 14px' }}>
-                  <canvas ref={cpuMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
-                </div>
-              </div>
-              <div class="card">
-                <div class="card-head">
-                  <div class="accent-dot crit" />
-                  <span class="card-title">Memory Usage</span>
-                  <span style={{ 'font-family': 'var(--mono)', 'font-size': '11px', 'font-weight': '700', color: 'var(--crit)', 'margin-left': 'auto' }}>510Mi / 512Mi (limit)</span>
-                </div>
-                <div class="spark-row" style={{ padding: '0 14px 14px' }}>
-                  <canvas ref={memMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
-                </div>
-              </div>
-              <div class="card">
-                <div class="card-head">
-                  <span class="card-title">Resource Summary</span>
-                </div>
-                <div class="card-body">
-                  <div class="spark-row" style={{ gap: '0', 'flex-wrap': 'wrap' }}>
-                    {[
-                      { lbl: 'CPU Request', val: '500m', sub: '50% of limit' },
-                      { lbl: 'CPU Limit', val: '1000m', sub: '1 vCPU' },
-                      { lbl: 'Mem Request', val: '256Mi', sub: 'baseline' },
-                      { lbl: 'Mem Limit', val: '512Mi', sub: 'OOM boundary' },
-                      { lbl: 'Restarts', val: String(props.incident?.occurrences || 14), sub: 'since deploy' },
-                      { lbl: 'Uptime', val: '6m 24s', sub: 'since last kill' },
-                    ].map(m => (
-                      <div class="spark-card">
-                        <div class="spark-label">{m.lbl}</div>
-                        <div class="spark-val">{m.val}</div>
-                        <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>{m.sub}</div>
-                      </div>
-                    ))}
+              <Show when={metricsLoading()}>
+                <div style={{ padding: '24px', 'text-align': 'center', color: 'var(--t5)', 'font-size': '12px' }}>Loading metrics…</div>
+              </Show>
+              <Show when={!metricsLoading()}>
+                <div class="card">
+                  <div class="card-head">
+                    <div class="accent-dot brand" />
+                    <span class="card-title">CPU Usage</span>
+                    <span style={{ 'font-family': 'var(--mono)', 'font-size': '11px', 'font-weight': '700', color: 'var(--blue)', 'margin-left': 'auto' }}>
+                      {metricsData().find((m: any) => m.type === 'CPU_USAGE' || m.key?.toLowerCase().includes('cpu'))?.value
+                        || (resourceMeta().cpu !== '—' ? resourceMeta().cpu : '—')}
+                    </span>
+                  </div>
+                  <div class="spark-row" style={{ padding: '0 14px 14px' }}>
+                    <canvas ref={cpuMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
                   </div>
                 </div>
-              </div>
+                <div class="card">
+                  <div class="card-head">
+                    <div class="accent-dot crit" />
+                    <span class="card-title">Memory Usage</span>
+                    <span style={{ 'font-family': 'var(--mono)', 'font-size': '11px', 'font-weight': '700', color: 'var(--crit)', 'margin-left': 'auto' }}>
+                      {metricsData().find((m: any) => m.type === 'MEMORY_USAGE' || m.key?.toLowerCase().includes('memory'))?.value
+                        || (resourceMeta().memory !== '—' ? resourceMeta().memory : '—')}
+                    </span>
+                  </div>
+                  <div class="spark-row" style={{ padding: '0 14px 14px' }}>
+                    <canvas ref={memMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-head">
+                    <span class="card-title">Resource Summary</span>
+                    <Show when={metricsData().length === 0}>
+                      <span style={{ 'font-size': '11px', color: 'var(--t5)', 'margin-left': 'auto' }}>from incident signals</span>
+                    </Show>
+                  </div>
+                  <div class="card-body">
+                    <div class="spark-row" style={{ gap: '0', 'flex-wrap': 'wrap' }}>
+                      <Show when={metricsData().length > 0} fallback={
+                        <>
+                          <div class="spark-card">
+                            <div class="spark-label">CPU</div>
+                            <div class="spark-val">{resourceMeta().cpu !== '—' ? resourceMeta().cpu : parsedConfig().cpuReq || '—'}</div>
+                            <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>limit: {parsedConfig().cpuLim || '—'}</div>
+                          </div>
+                          <div class="spark-card">
+                            <div class="spark-label">Memory</div>
+                            <div class="spark-val">{resourceMeta().memory !== '—' ? resourceMeta().memory : parsedConfig().memReq || '—'}</div>
+                            <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>limit: {parsedConfig().memLim || '—'}</div>
+                          </div>
+                          <div class="spark-card">
+                            <div class="spark-label">Restarts</div>
+                            <div class="spark-val">{String(resourceMeta().restarts || props.incident?.occurrences || '—')}</div>
+                            <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>since deploy</div>
+                          </div>
+                          <div class="spark-card">
+                            <div class="spark-label">Occurrences</div>
+                            <div class="spark-val">{String(props.incident?.occurrences || '—')}</div>
+                            <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>total events</div>
+                          </div>
+                        </>
+                      }>
+                        <For each={metricsData().slice(0, 6)}>{(m: any) => (
+                          <div class="spark-card">
+                            <div class="spark-label">{m.key || m.type || 'Metric'}</div>
+                            <div class="spark-val">{String(m.value ?? '—')}</div>
+                            <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>
+                              {m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : m.message || ''}
+                            </div>
+                          </div>
+                        )}</For>
+                      </Show>
+                    </div>
+                  </div>
+                </div>
+              </Show>
             </div>
           </Show>
 
           {/* ── CONFIG TAB ── */}
           <Show when={activeTab() === 'config'}>
             <div style={{ flex: '1', overflow: 'auto', padding: '14px', display: 'flex', 'flex-direction': 'column', gap: '14px' }}>
-              <div class="card">
-                <div class="card-head">
-                  <span class="card-title">Environment Variables</span>
-                  <span style={{ 'font-size': '11px', color: 'var(--t5)', 'margin-left': 'auto' }}>{incName()}</span>
+              <Show when={configLoading() || (!rawYaml() && !podDetails())}>
+                <div style={{ padding: '24px', 'text-align': 'center', color: 'var(--t5)', 'font-size': '12px' }}>Loading configuration…</div>
+              </Show>
+              <Show when={!configLoading()}>
+                {/* Environment Variables — from resource YAML */}
+                <div class="card">
+                  <div class="card-head">
+                    <span class="card-title">Environment Variables</span>
+                    <span style={{ 'font-size': '11px', color: 'var(--t5)', 'margin-left': 'auto' }}>{incName()}</span>
+                  </div>
+                  <div class="card-body" style={{ padding: '0' }}>
+                    <Show when={parsedConfig().envVars.length > 0} fallback={
+                      <div style={{ padding: '16px 14px', color: 'var(--t5)', 'font-size': '12px' }}>
+                        {rawYaml() ? 'No environment variables defined in spec.' : 'Load the YAML tab first to populate env vars.'}
+                      </div>
+                    }>
+                      <table class="panel-table" style={{ width: '100%' }}>
+                        <thead>
+                          <tr><th>Variable</th><th>Value</th><th>Source</th></tr>
+                        </thead>
+                        <tbody>
+                          <For each={parsedConfig().envVars}>{(row) => (
+                            <tr>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--t1)' }}>{row.k}</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: row.v === '***' ? 'var(--t5)' : 'var(--ok)' }}>{row.v}</td>
+                              <td style={{ 'font-size': '11px', color: 'var(--t4)' }}>{row.src}</td>
+                            </tr>
+                          )}</For>
+                        </tbody>
+                      </table>
+                    </Show>
+                  </div>
                 </div>
-                <div class="card-body" style={{ padding: '0' }}>
-                  <table class="panel-table" style={{ width: '100%' }}>
-                    <thead>
-                      <tr><th>Variable</th><th>Value</th><th>Source</th></tr>
-                    </thead>
-                    <tbody>
-                      {[
-                        { k: 'JAVA_OPTS',               v: '-Xms128m',          src: 'Direct' },
-                        { k: 'SPRING_PROFILES_ACTIVE',  v: 'production',        src: 'Direct' },
-                        { k: 'DB_HOST',                 v: '***',               src: 'Secret: db-credentials' },
-                        { k: 'DB_PASSWORD',             v: '***',               src: 'Secret: db-credentials' },
-                        { k: 'REDIS_URL',               v: 'redis://redis:6379', src: 'ConfigMap: app-config' },
-                        { k: 'LOG_LEVEL',               v: 'INFO',              src: 'ConfigMap: app-config' },
-                        { k: 'MAX_CONNECTIONS',         v: '50',                src: 'ConfigMap: app-config' },
-                        { k: 'POD_NAME',                v: incName(),           src: 'FieldRef: metadata.name' },
-                        { k: 'POD_NAMESPACE',           v: incNs(),             src: 'FieldRef: metadata.namespace' },
-                      ].map(row => (
+                {/* Resource Limits — from YAML or incident symptoms */}
+                <div class="card">
+                  <div class="card-head"><span class="card-title">Resource Limits</span></div>
+                  <div class="card-body">
+                    <table class="panel-table" style={{ width: '100%' }}>
+                      <thead><tr><th>Resource</th><th>Request</th><th>Limit</th><th>Current</th></tr></thead>
+                      <tbody>
                         <tr>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--t1)' }}>{row.k}</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: row.v === '***' ? 'var(--t5)' : 'var(--ok)' }}>{row.v}</td>
-                          <td style={{ 'font-size': '11px', color: 'var(--t4)' }}>{row.src}</td>
+                          <td>CPU</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().cpuReq || '—'}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().cpuLim || '—'}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--t2)' }}>{resourceMeta().cpu !== '—' ? resourceMeta().cpu : '—'}</td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                        <tr>
+                          <td>Memory</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().memReq || '—'}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().memLim || '—'}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: resourceMeta().memory !== '—' ? 'var(--crit)' : 'var(--t2)' }}>{resourceMeta().memory !== '—' ? resourceMeta().memory : '—'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-              <div class="card">
-                <div class="card-head"><span class="card-title">Resource Limits</span></div>
-                <div class="card-body">
-                  <table class="panel-table" style={{ width: '100%' }}>
-                    <thead><tr><th>Resource</th><th>Request</th><th>Limit</th><th>Current</th></tr></thead>
-                    <tbody>
-                      <tr>
-                        <td>CPU</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>500m</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>1000m</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--warn)' }}>620m (62%)</td>
-                      </tr>
-                      <tr>
-                        <td>Memory</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>256Mi</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>512Mi</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--crit)' }}>510Mi (99.6%)</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                {/* Health Probes — from YAML */}
+                <div class="card">
+                  <div class="card-head"><span class="card-title">Health Probes</span></div>
+                  <div class="card-body">
+                    <Show when={parsedConfig().readPath || parsedConfig().livePath} fallback={
+                      <div style={{ color: 'var(--t5)', 'font-size': '12px' }}>
+                        {rawYaml() ? 'No probe configuration found in spec.' : 'Load the YAML tab first to populate probe config.'}
+                      </div>
+                    }>
+                      <table class="panel-table" style={{ width: '100%' }}>
+                        <thead><tr><th>Probe</th><th>Path</th><th>Port</th><th>Status</th></tr></thead>
+                        <tbody>
+                          <Show when={parsedConfig().readPath}>
+                            <tr>
+                              <td>Readiness</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().readPath}</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().readPort || '—'}</td>
+                              <td style={{ color: props.incident?.pattern?.includes('READINESS') ? 'var(--crit)' : 'var(--ok)', 'font-size': '11px', 'font-weight': '600' }}>
+                                {props.incident?.pattern?.includes('READINESS') ? 'FAILING' : 'OK'}
+                              </td>
+                            </tr>
+                          </Show>
+                          <Show when={parsedConfig().livePath}>
+                            <tr>
+                              <td>Liveness</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().livePath}</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().livePort || '—'}</td>
+                              <td style={{ color: props.incident?.pattern?.includes('LIVENESS') ? 'var(--crit)' : 'var(--ok)', 'font-size': '11px', 'font-weight': '600' }}>
+                                {props.incident?.pattern?.includes('LIVENESS') ? 'FAILING' : 'OK'}
+                              </td>
+                            </tr>
+                          </Show>
+                        </tbody>
+                      </table>
+                    </Show>
+                  </div>
                 </div>
-              </div>
-              <div class="card">
-                <div class="card-head"><span class="card-title">Health Probes</span></div>
-                <div class="card-body">
-                  <table class="panel-table" style={{ width: '100%' }}>
-                    <thead><tr><th>Probe</th><th>Path</th><th>Port</th><th>Status</th></tr></thead>
-                    <tbody>
-                      <tr>
-                        <td>Readiness</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>/health</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>8080</td>
-                        <td style={{ color: 'var(--crit)', 'font-size': '11px', 'font-weight': '600' }}>FAILING</td>
-                      </tr>
-                      <tr>
-                        <td>Liveness</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>/health/live</td>
-                        <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>8080</td>
-                        <td style={{ color: 'var(--crit)', 'font-size': '11px', 'font-weight': '600' }}>FAILING</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                {/* Container info from pod details API */}
+                <Show when={podDetails()?.containers?.length > 0}>
+                  <div class="card">
+                    <div class="card-head"><span class="card-title">Containers</span></div>
+                    <div class="card-body" style={{ padding: '0' }}>
+                      <table class="panel-table" style={{ width: '100%' }}>
+                        <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Restarts</th></tr></thead>
+                        <tbody>
+                          <For each={podDetails().containers}>{(c: any) => (
+                            <tr>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{c.name}</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '10px', color: 'var(--t3)', 'max-width': '180px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }} title={c.image}>{c.image}</td>
+                              <td style={{ 'font-size': '11px', color: c.state === 'running' ? 'var(--ok)' : 'var(--crit)', 'font-weight': '600' }}>{c.state || '—'}</td>
+                              <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: (c.restartCount || 0) > 5 ? 'var(--crit)' : 'var(--t2)' }}>{c.restartCount ?? '—'}</td>
+                            </tr>
+                          )}</For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
+              </Show>
             </div>
           </Show>
 
