@@ -290,7 +290,10 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
           {/* ── Workloads screen ── */}
           <Show when={activeScreen() === 'workloads'}>
             <WorkspaceErrorBoundary componentName="WorkloadScreen">
-              <WorkloadScreen onViewIncident={() => { setActiveScreen('incident'); setActiveRail('incident'); }} />
+              <WorkloadScreen
+                incidents={props.incidents || []}
+                onViewIncident={() => { setActiveScreen('incident'); setActiveRail('incident'); }}
+              />
             </WorkspaceErrorBoundary>
           </Show>
 

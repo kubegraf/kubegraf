@@ -1,9 +1,11 @@
 /**
- * ContextGraphScreen — Exact match to kubegraf-final-white.html prototype
- * 9 nodes with rx/ry relative positioning, bezier edges, edge labels, light legend
+ * ContextGraphScreen — Blast-radius context graph
+ * Derives nodes and edges from real incidents when available;
+ * falls back to a static demo layout when there are none.
  */
 
-import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
+import { Component, createSignal, createMemo, onMount, onCleanup, Show } from 'solid-js';
+import { Incident } from '../../services/api';
 
 interface GraphNode {
   id: string;
@@ -14,6 +16,8 @@ interface GraphNode {
   rx: number;
   ry: number;
   r: number;
+  incidentId?: string;
+  namespace?: string;
 }
 
 interface GraphEdge {
@@ -28,12 +32,12 @@ interface NodeInfo {
   sub: string;
   kind: string;
   ns: string;
-  rep: string;
-  rst: string;
+  incidentId?: string;
   sColor: string;
 }
 
-const GNODES: GraphNode[] = [
+// Static demo data (fallback when no incidents)
+const DEMO_NODES: GraphNode[] = [
   { id: 'checkout', lbl: 'checkout-api', sub: 'OOMKilled 0/3', s: 'crit', icon: 'C', rx: .12, ry: .50, r: 28 },
   { id: 'payment',  lbl: 'payment-proc', sub: 'CrashLoop',     s: 'crit', icon: 'P', rx: .32, ry: .20, r: 21 },
   { id: 'hpa',      lbl: 'hpa-ctrl',     sub: 'maxReplicas',   s: 'crit', icon: 'H', rx: .32, ry: .80, r: 17 },
@@ -45,7 +49,7 @@ const GNODES: GraphNode[] = [
   { id: 'ingress',  lbl: 'ingress',      sub: 'Healthy',       s: 'ok',   icon: 'I', rx: .57, ry: .09, r: 14 },
 ];
 
-const GEDGES: GraphEdge[] = [
+const DEMO_EDGES: GraphEdge[] = [
   { f: 'checkout', t: 'payment', s: 'crit', lbl: 'causes' },
   { f: 'checkout', t: 'hpa',     s: 'crit', lbl: 'triggers' },
   { f: 'payment',  t: 'apigw',   s: 'crit', lbl: 'cascades' },
@@ -74,11 +78,109 @@ function nodePos(n: GraphNode, W: number, H: number) {
   return { x: n.rx * W, y: n.ry * H };
 }
 
-const ContextGraphScreen: Component = () => {
+/** Build graph nodes and edges from real incidents */
+function buildGraph(incidents: Incident[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  if (!incidents || incidents.length === 0) {
+    return { nodes: DEMO_NODES, edges: DEMO_EDGES };
+  }
+
+  // Deduplicate by namespace/name key; keep most severe severity
+  const nodeMap = new Map<string, GraphNode>();
+  const rank = (s: string | undefined) => s === 'critical' ? 2 : s === 'high' ? 1 : 0;
+
+  incidents.forEach(inc => {
+    const name = inc.resource?.name || (inc.title ? inc.title.split(' ').slice(0, 2).join('-') : '') || inc.id.slice(0, 8);
+    const ns = inc.resource?.namespace || 'default';
+    const key = `${ns}/${name}`;
+    const s: 'crit' | 'warn' | 'ok' = inc.severity === 'critical' ? 'crit' : inc.severity === 'high' ? 'warn' : 'ok';
+    const existing = nodeMap.get(key);
+    const patternLabel = inc.pattern ? inc.pattern.replace(/_/g, ' ') : (inc.severity || 'unknown');
+    if (!existing || rank(inc.severity) > rank(existing.s === 'crit' ? 'critical' : existing.s === 'warn' ? 'high' : 'low')) {
+      nodeMap.set(key, {
+        id: key,
+        lbl: name,
+        sub: patternLabel,
+        s,
+        icon: name.charAt(0).toUpperCase(),
+        rx: 0,
+        ry: 0,
+        r: s === 'crit' ? 26 : s === 'warn' ? 20 : 14,
+        incidentId: inc.id,
+        namespace: ns,
+      });
+    }
+  });
+
+  const nodes = Array.from(nodeMap.values());
+
+  // Layout: critical nodes left, warning middle, ok right
+  const critNodes = nodes.filter(n => n.s === 'crit');
+  const warnNodes = nodes.filter(n => n.s === 'warn');
+  const okNodes   = nodes.filter(n => n.s === 'ok');
+
+  const positionGroup = (group: GraphNode[], xCenter: number, xSpread: number) => {
+    const count = group.length;
+    group.forEach((n, i) => {
+      n.rx = xCenter + (i % 2 === 1 ? xSpread : 0);
+      n.ry = count <= 1 ? 0.5 : 0.12 + (i / (count - 1)) * 0.76;
+    });
+  };
+
+  positionGroup(critNodes, 0.12, 0.14);
+  positionGroup(warnNodes, 0.52, 0.12);
+  positionGroup(okNodes,   0.82, 0);
+
+  // Build edges: critical → warning in same namespace = "cascades"
+  const edges: GraphEdge[] = [];
+  const edgeSet = new Set<string>();
+
+  const addEdge = (f: string, t: string, s: 'crit' | 'warn' | 'ok', lbl: string) => {
+    const key = `${f}→${t}`;
+    if (!edgeSet.has(key) && f !== t) {
+      edgeSet.add(key);
+      edges.push({ f, t, s, lbl });
+    }
+  };
+
+  critNodes.forEach(cn => {
+    warnNodes.forEach(wn => {
+      if (cn.namespace === wn.namespace) {
+        addEdge(cn.id, wn.id, 'crit', 'cascades');
+      }
+    });
+  });
+
+  // warning → warning in same namespace = "routes"
+  for (let i = 0; i < warnNodes.length; i++) {
+    for (let j = i + 1; j < warnNodes.length; j++) {
+      if (warnNodes[i].namespace === warnNodes[j].namespace) {
+        addEdge(warnNodes[i].id, warnNodes[j].id, 'warn', 'routes');
+      }
+    }
+  }
+
+  // ok ← crit in same namespace = "scraped/observed"
+  okNodes.forEach(on => {
+    critNodes.forEach(cn => {
+      if (cn.namespace === on.namespace) {
+        addEdge(cn.id, on.id, 'ok', 'observed');
+      }
+    });
+  });
+
+  return { nodes, edges };
+}
+
+const ContextGraphScreen: Component<{
+  incidents?: Incident[];
+  onSelectIncident?: (id: string) => void;
+}> = (props) => {
   let canvasRef: HTMLCanvasElement | undefined;
   let wrapRef: HTMLDivElement | undefined;
   let animId: number | undefined;
   const [nodeInfo, setNodeInfo] = createSignal<NodeInfo | null>(null);
+
+  const graphData = createMemo(() => buildGraph(props.incidents || []));
 
   function initGraph() {
     const canvas = canvasRef;
@@ -108,6 +210,9 @@ const ContextGraphScreen: Component = () => {
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
 
+    // Read current graph data (non-reactive read is fine here)
+    const { nodes, edges } = graphData();
+
     // Background dot grid
     ctx.fillStyle = 'rgba(0,0,0,.04)';
     for (let gx = 0; gx < W; gx += 30) {
@@ -119,9 +224,9 @@ const ContextGraphScreen: Component = () => {
     }
 
     // Draw edges
-    GEDGES.forEach(e => {
-      const fn = GNODES.find(n => n.id === e.f);
-      const tn = GNODES.find(n => n.id === e.t);
+    edges.forEach(e => {
+      const fn = nodes.find(n => n.id === e.f);
+      const tn = nodes.find(n => n.id === e.t);
       if (!fn || !tn) return;
       const fp = nodePos(fn, W, H);
       const tp = nodePos(tn, W, H);
@@ -182,7 +287,7 @@ const ContextGraphScreen: Component = () => {
     });
 
     // Draw nodes
-    GNODES.forEach((n, i) => {
+    nodes.forEach((n, i) => {
       const { x, y } = nodePos(n, W, H);
       const s = GS[n.s];
 
@@ -244,8 +349,9 @@ const ContextGraphScreen: Component = () => {
     const dpr = DPR();
     const W = canvas.width / dpr;
     const H = canvas.height / dpr;
+    const { nodes } = graphData();
     let hit: GraphNode | null = null;
-    GNODES.forEach(n => {
+    nodes.forEach(n => {
       const p = nodePos(n, W, H);
       if (Math.hypot(mx - p.x, my - p.y) < n.r + 5) hit = n;
     });
@@ -254,12 +360,15 @@ const ContextGraphScreen: Component = () => {
       setNodeInfo({
         lbl: h.lbl,
         sub: h.sub,
-        kind: 'Deployment',
-        ns: h.rx < .5 ? 'payments-ns' : 'prod-ns',
-        rep: h.s === 'crit' ? '0/3' : h.s === 'warn' ? '2/3' : '1/1',
-        rst: h.s === 'crit' ? '14' : h.s === 'warn' ? '2' : '0',
+        kind: h.incidentId ? 'Deployment' : 'Unknown',
+        ns: h.namespace || (h.rx < .5 ? 'payments-ns' : 'prod-ns'),
+        incidentId: h.incidentId,
         sColor: GS[h.s].ico,
       });
+      // Navigate to incident detail if this node has an associated incident
+      if (h.incidentId && props.onSelectIncident) {
+        props.onSelectIncident(h.incidentId);
+      }
     } else {
       setNodeInfo(null);
     }
@@ -275,6 +384,10 @@ const ContextGraphScreen: Component = () => {
     window.removeEventListener('resize', initGraph);
   });
 
+  const isDemo = () => !props.incidents || props.incidents.length === 0;
+  const nodeCount = () => graphData().nodes.length;
+  const edgeCount = () => graphData().edges.length;
+
   return (
     <div class="graph-screen">
       {/* Toolbar */}
@@ -283,7 +396,10 @@ const ContextGraphScreen: Component = () => {
           Blast Radius — Context Graph
         </span>
         <span style={{ 'font-size': '11px', color: 'var(--t5)', 'margin-left': '6px' }}>
-          9 nodes · 8 edges
+          {nodeCount()} nodes · {edgeCount()} edges
+          <Show when={isDemo()}>
+            <span style={{ 'margin-left': '6px', color: 'var(--warn)', 'font-size': '10px' }}>(demo)</span>
+          </Show>
         </span>
         <div style={{ flex: '1' }} />
         <button class="btn ghost" style={{ 'font-size': '11px' }}>Simulate Cascade</button>
@@ -298,7 +414,7 @@ const ContextGraphScreen: Component = () => {
           onClick={handleClick}
         />
 
-        {/* Light legend — matching prototype exactly */}
+        {/* Legend */}
         <div class="graph-legend">
           <div class="graph-legend-item">
             <div style={{ width: '8px', height: '8px', 'border-radius': '50%', border: '2px solid var(--crit)', background: 'var(--critBg)', 'flex-shrink': '0' }} />
@@ -323,7 +439,7 @@ const ContextGraphScreen: Component = () => {
           </div>
         </div>
 
-        {/* Node info popup — light background */}
+        {/* Node info popup */}
         <Show when={nodeInfo()}>
           {(info) => (
             <div class="graph-info show">
@@ -340,14 +456,14 @@ const ContextGraphScreen: Component = () => {
                 <span class="gi-key">Namespace</span>
                 <span class="gi-val">{info().ns}</span>
               </div>
-              <div class="gi-row">
-                <span class="gi-key">Replicas</span>
-                <span class="gi-val">{info().rep}</span>
-              </div>
-              <div class="gi-row">
-                <span class="gi-key">Restarts</span>
-                <span class="gi-val">{info().rst}</span>
-              </div>
+              <Show when={info().incidentId}>
+                <div class="gi-row">
+                  <span class="gi-key">Incident</span>
+                  <span class="gi-val" style={{ color: 'var(--brand)', cursor: 'pointer' }}>
+                    {info().incidentId?.slice(0, 8)}… →
+                  </span>
+                </div>
+              </Show>
             </div>
           )}
         </Show>
