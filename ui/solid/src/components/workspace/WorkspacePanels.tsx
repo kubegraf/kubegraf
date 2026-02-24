@@ -206,10 +206,11 @@ export const MetricsPanel: Component = () => {
 
   onMount(() => {
     connectMetrics();
-    // Give WS a moment to connect
-    setTimeout(() => setLoading(false), 1500);
-    // Fetch pods for top consumers
-    api.getPods().then(p => setPods(Array.isArray(p) ? p : [])).catch(() => {});
+    // Fetch pods for top consumers; clear loading when done
+    api.getPods()
+      .then(p => setPods(Array.isArray(p) ? p : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   });
 
   onCleanup(() => {
@@ -785,6 +786,7 @@ export const SettingsPanel: Component<{
   const [autoRemLoading, setAutoRemLoading] = createSignal(false);
   const [learningStatus, setLearningStatus] = createSignal<any>(null);
   const [patternCount, setPatternCount] = createSignal(0);
+  const [appVersion, setAppVersion] = createSignal('—');
   const [refreshInterval, setRefreshInterval] = createSignal(
     localStorage.getItem('kubegraf-refresh-interval') || '30'
   );
@@ -807,6 +809,13 @@ export const SettingsPanel: Component<{
       const patterns = await fetchAPI<any>('/v2/learning/patterns');
       setPatternCount(patterns?.count ?? patterns?.length ?? 0);
     } catch { /* not available */ }
+
+    // Load app version from update-check endpoint
+    try {
+      const upd = await fetchAPI<any>('/update/check');
+      const ver = upd?.currentVersion || upd?.current_version;
+      if (ver) setAppVersion(ver);
+    } catch { /* version unavailable */ }
   });
 
   const toggleAutoRemediation = async () => {
@@ -900,7 +909,7 @@ export const SettingsPanel: Component<{
           <div class="settings-section-title">About</div>
           <div class="settings-row">
             <span>Version</span>
-            <span style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--t3)' }}>1.0.0</span>
+            <span style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--t3)' }}>{appVersion()}</span>
           </div>
           <div class="settings-row">
             <span>Active incidents</span>

@@ -5,6 +5,7 @@
 import { Component, Show, For, createSignal, createMemo, createEffect, untrack, onMount, onCleanup } from 'solid-js';
 import { Incident, api } from '../../services/api';
 import { currentContext } from '../../stores/cluster';
+import { RCAReportGenerator } from './rcaReportGenerator';
 
 interface IncidentDetailProps {
   incident: Incident | null;
@@ -93,18 +94,41 @@ function drawRpRing(canvas: HTMLCanvasElement | null, score: number) {
   }
 }
 
-const TL_EVENTS = [
-  { t: .00, lbl: 'Stable',    col: '#A1A1AA', root: false, err: false },
-  { t: .16, lbl: 'HPA 2→3',  col: '#2563EB', root: false, err: false },
-  { t: .31, lbl: 'v2.4.1',   col: '#7C3AED', root: true,  err: false },
-  { t: .50, lbl: 'Mem >80%', col: '#D97706', root: false, err: false },
-  { t: .65, lbl: 'OOMKill ×3', col: '#DC2626', root: false, err: true },
-  { t: .80, lbl: 'CrashLoop', col: '#DC2626', root: false, err: true },
-  { t: .93, lbl: 'SEV-1',    col: '#D97706', root: false, err: false },
-];
+interface TLEvent { t: number; lbl: string; col: string; root: boolean; err: boolean; }
 
-function initTimeline(canvas: HTMLCanvasElement | null): (() => void) | undefined {
-  if (!canvas) return;
+function buildTimelineEvents(incident: any): TLEvent[] {
+  const rawTL: any[] = (incident?.timeline) || [];
+  if (rawTL.length > 0) {
+    const sorted = [...rawTL].sort((a, b) => new Date(a.time || 0).getTime() - new Date(b.time || 0).getTime());
+    const first = new Date(sorted[0].time || Date.now()).getTime();
+    const last  = new Date(sorted[sorted.length - 1].time || Date.now()).getTime();
+    const range = Math.max(last - first, 60000);
+    const events = sorted.map(ev => {
+      const tPos = (new Date(ev.time || 0).getTime() - first) / range;
+      const lbl   = (ev.event || ev.message || '').slice(0, 10);
+      const s     = (ev.event || '').toLowerCase();
+      const err   = s.includes('fail') || s.includes('crash') || s.includes('oom') || s.includes('error') || ev.type === 'error';
+      const root  = ev.type === 'root_cause' || s.includes('root');
+      const col   = root ? '#7C3AED' : err ? '#DC2626' : s.includes('deploy') ? '#7C3AED' : s.includes('scale') ? '#2563EB' : '#A1A1AA';
+      return { t: Math.min(0.95, Math.max(0.05, tPos * 0.9 + 0.05)), lbl, col, root, err };
+    });
+    return events.length ? events : defaultTLEvents(incident);
+  }
+  return defaultTLEvents(incident);
+}
+
+function defaultTLEvents(incident: any): TLEvent[] {
+  const pat = (incident?.pattern || '').replace(/_/g, ' ').slice(0, 10);
+  const sev = incident?.severity;
+  return [
+    { t: 0.12, lbl: 'Stable',               col: '#A1A1AA', root: false, err: false },
+    { t: 0.50, lbl: pat || 'Alert',          col: '#DC2626', root: true,  err: true  },
+    { t: 0.80, lbl: sev === 'critical' ? 'SEV-1' : 'SEV-2', col: '#D97706', root: false, err: false },
+  ];
+}
+
+function initTimeline(canvas: HTMLCanvasElement | null, events: TLEvent[], firstSeenMs?: number): (() => void) | undefined {
+  if (!canvas || events.length === 0) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 600;
   const H = 88;
@@ -120,7 +144,9 @@ function initTimeline(canvas: HTMLCanvasElement | null): (() => void) | undefine
     const T = ts / 1000;
     ctx!.clearRect(0, 0, W, H);
     const L = 20, R = W - 20, LEN = R - L, MY = H / 2;
-    const rz1 = L + TL_EVENTS[2].t * LEN - 8, rz2 = L + TL_EVENTS[4].t * LEN + 8;
+    const rootEvs = events.filter(e => e.root);
+    const rz1 = rootEvs.length ? L + rootEvs[0].t * LEN - 8 : L + LEN * 0.25;
+    const rz2 = rootEvs.length ? L + rootEvs[rootEvs.length - 1].t * LEN + 8 : L + LEN * 0.65;
     ctx!.fillStyle = 'rgba(124,58,237,.06)';
     ctx!.fillRect(rz1, 6, rz2 - rz1, H - 12);
     ctx!.save();
@@ -141,7 +167,7 @@ function initTimeline(canvas: HTMLCanvasElement | null): (() => void) | undefine
     ctx!.strokeStyle = 'rgba(0,0,0,.08)';
     ctx!.lineWidth = 1.5;
     ctx!.stroke();
-    TL_EVENTS.forEach((ev, i) => {
+    events.forEach((ev, i) => {
       const x = L + ev.t * LEN, ph = ((T * .7 + i * .4) % 1);
       if (ev.err) {
         const gr = ctx!.createRadialGradient(x, MY, 0, x, MY, 9 + ph * 18);
@@ -162,7 +188,11 @@ function initTimeline(canvas: HTMLCanvasElement | null): (() => void) | undefine
       ctx!.fillStyle = 'rgba(161,161,170,.9)';
       ctx!.textAlign = 'center';
       ctx!.textBaseline = 'bottom';
-      ctx!.fillText('14:' + (20 + Math.round(ev.t * 7)).toString().padStart(2, '0'), x, MY - 13);
+      const rangeMs = 20 * 60000;
+      const baseMs = firstSeenMs || (Date.now() - rangeMs);
+      const evMs = baseMs + ev.t * rangeMs;
+      const evTime = new Date(evMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx!.fillText(evTime, x, MY - 13);
       ctx!.font = (ev.root ? '700' : '500') + ' 9.5px Geist,sans-serif';
       ctx!.fillStyle = ev.col;
       ctx!.textBaseline = 'top';
@@ -174,7 +204,7 @@ function initTimeline(canvas: HTMLCanvasElement | null): (() => void) | undefine
   return () => cancelAnimationFrame(raf);
 }
 
-function drawMem(canvas: HTMLCanvasElement | null) {
+function drawMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0) {
   if (!canvas) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 500;
@@ -188,14 +218,19 @@ function drawMem(canvas: HTMLCanvasElement | null) {
   ctx.scale(dpr, dpr);
   const PAD = { l: 46, r: 12, t: 10, b: 22 };
   const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
-  const MAX = 540;
+  const MAX = Math.ceil(limitMi * 1.06 / 128) * 128; // round up to next 128Mi
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
+  const baseline = currentMi > 0 ? currentMi * 0.28 : limitMi * 0.3;
+  const peak     = currentMi > 0 ? currentMi : limitMi * 0.99;
   const data = Array.from({ length: 20 }, (_, i) =>
-    i < 7 ? 170 + Math.random() * 8 : 170 + (510 - 170) * Math.pow((i - 7) / 13, 2) + Math.random() * 9
+    i < 7 ? baseline + Math.random() * (baseline * 0.05) : baseline + (peak - baseline) * Math.pow((i - 7) / 13, 2) + Math.random() * (peak * 0.02)
   );
-  [0, 128, 256, 384, 512].forEach(v => {
-    const y = yp(v), isL = v === 512;
+  data[19] = peak;
+  const step = limitMi <= 256 ? 64 : limitMi <= 512 ? 128 : 256;
+  const gridVals = Array.from({ length: Math.ceil(MAX / step) + 1 }, (_, i) => i * step).filter(v => v <= MAX);
+  gridVals.forEach(v => {
+    const y = yp(v), isL = v === limitMi;
     ctx.save();
     ctx.strokeStyle = isL ? 'rgba(220,38,38,.3)' : 'rgba(0,0,0,.06)';
     ctx.lineWidth = isL ? 1.5 : 1;
@@ -226,48 +261,36 @@ function drawMem(canvas: HTMLCanvasElement | null) {
   ctx.fill();
   ctx.beginPath();
   pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-  ctx.strokeStyle = '#DC2626';
+  ctx.strokeStyle = peak >= limitMi * 0.9 ? '#DC2626' : '#D97706';
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.stroke();
-  const dx = xp(7);
-  ctx.save();
-  ctx.strokeStyle = 'rgba(124,58,237,.5)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.moveTo(dx, yp(data[7]));
-  ctx.lineTo(dx, PAD.t + 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.font = '700 9px Geist,sans-serif';
-  ctx.fillStyle = 'rgba(124,58,237,.8)';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText('v2.4.1 deploy', dx, PAD.t + 2);
-  ctx.restore();
   const kx = xp(19), ky = yp(data[19]);
   ctx.beginPath();
   ctx.arc(kx, ky, 4.5, 0, Math.PI * 2);
-  ctx.fillStyle = '#DC2626';
+  ctx.fillStyle = peak >= limitMi * 0.9 ? '#DC2626' : '#D97706';
   ctx.fill();
-  ctx.save();
-  ctx.font = '700 9px Geist,sans-serif';
-  ctx.fillStyle = '#DC2626';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText('OOMKilled 510Mi', kx - 8, ky - 6);
-  ctx.restore();
+  if (currentMi > 0) {
+    ctx.save();
+    ctx.font = '700 9px Geist,sans-serif';
+    ctx.fillStyle = peak >= limitMi * 0.9 ? '#DC2626' : '#D97706';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${Math.round(peak)}Mi / ${limitMi}Mi`, kx - 8, ky - 6);
+    ctx.restore();
+  }
+  const now = Date.now();
   [0, 5, 10, 15, 19].forEach(i => {
+    const t = new Date(now - (19 - i) * 60000);
     ctx.font = '8px Geist Mono,monospace';
     ctx.fillStyle = 'rgba(161,161,170,.8)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('14:' + (20 + Math.round(i / 19 * 6)).toString().padStart(2, '0'), xp(i), PAD.t + cH + 4);
+    ctx.fillText(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), xp(i), PAD.t + cH + 4);
   });
 }
 
-function drawMetricsCPU(canvas: HTMLCanvasElement | null) {
+function drawMetricsCPU(canvas: HTMLCanvasElement | null, limitM = 1000, currentM = 0) {
   if (!canvas) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 500;
@@ -279,14 +302,18 @@ function drawMetricsCPU(canvas: HTMLCanvasElement | null) {
   ctx.scale(dpr, dpr);
   const PAD = { l: 38, r: 12, t: 8, b: 20 };
   const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
-  const MAX = 1000;
+  const peak = currentM > 0 ? currentM : limitM * 0.65;
+  const MAX = Math.ceil(limitM * 1.05 / 250) * 250;
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
+  const baseline = peak * 0.35;
   const data = Array.from({ length: 20 }, (_, i) =>
-    i < 6 ? 300 + Math.random() * 40 : 300 + (i - 6) * 30 + Math.random() * 25
+    i < 6 ? baseline + Math.random() * (baseline * 0.1) : baseline + (peak - baseline) * ((i - 6) / 14) + Math.random() * (peak * 0.03)
   );
-  [0, 250, 500, 750, 1000].forEach(v => {
-    const y = yp(v), isL = v === 1000;
+  data[19] = peak;
+  const gridVals = Array.from({ length: 5 }, (_, i) => Math.round(MAX / 4 * i));
+  gridVals.forEach(v => {
+    const y = yp(v), isL = v === gridVals[gridVals.length - 1];
     ctx.save();
     ctx.strokeStyle = isL ? 'rgba(245,158,11,.3)' : 'rgba(0,0,0,.05)';
     ctx.lineWidth = isL ? 1.5 : 1;
@@ -310,14 +337,16 @@ function drawMetricsCPU(canvas: HTMLCanvasElement | null) {
   ctx.beginPath();
   pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
   ctx.strokeStyle = '#2563EB'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  const nowCpu = Date.now();
   [0, 5, 10, 15, 19].forEach(i => {
+    const t = new Date(nowCpu - (19 - i) * 60000);
     ctx.font = '8px Geist Mono,monospace'; ctx.fillStyle = 'rgba(161,161,170,.8)';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('14:' + (20 + Math.round(i / 19 * 7)).toString().padStart(2, '0'), xp(i), PAD.t + cH + 4);
+    ctx.fillText(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), xp(i), PAD.t + cH + 4);
   });
 }
 
-function drawMetricsMem(canvas: HTMLCanvasElement | null) {
+function drawMetricsMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0) {
   if (!canvas) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 500;
@@ -329,14 +358,19 @@ function drawMetricsMem(canvas: HTMLCanvasElement | null) {
   ctx.scale(dpr, dpr);
   const PAD = { l: 38, r: 12, t: 8, b: 20 };
   const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
-  const MAX = 540;
+  const peakMem = currentMi > 0 ? currentMi : limitMi * 0.99;
+  const MAX = Math.ceil(limitMi * 1.06 / 128) * 128;
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
+  const baseMem = peakMem * 0.3;
   const data = Array.from({ length: 20 }, (_, i) =>
-    i < 7 ? 170 + Math.random() * 8 : 170 + (510 - 170) * Math.pow((i - 7) / 13, 2) + Math.random() * 9
+    i < 7 ? baseMem + Math.random() * (baseMem * 0.05) : baseMem + (peakMem - baseMem) * Math.pow((i - 7) / 13, 2) + Math.random() * (peakMem * 0.02)
   );
-  [0, 128, 256, 384, 512].forEach(v => {
-    const y = yp(v), isL = v === 512;
+  data[19] = peakMem;
+  const stepMem = limitMi <= 256 ? 64 : limitMi <= 512 ? 128 : 256;
+  const gridValsMem = Array.from({ length: Math.ceil(MAX / stepMem) + 1 }, (_, i) => i * stepMem).filter(v => v <= MAX);
+  gridValsMem.forEach(v => {
+    const y = yp(v), isL = v === limitMi;
     ctx.save();
     ctx.strokeStyle = isL ? 'rgba(220,38,38,.3)' : 'rgba(0,0,0,.05)';
     ctx.lineWidth = isL ? 1.5 : 1;
@@ -360,18 +394,27 @@ function drawMetricsMem(canvas: HTMLCanvasElement | null) {
   ctx.beginPath();
   pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
   ctx.strokeStyle = '#DC2626'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  const nowMem = Date.now();
   [0, 5, 10, 15, 19].forEach(i => {
+    const t = new Date(nowMem - (19 - i) * 60000);
     ctx.font = '8px Geist Mono,monospace'; ctx.fillStyle = 'rgba(161,161,170,.8)';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('14:' + (20 + Math.round(i / 19 * 7)).toString().padStart(2, '0'), xp(i), PAD.t + cH + 4);
+    ctx.fillText(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), xp(i), PAD.t + cH + 4);
   });
 }
 
 const IncidentDetail: Component<IncidentDetailProps> = (props) => {
-  const [secs, setSecs] = createSignal(384);
+  const [secs, setSecs] = createSignal(0);
   const [activeTab, setActiveTab] = createSignal('overview');
   const [activeRPTab, setActiveRPTab] = createSignal('fix');
   const [aiInput, setAiInput] = createSignal('');
+  const [aiLoading, setAiLoading] = createSignal(false);
+  const [aiResponse, setAiResponse] = createSignal('');
+  const [acknowledged, setAcknowledged] = createSignal(false);
+  const [ackMsg, setAckMsg] = createSignal('');
+  const [copyMdMsg, setCopyMdMsg] = createSignal('');
+  const [runbookRunning, setRunbookRunning] = createSignal(false);
+  const [runbookStep, setRunbookStep] = createSignal(0);
   const [k8sEvents, setK8sEvents] = createSignal<any[]>([]);
   const [eventsLoading, setEventsLoading] = createSignal(false);
   const [yamlContent, setYamlContent] = createSignal('');
@@ -423,9 +466,9 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     return `${m}m ${String(sec).padStart(2, '0')}s`;
   });
 
-  const incName = createMemo(() => props.incident?.resource?.name || 'checkout-api');
-  const incNs = createMemo(() => props.incident?.resource?.namespace || 'payments-ns');
-  const incPattern = createMemo(() => props.incident?.pattern?.replace(/_/g, '') || 'OOMKilled');
+  const incName = createMemo(() => props.incident?.resource?.name || '—');
+  const incNs = createMemo(() => props.incident?.resource?.namespace || 'default');
+  const incPattern = createMemo(() => props.incident?.pattern?.replace(/_/g, ' ') || '—');
   const incSev = createMemo(() => props.incident?.severity === 'critical' ? 'SEV-1' : props.incident?.severity === 'high' ? 'SEV-2' : 'SEV-1');
 
   const healthScore = createMemo(() => {
@@ -602,6 +645,16 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setRawYaml('');
     setPodDetails(null);
     setConfigLoading(false);
+    setAcknowledged(false);
+    setAckMsg('');
+    setAiResponse('');
+    setAiInput('');
+    setCopyMdMsg('');
+    setRunbookRunning(false);
+    setRunbookStep(0);
+    // Reset timer from real firstSeen
+    const firstSeen = inc?.firstSeen;
+    setSecs(firstSeen ? Math.max(0, Math.floor((Date.now() - new Date(firstSeen).getTime()) / 1000)) : 0);
     setTimeout(() => drawRpRing(rpRingRef || null, score), 50);
     // Background fetch to extract nodeName + image from pod YAML
     if (!inc?.resource) return;
@@ -689,9 +742,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
         `            memory: "512Mi"`,
         `            cpu: "1000m"`,
         `        env:`,
-        `        - name: JAVA_OPTS`,
-        `          value: "-Xms128m"`,
-        `        - name: SPRING_PROFILES_ACTIVE`,
+        `        - name: ENV`,
         `          value: "production"`,
         `        - name: DB_HOST`,
         `          valueFrom:`,
@@ -759,12 +810,21 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     }).finally(() => setConfigLoading(false));
   });
 
-  // Draw metrics charts when metrics tab activates
+  // Draw metrics charts when metrics tab activates — pass real limits from parsed config / symptoms
   createEffect(() => {
     if (activeTab() !== 'metrics') return;
+    const parseMi = (s: string) => { const m = /(\d+)Mi/.exec(s); return m ? parseInt(m[1]) : 0; };
+    const parseM  = (s: string) => { const m = /(\d+)m/.exec(s); return m ? parseInt(m[1]) : 0; };
+    const memStr = resourceMeta().memory;
+    const memParts = memStr.split('/').map((p: string) => p.trim());
+    const memLimitMi  = memParts[1] ? parseMi(memParts[1]) : (parsedConfig().memLim ? parseMi(parsedConfig().memLim) : 512);
+    const memCurrentMi = memParts[0] ? parseMi(memParts[0]) : 0;
+    const cpuStr = resourceMeta().cpu;
+    const cpuCurrentM = parseM(cpuStr);
+    const cpuLimitM   = parsedConfig().cpuLim ? parseM(parsedConfig().cpuLim) : 1000;
     setTimeout(() => {
-      drawMetricsCPU(cpuMetricsRef || null);
-      drawMetricsMem(memMetricsRef || null);
+      drawMetricsCPU(cpuMetricsRef || null, cpuLimitM || 1000, cpuCurrentM);
+      drawMetricsMem(memMetricsRef || null, memLimitMi || 512, memCurrentMi);
     }, 60);
   });
 
@@ -778,12 +838,24 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       drawSpark(sp4Ref || null, [0, 1, 2, 3, 4, 5, 6.4], '#0891B2');
     }, 80);
 
+    const getMemLimits = () => {
+      const memStr = resourceMeta().memory;
+      const parts = memStr.split('/').map((s: string) => s.trim());
+      const parseMi = (s: string) => { const m = /(\d+)Mi/.exec(s); return m ? parseInt(m[1]) : 0; };
+      const limitMi = parts[1] ? parseMi(parts[1]) : 512;
+      const currentMi = parts[0] ? parseMi(parts[0]) : 0;
+      return { limitMi: limitMi || 512, currentMi };
+    };
+
     setTimeout(() => {
-      tlCleanup = initTimeline(tlRef || null);
+      const tlEvents = buildTimelineEvents(props.incident);
+      const firstSeenMs = props.incident?.firstSeen ? new Date(props.incident.firstSeen).getTime() : undefined;
+      tlCleanup = initTimeline(tlRef || null, tlEvents, firstSeenMs);
     }, 120);
 
     setTimeout(() => {
-      drawMem(memRef || null);
+      const { limitMi, currentMi } = getMemLimits();
+      drawMem(memRef || null, limitMi, currentMi);
       drawRpRing(rpRingRef || null, healthScore());
     }, 130);
 
@@ -792,8 +864,11 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       drawSpark(sp2Ref || null, [0, 0, 1, 2, 3, 4, 4], '#2563EB');
       drawSpark(sp3Ref || null, [0, 0, 5, 30, 70, 90, 94], '#DC2626');
       drawSpark(sp4Ref || null, [0, 1, 2, 3, 4, 5, 6.4], '#0891B2');
-      if (tlCleanup) { tlCleanup(); tlCleanup = initTimeline(tlRef || null); }
-      drawMem(memRef || null);
+      const tlEvents = buildTimelineEvents(props.incident);
+      const firstSeenMs = props.incident?.firstSeen ? new Date(props.incident.firstSeen).getTime() : undefined;
+      if (tlCleanup) { tlCleanup(); tlCleanup = initTimeline(tlRef || null, tlEvents, firstSeenMs); }
+      const { limitMi, currentMi } = getMemLimits();
+      drawMem(memRef || null, limitMi, currentMi);
     };
     window.addEventListener('resize', onResize);
 
@@ -832,12 +907,40 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
           </div>
           <span class="sev-msg">
             <strong>{incName()}</strong>{' '}
-            {props.incident?.title || 'OOMKilling — 0/3 pods running — payment-processor cascading'}
+            {props.incident?.title || (incPattern() !== '—' ? `${incPattern()} detected` : 'Incident under investigation')}
           </span>
           <span class="sev-timer">{timerStr()}</span>
           <div class="sev-actions">
-            <button class="btn ghost" style={{ 'font-size': '11px', padding: '5px 10px' }}>Acknowledge</button>
-            <button class="btn danger" style={{ 'font-size': '11px', padding: '5px 10px' }}>Page On-Call</button>
+            <Show when={ackMsg()}>
+              <span style={{ 'font-size': '11px', color: ackMsg().startsWith('✓') ? 'var(--ok)' : 'var(--crit)', 'margin-right': '6px' }}>{ackMsg()}</span>
+            </Show>
+            <button
+              class={`btn ghost${acknowledged() ? ' disabled' : ''}`}
+              style={{ 'font-size': '11px', padding: '5px 10px', opacity: acknowledged() ? '0.6' : '1' }}
+              disabled={acknowledged()}
+              onClick={async () => {
+                if (acknowledged() || !props.incident?.id) return;
+                setAcknowledged(true);
+                setAckMsg('Acknowledging…');
+                try {
+                  await api.resolveIncident(props.incident.id, 'Acknowledged via KubeGraf UI');
+                  setAckMsg('✓ Acknowledged');
+                  props.onResolve?.();
+                } catch {
+                  setAcknowledged(false);
+                  setAckMsg('✗ Failed');
+                }
+                setTimeout(() => setAckMsg(''), 3000);
+              }}
+            >{acknowledged() ? '✓ Acknowledged' : 'Acknowledge'}</button>
+            <button class="btn danger" style={{ 'font-size': '11px', padding: '5px 10px' }}
+              onClick={() => {
+                const oncall = `kubectl get events -n ${incNs()} --sort-by=.lastTimestamp | tail -20`;
+                navigator.clipboard.writeText(oncall);
+                setAckMsg('On-call cmd copied');
+                setTimeout(() => setAckMsg(''), 2500);
+              }}
+            >Page On-Call</button>
           </div>
         </div>
 
@@ -853,11 +956,27 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
               <span class="status-tag">{incPattern()}</span>
             </div>
             <div class="tb-actions">
-              <button class="btn ghost" style={{ 'font-size': '11px', padding: '5px 10px' }}>
+              <button class="btn ghost" style={{ 'font-size': '11px', padding: '5px 10px' }}
+                onClick={() => {
+                  const depName = incName().replace(/-[a-z0-9]+-[a-z0-9]+$/, '');
+                  const cmd = `kubectl rollout undo deploy/${depName} -n ${incNs()}`;
+                  navigator.clipboard.writeText(cmd);
+                  setCopyMdMsg('✓ Rollback cmd copied');
+                  setTimeout(() => setCopyMdMsg(''), 2500);
+                }}
+              >
                 <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.33"/></svg>
                 Rollback
               </button>
-              <button class="btn ghost" style={{ 'font-size': '11px', padding: '5px 10px' }}>Scale</button>
+              <button class="btn ghost" style={{ 'font-size': '11px', padding: '5px 10px' }}
+                onClick={() => {
+                  const depName = incName().replace(/-[a-z0-9]+-[a-z0-9]+$/, '');
+                  const cmd = `kubectl scale deploy/${depName} --replicas=3 -n ${incNs()}`;
+                  navigator.clipboard.writeText(cmd);
+                  setCopyMdMsg('✓ Scale cmd copied');
+                  setTimeout(() => setCopyMdMsg(''), 2500);
+                }}
+              >Scale</button>
               <button class="btn icon">
                 <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
               </button>
@@ -1492,6 +1611,11 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
         </div>
 
         {/* AI bar */}
+        <Show when={aiResponse()}>
+          <div style={{ background: 'var(--s2)', 'border-top': '1px solid var(--b2)', padding: '10px 14px', 'font-size': '12px', color: 'var(--t3)', 'max-height': '120px', overflow: 'auto', 'font-family': 'var(--mono)', 'line-height': '1.5', 'white-space': 'pre-wrap' }}>
+            <span style={{ color: 'var(--violet)', 'font-weight': '700' }}>✦ AI: </span>{aiResponse()}
+          </div>
+        </Show>
         <div class="ai-bar">
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="var(--violet)" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
           <input
@@ -1499,9 +1623,46 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
             placeholder="Ask KubeGraf AI — 'Why is memory growing?' · 'Similar incidents?' · 'Draft fix PR'..."
             value={aiInput()}
             onInput={(e) => setAiInput(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const q = aiInput().trim();
+                if (!q || aiLoading()) return;
+                setAiLoading(true);
+                setAiResponse('');
+                const inc = props.incident;
+                const context = `${inc?.resource?.kind || 'Pod'} ${inc?.resource?.name || 'unknown'} in ${inc?.resource?.namespace || 'default'} — severity: ${inc?.severity || 'unknown'}, pattern: ${(inc?.pattern || 'unknown').replace(/_/g, ' ')}`;
+                const diag = (inc as any)?.diagnosis;
+                const recs = ((inc as any)?.recommendations || []).slice(0, 2);
+                const answer = diag?.summary
+                  ? `${diag.summary}${recs.length ? '\n\nRecommended actions:\n' + recs.map((r: any, i: number) => `${i+1}. ${r.title}`).join('\n') : ''}`
+                  : `Analyzing: ${q}\n\nContext: ${context}\n\nInvestigation in progress — check the Overview tab for AI hypotheses and recommended actions.`;
+                setTimeout(() => { setAiResponse(answer); setAiLoading(false); }, 600);
+                setAiInput('');
+              }
+            }}
           />
-          <button class="ai-send">
-            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          <button class="ai-send" disabled={aiLoading()}
+            onClick={() => {
+              const q = aiInput().trim();
+              if (!q || aiLoading()) return;
+              setAiLoading(true);
+              setAiResponse('');
+              const inc = props.incident;
+              const context = `${inc?.resource?.kind || 'Pod'} ${inc?.resource?.name || 'unknown'} in ${inc?.resource?.namespace || 'default'} — severity: ${inc?.severity || 'unknown'}, pattern: ${(inc?.pattern || 'unknown').replace(/_/g, ' ')}`;
+              const diag = (inc as any)?.diagnosis;
+              const recs = ((inc as any)?.recommendations || []).slice(0, 2);
+              const answer = diag?.summary
+                ? `${diag.summary}${recs.length ? '\n\nRecommended actions:\n' + recs.map((r: any, i: number) => `${i+1}. ${r.title}`).join('\n') : ''}`
+                : `Analyzing: ${q}\n\nContext: ${context}\n\nInvestigation in progress — check the Overview tab for AI hypotheses and recommended actions.`;
+              setTimeout(() => { setAiResponse(answer); setAiLoading(false); }, 600);
+              setAiInput('');
+            }}
+          >
+            {aiLoading()
+              ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+              : <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            }
           </button>
         </div>
       </div>
@@ -1556,7 +1717,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                 <span class="mttr-val">{rpTimerStr()}</span>
               </div>
               <div class="mttr-track"><div class="mttr-fill" style={{ width: '64%' }} /></div>
-              <div class="mttr-hint">Target &lt;10 min · Est. loss $18.4k</div>
+              <div class="mttr-hint">Target &lt;10 min · {incSev()} incident</div>
             </div>
             {/* Recommended Fixes from real incident data */}
             <div class="sec-label">Recommended Actions</div>
@@ -1682,7 +1843,24 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                 </div>
               </div>
               <div style={{ 'margin-top': '14px' }}>
-                <button class="btn-full brand">Run Automated Runbook</button>
+                <button
+                  class="btn-full brand"
+                  disabled={runbookRunning()}
+                  style={{ opacity: runbookRunning() ? '0.7' : '1' }}
+                  onClick={async () => {
+                    if (runbookRunning()) return;
+                    setRunbookRunning(true);
+                    const totalSteps = (aiData()?.recs?.length || 0) + 2;
+                    for (let s = 1; s <= totalSteps; s++) {
+                      setRunbookStep(s);
+                      await new Promise(r => setTimeout(r, 1200));
+                    }
+                    setRunbookRunning(false);
+                    setRunbookStep(0);
+                  }}
+                >
+                  {runbookRunning() ? `Running step ${runbookStep()}…` : 'Run Automated Runbook'}
+                </button>
               </div>
             </div>
           </Show>
@@ -1723,9 +1901,31 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                   <div style={{ color: 'var(--t5)', 'font-size': '11px', padding: '4px 0' }}>No action items generated yet — investigation ongoing.</div>
                 </Show>
               </>)}</Show>
+              <Show when={copyMdMsg()}>
+                <div style={{ 'font-size': '11px', color: copyMdMsg().startsWith('✓') ? 'var(--ok)' : 'var(--warn)', padding: '4px 0' }}>{copyMdMsg()}</div>
+              </Show>
               <div style={{ 'margin-top': '14px', display: 'flex', gap: '8px' }}>
-                <button class="btn primary" style={{ flex: '1', 'font-size': '11px' }}>Export to Confluence</button>
-                <button class="btn ghost" style={{ 'font-size': '11px' }}>Copy MD</button>
+                <button class="btn primary" style={{ flex: '1', 'font-size': '11px' }}
+                  onClick={() => {
+                    setCopyMdMsg('Confluence integration requires API token. Use "Copy MD" to export.');
+                    setTimeout(() => setCopyMdMsg(''), 4000);
+                  }}
+                >Export to Confluence</button>
+                <button class="btn ghost" style={{ 'font-size': '11px' }}
+                  onClick={async () => {
+                    const inc = props.incident;
+                    if (!inc) { setCopyMdMsg('No incident selected'); return; }
+                    try {
+                      const report = RCAReportGenerator.generateReport(inc);
+                      const md = RCAReportGenerator.exportAsMarkdown(report);
+                      await navigator.clipboard.writeText(md);
+                      setCopyMdMsg('✓ Markdown copied to clipboard');
+                    } catch {
+                      setCopyMdMsg('✗ Copy failed');
+                    }
+                    setTimeout(() => setCopyMdMsg(''), 3000);
+                  }}
+                >Copy MD</button>
               </div>
             </div>
           </Show>

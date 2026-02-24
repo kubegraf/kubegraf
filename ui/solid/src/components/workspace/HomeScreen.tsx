@@ -263,36 +263,15 @@ const HomeScreen: Component<HomeScreenProps> = (props) => {
             </div>
           </div>
 
-          {/* Staging cluster (static) */}
-          <div class="cluster-card">
+          {/* Additional clusters placeholder — shown when multi-cluster is not configured */}
+          <div class="cluster-card" style={{ opacity: '0.55' }}>
             <div class="cc-top">
-              <div class="cc-dot" style={{ background: 'var(--ok)' }} />
-              <span class="cc-name">staging-cluster</span>
-              <span class="cc-env staging">STAGING</span>
+              <div class="cc-dot" style={{ background: 'var(--t6)' }} />
+              <span class="cc-name" style={{ color: 'var(--t4)' }}>+ Add cluster</span>
             </div>
-            <div class="cc-stats">
-              <div class="cc-stat"><div class="cc-stat-val" style={{ color: 'var(--ok)' }}>0</div><div class="cc-stat-lbl">Incidents</div></div>
-              <div class="cc-stat"><div class="cc-stat-val">12</div><div class="cc-stat-lbl">Services</div></div>
-              <div class="cc-stat"><div class="cc-stat-val">84</div><div class="cc-stat-lbl">Pods</div></div>
-              <div class="cc-stat"><div class="cc-stat-val" style={{ color: 'var(--ok)' }}>41%</div><div class="cc-stat-lbl">CPU</div></div>
+            <div style={{ padding: '10px 0 4px', 'font-size': '11px', color: 'var(--t5)', 'line-height': '1.5' }}>
+              Connect additional Kubernetes clusters to monitor them here.
             </div>
-            <div class="cc-bar"><div class="cc-bar-fill" style={{ width: '41%', background: 'var(--ok)' }} /></div>
-          </div>
-
-          {/* Dev cluster (static) */}
-          <div class="cluster-card">
-            <div class="cc-top">
-              <div class="cc-dot" style={{ background: 'var(--ok)' }} />
-              <span class="cc-name">dev-cluster</span>
-              <span class="cc-env dev">DEV</span>
-            </div>
-            <div class="cc-stats">
-              <div class="cc-stat"><div class="cc-stat-val" style={{ color: 'var(--ok)' }}>0</div><div class="cc-stat-lbl">Incidents</div></div>
-              <div class="cc-stat"><div class="cc-stat-val">8</div><div class="cc-stat-lbl">Services</div></div>
-              <div class="cc-stat"><div class="cc-stat-val">36</div><div class="cc-stat-lbl">Pods</div></div>
-              <div class="cc-stat"><div class="cc-stat-val" style={{ color: 'var(--ok)' }}>28%</div><div class="cc-stat-lbl">CPU</div></div>
-            </div>
-            <div class="cc-bar"><div class="cc-bar-fill" style={{ width: '28%', background: 'var(--ok)' }} /></div>
           </div>
         </div>
       </div>
