@@ -1100,7 +1100,7 @@ const Deployments: Component = () => {
 
           {/* Pagination */}
           <Show when={totalPages() > 1 || filteredAndSorted().length > 0}>
-            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }}>
+            <div class="flex items-center justify-between p-4 font-mono text-sm" style={{ background: 'var(--bg-secondary)', 'border-top': '1px solid var(--border-color)' }}>
               <div style={{ color: 'var(--text-secondary)' }}>
                 Showing {((currentPage() - 1) * pageSize()) + 1} - {Math.min(currentPage() * pageSize(), filteredAndSorted().length)} of {filteredAndSorted().length} deployments
               </div>
