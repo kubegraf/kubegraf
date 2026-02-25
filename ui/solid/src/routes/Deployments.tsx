@@ -1608,6 +1608,7 @@ const Deployments: Component = () => {
                     class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs transition-colors"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                      e.currentTarget.style.borderColor = 'var(--error-color)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = '';
