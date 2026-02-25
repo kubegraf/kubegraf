@@ -55,7 +55,7 @@ type SortDirection = 'asc' | 'desc';
 
 const Pods: Component = () => {
   // Use global search query instead of local search
-  const [statusFilter, setStatusFilter] = createSignal('all');
+  const [statusFilter, setStatusFilter] = createSignal<'all' | 'running' | 'pending' | 'failed' | 'succeeded'>('all');
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
   const [currentPage, setCurrentPage] = createSignal(1);
@@ -682,10 +682,15 @@ const Pods: Component = () => {
     return total;
   };
 
-  const normalizePodStatus = (status: string | undefined): string => (status || '').toLowerCase();
+  const normalizeStatus = (status?: string): string => (status || '').trim().toLowerCase();
 
-  const isPendingStatus = (status: string | undefined): boolean => {
-    const normalized = normalizePodStatus(status);
+  const isRunningStatus = (status?: string): boolean => {
+    const normalized = normalizeStatus(status);
+    return normalized === 'running' || normalized.startsWith('running ');
+  };
+
+  const isPendingStatus = (status?: string): boolean => {
+    const normalized = normalizeStatus(status);
     return (
       normalized === 'pending' ||
       normalized === 'initializing' ||
@@ -696,21 +701,14 @@ const Pods: Component = () => {
     );
   };
 
-  const isFailedStatus = (status: string | undefined): boolean => {
-    const normalized = normalizePodStatus(status);
+  const isFailedStatus = (status?: string): boolean => {
+    const normalized = normalizeStatus(status);
     return (
       normalized === 'failed' ||
       normalized === 'error' ||
       normalized === 'crashloopbackoff' ||
-      normalized.includes('backoff') ||
-      normalized.includes('imagepull') ||
-      normalized.includes('errimagepull') ||
-      normalized.includes('createcontainerconfigerror') ||
-      normalized.includes('createcontainererror') ||
-      normalized.includes('runcontainererror') ||
-      normalized.includes('invalidimagename') ||
-      normalized.includes('oomkilled') ||
-      normalized.includes('evicted')
+      normalized.includes('imagepullbackoff') ||
+      normalized.includes('errimagepull')
     );
   };
 
@@ -732,7 +730,7 @@ const Pods: Component = () => {
     // Filter by status
     if (status !== 'all') {
       if (status === 'running') {
-        allPods = allPods.filter((p: Pod) => p.status === 'Running');
+        allPods = allPods.filter((p: Pod) => isRunningStatus(p.status));
       } else if (status === 'pending') {
         allPods = allPods.filter((p: Pod) => isPendingStatus(p.status));
       } else if (status === 'failed') {
@@ -804,12 +802,28 @@ const Pods: Component = () => {
   const statusCounts = createMemo(() => {
     const all = pods() || [];
     return {
-      running: all.filter((p: Pod) => p.status === 'Running').length,
+      running: all.filter((p: Pod) => isRunningStatus(p.status)).length,
       pending: all.filter((p: Pod) => isPendingStatus(p.status)).length,
       failed: all.filter((p: Pod) => isFailedStatus(p.status)).length,
       total: all.length,
     };
   });
+
+  const statusCardStyle = (key: 'all' | 'running' | 'pending' | 'failed') => {
+    const active = statusFilter() === key;
+    const palette = {
+      all: { border: 'var(--accent-primary)', activeBg: 'rgba(14, 165, 233, 0.16)', activeBorder: 'rgba(14, 165, 233, 0.45)' },
+      running: { border: 'var(--success-color)', activeBg: 'rgba(34, 197, 94, 0.16)', activeBorder: 'rgba(34, 197, 94, 0.45)' },
+      pending: { border: 'var(--warning-color)', activeBg: 'rgba(245, 158, 11, 0.16)', activeBorder: 'rgba(245, 158, 11, 0.45)' },
+      failed: { border: 'var(--error-color)', activeBg: 'rgba(239, 68, 68, 0.16)', activeBorder: 'rgba(239, 68, 68, 0.45)' },
+    }[key];
+
+    return {
+      'border-left': `2px solid ${palette.border}`,
+      background: active ? palette.activeBg : 'var(--bg-card)',
+      border: `1px solid ${active ? palette.activeBorder : 'var(--border-color)'}`,
+    };
+  };
 
   const handleSort = (field: SortField) => {
     if (sortField() === field) {
@@ -1297,47 +1311,19 @@ const Pods: Component = () => {
 
       {/* Status summary - compact */}
       <div class="flex flex-wrap items-center gap-2">
-        <div
-          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
-          style={{
-            'border-left': '2px solid var(--accent-primary)',
-            background: statusFilter() === 'all' ? 'rgba(59, 130, 246, 0.16)' : undefined,
-          }}
-          onClick={() => setStatusFilter('all')}
-        >
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={statusCardStyle('all')} onClick={() => setStatusFilter('all')}>
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Total</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
-        <div
-          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
-          style={{
-            'border-left': '2px solid var(--success-color)',
-            background: statusFilter() === 'running' ? 'rgba(34, 197, 94, 0.16)' : undefined,
-          }}
-          onClick={() => setStatusFilter('running')}
-        >
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={statusCardStyle('running')} onClick={() => setStatusFilter('running')}>
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Running</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--success-color)' }}>{statusCounts().running}</span>
         </div>
-        <div
-          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
-          style={{
-            'border-left': '2px solid var(--warning-color)',
-            background: statusFilter() === 'pending' ? 'rgba(245, 158, 11, 0.16)' : undefined,
-          }}
-          onClick={() => setStatusFilter('pending')}
-        >
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={statusCardStyle('pending')} onClick={() => setStatusFilter('pending')}>
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Pending</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</span>
         </div>
-        <div
-          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
-          style={{
-            'border-left': '2px solid var(--error-color)',
-            background: statusFilter() === 'failed' ? 'rgba(239, 68, 68, 0.16)' : undefined,
-          }}
-          onClick={() => setStatusFilter('failed')}
-        >
+        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={statusCardStyle('failed')} onClick={() => setStatusFilter('failed')}>
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Failed</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
         </div>

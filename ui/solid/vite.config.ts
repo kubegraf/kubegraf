@@ -18,7 +18,7 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    outDir: 'dist',
+    outDir: '../../web/dist',
     minify: 'terser', // Re-enable minification for production
     sourcemap: false, // Disable sourcemaps in production for smaller builds
     terserOptions: {
