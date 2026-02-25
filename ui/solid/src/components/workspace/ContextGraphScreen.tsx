@@ -178,6 +178,7 @@ const ContextGraphScreen: Component<{
   let canvasRef: HTMLCanvasElement | undefined;
   let wrapRef: HTMLDivElement | undefined;
   let animId: number | undefined;
+  let resizeObserver: ResizeObserver | undefined;
   const [nodeInfo, setNodeInfo] = createSignal<NodeInfo | null>(null);
 
   const graphData = createMemo(() => buildGraph(props.incidents || []));
@@ -375,13 +376,27 @@ const ContextGraphScreen: Component<{
   };
 
   onMount(() => {
-    setTimeout(initGraph, 80);
+    const wrap = wrapRef;
+    if (wrap) {
+      // Use ResizeObserver so the canvas initialises as soon as the wrapper
+      // gets real pixel dimensions — no fixed timeout needed.
+      resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          initGraph();
+        }
+      });
+      resizeObserver.observe(wrap);
+    } else {
+      setTimeout(initGraph, 100);
+    }
     window.addEventListener('resize', initGraph);
   });
 
   onCleanup(() => {
     if (animId !== undefined) cancelAnimationFrame(animId);
     window.removeEventListener('resize', initGraph);
+    resizeObserver?.disconnect();
   });
 
   const isDemo = () => !props.incidents || props.incidents.length === 0;

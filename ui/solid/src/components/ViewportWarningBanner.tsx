@@ -30,6 +30,7 @@ const ViewportWarningBanner: Component = () => {
           background: 'rgba(245, 158, 11, 0.1)',
           'border-bottom': '1px solid rgba(245, 158, 11, 0.3)',
           color: 'var(--warning-color)',
+          'margin-left': '0.75rem',
         }}
       >
         <div class="flex items-center gap-2 flex-1 min-w-0">

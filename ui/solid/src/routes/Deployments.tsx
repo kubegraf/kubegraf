@@ -1614,6 +1614,12 @@ const Deployments: Component = () => {
                       e.currentTarget.style.borderColor = 'var(--border-color)';
                     }}
                     style={{ color: 'var(--error-color)'}}
+                      e.currentTarget.style.borderColor = 'var(--error-color)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '';
+                    }}
+                    style={{ color: 'var(--error-color)' }}
                     title="Delete"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
