@@ -1605,7 +1605,14 @@ const Deployments: Component = () => {
                       e.stopPropagation();
                       deleteDeployment(selected()!);
                     }}
-                    class="btn-danger flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs"
+                    class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs transition-colors"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '';
+                    }}
+                    style={{ color: 'var(--error-color)' }}
                     title="Delete"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
