@@ -682,6 +682,38 @@ const Pods: Component = () => {
     return total;
   };
 
+  const normalizePodStatus = (status: string | undefined): string => (status || '').toLowerCase();
+
+  const isPendingStatus = (status: string | undefined): boolean => {
+    const normalized = normalizePodStatus(status);
+    return (
+      normalized === 'pending' ||
+      normalized === 'initializing' ||
+      normalized.includes('containercreating') ||
+      normalized.includes('podinitializing') ||
+      normalized.includes('init:') ||
+      normalized.includes('initializing')
+    );
+  };
+
+  const isFailedStatus = (status: string | undefined): boolean => {
+    const normalized = normalizePodStatus(status);
+    return (
+      normalized === 'failed' ||
+      normalized === 'error' ||
+      normalized === 'crashloopbackoff' ||
+      normalized.includes('backoff') ||
+      normalized.includes('imagepull') ||
+      normalized.includes('errimagepull') ||
+      normalized.includes('createcontainerconfigerror') ||
+      normalized.includes('createcontainererror') ||
+      normalized.includes('runcontainererror') ||
+      normalized.includes('invalidimagename') ||
+      normalized.includes('oomkilled') ||
+      normalized.includes('evicted')
+    );
+  };
+
   const filteredAndSortedPods = createMemo(() => {
     let allPods = pods() || [];
     const query = searchQuery().toLowerCase();
@@ -702,16 +734,9 @@ const Pods: Component = () => {
       if (status === 'running') {
         allPods = allPods.filter((p: Pod) => p.status === 'Running');
       } else if (status === 'pending') {
-        allPods = allPods.filter((p: Pod) => 
-          p.status === 'Pending' || 
-          p.status === 'Initializing' ||
-          p.status?.includes('ContainerCreating') ||
-          p.status?.includes('PodInitializing') ||
-          p.status?.includes('Init:') ||
-          p.status?.toLowerCase().includes('initializing')
-        );
+        allPods = allPods.filter((p: Pod) => isPendingStatus(p.status));
       } else if (status === 'failed') {
-        allPods = allPods.filter((p: Pod) => ['Failed', 'Error', 'CrashLoopBackOff'].includes(p.status));
+        allPods = allPods.filter((p: Pod) => isFailedStatus(p.status));
       } else if (status === 'succeeded') {
         allPods = allPods.filter((p: Pod) => p.status === 'Succeeded');
       }
@@ -780,15 +805,8 @@ const Pods: Component = () => {
     const all = pods() || [];
     return {
       running: all.filter((p: Pod) => p.status === 'Running').length,
-      pending: all.filter((p: Pod) => 
-        p.status === 'Pending' || 
-        p.status === 'Initializing' ||
-        p.status?.includes('ContainerCreating') ||
-        p.status?.includes('PodInitializing') ||
-        p.status?.includes('Init:') ||
-        p.status?.toLowerCase().includes('initializing')
-      ).length,
-      failed: all.filter((p: Pod) => ['Failed', 'Error', 'CrashLoopBackOff'].includes(p.status)).length,
+      pending: all.filter((p: Pod) => isPendingStatus(p.status)).length,
+      failed: all.filter((p: Pod) => isFailedStatus(p.status)).length,
       total: all.length,
     };
   });
@@ -1279,19 +1297,47 @@ const Pods: Component = () => {
 
       {/* Status summary - compact */}
       <div class="flex flex-wrap items-center gap-2">
-        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--accent-primary)' }} onClick={() => setStatusFilter('all')}>
+        <div
+          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
+          style={{
+            'border-left': '2px solid var(--accent-primary)',
+            background: statusFilter() === 'all' ? 'rgba(59, 130, 246, 0.16)' : undefined,
+          }}
+          onClick={() => setStatusFilter('all')}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Total</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
-        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--success-color)' }} onClick={() => setStatusFilter('running')}>
+        <div
+          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
+          style={{
+            'border-left': '2px solid var(--success-color)',
+            background: statusFilter() === 'running' ? 'rgba(34, 197, 94, 0.16)' : undefined,
+          }}
+          onClick={() => setStatusFilter('running')}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Running</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--success-color)' }}>{statusCounts().running}</span>
         </div>
-        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--warning-color)' }} onClick={() => setStatusFilter('pending')}>
+        <div
+          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
+          style={{
+            'border-left': '2px solid var(--warning-color)',
+            background: statusFilter() === 'pending' ? 'rgba(245, 158, 11, 0.16)' : undefined,
+          }}
+          onClick={() => setStatusFilter('pending')}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Pending</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--warning-color)' }}>{statusCounts().pending}</span>
         </div>
-        <div class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5" style={{ 'border-left': '2px solid var(--error-color)' }} onClick={() => setStatusFilter('failed')}>
+        <div
+          class="card px-3 py-1.5 cursor-pointer hover:opacity-80 flex items-center gap-1.5"
+          style={{
+            'border-left': '2px solid var(--error-color)',
+            background: statusFilter() === 'failed' ? 'rgba(239, 68, 68, 0.16)' : undefined,
+          }}
+          onClick={() => setStatusFilter('failed')}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-xs">Failed</span>
           <span class="text-sm font-semibold" style={{ color: 'var(--error-color)' }}>{statusCounts().failed}</span>
         </div>
@@ -1553,15 +1599,9 @@ const Pods: Component = () => {
                     const podKey = pod.uid || `${pod.namespace}/${pod.name}`;
                     const isSelected = () => selectedIndex() === index();
                     const isHovered = () => hoveredRowIndex() === index();
-                    const isFailed = pod.status === 'Failed' || pod.status === 'CrashLoopBackOff' || pod.status === 'Error';
+                    const isFailed = isFailedStatus(pod.status);
                     const isTerminating = pod.status === 'Terminating';
-                    // Check for pending or initializing statuses
-                    const isPending = pod.status === 'Pending' ||
-                                     pod.status === 'Initializing' ||
-                                     pod.status?.includes('ContainerCreating') ||
-                                     pod.status?.includes('PodInitializing') ||
-                                     pod.status?.includes('Init:') ||
-                                     pod.status?.toLowerCase().includes('initializing');
+                    const isPending = isPendingStatus(pod.status);
 
                     // Text color based on status - terminal style colors
                     const textColor = isTerminating ? '#a855f7' : // Purple/violet for terminating
@@ -2071,13 +2111,8 @@ const Pods: Component = () => {
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Status</div>
                       <div><span class={`badge ${
                         selectedPod()?.status === 'Running' ? 'badge-success' : 
-                        (selectedPod()?.status === 'Pending' || 
-                         selectedPod()?.status === 'Initializing' ||
-                         selectedPod()?.status?.includes('ContainerCreating') ||
-                         selectedPod()?.status?.includes('PodInitializing') ||
-                         selectedPod()?.status?.includes('Init:') ||
-                         selectedPod()?.status?.toLowerCase().includes('initializing')) ? 'badge-warning' :
-                        selectedPod()?.status === 'Failed' || selectedPod()?.status === 'CrashLoopBackOff' || selectedPod()?.status === 'Error' ? 'badge-error' :
+                        isPendingStatus(selectedPod()?.status) ? 'badge-warning' :
+                        isFailedStatus(selectedPod()?.status) ? 'badge-error' :
                         'badge-warning'
                       }`}>{selectedPod()?.status}</span></div>
                     </div>
