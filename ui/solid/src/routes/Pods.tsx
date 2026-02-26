@@ -2097,13 +2097,8 @@ const Pods: Component = () => {
                       <div class="text-xs" style={{ color: 'var(--text-muted)' }}>Status</div>
                       <div><span class={`badge ${
                         selectedPod()?.status === 'Running' ? 'badge-success' : 
-                        (selectedPod()?.status === 'Pending' || 
-                         selectedPod()?.status === 'Initializing' ||
-                         selectedPod()?.status?.includes('ContainerCreating') ||
-                         selectedPod()?.status?.includes('PodInitializing') ||
-                         selectedPod()?.status?.includes('Init:') ||
-                         selectedPod()?.status?.toLowerCase().includes('initializing')) ? 'badge-warning' :
-                        selectedPod()?.status === 'Failed' || selectedPod()?.status === 'CrashLoopBackOff' || selectedPod()?.status === 'Error' ? 'badge-error' :
+                        isPendingStatus(selectedPod()?.status) ? 'badge-warning' :
+                        isFailedStatus(selectedPod()?.status) ? 'badge-error' :
                         'badge-warning'
                       }`}>{selectedPod()?.status}</span></div>
                     </div>
