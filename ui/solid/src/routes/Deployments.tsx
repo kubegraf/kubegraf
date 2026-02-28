@@ -39,11 +39,13 @@ interface Deployment {
 
 type SortField = 'name' | 'namespace' | 'ready' | 'age';
 type SortDirection = 'asc' | 'desc';
+type DeploymentStatusFilter = 'all' | 'ready' | 'partial' | 'unavailable';
 
 const Deployments: Component = () => {
   // Use global search query instead of local search
   const [sortField, setSortField] = createSignal<SortField>('name');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>('asc');
+  const [statusFilter, setStatusFilter] = createSignal<DeploymentStatusFilter>('all');
   const [currentPage, setCurrentPage] = createSignal(1);
   const [pageSize, setPageSize] = createSignal(20);
   const [selected, setSelected] = createSignal<Deployment | null>(null);
@@ -359,9 +361,20 @@ const Deployments: Component = () => {
     return total;
   };
 
+  const getDeploymentStatus = (deployment: Deployment): Exclude<DeploymentStatusFilter, 'all'> => {
+    const readyParts = deployment.ready?.split('/') || ['0', '0'];
+    const readyCount = Number.parseInt(readyParts[0] || '0', 10) || 0;
+    const desiredCount = Number.parseInt(readyParts[1] || '0', 10) || 0;
+
+    if (readyCount === 0) return 'unavailable';
+    if (readyCount === desiredCount && desiredCount > 0) return 'ready';
+    return 'partial';
+  };
+
   const filteredAndSorted = createMemo(() => {
     let all = deployments() || [];
     const query = searchQuery().toLowerCase();
+    const status = statusFilter();
 
     // Filter by search
     if (query) {
@@ -369,6 +382,11 @@ const Deployments: Component = () => {
         d.name.toLowerCase().includes(query) ||
         d.namespace.toLowerCase().includes(query)
       );
+    }
+
+    // Filter by status
+    if (status !== 'all') {
+      all = all.filter((d: Deployment) => getDeploymentStatus(d) === status);
     }
 
     // Sort
@@ -407,20 +425,27 @@ const Deployments: Component = () => {
     const all = deployments() || [];
     return {
       total: all.length,
-      ready: all.filter((d: Deployment) => {
-        const parts = d.ready?.split('/') || ['0', '0'];
-        return parts[0] === parts[1] && parseInt(parts[0]) > 0;
-      }).length,
-      partial: all.filter((d: Deployment) => {
-        const parts = d.ready?.split('/') || ['0', '0'];
-        return parts[0] !== parts[1] && parseInt(parts[0]) > 0;
-      }).length,
-      unavailable: all.filter((d: Deployment) => {
-        const parts = d.ready?.split('/') || ['0', '0'];
-        return parseInt(parts[0]) === 0;
-      }).length,
+      ready: all.filter((d: Deployment) => getDeploymentStatus(d) === 'ready').length,
+      partial: all.filter((d: Deployment) => getDeploymentStatus(d) === 'partial').length,
+      unavailable: all.filter((d: Deployment) => getDeploymentStatus(d) === 'unavailable').length,
     };
   });
+
+  const statusCardStyle = (key: DeploymentStatusFilter) => {
+    const active = statusFilter() === key;
+    const palette = {
+      all: { border: 'var(--accent-primary)', activeBg: 'rgba(14, 165, 233, 0.16)', activeBorder: 'rgba(14, 165, 233, 0.45)' },
+      ready: { border: 'var(--success-color)', activeBg: 'rgba(34, 197, 94, 0.16)', activeBorder: 'rgba(34, 197, 94, 0.45)' },
+      partial: { border: 'var(--warning-color)', activeBg: 'rgba(245, 158, 11, 0.16)', activeBorder: 'rgba(245, 158, 11, 0.45)' },
+      unavailable: { border: 'var(--error-color)', activeBg: 'rgba(239, 68, 68, 0.16)', activeBorder: 'rgba(239, 68, 68, 0.45)' },
+    }[key];
+
+    return {
+      'border-left': `3px solid ${palette.border}`,
+      background: active ? palette.activeBg : 'var(--bg-card)',
+      border: `1px solid ${active ? palette.activeBorder : 'var(--border-color)'}`,
+    };
+  };
 
   const handleSort = (field: SortField) => {
     if (sortField() === field) {
@@ -726,19 +751,35 @@ const Deployments: Component = () => {
 
       {/* Status summary */}
       <div class="flex flex-wrap items-center gap-3">
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--accent-primary)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2"
+          style={statusCardStyle('all')}
+          onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Total</span>
           <span class="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{statusCounts().total}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--success-color)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2"
+          style={statusCardStyle('ready')}
+          onClick={() => { setStatusFilter('ready'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Ready</span>
           <span class="text-xl font-bold" style={{ color: 'var(--success-color)' }}>{statusCounts().ready}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--warning-color)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2"
+          style={statusCardStyle('partial')}
+          onClick={() => { setStatusFilter('partial'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Partial</span>
           <span class="text-xl font-bold" style={{ color: 'var(--warning-color)' }}>{statusCounts().partial}</span>
         </div>
-        <div class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2" style={{ 'border-left': '3px solid var(--error-color)' }}>
+        <div
+          class="card px-4 py-2 cursor-pointer hover:opacity-80 flex items-center gap-2"
+          style={statusCardStyle('unavailable')}
+          onClick={() => { setStatusFilter('unavailable'); setCurrentPage(1); }}
+        >
           <span style={{ color: 'var(--text-secondary)' }} class="text-sm">Unavailable</span>
           <span class="text-xl font-bold" style={{ color: 'var(--error-color)' }}>{statusCounts().unavailable}</span>
         </div>
@@ -1608,18 +1649,13 @@ const Deployments: Component = () => {
                     class="btn-secondary flex flex-col items-center justify-center gap-1 px-2 py-2 rounded text-xs transition-colors"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '';
-                      e.currentTarget.style.borderColor = 'var(--border-color)';
-                    }}
-                    style={{ color: 'var(--error-color)'}}
                       e.currentTarget.style.borderColor = 'var(--error-color)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = '';
+                      e.currentTarget.style.borderColor = 'var(--error-color)';
                     }}
-                    style={{ color: 'var(--error-color)' }}
+                    style={{ color: 'var(--error-color)', border: '1px solid var(--error-color)' }}
                     title="Delete"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
