@@ -36,6 +36,20 @@ const ClusterOverview: Component = () => {
     }
   });
 
+  // Keep overview metrics fresh while this page is open.
+  createEffect(() => {
+    if (!clusterStatus().connected) return;
+
+    const intervalId = setInterval(() => {
+      refetchPods();
+      refetchDeployments();
+      refetchServices();
+      refetchNodes();
+    }, 10000);
+
+    return () => clearInterval(intervalId);
+  });
+
   // Debug: Log resource states
   createEffect(() => {
     const pods = podsResource();
