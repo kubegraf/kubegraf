@@ -241,9 +241,10 @@ async function fetchNamespaces(): Promise<string[]> {
 }
 
 async function fetchPods(): Promise<Pod[]> {
-  logger.debug('Cluster', 'Fetching pods from /api/pods');
+  logger.debug('Cluster', 'Fetching pods from /api/pods?namespace= (all namespaces)');
   try {
-    const res = await fetch('/api/pods');
+    // Always request all namespaces for shared cluster resources used by overview-level pages.
+    const res = await fetch('/api/pods?namespace=');
     if (!res.ok) {
       const errorText = await res.text();
       logger.error('Cluster', `Failed to fetch pods: ${res.status} ${res.statusText}`, { errorText });
@@ -263,9 +264,10 @@ async function fetchPods(): Promise<Pod[]> {
 }
 
 async function fetchDeployments(): Promise<Deployment[]> {
-  logger.debug('Cluster', 'Fetching deployments from /api/deployments');
+  logger.debug('Cluster', 'Fetching deployments from /api/deployments?namespace= (all namespaces)');
   try {
-    const res = await fetch('/api/deployments');
+    // Always request all namespaces for shared cluster resources used by overview-level pages.
+    const res = await fetch('/api/deployments?namespace=');
     if (!res.ok) {
       const errorText = await res.text();
       logger.error('Cluster', `Failed to fetch deployments: ${res.status} ${res.statusText}`, { errorText });
