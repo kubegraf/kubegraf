@@ -502,6 +502,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [aiFixes, setAiFixes] = createSignal<AiFix[]>([]);
   const [aiFixLoading, setAiFixLoading] = createSignal(false);
   const [aiFixError, setAiFixError] = createSignal('');
+  const [aiFixFallback, setAiFixFallback] = createSignal(false);
   const [copiedCmd, setCopiedCmd] = createSignal('');
 
   // ── Incident Brief (graph-grounded narrative) ──────────────────────────────
@@ -579,6 +580,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       const data = await res.json();
       if (Array.isArray(data.fixes) && data.fixes.length > 0) {
         setAiFixes(data.fixes);
+        setAiFixFallback(!!data.fallback);
       } else {
         setAiFixError(data.error || 'No fixes generated. Ensure an AI provider is configured (Ollama, OpenAI, or Anthropic).');
       }
@@ -854,6 +856,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setRunbookStep(0);
     setAiFixes([]);
     setAiFixError('');
+    setAiFixFallback(false);
     setOrkasMessages([]);
     // Reset timer from real firstSeen
     const firstSeen = inc?.firstSeen;
@@ -1864,12 +1867,12 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
         }}
       >
         <div class="rp-tabs">
-          {(['fix', 'topology', 'runbook', 'retro'] as const).map(tab => (
+          {(['fix', 'topology', 'runbook', 'chat', 'retro'] as const).map(tab => (
             <button
               class={`rp-tab${activeRPTab() === tab ? ' on' : ''}`}
               onClick={() => setActiveRPTab(tab)}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'chat' ? '✦ Chat' : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
         </div>
@@ -2008,8 +2011,16 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
             <Show when={aiFixes().length > 0}>
               <div class="sec-label" style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
                 AI Recommendations
-                <span class="chip ai" style={{ 'font-size': '9px', padding: '1px 5px' }}>✦ Orkas AI</span>
+                <span class="chip ai" style={{ 'font-size': '9px', padding: '1px 5px' }}>
+                  {aiFixFallback() ? '⚙ Pattern-based' : '✦ Orkas AI'}
+                </span>
               </div>
+              <Show when={aiFixFallback()}>
+                <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-bottom': '8px', display: 'flex', 'align-items': 'center', gap: '5px' }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  AI parsing failed — showing pattern-based recommendations
+                </div>
+              </Show>
               <For each={aiFixes()}>{(fix, i) => (
                 <div class="fix-card">
                   <div class="fix-head">
@@ -2263,43 +2274,29 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
             </div>
           </Show>
 
-          {/* ── Orkas AI ── */}
-          <div style={{
-            'margin-top': '24px',
-            border: '1px solid var(--b2)',
-            'border-radius': '10px',
-            overflow: 'hidden',
-            background: 'var(--s1)',
-          }}>
-            {/* Header */}
-            <div
-              style={{
-                display: 'flex', 'align-items': 'center', gap: '8px',
-                padding: '10px 14px', cursor: 'pointer',
-                background: 'var(--s2)', 'border-bottom': orkasExpanded() ? '1px solid var(--b2)' : 'none',
-                'user-select': 'none',
-              }}
-              onClick={() => setOrkasExpanded(v => !v)}
-            >
-              <img src="/orkas-logo.png" alt="Orkas AI" style={{ height: '20px', width: 'auto', 'object-fit': 'contain', 'border-radius': '3px' }} />
-              <span style={{ 'font-size': '12px', 'font-weight': '600', color: 'var(--t1)', flex: '1' }}>Orkas AI</span>
-              <span style={{ 'font-size': '10px', color: 'var(--t5)', 'font-family': 'Geist Mono,monospace' }}>
-                {orkasMessages().length > 0 ? `${orkasMessages().length} msg` : 'Ask Orkas AI about this incident'}
-              </span>
-              <span style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-left': '6px' }}>{orkasExpanded() ? '▲' : '▼'}</span>
-            </div>
+          {/* ── CHAT TAB ── */}
+          <Show when={activeRPTab() === 'chat'}>
+            <div style={{ display: 'flex', 'flex-direction': 'column', gap: '0' }}>
 
-            <Show when={orkasExpanded()}>
+              {/* Header */}
+              <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', 'margin-bottom': '10px' }}>
+                <img src="/orkas-logo.png" alt="Orkas AI" style={{ height: '18px', width: 'auto', 'object-fit': 'contain' }} />
+                <span style={{ 'font-size': '12px', 'font-weight': '600', color: 'var(--t1)', flex: '1' }}>Orkas AI Chat</span>
+                <span style={{ 'font-size': '10px', color: 'var(--t5)', 'font-family': 'var(--mono)' }}>
+                  {incNs()}/{incName()}
+                </span>
+              </div>
+
               {/* Quick prompts — only before first message */}
               <Show when={orkasMessages().length === 0}>
-                <div style={{ padding: '10px 14px', display: 'flex', 'flex-wrap': 'wrap', gap: '5px' }}>
+                <div style={{ display: 'flex', 'flex-wrap': 'wrap', gap: '5px', 'margin-bottom': '12px' }}>
                   <For each={[
-                    `Why is ${incName()} crashing?`,
-                    `Show me the root cause of ${incPattern()}`,
-                    `kubectl commands to fix ${incName()} in ${incNs()}`,
+                    `Why is ${incName()} failing?`,
+                    `Root cause of ${incPattern()}`,
+                    `kubectl fix for ${incName()}`,
                     `Show pod logs for ${incName()}`,
-                    `List all events in ${incNs()} namespace`,
-                    `What is the blast radius of this incident?`,
+                    `Events in ${incNs()}`,
+                    `Blast radius of this incident`,
                   ]}>{(q) => (
                     <button
                       class="btn ghost"
@@ -2312,25 +2309,21 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
 
               {/* Messages */}
               <Show when={orkasMessages().length > 0}>
-                <div style={{
-                  'max-height': '320px', 'overflow-y': 'auto',
-                  padding: '12px 14px', display: 'flex', 'flex-direction': 'column', gap: '10px',
-                }}>
+                <div style={{ 'max-height': '380px', 'overflow-y': 'auto', display: 'flex', 'flex-direction': 'column', gap: '10px', 'margin-bottom': '10px', padding: '2px 0' }}>
                   <For each={orkasMessages()}>{(msg) => (
-                    <div style={{ display: 'flex', 'flex-direction': 'column', gap: '2px',
-                      'align-items': msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ display: 'flex', 'flex-direction': 'column', gap: '3px', 'align-items': msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                       <div style={{
-                        'max-width': '88%',
-                        padding: '8px 11px',
+                        'max-width': '90%', padding: '8px 11px',
                         'border-radius': msg.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
-                        background: msg.role === 'user' ? 'var(--brand)' : 'var(--s3)',
+                        background: msg.role === 'user' ? 'var(--brand)' : 'var(--s2)',
+                        border: msg.role === 'user' ? 'none' : '1px solid var(--b1)',
                         color: msg.role === 'user' ? '#fff' : 'var(--t1)',
-                        'font-size': '12px', 'line-height': '1.5',
+                        'font-size': '12px', 'line-height': '1.55',
                         'white-space': 'pre-wrap', 'word-break': 'break-word',
                       }}>{msg.text}</div>
                       <Show when={msg.role === 'assistant' && (msg.model || msg.confidence)}>
                         <div style={{ 'font-size': '10px', color: 'var(--t5)', display: 'flex', gap: '6px' }}>
-                          <Show when={msg.model}><span style={{ 'font-family': 'Geist Mono,monospace' }}>{msg.model}</span></Show>
+                          <Show when={msg.model}><span style={{ 'font-family': 'var(--mono)' }}>{msg.model}</span></Show>
                           <Show when={msg.confidence}><span style={{ color: 'var(--ok)' }}>{Math.round(msg.confidence! * 100)}% conf</span></Show>
                           <Show when={msg.latency}><span>{msg.latency}ms</span></Show>
                         </div>
@@ -2338,40 +2331,35 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                     </div>
                   )}</For>
                   <Show when={orkasLoading()}>
-                    <div style={{ display: 'flex', gap: '4px', 'align-items': 'center', padding: '4px 0' }}>
-                      <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>Orkas AI is thinking</span>
-                      <span style={{ color: 'var(--brand)', animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
+                    <div style={{ display: 'flex', gap: '5px', 'align-items': 'center', padding: '4px 0' }}>
+                      <For each={[0, 120, 240]}>{d => <div style={{ width: '5px', height: '5px', 'border-radius': '50%', background: 'var(--brand)', animation: 'rpBounce 1s ease-in-out infinite', 'animation-delay': `${d}ms` }} />}</For>
+                      <span style={{ 'font-size': '11px', color: 'var(--t5)', 'margin-left': '2px' }}>Thinking…</span>
                     </div>
                   </Show>
                 </div>
               </Show>
 
               {/* Input */}
-              <div style={{
-                padding: '10px 14px', 'border-top': '1px solid var(--b2)',
-                display: 'flex', gap: '8px', 'align-items': 'center',
-              }}>
+              <div style={{ display: 'flex', gap: '8px', 'align-items': 'center', 'border-top': '1px solid var(--b1)', 'padding-top': '10px', 'margin-top': '4px' }}>
                 <input
                   type="text"
-                  placeholder={`Ask about ${incName()} incident…`}
+                  placeholder={`Ask about ${incName()}…`}
                   value={orkasInput()}
                   onInput={e => setOrkasInput(e.currentTarget.value)}
                   onKeyDown={e => { if (e.key === 'Enter') orkasSend(); }}
-                  style={{
-                    flex: '1', padding: '7px 10px',
-                    background: 'var(--s2)', border: '1px solid var(--b2)',
-                    'border-radius': '6px', color: 'var(--t1)', 'font-size': '12px', outline: 'none',
-                  }}
+                  style={{ flex: '1', padding: '7px 10px', background: 'var(--s2)', border: '1px solid var(--b2)', 'border-radius': '6px', color: 'var(--t1)', 'font-size': '12px', outline: 'none', 'font-family': 'inherit' }}
+                  onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
+                  onBlur={e => (e.currentTarget.style.borderColor = 'var(--b2)')}
                 />
                 <button
                   class="btn primary"
-                  style={{ 'font-size': '11px', padding: '7px 12px', 'white-space': 'nowrap' }}
+                  style={{ 'font-size': '11px', padding: '7px 12px', 'white-space': 'nowrap', 'flex-shrink': '0' }}
                   onClick={() => orkasSend()}
                   disabled={!orkasInput().trim() || orkasLoading()}
                 >Ask</button>
               </div>
-            </Show>
-          </div>
+            </div>
+          </Show>
 
         </div>
       </div>

@@ -3,18 +3,19 @@
  *
  * Tabs: Ask · Knowledge
  *
- * "Ask" covers both free-form chat (/ask) and cluster analysis (/k8s/analyze).
- * They are the same interaction: type a question, get an answer. No separate
- * Cluster tab needed — context metadata lives in the info strip below the header.
+ * The Incidents view was removed — IntelligentWorkspace already provides a
+ * dedicated incidents screen (ContextNavigator + IncidentDetail). This panel
+ * now focuses on the conversational AI and knowledge-base features.
  *
- * Incident-specific AI (Fix, RCA, per-incident chat) lives exclusively in
- * IncidentDetail's right panel — zero duplication here.
+ * When the optional `incident` prop is provided (passed by IntelligentWorkspace
+ * when the user opens Orkas AI from within an incident), the Ask tab becomes
+ * context-aware: the prompt is pre-seeded with incident metadata and the
+ * suggestion chips become incident-specific.
  */
 
-import { Component, createSignal, For, Show, onMount, createEffect, onCleanup } from 'solid-js';
+import { Component, createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { marked } from 'marked';
 import { wsService } from '../../services/websocket';
-import type { GraphIncidentAlert } from '../../providers/WebSocketProvider';
 
 interface OrkaMessage {
   role: 'user' | 'assistant';
@@ -38,12 +39,26 @@ interface ModelInfo {
   model: string;
 }
 
-// All Orkas AI calls go through the Go proxy at /api/orka/* to avoid
-// hardcoded localhost:8000 and to enable cluster context enrichment.
+/** Minimal incident context passed from IntelligentWorkspace */
+export interface IncidentContext {
+  id?: string;
+  title?: string;
+  severity?: string;
+  pattern?: string;
+  resource?: { kind: string; name: string; namespace?: string };
+  namespace?: string;
+}
+
+interface OrkasAIPanelProps {
+  /** When provided, the Ask tab is pre-seeded with this incident's context */
+  incident?: IncidentContext | null;
+}
+
+// ── All Orkas AI calls go through the Go proxy ───────────────────────────────
 const ORKA = '/api/orka';
 
-// Combined suggestions — cluster analysis presets merged with general Q&A
-const SUGGESTIONS = [
+// Default (cluster-wide) suggestions shown when no incident context
+const CLUSTER_SUGGESTIONS = [
   'Analyze overall cluster health',
   'List pods in CrashLoopBackOff across all namespaces',
   'Show deployments with unavailable replicas',
@@ -52,16 +67,16 @@ const SUGGESTIONS = [
   'Show services with no ready endpoints',
 ];
 
-const OrkasAIPanel: Component = () => {
+const OrkasAIPanel: Component<OrkasAIPanelProps> = (props) => {
   // ── Navigation ───────────────────────────────────────────────────────────
-  const [tab, setTab] = createSignal<'ask' | 'knowledge' | 'incidents'>('ask');
+  const [tab, setTab] = createSignal<'ask' | 'knowledge'>('ask');
 
   // ── Status ───────────────────────────────────────────────────────────────
   const [orkaStatus, setOrkaStatus] = createSignal<'checking' | 'online' | 'offline'>('checking');
   const [k8sCtx, setK8sCtx] = createSignal<K8sCtxInfo | null>(null);
   const [models, setModels] = createSignal<ModelInfo[]>([]);
 
-  // ── Ask (Chat + Cluster merged) ───────────────────────────────────────
+  // ── Ask ───────────────────────────────────────────────────────────────────
   const [messages, setMessages] = createSignal<OrkaMessage[]>([]);
   const [input, setInput] = createSignal('');
   const [loading, setLoading] = createSignal(false);
@@ -76,11 +91,17 @@ const OrkasAIPanel: Component = () => {
   const [ingestLoading, setIngestLoading] = createSignal(false);
   const [ingestMsg, setIngestMsg] = createSignal('');
 
-  // ── Graph incidents (proactive push from graph engine via WebSocket) ──────
-  const [graphIncidents, setGraphIncidents] = createSignal<GraphIncidentAlert[]>([]);
-  const [incidentBadge, setIncidentBadge] = createSignal(0);
-  // Remediation decisions: 'approved' | 'rejected' keyed by incident index
-  const [remediationDecisions, setRemediationDecisions] = createSignal<Record<number, 'approved' | 'rejected'>>({});
+  // ── Live incident badge (graph_incident WS push) ─────────────────────────
+  // We still listen to graph_incident WS messages to show a badge on the Ask
+  // tab so operators know there's a new real-time anomaly to investigate.
+  const [liveBadge, setLiveBadge] = createSignal(0);
+
+  // Reset messages & badge when the incident context changes
+  createEffect(() => {
+    const _ = props.incident;
+    setMessages([]);
+    setInput('');
+  });
 
   // ── Init ─────────────────────────────────────────────────────────────────
   onMount(async () => {
@@ -99,21 +120,27 @@ const OrkasAIPanel: Component = () => {
       if (r.ok) { const d = await r.json(); setModels(d.models || []); }
     } catch {}
 
-    // Subscribe to graph_incident WebSocket messages
+    // Listen for live graph incidents — show badge on Ask tab
     const unsub = wsService.subscribe((msg) => {
       if (msg.type === 'graph_incident' && msg.data) {
-        setGraphIncidents(prev => [msg.data as GraphIncidentAlert, ...prev].slice(0, 20));
-        if (tab() !== 'incidents') {
-          setIncidentBadge(b => b + 1);
-        }
+        setLiveBadge(b => b + 1);
       }
     });
     onCleanup(unsub);
   });
 
   // ── Ask ───────────────────────────────────────────────────────────────────
+  const buildContextPrefix = () => {
+    const inc = props.incident;
+    if (!inc) return '';
+    const res = inc.resource;
+    const resStr = res ? `${res.kind}/${res.namespace ? res.namespace + '/' : ''}${res.name}` : '';
+    return `[Incident context: ${inc.severity || 'unknown'} | "${inc.title || 'Unknown'}" | ${resStr}${inc.pattern ? ` | pattern: ${inc.pattern}` : ''}]\n\n`;
+  };
+
   const send = async (q: string) => {
     if (!q.trim() || loading()) return;
+    const prefixed = buildContextPrefix() + q;
     setMessages(m => [...m, { role: 'user', content: q }]);
     setInput('');
     setLoading(true);
@@ -121,21 +148,18 @@ const OrkasAIPanel: Component = () => {
       const r = await fetch(`${ORKA}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, session_id: sessionId() }),
+        body: JSON.stringify({ query: prefixed, session_id: sessionId(), namespace: props.incident?.resource?.namespace || props.incident?.namespace }),
         signal: AbortSignal.timeout(120_000),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       setMessages(m => [...m, {
-        role: 'assistant',
-        content: d.answer,
-        confidence: d.confidence,
-        model: d.model_used,
-        latencyMs: d.latency_ms,
-        reasoningSteps: d.reasoning_steps,
+        role: 'assistant', content: d.answer,
+        confidence: d.confidence, model: d.model_used,
+        latencyMs: d.latency_ms, reasoningSteps: d.reasoning_steps,
       }]);
     } catch (e) {
-      setMessages(m => [...m, { role: 'assistant', content: `⚠️ ${e instanceof Error ? e.message : 'Could not reach Orkas AI'}` }]);
+      setMessages(m => [...m, { role: 'assistant', content: `Error: ${e instanceof Error ? e.message : 'Could not reach Orkas AI'}` }]);
     } finally { setLoading(false); }
   };
 
@@ -153,9 +177,9 @@ const OrkasAIPanel: Component = () => {
         signal: AbortSignal.timeout(30_000),
       });
       const d = await r.json();
-      setIngestMsg(`✓ Added ${d.chunks_created} chunks to knowledge base`);
+      setIngestMsg(`Added ${d.chunks_created} chunks to knowledge base`);
       setIngestContent(''); setIngestTitle('');
-    } catch (e) { setIngestMsg(`✗ ${e instanceof Error ? e.message : e}`); }
+    } catch (e) { setIngestMsg(`Failed: ${e instanceof Error ? e.message : e}`); }
     finally { setIngestLoading(false); }
   };
 
@@ -166,6 +190,33 @@ const OrkasAIPanel: Component = () => {
   const confLabel = (c: number) => c >= 0.8 ? 'High' : c >= 0.5 ? 'Medium' : 'Low';
   const ctxShort = () => k8sCtx()?.context?.split('_').pop() ?? k8sCtx()?.context ?? '—';
   const primaryModel = () => models().length > 0 ? `${models()[0].provider} · ${models()[0].model}` : null;
+
+  // Incident-specific suggestion chips
+  const suggestions = () => {
+    const inc = props.incident;
+    if (!inc || !inc.resource) return CLUSTER_SUGGESTIONS;
+    const name = inc.resource.name;
+    const ns = inc.resource.namespace || '';
+    const kind = (inc.resource.kind || 'pod').toLowerCase();
+    return [
+      `Why is ${name} ${inc.severity === 'critical' ? 'critical' : 'failing'}?`,
+      `What is the root cause of ${(inc.pattern || 'this issue').replace(/_/g, ' ')}?`,
+      `Show kubectl commands to fix ${name}${ns ? ` in ${ns}` : ''}`,
+      `What is the blast radius of this incident?`,
+      `Show recent events for ${kind}/${name}`,
+      `How do I prevent ${(inc.pattern || 'this pattern').replace(/_/g, ' ')} in future?`,
+    ];
+  };
+
+  // SEV color for the incident context banner
+  const sevColor = () => {
+    const s = (props.incident?.severity || '').toLowerCase();
+    return s === 'critical' ? 'var(--crit)' : s === 'high' ? 'var(--warn)' : s === 'medium' ? 'var(--t4)' : 'var(--brand)';
+  };
+  const sevBg = () => {
+    const s = (props.incident?.severity || '').toLowerCase();
+    return s === 'critical' ? 'var(--critBg)' : s === 'high' ? 'var(--warnBg)' : 'var(--brandDim)';
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -181,7 +232,7 @@ const OrkasAIPanel: Component = () => {
         <div style={{ 'margin-left': 'auto', display: 'flex', 'align-items': 'center', gap: '8px' }}>
           <Show when={k8sCtx()}>
             <span style={{ 'font-size': '10px', padding: '2px 7px', 'border-radius': 'var(--r99)', background: k8sCtx()!.connected ? 'var(--okBg)' : 'var(--critBg)', color: k8sCtx()!.connected ? 'var(--ok)' : 'var(--crit)', border: `1px solid ${k8sCtx()!.connected ? 'var(--okBdr)' : 'var(--critBdr)'}`, 'font-weight': '600' }}>
-              {k8sCtx()!.connected ? '⬡ K8s' : '✗ K8s'}
+              {k8sCtx()!.connected ? 'K8s' : 'K8s offline'}
             </span>
           </Show>
           <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
@@ -193,44 +244,53 @@ const OrkasAIPanel: Component = () => {
         </div>
       </div>
 
-      {/* ── Context info strip (replaces Cluster tab metadata) ── */}
+      {/* ── Context info strip ── */}
       <Show when={k8sCtx() || primaryModel()}>
         <div style={{ padding: '5px 16px', background: 'var(--s2)', 'border-bottom': '1px solid var(--b1)', display: 'flex', gap: '14px', 'flex-wrap': 'wrap', 'flex-shrink': '0' }}>
           <Show when={k8sCtx()?.context}>
-            <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>
-              ctx: <span style={{ color: 'var(--t3)', 'font-family': 'var(--mono)' }}>{ctxShort()}</span>
-            </span>
+            <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>ctx: <span style={{ color: 'var(--t3)', 'font-family': 'var(--mono)' }}>{ctxShort()}</span></span>
           </Show>
           <Show when={k8sCtx()?.namespace}>
-            <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>
-              ns: <span style={{ color: 'var(--t3)', 'font-family': 'var(--mono)' }}>{k8sCtx()!.namespace}</span>
-            </span>
+            <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>ns: <span style={{ color: 'var(--t3)', 'font-family': 'var(--mono)' }}>{k8sCtx()!.namespace}</span></span>
           </Show>
           <Show when={primaryModel()}>
-            <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>
-              model: <span style={{ color: 'var(--t3)', 'font-family': 'var(--mono)' }}>{primaryModel()}</span>
-            </span>
+            <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>model: <span style={{ color: 'var(--t3)', 'font-family': 'var(--mono)' }}>{primaryModel()}</span></span>
           </Show>
         </div>
       </Show>
 
-      {/* ── Tab bar (3 tabs) ── */}
+      {/* ── Incident context banner — shown when launched from an incident ── */}
+      <Show when={props.incident?.title}>
+        <div style={{
+          padding: '7px 14px', background: sevBg(), 'border-bottom': `1px solid ${sevColor()}30`,
+          display: 'flex', 'align-items': 'center', gap: '8px', 'flex-shrink': '0',
+        }}>
+          <span style={{ 'font-size': '9.5px', 'font-weight': '700', padding: '1px 6px', 'border-radius': 'var(--r99)', background: sevColor() + '22', color: sevColor(), border: `1px solid ${sevColor()}40`, 'text-transform': 'uppercase', 'flex-shrink': '0' }}>
+            {props.incident!.severity || 'unknown'}
+          </span>
+          <div style={{ 'font-size': '11px', color: 'var(--t2)', flex: '1', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>
+            <span style={{ 'font-weight': '600' }}>{props.incident!.title}</span>
+            <Show when={props.incident!.resource?.name}>
+              <span style={{ color: 'var(--t5)', 'margin-left': '6px', 'font-family': 'var(--mono)', 'font-size': '10px' }}>
+                {props.incident!.resource!.namespace ? props.incident!.resource!.namespace + '/' : ''}{props.incident!.resource!.name}
+              </span>
+            </Show>
+          </div>
+          <span style={{ 'font-size': '9px', color: sevColor(), 'flex-shrink': '0', 'font-weight': '600' }}>⚡ Active context</span>
+        </div>
+      </Show>
+
+      {/* ── Tab bar ── */}
       <div style={{ display: 'flex', 'flex-shrink': '0', background: 'var(--s1)', 'border-bottom': '1px solid var(--b1)' }}>
-        {(['ask', 'knowledge', 'incidents'] as const).map(t => (
+        {(['ask', 'knowledge'] as const).map(t => (
           <button
-            onClick={() => { setTab(t); if (t === 'incidents') setIncidentBadge(0); }}
-            style={{
-              flex: '1', background: 'none', border: 'none', cursor: 'pointer',
-              padding: '9px 4px', 'font-size': '11.5px', 'font-weight': '600',
-              color: tab() === t ? 'var(--brand)' : 'var(--t4)',
-              'border-bottom': tab() === t ? '2px solid var(--brand)' : '2px solid transparent',
-              transition: 'color .15s', 'font-family': 'var(--font)', position: 'relative',
-            }}
+            onClick={() => { setTab(t); if (t === 'ask') setLiveBadge(0); }}
+            style={{ flex: '1', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 4px', 'font-size': '11.5px', 'font-weight': '600', color: tab() === t ? 'var(--brand)' : 'var(--t4)', 'border-bottom': tab() === t ? '2px solid var(--brand)' : '2px solid transparent', transition: 'color .15s', 'font-family': 'var(--font)', position: 'relative' }}
           >
-            {t === 'ask' ? 'Ask' : t === 'knowledge' ? 'Knowledge' : 'Incidents'}
-            <Show when={t === 'incidents' && incidentBadge() > 0}>
+            {t === 'ask' ? 'Ask' : 'Knowledge'}
+            <Show when={t === 'ask' && liveBadge() > 0}>
               <span style={{ position: 'absolute', top: '5px', right: '4px', background: 'var(--crit)', color: '#fff', 'border-radius': '99px', 'font-size': '9px', 'font-weight': '700', padding: '0 4px', 'min-width': '14px', 'text-align': 'center', 'line-height': '14px' }}>
-                {incidentBadge()}
+                {liveBadge()}
               </span>
             </Show>
           </button>
@@ -239,28 +299,29 @@ const OrkasAIPanel: Component = () => {
 
       {/* ════════════════════ TAB: ASK ════════════════════ */}
       <Show when={tab() === 'ask'}>
-        {/* Message list */}
         <div style={{ flex: '1', 'overflow-y': 'auto', padding: '14px 16px', display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
-
-          {/* Empty state */}
           <Show when={messages().length === 0}>
             <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', flex: '1', padding: '24px 0 12px' }}>
-              <img src="/orkas-logo.png" alt="" style={{ height: '52px', 'margin-bottom': '10px' }} />
-              <div style={{ 'font-weight': '700', color: 'var(--t1)', 'font-size': '14px', 'margin-bottom': '4px' }}>Orkas AI</div>
-              <div style={{ 'font-size': '11.5px', color: 'var(--t4)', 'text-align': 'center', 'max-width': '280px', 'line-height': '1.6', 'margin-bottom': '20px' }}>
-                Ask anything about your cluster — pods, nodes, deployments, events, and more.
-              </div>
+              <Show when={!props.incident}>
+                <img src="/orkas-logo.png" alt="" style={{ height: '52px', 'margin-bottom': '10px' }} />
+                <div style={{ 'font-weight': '700', color: 'var(--t1)', 'font-size': '14px', 'margin-bottom': '4px' }}>Orkas AI</div>
+                <div style={{ 'font-size': '11.5px', color: 'var(--t4)', 'text-align': 'center', 'max-width': '280px', 'line-height': '1.6', 'margin-bottom': '20px' }}>
+                  Ask anything about your cluster — pods, nodes, deployments, events, and more.
+                </div>
+              </Show>
+              <Show when={props.incident}>
+                <div style={{ 'font-weight': '600', color: 'var(--t2)', 'font-size': '12px', 'margin-bottom': '14px', 'text-align': 'center' }}>
+                  Suggested questions for this incident
+                </div>
+              </Show>
               <div style={{ display: 'flex', 'flex-direction': 'column', gap: '5px', width: '100%' }}>
-                <For each={SUGGESTIONS}>{s => (
-                  <button onClick={() => send(s)} style={{ background: 'var(--s1)', border: '1px solid var(--b1)', 'border-radius': 'var(--r8)', padding: '7px 12px', cursor: 'pointer', 'text-align': 'left', 'font-size': '11.5px', color: 'var(--t3)', 'font-family': 'var(--font)' }}>
-                    {s}
-                  </button>
+                <For each={suggestions()}>{s => (
+                  <button onClick={() => send(s)} style={{ background: 'var(--s1)', border: '1px solid var(--b1)', 'border-radius': 'var(--r8)', padding: '7px 12px', cursor: 'pointer', 'text-align': 'left', 'font-size': '11.5px', color: 'var(--t3)', 'font-family': 'var(--font)' }}>{s}</button>
                 )}</For>
               </div>
             </div>
           </Show>
 
-          {/* Message bubbles */}
           <For each={messages()}>{(msg, idx) => (
             <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': msg.role === 'user' ? 'flex-end' : 'flex-start', gap: '4px' }}>
               <div style={{ 'max-width': '92%', background: msg.role === 'user' ? 'var(--brand)' : 'var(--s1)', color: msg.role === 'user' ? '#fff' : 'var(--t1)', border: msg.role === 'user' ? 'none' : '1px solid var(--b1)', 'border-radius': msg.role === 'user' ? 'var(--r12) var(--r12) var(--r4) var(--r12)' : 'var(--r12) var(--r12) var(--r12) var(--r4)', padding: '9px 13px', 'font-size': '12.5px', 'line-height': '1.6' }}>
@@ -268,7 +329,6 @@ const OrkasAIPanel: Component = () => {
                   <div class="orka-md" innerHTML={md(msg.content)} />
                 </Show>
               </div>
-              {/* Meta row */}
               <Show when={msg.role === 'assistant' && (msg.confidence !== undefined || msg.model)}>
                 <div style={{ display: 'flex', gap: '8px', 'align-items': 'center', 'flex-wrap': 'wrap', padding: '0 2px' }}>
                   <Show when={msg.confidence !== undefined}>
@@ -286,7 +346,6 @@ const OrkasAIPanel: Component = () => {
                   </Show>
                 </div>
               </Show>
-              {/* Reasoning steps */}
               <Show when={msg.role === 'assistant' && expandedSteps().has(idx()) && msg.reasoningSteps?.length}>
                 <div style={{ 'max-width': '92%', background: 'var(--s2)', border: '1px solid var(--b1)', 'border-radius': 'var(--r8)', padding: '10px 12px', display: 'flex', 'flex-direction': 'column', gap: '6px' }}>
                   <div style={{ 'font-size': '10px', 'font-weight': '700', color: 'var(--t4)', 'text-transform': 'uppercase', 'letter-spacing': '.06em' }}>Reasoning</div>
@@ -305,7 +364,6 @@ const OrkasAIPanel: Component = () => {
             </div>
           )}</For>
 
-          {/* Thinking indicator */}
           <Show when={loading()}>
             <div style={{ display: 'flex', gap: '6px', 'align-items': 'center', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--b1)', 'border-radius': 'var(--r8)', width: 'fit-content' }}>
               <For each={[0, 150, 300]}>{d => <div style={{ width: '6px', height: '6px', 'border-radius': '50%', background: 'var(--brand)', animation: 'orkaBounce 1s ease-in-out infinite', 'animation-delay': `${d}ms` }} />}</For>
@@ -315,19 +373,16 @@ const OrkasAIPanel: Component = () => {
           <div ref={msgEnd} />
         </div>
 
-        {/* Input */}
         <form onSubmit={e => { e.preventDefault(); send(input().trim()); }} style={{ padding: '10px 14px', 'border-top': '1px solid var(--b1)', background: 'var(--s1)', 'flex-shrink': '0' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="text" value={input()} onInput={e => setInput(e.currentTarget.value)}
-              placeholder="Ask Orkas AI anything about your cluster…" disabled={loading()}
+            <input type="text" value={input()} onInput={e => setInput(e.currentTarget.value)}
+              placeholder={props.incident ? `Ask about ${props.incident.resource?.name || 'this incident'}…` : 'Ask Orkas AI anything about your cluster…'}
+              disabled={loading()}
               style={{ flex: '1', background: 'var(--s3)', border: '1px solid var(--b1)', 'border-radius': 'var(--r8)', padding: '8px 12px', 'font-size': '12.5px', color: 'var(--t1)', outline: 'none', 'font-family': 'var(--font)' }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--brand)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--b1)')}
             />
-            <button type="submit" disabled={loading() || !input().trim()} style={{ background: 'var(--brand)', border: 'none', 'border-radius': 'var(--r8)', padding: '8px 16px', cursor: 'pointer', color: '#fff', 'font-size': '12px', 'font-weight': '600', opacity: loading() || !input().trim() ? '0.45' : '1', 'font-family': 'var(--font)', 'flex-shrink': '0' }}>
-              Ask
-            </button>
+            <button type="submit" disabled={loading() || !input().trim()} style={{ background: 'var(--brand)', border: 'none', 'border-radius': 'var(--r8)', padding: '8px 16px', cursor: 'pointer', color: '#fff', 'font-size': '12px', 'font-weight': '600', opacity: loading() || !input().trim() ? '0.45' : '1', 'font-family': 'var(--font)', 'flex-shrink': '0' }}>Ask</button>
           </div>
         </form>
       </Show>
@@ -356,115 +411,9 @@ const OrkasAIPanel: Component = () => {
               {ingestLoading() ? 'Ingesting…' : '+ Add to Knowledge Base'}
             </button>
             <Show when={ingestMsg()}>
-              <div style={{ 'font-size': '11.5px', padding: '7px 10px', 'border-radius': 'var(--r6)', background: ingestMsg().startsWith('✓') ? 'var(--okBg)' : 'var(--critBg)', color: ingestMsg().startsWith('✓') ? 'var(--ok)' : 'var(--crit)' }}>{ingestMsg()}</div>
+              <div style={{ 'font-size': '11.5px', padding: '7px 10px', 'border-radius': 'var(--r6)', background: ingestMsg().startsWith('Added') ? 'var(--okBg)' : 'var(--critBg)', color: ingestMsg().startsWith('Added') ? 'var(--ok)' : 'var(--crit)' }}>{ingestMsg()}</div>
             </Show>
           </div>
-        </div>
-      </Show>
-
-      {/* ════════════════════ TAB: INCIDENTS ════════════════════ */}
-      <Show when={tab() === 'incidents'}>
-        <div style={{ flex: '1', 'overflow-y': 'auto', padding: '12px 14px', display: 'flex', 'flex-direction': 'column', gap: '10px' }}>
-          <Show when={graphIncidents().length === 0}>
-            <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', flex: '1', padding: '32px 0', gap: '8px' }}>
-              <div style={{ 'font-size': '28px', opacity: '.3' }}>⬡</div>
-              <div style={{ 'font-size': '12px', color: 'var(--t5)', 'text-align': 'center' }}>
-                No graph incidents yet.<br />The topology graph engine pushes incidents here<br />when confidence ≥ 70%.
-              </div>
-            </div>
-          </Show>
-          <For each={graphIncidents()}>{(inc, idx) => {
-            const decision = () => remediationDecisions()[idx()];
-            const rootName = inc.root_cause ? `${inc.root_cause.kind}/${inc.root_cause.namespace ? inc.root_cause.namespace + '/' : ''}${inc.root_cause.name}` : '—';
-            const affName  = inc.affected_node ? `${inc.affected_node.kind}/${inc.affected_node.namespace ? inc.affected_node.namespace + '/' : ''}${inc.affected_node.name}` : '—';
-            const confPct  = Math.round((inc.confidence || 0) * 100);
-            const confCol  = confPct >= 80 ? 'var(--crit)' : confPct >= 60 ? 'var(--warn)' : 'var(--t4)';
-            return (
-              <div style={{ background: 'var(--s1)', border: '1px solid var(--b2)', 'border-radius': 'var(--r8)', padding: '11px 13px', display: 'flex', 'flex-direction': 'column', gap: '8px' }}>
-                {/* Header row */}
-                <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
-                  <div style={{ width: '7px', height: '7px', 'border-radius': '50%', background: 'var(--crit)', 'flex-shrink': '0' }} />
-                  <span style={{ 'font-size': '12px', 'font-weight': '700', color: 'var(--t1)', flex: '1' }}>
-                    {inc.pattern_matched ? inc.pattern_matched.replace(/_/g, ' ') : 'Graph Incident'}
-                  </span>
-                  <span style={{ 'font-size': '10px', 'font-weight': '700', color: confCol }}>
-                    {confPct}% conf
-                  </span>
-                </div>
-                {/* Root cause / affected */}
-                <div style={{ display: 'grid', 'grid-template-columns': '1fr 1fr', gap: '6px' }}>
-                  <div style={{ background: 'var(--critBg)', 'border-radius': 'var(--r6)', padding: '5px 8px' }}>
-                    <div style={{ 'font-size': '9px', 'font-weight': '700', color: 'var(--crit)', 'text-transform': 'uppercase', 'letter-spacing': '.06em' }}>Root Cause</div>
-                    <div style={{ 'font-size': '11px', color: 'var(--t1)', 'font-family': 'var(--mono)', 'margin-top': '2px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{rootName}</div>
-                  </div>
-                  <div style={{ background: 'var(--warnBg)', 'border-radius': 'var(--r6)', padding: '5px 8px' }}>
-                    <div style={{ 'font-size': '9px', 'font-weight': '700', color: 'var(--warn)', 'text-transform': 'uppercase', 'letter-spacing': '.06em' }}>Affected</div>
-                    <div style={{ 'font-size': '11px', color: 'var(--t1)', 'font-family': 'var(--mono)', 'margin-top': '2px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{affName}</div>
-                  </div>
-                </div>
-                {/* Blast radius */}
-                <Show when={inc.blast_radius?.length > 0}>
-                  <div style={{ 'font-size': '10.5px', color: 'var(--t4)' }}>
-                    <span style={{ 'font-weight': '600', color: 'var(--t3)' }}>Blast radius:</span>{' '}
-                    {inc.blast_radius.slice(0, 5).map(n => n.name).join(', ')}
-                    {inc.blast_radius.length > 5 ? ` +${inc.blast_radius.length - 5} more` : ''}
-                  </div>
-                </Show>
-                {/* Approve / Reject remediation */}
-                <Show when={!decision()}>
-                  <div style={{ display: 'flex', gap: '6px', 'margin-top': '2px' }}>
-                    <button
-                      onClick={() => {
-                        setRemediationDecisions(d => ({ ...d, [idx()]: 'approved' }));
-                        fetch('/api/graph/remediation/decision', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            decision: 'approved',
-                            root_cause: rootName,
-                            affected_node: affName,
-                            pattern_matched: inc.pattern_matched || '',
-                            confidence: inc.confidence || 0,
-                          }),
-                        }).catch(() => {/* best effort */});
-                      }}
-                      style={{ flex: '1', background: 'var(--okBg)', border: '1px solid var(--okBdr)', color: 'var(--ok)', 'border-radius': 'var(--r6)', padding: '6px', 'font-size': '11.5px', 'font-weight': '700', cursor: 'pointer', 'font-family': 'var(--font)' }}>
-                      ✓ Approve Remediation
-                    </button>
-                    <button
-                      onClick={() => {
-                        setRemediationDecisions(d => ({ ...d, [idx()]: 'rejected' }));
-                        fetch('/api/graph/remediation/decision', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            decision: 'rejected',
-                            root_cause: rootName,
-                            affected_node: affName,
-                            pattern_matched: inc.pattern_matched || '',
-                            confidence: inc.confidence || 0,
-                          }),
-                        }).catch(() => {/* best effort */});
-                      }}
-                      style={{ flex: '1', background: 'var(--critBg)', border: '1px solid var(--critBdr)', color: 'var(--crit)', 'border-radius': 'var(--r6)', padding: '6px', 'font-size': '11.5px', 'font-weight': '700', cursor: 'pointer', 'font-family': 'var(--font)' }}>
-                      ✗ Reject
-                    </button>
-                  </div>
-                </Show>
-                <Show when={decision()}>
-                  <div style={{ 'font-size': '11px', 'font-weight': '600', color: decision() === 'approved' ? 'var(--ok)' : 'var(--crit)', 'text-align': 'center', padding: '5px 0' }}>
-                    {decision() === 'approved' ? '✓ Remediation approved' : '✗ Remediation rejected'}
-                  </div>
-                </Show>
-                {/* Timestamp */}
-                <Show when={inc.analyzed_at}>
-                  <div style={{ 'font-size': '9.5px', color: 'var(--t5)', 'text-align': 'right' }}>
-                    {new Date(inc.analyzed_at!).toLocaleTimeString()}
-                  </div>
-                </Show>
-              </div>
-            );
-          }}</For>
         </div>
       </Show>
 

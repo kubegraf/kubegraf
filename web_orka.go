@@ -213,18 +213,15 @@ Respond with ONLY valid JSON, no markdown, no explanation text outside the JSON:
 	var result struct {
 		Fixes []aiFix `json:"fixes"`
 	}
+	usedFallback := false
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		log.Printf("[incident/fix] JSON parse failed (raw: %.200s): %v", raw, err)
-		graphJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "AI returned malformed response. Try again.",
-		})
-		return
+		log.Printf("[incident/fix] JSON parse failed, using pattern fallback (raw: %.200s): %v", raw, err)
+		result.Fixes = generateFallbackFixes(req)
+		usedFallback = true
 	}
 	if len(result.Fixes) == 0 {
-		graphJSON(w, http.StatusUnprocessableEntity, map[string]string{
-			"error": "AI returned no fixes. This may indicate insufficient cluster context.",
-		})
-		return
+		result.Fixes = generateFallbackFixes(req)
+		usedFallback = true
 	}
 
 	// Sanitize: ensure required fields, cap at 4 fixes
@@ -247,6 +244,7 @@ Respond with ONLY valid JSON, no markdown, no explanation text outside the JSON:
 		"fixes":      result.Fixes,
 		"model_used": assistant.ProviderName(),
 		"latency_ms": time.Since(t0).Milliseconds(),
+		"fallback":   usedFallback,
 	})
 }
 
@@ -561,33 +559,215 @@ func (ws *WebServer) fetchK8sEventsStr(namespace, name, kind string) string {
 }
 
 // extractJSONFromLLM extracts the first valid JSON object from an LLM response.
-// LLMs often wrap JSON in markdown code fences; this strips them.
+// LLMs (especially small models like llama3.2:3b) often wrap JSON in markdown
+// code fences or add explanatory text. This function tries multiple strategies.
 func extractJSONFromLLM(raw string) string {
 	raw = strings.TrimSpace(raw)
-	// Try ```json ... ``` first
+
+	// Strategy 1: ```json ... ``` code fence
 	if idx := strings.Index(raw, "```json"); idx >= 0 {
 		start := idx + 7
 		if end := strings.Index(raw[start:], "```"); end >= 0 {
-			return strings.TrimSpace(raw[start : start+end])
-		}
-	}
-	// Try plain ``` ... ```
-	if idx := strings.Index(raw, "```"); idx >= 0 {
-		start := idx + 3
-		if end := strings.Index(raw[start:], "```"); end >= 0 {
 			candidate := strings.TrimSpace(raw[start : start+end])
-			if strings.HasPrefix(candidate, "{") {
+			if json.Valid([]byte(candidate)) {
 				return candidate
 			}
 		}
 	}
-	// Find outermost { ... }
+
+	// Strategy 2: plain ``` ... ``` code fence
+	if idx := strings.Index(raw, "```"); idx >= 0 {
+		start := idx + 3
+		if end := strings.Index(raw[start:], "```"); end >= 0 {
+			candidate := strings.TrimSpace(raw[start : start+end])
+			if strings.HasPrefix(candidate, "{") && json.Valid([]byte(candidate)) {
+				return candidate
+			}
+		}
+	}
+
+	// Strategy 3: bracket-counting to find the first complete JSON object.
+	// This correctly handles nested objects and ignores trailing text.
+	depth := 0
+	startIdx := -1
+	inStr := false
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inStr {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inStr = !inStr
+			continue
+		}
+		if inStr {
+			continue
+		}
+		if ch == '{' {
+			if depth == 0 {
+				startIdx = i
+			}
+			depth++
+		} else if ch == '}' {
+			depth--
+			if depth == 0 && startIdx >= 0 {
+				candidate := raw[startIdx : i+1]
+				if json.Valid([]byte(candidate)) {
+					return candidate
+				}
+				// Not valid JSON — reset and try to find the next object
+				startIdx = -1
+			}
+		}
+	}
+
+	// Strategy 4: fallback — first { to last }
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")
 	if start >= 0 && end > start {
 		return raw[start : end+1]
 	}
+
 	return raw
+}
+
+// generateFallbackFixes returns deterministic fix recommendations based on the
+// incident pattern when AI parsing fails. This ensures users always receive
+// actionable suggestions even if the LLM produces malformed output.
+func generateFallbackFixes(req incidentFixRequest) []aiFix {
+	name := req.ResourceName
+	ns := req.Namespace
+	kind := req.ResourceKind
+	if kind == "" {
+		kind = "deployment"
+	}
+	kindLower := strings.ToLower(kind)
+
+	switch strings.ToUpper(req.Pattern) {
+	case "IMAGE_PULL_FAILURE", "IMAGE_PULL_BACKOFF", "IMAGEPULLBACKOFF", "ERRIMAGEPULL":
+		return []aiFix{
+			{
+				Title:           "Verify Image Exists in Registry",
+				Explanation:     "The image tag may not exist or was deleted. Confirm the image is present in the container registry before proceeding.",
+				Risk:            "low",
+				Priority:        1,
+				KubectlCommands: []string{fmt.Sprintf("kubectl describe %s/%s -n %s | grep -A5 Image", kindLower, name, ns)},
+			},
+			{
+				Title:           "Check Image Pull Secret",
+				Explanation:     "Missing or expired pull secrets will cause all pods to fail pulling from private registries. Verify the secret exists and is correctly referenced.",
+				Risk:            "low",
+				Priority:        2,
+				KubectlCommands: []string{fmt.Sprintf("kubectl get secret -n %s", ns), fmt.Sprintf("kubectl get %s/%s -n %s -o jsonpath='{.spec.template.spec.imagePullSecrets}'", kindLower, name, ns)},
+			},
+			{
+				Title:           "Restart to Force Re-pull",
+				Explanation:     "Rolling restart forces new pod creation which will attempt a fresh image pull with current credentials.",
+				Risk:            "low",
+				Priority:        3,
+				KubectlCommands: []string{fmt.Sprintf("kubectl rollout restart %s/%s -n %s", kindLower, name, ns), fmt.Sprintf("kubectl rollout status %s/%s -n %s", kindLower, name, ns)},
+			},
+		}
+
+	case "CRASH_LOOP_BACKOFF", "CRASH_LOOP", "CRASHLOOPBACKOFF":
+		return []aiFix{
+			{
+				Title:           "Inspect Crash Logs",
+				Explanation:     "Check previous container logs to identify the root cause of the crash. The --previous flag shows logs from the last terminated container.",
+				Risk:            "low",
+				Priority:        1,
+				KubectlCommands: []string{fmt.Sprintf("kubectl logs %s/%s -n %s --previous --tail=100", kindLower, name, ns)},
+			},
+			{
+				Title:           "Describe Pod Events",
+				Explanation:     "Pod events reveal OOMKill, startup probe failures, and init container issues not visible in logs.",
+				Risk:            "low",
+				Priority:        2,
+				KubectlCommands: []string{fmt.Sprintf("kubectl describe %s/%s -n %s", kindLower, name, ns)},
+			},
+			{
+				Title:           "Rollback to Previous Version",
+				Explanation:     "If this started after a recent deployment, rolling back to the prior revision may restore stability while you investigate.",
+				Risk:            "medium",
+				Priority:        3,
+				KubectlCommands: []string{fmt.Sprintf("kubectl rollout undo deployment/%s -n %s", name, ns), fmt.Sprintf("kubectl rollout status deployment/%s -n %s", name, ns)},
+			},
+		}
+
+	case "OOM_KILLED", "OOM", "OUT_OF_MEMORY":
+		return []aiFix{
+			{
+				Title:           "Check Memory Consumption",
+				Explanation:     "Identify which containers are consuming the most memory to right-size limits.",
+				Risk:            "low",
+				Priority:        1,
+				KubectlCommands: []string{fmt.Sprintf("kubectl top pods -n %s --sort-by=memory | grep %s", ns, name)},
+			},
+			{
+				Title:           "Increase Memory Limit",
+				Explanation:     "The container is being OOM-killed due to exceeding its memory limit. Increase the limit to 2x current usage as a starting point.",
+				Risk:            "medium",
+				Priority:        2,
+				KubectlCommands: []string{fmt.Sprintf("kubectl set resources deployment/%s -n %s --limits=memory=1Gi --requests=memory=512Mi", name, ns)},
+			},
+			{
+				Title:           "Check for Memory Leaks",
+				Explanation:     "If memory grows unbounded over time, the application may have a memory leak. Consider enabling heap profiling.",
+				Risk:            "low",
+				Priority:        3,
+				KubectlCommands: []string{fmt.Sprintf("kubectl describe pod -l app=%s -n %s | grep -A10 'Last State'", name, ns)},
+			},
+		}
+
+	case "NO_READY_ENDPOINTS", "NO_ENDPOINTS":
+		return []aiFix{
+			{
+				Title:           "Check Backing Pods",
+				Explanation:     "A Service with no ready endpoints means all its selector-matched pods are down or failing readiness probes.",
+				Risk:            "low",
+				Priority:        1,
+				KubectlCommands: []string{fmt.Sprintf("kubectl get pods -n %s -l app=%s", ns, name), fmt.Sprintf("kubectl describe endpoints %s -n %s", name, ns)},
+			},
+			{
+				Title:           "Check Readiness Probe",
+				Explanation:     "Misconfigured readiness probes prevent pods from entering ready state. Verify probe endpoints are correct.",
+				Risk:            "low",
+				Priority:        2,
+				KubectlCommands: []string{fmt.Sprintf("kubectl get deployment -n %s -o jsonpath='{.items[*].spec.template.spec.containers[*].readinessProbe}' | python3 -m json.tool", ns)},
+			},
+		}
+
+	default:
+		return []aiFix{
+			{
+				Title:           "Describe Resource",
+				Explanation:     "Get full resource state, conditions, and recent events to identify the failure cause.",
+				Risk:            "low",
+				Priority:        1,
+				KubectlCommands: []string{fmt.Sprintf("kubectl describe %s/%s -n %s", kindLower, name, ns)},
+			},
+			{
+				Title:           "Check Recent Logs",
+				Explanation:     "Inspect application logs for error messages and stack traces.",
+				Risk:            "low",
+				Priority:        2,
+				KubectlCommands: []string{fmt.Sprintf("kubectl logs %s/%s -n %s --tail=100", kindLower, name, ns)},
+			},
+			{
+				Title:           "Restart Workload",
+				Explanation:     "Force a rolling restart to clear transient state. Monitor rollout status to confirm recovery.",
+				Risk:            "medium",
+				Priority:        3,
+				KubectlCommands: []string{fmt.Sprintf("kubectl rollout restart deployment/%s -n %s", name, ns), fmt.Sprintf("kubectl rollout status deployment/%s -n %s", name, ns)},
+			},
+		}
+	}
 }
 
 // newIncidentAIAssistant creates an AI assistant with auto-detected Ollama model.

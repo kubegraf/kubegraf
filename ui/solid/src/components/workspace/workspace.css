@@ -368,15 +368,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--t2);font-size:13px
 .sec-label::after{content:'';flex:1;height:1px;background:var(--b1)}
 .fix-card{border:1px solid var(--b1);border-radius:var(--r10);overflow:hidden;margin-bottom:8px;transition:all .15s;cursor:pointer}
 .fix-card:hover{border-color:var(--b2);background:var(--s2)}
-.fix-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--s2);border-bottom:1px solid var(--b1)}
-.fix-icon{width:26px;height:26px;border-radius:var(--r8);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
-.fix-title{font-size:12px;font-weight:700;color:var(--t1);flex:1}
-.fix-conf{font-size:10px;font-weight:700;font-family:var(--mono)}
+.fix-head{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:var(--s2);border-bottom:1px solid var(--b1);min-width:0}
+.fix-icon{width:26px;height:26px;border-radius:var(--r8);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;margin-top:1px}
+.fix-title{font-size:12px;font-weight:700;color:var(--t1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fix-conf{font-size:10px;font-weight:700;font-family:var(--mono);flex-shrink:0}
 .fix-body{padding:10px 12px}
 .fix-desc{font-size:11px;color:var(--t4);margin-bottom:8px;line-height:1.55}
-.cmd-line{background:#1A1E27;border-radius:var(--r6);padding:6px 10px;font-family:var(--mono);font-size:10.5px;color:#7DD3FC;display:flex;align-items:center;gap:5px;cursor:pointer;transition:background .12s;margin-bottom:6px}
+.cmd-line{background:#1A1E27;border-radius:var(--r6);padding:6px 10px;font-family:var(--mono);font-size:10.5px;color:#7DD3FC;display:flex;align-items:flex-start;gap:5px;cursor:pointer;transition:background .12s;margin-bottom:6px;min-width:0;overflow:hidden}
 .cmd-line:hover{background:#22273A}
-.cmd-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd-text{flex:1;min-width:0;word-break:break-all;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.5}
 .cmd-copy{color:rgba(125,211,252,.35);flex-shrink:0}
 .btn-full{width:100%;justify-content:center;padding:7px;margin-top:4px;font-size:11.5px;font-weight:600;border-radius:var(--r8);border:none;cursor:pointer;transition:all .12s}
 .btn-full.brand{background:var(--brand);color:#000}
@@ -527,6 +527,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--t2);font-size:13px
 /* Toast */
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;background:var(--t1);color:#fff;border-radius:var(--r8);font-size:12px;font-weight:500;box-shadow:var(--sh3);z-index:9999;animation:toastIn .2s ease}
 @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes rpBounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
 
 /* Skeleton loaders */
 .skeleton{border-radius:var(--r8);background:linear-gradient(90deg,var(--s3) 25%,var(--s4) 50%,var(--s3) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}

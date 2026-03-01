@@ -443,7 +443,14 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
           {/* ── Orkas AI screen ── */}
           <Show when={activeScreen() === 'orkai'}>
             <WorkspaceErrorBoundary componentName="Orkas AI">
-              <OrkasAIPanel />
+              <OrkasAIPanel incident={currentIncident() ? {
+                id: currentIncident()!.id,
+                title: currentIncident()!.title,
+                severity: currentIncident()!.severity,
+                pattern: currentIncident()!.pattern,
+                resource: currentIncident()!.resource,
+                namespace: currentIncident()!.resource?.namespace,
+              } : null} />
             </WorkspaceErrorBoundary>
           </Show>
         </div>
