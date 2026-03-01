@@ -565,16 +565,25 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
           namespace: inc.resource?.namespace || 'default',
           severity: inc.severity || 'high',
           description: inc.description || inc.title || '',
+          // Rich context — graph engine uses these to ground its analysis
+          symptoms: (inc as any).symptoms || [],
+          timeline: (inc as any).timeline || [],
+          related_resources: (inc as any).relatedResources || [],
         }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setAiFixError(err.error || `Server error (${res.status})`);
+        return;
+      }
       const data = await res.json();
-      if (data.fixes?.length) {
+      if (Array.isArray(data.fixes) && data.fixes.length > 0) {
         setAiFixes(data.fixes);
       } else {
-        setAiFixError('No fixes generated. Try asking Orkas AI below.');
+        setAiFixError(data.error || 'No fixes generated. Ensure an AI provider is configured (Ollama, OpenAI, or Anthropic).');
       }
     } catch (e) {
-      setAiFixError(`Could not reach Orkas AI: ${e}`);
+      setAiFixError(`Request failed: ${e}`);
     } finally {
       setAiFixLoading(false);
     }
@@ -597,16 +606,25 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
           pattern: inc.pattern || 'UNKNOWN',
           severity: inc.severity || 'high',
           description: inc.description || inc.title || '',
+          // Rich context — graph engine uses these to ground analysis
+          symptoms: (inc as any).symptoms || [],
+          timeline: (inc as any).timeline || [],
+          related_resources: (inc as any).relatedResources || [],
         }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setBriefError(err.error || `Server error (${res.status})`);
+        return;
+      }
       const data = await res.json();
       if (data.brief) {
         setBriefResult(data as IncidentBrief);
       } else {
-        setBriefError(data.error || 'No brief generated.');
+        setBriefError(data.error || 'No brief generated. Ensure an AI provider is configured (Ollama, OpenAI, or Anthropic).');
       }
     } catch (e) {
-      setBriefError(`Could not reach Orkas AI: ${e}`);
+      setBriefError(`Request failed: ${e}`);
     } finally {
       setBriefLoading(false);
     }
