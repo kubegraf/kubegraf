@@ -831,8 +831,6 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setConfigLoading(false);
     setAcknowledged(false);
     setAckMsg('');
-    setAiResponse('');
-    setAiInput('');
     setCopyMdMsg('');
     setRunbookRunning(false);
     setRunbookStep(0);
