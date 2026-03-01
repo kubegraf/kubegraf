@@ -61,6 +61,7 @@ import (
 	"github.com/kubegraf/kubegraf/internal/uilogger"
 	"github.com/kubegraf/kubegraf/mcp/server"
 	"github.com/kubegraf/kubegraf/pkg/capabilities"
+	"github.com/kubegraf/kubegraf/pkg/graph"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 	windowsterminal "github.com/kubegraf/kubegraf/pkg/terminal/windows"
@@ -245,6 +246,10 @@ type WebServer struct {
 	announcementsService *AnnouncementsService
 	// Incident intelligence system for RCA and auto-remediation
 	incidentIntelligence *IncidentIntelligence
+	// graphEngine is the live Kubernetes topology graph engine.
+	// It maintains a continuously-updated causal model of the cluster and
+	// provides the foundation for graph-traversal-based incident reasoning.
+	graphEngine *graph.Engine
 }
 
 // NewWebServer creates a new web server
@@ -406,6 +411,17 @@ func NewWebServer(app *App) *WebServer {
 
 	// Note: incident intelligence is initialized in RegisterIncidentIntelligenceRoutes()
 	// to ensure it's only created once and routes are properly registered
+
+	// Initialize and start the topology graph engine.
+	// The engine watches all K8s resources via SharedInformerFactory and builds
+	// the live causal model used for graph-based incident reasoning.
+	if app.clientset != nil {
+		ws.graphEngine = graph.NewEngine(app.clientset)
+		go ws.graphEngine.Start()
+		fmt.Println("✅ Topology graph engine started (live K8s causal model)")
+	} else {
+		fmt.Println("⚠️  Topology graph engine skipped: no K8s clientset available")
+	}
 
 	return ws
 }
@@ -823,6 +839,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Phase 1 features (Change Intelligence, Explain Pod, Multi-Cluster, Knowledge Sharing)
 	ws.registerPhase1Routes()
+
+	// Topology graph engine: live K8s causal model + incident reasoning APIs
+	ws.RegisterGraphRoutes()
 
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
