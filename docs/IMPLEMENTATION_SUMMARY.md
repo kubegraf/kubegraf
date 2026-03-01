@@ -2109,3 +2109,152 @@ All features verified against running server (`./kubegraf web --port 3003`):
 | `POST /api/v2/runbook/exec {"command":"kubectl get pods -n drivo-dev \| head -5"}` | Real pod list output, exitCode 0, durationMs ~2000 ✅ |
 | Frontend bundle (newest `Incidents-*.js`) | Contains `execRunbookStep`, `knowledgebank`, `KnowledgeBank`, `printAsPDF` ✅ |
 | **`DEPENDS_ON` edges from env vars (weight 0.6)** | Inferred edges are lower confidence than structural edges (1.0). The 0.6 weight feeds into candidate scoring, appropriately down-weighting inferred service dependencies. |
+
+---
+
+## 15. Intelligence Workspace — Full Component Parity (2026-03-01)
+
+### 15.1 WorkloadScreen — 8-Kind Full Equivalence
+
+**Goal**: `Intelligence Workspace → Workloads` equivalent to `sidebar → Workloads` for all resource types.
+
+**Before**: Showed only Deployments, StatefulSets, DaemonSets, Pods (basic table).
+
+**After**: All 8 Kubernetes workload kinds with kind-specific columns, detail panels, and actions.
+
+#### Kind Tabs
+
+| Tab | Columns | Extra detail panel fields |
+|-----|---------|--------------------------|
+| **All** | Name, NS, Ready, Restarts, Age, CPU, Mem | — |
+| **Deployment** | + Status | Rollout, rollback kubectl hint |
+| **StatefulSet** | + Status | Rollout status |
+| **DaemonSet** | + Desired/Ready | — |
+| **Pod** | + Phase | **Logs tab** in detail panel |
+| **Job** | + Completions, Duration | Completion ratio, elapsed time |
+| **CronJob** | + Schedule, Last Run | Cron expression, last scheduled |
+| **HPA** | + Min/Max, Target, Current | Target workload, desired replicas |
+
+#### Key Implementation Details
+
+- **Parallel fetch** via `Promise.allSettled` for all 8 kinds + pod metrics simultaneously
+- **Kind colour map**: `Deployment=#3B82F6`, `StatefulSet=#0891B2`, `DaemonSet=#0D9488`, `Pod=#7C3AED`, `Job=#D97706`, `CronJob=#CA8A04`, `HPA=#059669`
+- **Dynamic detail tabs**: Scale tab only for Deployment/StatefulSet; Logs tab only for Pod
+- **Per-kind YAML/delete/restart APIs**: each kind routes to its correct API call
+- **Search bar**: filters by name or namespace across all kinds
+- **Severity chips**: Critical / Warning / All filter
+- **Sort cycling**: Restarts → Name → Age (cycles on click)
+- **Pod logs**: fetched via `api.getPodLogs()` with graceful fallback message
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `ui/solid/src/components/workspace/WorkloadScreen.tsx` | Full rewrite — 8 kind tabs, `Promise.allSettled` fetch, kind-specific enrichment memos, dynamic detail tabs, Logs tab for Pods, per-kind action APIs |
+
+---
+
+### 15.2 Intelligence Workspace — Close / Back Button
+
+**Goal**: Persistent close button inside the workspace so users can return to the main sidebar view.
+
+**Implementation**:
+- Added a `Close` button at the **far right** of the `.screen-tabs` bar using `margin-left: auto`
+- Shows ✕ icon + "Close" label
+- Tooltip: `"Close Intelligence Workspace (Esc)"` (reminds users `Escape` also works)
+- Hover state: text turns `var(--crit)` red with subtle red background via `.ws-close-btn` CSS class
+- Renders only when `onClose` prop is provided (`<Show when={!!props.onClose}>`)
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `ui/solid/src/components/workspace/IntelligentWorkspace.tsx` | Added `<Show when={!!props.onClose}><button class="stab ws-close-btn" …>Close</button></Show>` inside `.screen-tabs` |
+| `ui/solid/src/components/workspace/workspace.css` | Added `.ws-close-btn` styles — border-radius, gap, hover red tint |
+
+---
+
+### 15.3 GitOps Panel — Full Plugins Page Equivalence
+
+**Goal**: `Intelligence Workspace → GitOps` equivalent to `sidebar → Platform → Plugins` (all tabs, all actions).
+
+**Before**: Simple collapsible sections with a basic 4-column table per tool. No search, no modals, no actions.
+
+**After**: Full feature parity with the Plugins route.
+
+#### Tabs
+
+| Tab | Features |
+|-----|---------|
+| **Overview** | 4 plugin cards (Helm/ArgoCD/Flux/Kustomize) with official SVG icons, live counts, enabled badge; Quick Stats grid (3 clickable stat cards) |
+| **Helm Releases** | Search bar, count indicator, full table (Name/NS/Chart/Rev/Status/Updated/Actions), ⋮ action dropdown |
+| **ArgoCD Apps** | Search bar, count indicator, full table (Name/Project/Sync/Health/Age/Actions), ⋮ action dropdown |
+| **Flux Resources** | Table (Name/Kind/NS/Ready/Status), refresh button |
+
+#### Action Menus
+
+**Helm ⋮ menu**:
+- Details & History (opens modal with release history table + per-revision Rollback)
+- View YAML (YAMLViewer modal)
+- Describe (DescribeModal)
+- Uninstall (HelmReleaseDeleteModal confirm)
+
+**ArgoCD ⋮ menu**:
+- Details (modal with Sync + Refresh buttons + full app info)
+- View YAML (YAMLViewer modal)
+- Edit YAML (YAMLEditor modal with save to `/api/plugins/argocd/update`)
+- Sync / Refresh (inline API calls)
+- Describe (DescribeModal)
+- Delete (ConfirmationModal → `api.deleteArgoCDApp`)
+
+#### Key Implementation Details
+
+- **`createResource`** with cluster-context dependency — auto-refetches when `currentContext()` changes (replaces manual `onMount` + `fetchAll`)
+- **`GBadge` inline component** — maps status strings to workspace CSS variables (`var(--ok)`, `var(--warn)`, `var(--crit)`) without depending on external badge classes
+- **Portal-based dropdown menus** — fixed-position, z-index 9998, click-outside detection with 100ms debounce
+- **`SearchBar` sub-component** — reused for both Helm and ArgoCD tabs
+- **Lazy YAML `createResource`** — YAML only fetched when the respective modal opens
+- **CSS variable mapping**: all Plugins `var(--bg-primary/secondary/tertiary)`, `var(--text-primary/secondary/muted)`, `var(--accent-primary)` mapped to workspace equivalents (`var(--bg)`, `var(--s1)`, `var(--b1)`, `var(--t1-5)`, `var(--brand)`)
+
+#### New Imports Added to WorkspacePanels.tsx
+
+```typescript
+import { createResource } from 'solid-js';
+import { Portal } from 'solid-js/web';
+import { currentContext } from '../../stores/cluster';
+import Modal from '../Modal';
+import HelmReleaseDeleteModal from '../HelmReleaseDeleteModal';
+import ConfirmationModal from '../ConfirmationModal';
+import DescribeModal from '../DescribeModal';
+import YAMLViewer from '../YAMLViewer';
+import YAMLEditor from '../YAMLEditor';
+```
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `ui/solid/src/components/workspace/WorkspacePanels.tsx` | `GitOpsPanel` fully rewritten (~91 lines → ~480 lines); new imports added at top |
+| `ui/solid/src/components/workspace/workspace.css` | `.ws-close-btn` hover styles added |
+
+---
+
+### 15.4 Build & Verification
+
+```bash
+cd ui/solid && npm run build   # ✓ 855 modules, built in 7.89s (zero errors)
+go build -o kubegraf .          # ✓ clean
+./kubegraf web --port=3003      # HTTP 200 ✅
+```
+
+| Verification | Result |
+|---|---|
+| WorkloadScreen — 8 kind tabs visible | ✅ |
+| WorkloadScreen — Logs tab for Pods | ✅ |
+| WorkloadScreen — HPA Min/Max/Target columns | ✅ |
+| Close button in screen-tabs bar | ✅ |
+| GitOps Overview tab — 4 plugin cards + stats | ✅ |
+| GitOps Helm tab — search, table, ⋮ menu | ✅ |
+| GitOps ArgoCD tab — Sync/Refresh/Delete | ✅ |
+| GitOps Flux tab — Ready badge | ✅ |
+| Build: zero TypeScript/Vite errors | ✅ |

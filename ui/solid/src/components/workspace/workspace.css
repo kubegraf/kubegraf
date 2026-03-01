@@ -105,6 +105,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--t2);font-size:13px
 .stab.on{color:var(--t1);border-bottom-color:var(--brand);font-weight:600}
 .stab .dot{width:6px;height:6px;border-radius:50%}
 .stab .ct{font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:var(--r99);background:var(--critBg);color:var(--crit);border:1px solid var(--critBdr)}
+.ws-close-btn{padding:0 10px;border-radius:var(--r6);gap:5px;font-size:11.5px}
+.ws-close-btn:hover{color:var(--crit)!important;background:var(--critBg)}
 
 /* ═══════════════════════════════════════════════════════
    SIDEBAR — SHARED
