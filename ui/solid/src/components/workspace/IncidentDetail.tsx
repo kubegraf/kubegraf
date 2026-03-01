@@ -24,6 +24,21 @@ interface IncidentDetailProps {
 
 const DPR = () => window.devicePixelRatio || 1;
 
+// Deterministic pseudo-random sequence seeded by a string — ensures charts look
+// identical across renders/resizes instead of flickering with Math.random().
+function deterministicSeq(seed: string, count: number, scale: number): number[] {
+  const result: number[] = [];
+  let h = 5381;
+  for (let i = 0; i < seed.length; i++) {
+    h = (((h << 5) + h) ^ seed.charCodeAt(i)) >>> 0;
+  }
+  for (let i = 0; i < count; i++) {
+    h = (h * 1664525 + 1013904223) >>> 0; // LCG
+    result.push((h / 0xFFFFFFFF - 0.5) * scale);
+  }
+  return result;
+}
+
 function drawSpark(canvas: HTMLCanvasElement | null, data: number[], color: string) {
   if (!canvas) return;
   const dpr = DPR();
@@ -204,7 +219,7 @@ function initTimeline(canvas: HTMLCanvasElement | null, events: TLEvent[], first
   return () => cancelAnimationFrame(raf);
 }
 
-function drawMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0) {
+function drawMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0, seed = '') {
   if (!canvas) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 500;
@@ -223,8 +238,9 @@ function drawMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0)
   const xp = (i: number) => PAD.l + i / 19 * cW;
   const baseline = currentMi > 0 ? currentMi * 0.28 : limitMi * 0.3;
   const peak     = currentMi > 0 ? currentMi : limitMi * 0.99;
+  const noise = deterministicSeq(seed || 'mem', 20, 1);
   const data = Array.from({ length: 20 }, (_, i) =>
-    i < 7 ? baseline + Math.random() * (baseline * 0.05) : baseline + (peak - baseline) * Math.pow((i - 7) / 13, 2) + Math.random() * (peak * 0.02)
+    i < 7 ? baseline + Math.abs(noise[i]) * (baseline * 0.05) : baseline + (peak - baseline) * Math.pow((i - 7) / 13, 2) + Math.abs(noise[i]) * (peak * 0.02)
   );
   data[19] = peak;
   const step = limitMi <= 256 ? 64 : limitMi <= 512 ? 128 : 256;
@@ -290,7 +306,7 @@ function drawMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0)
   });
 }
 
-function drawMetricsCPU(canvas: HTMLCanvasElement | null, limitM = 1000, currentM = 0) {
+function drawMetricsCPU(canvas: HTMLCanvasElement | null, limitM = 1000, currentM = 0, seed = '') {
   if (!canvas) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 500;
@@ -307,8 +323,9 @@ function drawMetricsCPU(canvas: HTMLCanvasElement | null, limitM = 1000, current
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
   const baseline = peak * 0.35;
+  const noise = deterministicSeq(seed || 'cpu', 20, 1);
   const data = Array.from({ length: 20 }, (_, i) =>
-    i < 6 ? baseline + Math.random() * (baseline * 0.1) : baseline + (peak - baseline) * ((i - 6) / 14) + Math.random() * (peak * 0.03)
+    i < 6 ? baseline + Math.abs(noise[i]) * (baseline * 0.1) : baseline + (peak - baseline) * ((i - 6) / 14) + Math.abs(noise[i]) * (peak * 0.03)
   );
   data[19] = peak;
   const gridVals = Array.from({ length: 5 }, (_, i) => Math.round(MAX / 4 * i));
@@ -346,7 +363,7 @@ function drawMetricsCPU(canvas: HTMLCanvasElement | null, limitM = 1000, current
   });
 }
 
-function drawMetricsMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0) {
+function drawMetricsMem(canvas: HTMLCanvasElement | null, limitMi = 512, currentMi = 0, seed = '') {
   if (!canvas) return;
   const dpr = DPR();
   const W = canvas.parentElement?.offsetWidth || 500;
@@ -363,8 +380,9 @@ function drawMetricsMem(canvas: HTMLCanvasElement | null, limitMi = 512, current
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
   const baseMem = peakMem * 0.3;
+  const noiseMem = deterministicSeq(seed || 'memtab', 20, 1);
   const data = Array.from({ length: 20 }, (_, i) =>
-    i < 7 ? baseMem + Math.random() * (baseMem * 0.05) : baseMem + (peakMem - baseMem) * Math.pow((i - 7) / 13, 2) + Math.random() * (peakMem * 0.02)
+    i < 7 ? baseMem + Math.abs(noiseMem[i]) * (baseMem * 0.05) : baseMem + (peakMem - baseMem) * Math.pow((i - 7) / 13, 2) + Math.abs(noiseMem[i]) * (peakMem * 0.02)
   );
   data[19] = peakMem;
   const stepMem = limitMi <= 256 ? 64 : limitMi <= 512 ? 128 : 256;
@@ -407,9 +425,6 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [secs, setSecs] = createSignal(0);
   const [activeTab, setActiveTab] = createSignal('overview');
   const [activeRPTab, setActiveRPTab] = createSignal('fix');
-  const [aiInput, setAiInput] = createSignal('');
-  const [aiLoading, setAiLoading] = createSignal(false);
-  const [aiResponse, setAiResponse] = createSignal('');
   const [acknowledged, setAcknowledged] = createSignal(false);
   const [ackMsg, setAckMsg] = createSignal('');
   const [copyMdMsg, setCopyMdMsg] = createSignal('');
@@ -435,6 +450,88 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [rawYaml, setRawYaml] = createSignal('');
   const [podDetails, setPodDetails] = createSignal<any>(null);
   const [configLoading, setConfigLoading] = createSignal(false);
+
+  // ── Orkas AI inline chat ─────────────────────────────────────────────────
+  interface OrkasMsg { role: 'user' | 'assistant'; text: string; model?: string; confidence?: number; latency?: number; }
+  interface AiFix { title: string; explanation: string; risk: string; priority: number; kubectl_commands: string[]; }
+  const [orkasMessages, setOrkasMessages] = createSignal<OrkasMsg[]>([]);
+  const [orkasInput, setOrkasInput] = createSignal('');
+  const [orkasLoading, setOrkasLoading] = createSignal(false);
+  const [orkasExpanded, setOrkasExpanded] = createSignal(true);
+  const [aiFixes, setAiFixes] = createSignal<AiFix[]>([]);
+  const [aiFixLoading, setAiFixLoading] = createSignal(false);
+  const [aiFixError, setAiFixError] = createSignal('');
+  const [copiedCmd, setCopiedCmd] = createSignal('');
+
+  const orkasSend = async (overrideQuery?: string) => {
+    const q = (overrideQuery ?? orkasInput()).trim();
+    if (!q || orkasLoading()) return;
+    const inc = props.incident;
+    const ctx = inc
+      ? `[Incident: ${inc.title} | Resource: ${inc.resource?.kind}/${inc.resource?.name} | Namespace: ${inc.resource?.namespace} | Severity: ${inc.severity} | Pattern: ${inc.pattern}]\n\n${q}`
+      : q;
+    setOrkasMessages(m => [...m, { role: 'user', text: q }]);
+    setOrkasInput('');
+    setOrkasLoading(true);
+    const t0 = Date.now();
+    try {
+      const res = await fetch('http://localhost:8000/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: ctx, namespace: inc?.resource?.namespace || 'default' }),
+      });
+      const data = await res.json();
+      setOrkasMessages(m => [...m, {
+        role: 'assistant',
+        text: data.answer || data.error || 'No response',
+        model: data.model_used,
+        confidence: data.confidence,
+        latency: Date.now() - t0,
+      }]);
+    } catch (e) {
+      setOrkasMessages(m => [...m, { role: 'assistant', text: `⚠ Could not reach Orkas AI: ${e}` }]);
+    } finally {
+      setOrkasLoading(false);
+    }
+  };
+  const fetchAiFixes = async () => {
+    const inc = props.incident;
+    if (!inc || aiFixLoading()) return;
+    setAiFixLoading(true);
+    setAiFixError('');
+    try {
+      const res = await fetch('http://localhost:8000/incident/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pattern: inc.pattern || 'UNKNOWN',
+          resource_kind: inc.resource?.kind || 'Pod',
+          resource_name: inc.resource?.name || inc.title || 'unknown',
+          namespace: inc.resource?.namespace || 'default',
+          severity: inc.severity || 'high',
+          description: inc.description || inc.title || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.fixes?.length) {
+        setAiFixes(data.fixes);
+      } else {
+        setAiFixError('No fixes generated. Try asking Orkas AI below.');
+      }
+    } catch (e) {
+      setAiFixError(`Could not reach Orkas AI: ${e}`);
+    } finally {
+      setAiFixLoading(false);
+    }
+  };
+
+  const copyCmd = (cmd: string) => {
+    navigator.clipboard.writeText(cmd).then(() => {
+      setCopiedCmd(cmd);
+      setTimeout(() => setCopiedCmd(c => c === cmd ? '' : c), 2000);
+    });
+  };
+
   const copyVal = (key: string, val: string) => {
     navigator.clipboard.writeText(val).then(() => {
       setCopiedKey(key);
@@ -652,6 +749,9 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setCopyMdMsg('');
     setRunbookRunning(false);
     setRunbookStep(0);
+    setAiFixes([]);
+    setAiFixError('');
+    setOrkasMessages([]);
     // Reset timer from real firstSeen
     const firstSeen = inc?.firstSeen;
     setSecs(firstSeen ? Math.max(0, Math.floor((Date.now() - new Date(firstSeen).getTime()) / 1000)) : 0);
@@ -822,9 +922,10 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     const cpuStr = resourceMeta().cpu;
     const cpuCurrentM = parseM(cpuStr);
     const cpuLimitM   = parsedConfig().cpuLim ? parseM(parsedConfig().cpuLim) : 1000;
+    const seed = props.incident?.id || props.incident?.resource?.name || '';
     setTimeout(() => {
-      drawMetricsCPU(cpuMetricsRef || null, cpuLimitM || 1000, cpuCurrentM);
-      drawMetricsMem(memMetricsRef || null, memLimitMi || 512, memCurrentMi);
+      drawMetricsCPU(cpuMetricsRef || null, cpuLimitM || 1000, cpuCurrentM, seed + 'cpu');
+      drawMetricsMem(memMetricsRef || null, memLimitMi || 512, memCurrentMi, seed + 'mem');
     }, 60);
   });
 
@@ -855,7 +956,8 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
 
     setTimeout(() => {
       const { limitMi, currentMi } = getMemLimits();
-      drawMem(memRef || null, limitMi, currentMi);
+      const memSeed = props.incident?.id || props.incident?.resource?.name || '';
+      drawMem(memRef || null, limitMi, currentMi, memSeed);
       drawRpRing(rpRingRef || null, healthScore());
     }, 130);
 
@@ -868,7 +970,8 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       const firstSeenMs = props.incident?.firstSeen ? new Date(props.incident.firstSeen).getTime() : undefined;
       if (tlCleanup) { tlCleanup(); tlCleanup = initTimeline(tlRef || null, tlEvents, firstSeenMs); }
       const { limitMi, currentMi } = getMemLimits();
-      drawMem(memRef || null, limitMi, currentMi);
+      const resizeSeed = props.incident?.id || props.incident?.resource?.name || '';
+      drawMem(memRef || null, limitMi, currentMi, resizeSeed);
     };
     window.addEventListener('resize', onResize);
 
@@ -1610,61 +1713,6 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
           </Show>
         </div>
 
-        {/* AI bar */}
-        <Show when={aiResponse()}>
-          <div style={{ background: 'var(--s2)', 'border-top': '1px solid var(--b2)', padding: '10px 14px', 'font-size': '12px', color: 'var(--t3)', 'max-height': '120px', overflow: 'auto', 'font-family': 'var(--mono)', 'line-height': '1.5', 'white-space': 'pre-wrap' }}>
-            <span style={{ color: 'var(--violet)', 'font-weight': '700' }}>✦ AI: </span>{aiResponse()}
-          </div>
-        </Show>
-        <div class="ai-bar">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="var(--violet)" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          <input
-            class="ai-input"
-            placeholder="Ask KubeGraf AI — 'Why is memory growing?' · 'Similar incidents?' · 'Draft fix PR'..."
-            value={aiInput()}
-            onInput={(e) => setAiInput(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const q = aiInput().trim();
-                if (!q || aiLoading()) return;
-                setAiLoading(true);
-                setAiResponse('');
-                const inc = props.incident;
-                const context = `${inc?.resource?.kind || 'Pod'} ${inc?.resource?.name || 'unknown'} in ${inc?.resource?.namespace || 'default'} — severity: ${inc?.severity || 'unknown'}, pattern: ${(inc?.pattern || 'unknown').replace(/_/g, ' ')}`;
-                const diag = (inc as any)?.diagnosis;
-                const recs = ((inc as any)?.recommendations || []).slice(0, 2);
-                const answer = diag?.summary
-                  ? `${diag.summary}${recs.length ? '\n\nRecommended actions:\n' + recs.map((r: any, i: number) => `${i+1}. ${r.title}`).join('\n') : ''}`
-                  : `Analyzing: ${q}\n\nContext: ${context}\n\nInvestigation in progress — check the Overview tab for AI hypotheses and recommended actions.`;
-                setTimeout(() => { setAiResponse(answer); setAiLoading(false); }, 600);
-                setAiInput('');
-              }
-            }}
-          />
-          <button class="ai-send" disabled={aiLoading()}
-            onClick={() => {
-              const q = aiInput().trim();
-              if (!q || aiLoading()) return;
-              setAiLoading(true);
-              setAiResponse('');
-              const inc = props.incident;
-              const context = `${inc?.resource?.kind || 'Pod'} ${inc?.resource?.name || 'unknown'} in ${inc?.resource?.namespace || 'default'} — severity: ${inc?.severity || 'unknown'}, pattern: ${(inc?.pattern || 'unknown').replace(/_/g, ' ')}`;
-              const diag = (inc as any)?.diagnosis;
-              const recs = ((inc as any)?.recommendations || []).slice(0, 2);
-              const answer = diag?.summary
-                ? `${diag.summary}${recs.length ? '\n\nRecommended actions:\n' + recs.map((r: any, i: number) => `${i+1}. ${r.title}`).join('\n') : ''}`
-                : `Analyzing: ${q}\n\nContext: ${context}\n\nInvestigation in progress — check the Overview tab for AI hypotheses and recommended actions.`;
-              setTimeout(() => { setAiResponse(answer); setAiLoading(false); }, 600);
-              setAiInput('');
-            }}
-          >
-            {aiLoading()
-              ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
-              : <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            }
-          </button>
-        </div>
       </div>
 
       {/* ═══ RESIZE HANDLE ═══ */}
@@ -1716,48 +1764,117 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                 <span class="mttr-key">MTTR Elapsed</span>
                 <span class="mttr-val">{rpTimerStr()}</span>
               </div>
-              <div class="mttr-track"><div class="mttr-fill" style={{ width: '64%' }} /></div>
+              <div class="mttr-track"><div class="mttr-fill" style={{ width: `${Math.min(100, Math.round((secs() / 600) * 100))}%`, background: secs() > 600 ? 'var(--crit)' : secs() > 300 ? 'var(--warn)' : 'var(--ok)' }} /></div>
               <div class="mttr-hint">Target &lt;10 min · {incSev()} incident</div>
             </div>
-            {/* Recommended Fixes from real incident data */}
-            <div class="sec-label">Recommended Actions</div>
-            <Show when={aiData()?.recs?.length} fallback={
-              <div class="fix-card">
-                <div class="fix-head">
-                  <div class="fix-icon" style={{ background: 'rgba(251,191,36,.15)' }}>⚡</div>
-                  <span class="fix-title">Restart {incNs()}/{incName()}</span>
-                  <span class="fix-conf" style={{ color: 'var(--ok)' }}>Safe</span>
-                </div>
-                <div class="fix-body">
-                  <div class="fix-desc">Delete pod to trigger fresh recreation by its controller.</div>
-                  <div class="cmd-line">
-                    <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
-                  </div>
-                </div>
+
+            {/* Orkas AI Fix Analysis button */}
+            <div style={{ padding: '0 14px 10px' }}>
+              <button
+                class="btn-full brand"
+                style={{
+                  display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                  gap: '6px', 'font-size': '11.5px',
+                  opacity: aiFixLoading() ? '0.7' : '1',
+                }}
+                disabled={aiFixLoading()}
+                onClick={fetchAiFixes}
+              >
+                <img src="/orkas-logo.png" alt="" style={{ height: '14px', width: 'auto' }} />
+                {aiFixLoading() ? 'Analyzing with Orkas AI…' : aiFixes().length > 0 ? 'Re-analyze with Orkas AI' : 'Analyze & Fix with Orkas AI'}
+              </button>
+              <Show when={aiFixError()}>
+                <div style={{ 'font-size': '10.5px', color: 'var(--crit)', 'margin-top': '4px', 'text-align': 'center' }}>{aiFixError()}</div>
+              </Show>
+            </div>
+
+            {/* AI-generated fixes */}
+            <Show when={aiFixes().length > 0}>
+              <div class="sec-label" style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                AI Recommendations
+                <span class="chip ai" style={{ 'font-size': '9px', padding: '1px 5px' }}>✦ Orkas AI</span>
               </div>
-            }>
-              <For each={(aiData()?.recs || []).slice(0, 3)}>{(rec: any, i) => (
+              <For each={aiFixes()}>{(fix, i) => (
                 <div class="fix-card">
                   <div class="fix-head">
-                    <div class="fix-icon" style={{ background: i() === 0 ? 'rgba(251,191,36,.15)' : i() === 1 ? 'var(--violetBg)' : 'rgba(8,145,178,.12)' }}>
-                      {i() === 0 ? '⚡' : i() === 1 ? '🔧' : '📋'}
+                    <div class="fix-icon" style={{ background: i() === 0 ? 'rgba(251,191,36,.15)' : i() === 1 ? 'var(--violetBg)' : i() === 2 ? 'rgba(8,145,178,.12)' : 'rgba(16,185,129,.12)' }}>
+                      {i() === 0 ? '⚡' : i() === 1 ? '🔧' : i() === 2 ? '📋' : '🛡'}
                     </div>
-                    <span class="fix-title">{rec.title}</span>
-                    <span class="fix-conf" style={{ color: rec.risk === 'high' ? 'var(--crit)' : rec.risk === 'medium' ? 'var(--warn)' : 'var(--ok)' }}>
-                      {rec.risk === 'high' ? 'Risky' : rec.risk === 'medium' ? 'Moderate' : 'Safe'}
+                    <span class="fix-title">{fix.title}</span>
+                    <span class="fix-conf" style={{ color: fix.risk === 'high' ? 'var(--crit)' : fix.risk === 'medium' ? 'var(--warn)' : 'var(--ok)' }}>
+                      {fix.risk === 'high' ? 'Risky' : fix.risk === 'medium' ? 'Moderate' : 'Safe'}
                     </span>
                   </div>
                   <div class="fix-body">
-                    <div class="fix-desc">{rec.explanation}</div>
-                    <Show when={i() === 0}>
-                      <div class="cmd-line">
-                        <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
-                        <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    <div class="fix-desc">{fix.explanation}</div>
+                    <For each={fix.kubectl_commands}>{(cmd) => (
+                      <div
+                        class="cmd-line"
+                        style={{ cursor: 'pointer', 'margin-top': '4px' }}
+                        onClick={() => copyCmd(cmd)}
+                        title="Click to copy"
+                      >
+                        <span class="cmd-text" style={{ 'flex': '1', 'word-break': 'break-all' }}>{cmd}</span>
+                        <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2"/>
+                          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                        </svg>
+                        <Show when={copiedCmd() === cmd}>
+                          <span style={{ 'font-size': '9px', color: 'var(--ok)', 'margin-left': '4px' }}>✓</span>
+                        </Show>
                       </div>
-                    </Show>
+                    )}</For>
                   </div>
                 </div>
               )}</For>
+            </Show>
+
+            {/* Default fix cards when no AI fixes yet */}
+            <Show when={aiFixes().length === 0}>
+              <div class="sec-label">Quick Actions</div>
+              <Show when={aiData()?.recs?.length} fallback={
+                <div class="fix-card">
+                  <div class="fix-head">
+                    <div class="fix-icon" style={{ background: 'rgba(251,191,36,.15)' }}>⚡</div>
+                    <span class="fix-title">Restart {incNs()}/{incName()}</span>
+                    <span class="fix-conf" style={{ color: 'var(--ok)' }}>Safe</span>
+                  </div>
+                  <div class="fix-body">
+                    <div class="fix-desc">Delete pod to trigger fresh recreation by its controller.</div>
+                    <div class="cmd-line" style={{ cursor: 'pointer' }} onClick={() => copyCmd(`kubectl delete pod ${incName()} -n ${incNs()}`)}>
+                      <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
+                      <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    </div>
+                    <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(`kubectl logs ${incName()} -n ${incNs()} --previous --tail=100`)}>
+                      <span class="cmd-text">kubectl logs {incName()} -n {incNs()} --previous --tail=100</span>
+                      <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    </div>
+                  </div>
+                </div>
+              }>
+                <For each={(aiData()?.recs || []).slice(0, 3)}>{(rec: any, i) => (
+                  <div class="fix-card">
+                    <div class="fix-head">
+                      <div class="fix-icon" style={{ background: i() === 0 ? 'rgba(251,191,36,.15)' : i() === 1 ? 'var(--violetBg)' : 'rgba(8,145,178,.12)' }}>
+                        {i() === 0 ? '⚡' : i() === 1 ? '🔧' : '📋'}
+                      </div>
+                      <span class="fix-title">{rec.title}</span>
+                      <span class="fix-conf" style={{ color: rec.risk === 'high' ? 'var(--crit)' : rec.risk === 'medium' ? 'var(--warn)' : 'var(--ok)' }}>
+                        {rec.risk === 'high' ? 'Risky' : rec.risk === 'medium' ? 'Moderate' : 'Safe'}
+                      </span>
+                    </div>
+                    <div class="fix-body">
+                      <div class="fix-desc">{rec.explanation}</div>
+                      <Show when={i() === 0}>
+                        <div class="cmd-line" style={{ cursor: 'pointer' }} onClick={() => copyCmd(`kubectl delete pod ${incName()} -n ${incNs()}`)}>
+                          <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
+                          <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                )}</For>
+              </Show>
             </Show>
           </Show>
 
@@ -1929,6 +2046,116 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
               </div>
             </div>
           </Show>
+
+          {/* ── Orkas AI ── */}
+          <div style={{
+            'margin-top': '24px',
+            border: '1px solid var(--b2)',
+            'border-radius': '10px',
+            overflow: 'hidden',
+            background: 'var(--s1)',
+          }}>
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex', 'align-items': 'center', gap: '8px',
+                padding: '10px 14px', cursor: 'pointer',
+                background: 'var(--s2)', 'border-bottom': orkasExpanded() ? '1px solid var(--b2)' : 'none',
+                'user-select': 'none',
+              }}
+              onClick={() => setOrkasExpanded(v => !v)}
+            >
+              <img src="/orkas-logo.png" alt="Orkas AI" style={{ height: '20px', width: 'auto', 'object-fit': 'contain', 'border-radius': '3px' }} />
+              <span style={{ 'font-size': '12px', 'font-weight': '600', color: 'var(--t1)', flex: '1' }}>Orkas AI</span>
+              <span style={{ 'font-size': '10px', color: 'var(--t5)', 'font-family': 'Geist Mono,monospace' }}>
+                {orkasMessages().length > 0 ? `${orkasMessages().length} msg` : 'Ask Orkas AI about this incident'}
+              </span>
+              <span style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-left': '6px' }}>{orkasExpanded() ? '▲' : '▼'}</span>
+            </div>
+
+            <Show when={orkasExpanded()}>
+              {/* Quick prompts — only before first message */}
+              <Show when={orkasMessages().length === 0}>
+                <div style={{ padding: '10px 14px', display: 'flex', 'flex-wrap': 'wrap', gap: '5px' }}>
+                  <For each={[
+                    `Why is ${incName()} crashing?`,
+                    `Show me the root cause of ${incPattern()}`,
+                    `kubectl commands to fix ${incName()} in ${incNs()}`,
+                    `Show pod logs for ${incName()}`,
+                    `List all events in ${incNs()} namespace`,
+                    `What is the blast radius of this incident?`,
+                  ]}>{(q) => (
+                    <button
+                      class="btn ghost"
+                      style={{ 'font-size': '10px', padding: '3px 8px', 'border-radius': '12px' }}
+                      onClick={() => orkasSend(q)}
+                    >{q}</button>
+                  )}</For>
+                </div>
+              </Show>
+
+              {/* Messages */}
+              <Show when={orkasMessages().length > 0}>
+                <div style={{
+                  'max-height': '320px', 'overflow-y': 'auto',
+                  padding: '12px 14px', display: 'flex', 'flex-direction': 'column', gap: '10px',
+                }}>
+                  <For each={orkasMessages()}>{(msg) => (
+                    <div style={{ display: 'flex', 'flex-direction': 'column', gap: '2px',
+                      'align-items': msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                      <div style={{
+                        'max-width': '88%',
+                        padding: '8px 11px',
+                        'border-radius': msg.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                        background: msg.role === 'user' ? 'var(--brand)' : 'var(--s3)',
+                        color: msg.role === 'user' ? '#fff' : 'var(--t1)',
+                        'font-size': '12px', 'line-height': '1.5',
+                        'white-space': 'pre-wrap', 'word-break': 'break-word',
+                      }}>{msg.text}</div>
+                      <Show when={msg.role === 'assistant' && (msg.model || msg.confidence)}>
+                        <div style={{ 'font-size': '10px', color: 'var(--t5)', display: 'flex', gap: '6px' }}>
+                          <Show when={msg.model}><span style={{ 'font-family': 'Geist Mono,monospace' }}>{msg.model}</span></Show>
+                          <Show when={msg.confidence}><span style={{ color: 'var(--ok)' }}>{Math.round(msg.confidence! * 100)}% conf</span></Show>
+                          <Show when={msg.latency}><span>{msg.latency}ms</span></Show>
+                        </div>
+                      </Show>
+                    </div>
+                  )}</For>
+                  <Show when={orkasLoading()}>
+                    <div style={{ display: 'flex', gap: '4px', 'align-items': 'center', padding: '4px 0' }}>
+                      <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>Orkas AI is thinking</span>
+                      <span style={{ color: 'var(--brand)', animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+
+              {/* Input */}
+              <div style={{
+                padding: '10px 14px', 'border-top': '1px solid var(--b2)',
+                display: 'flex', gap: '8px', 'align-items': 'center',
+              }}>
+                <input
+                  type="text"
+                  placeholder={`Ask about ${incName()} incident…`}
+                  value={orkasInput()}
+                  onInput={e => setOrkasInput(e.currentTarget.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') orkasSend(); }}
+                  style={{
+                    flex: '1', padding: '7px 10px',
+                    background: 'var(--s2)', border: '1px solid var(--b2)',
+                    'border-radius': '6px', color: 'var(--t1)', 'font-size': '12px', outline: 'none',
+                  }}
+                />
+                <button
+                  class="btn primary"
+                  style={{ 'font-size': '11px', padding: '7px 12px', 'white-space': 'nowrap' }}
+                  onClick={() => orkasSend()}
+                  disabled={!orkasInput().trim() || orkasLoading()}
+                >Ask</button>
+              </div>
+            </Show>
+          </div>
 
         </div>
       </div>

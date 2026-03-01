@@ -315,6 +315,7 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
           </For>
         </Show>
       </div>
+
     </aside>
   );
 };

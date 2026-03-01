@@ -17,6 +17,7 @@ import {
   CostPanel,
   SettingsPanel,
 } from './WorkspacePanels';
+import OrkasAIPanel from './OrkasAIPanel';
 import './workspace.css';
 
 interface IntelligentWorkspaceProps {
@@ -30,8 +31,9 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [activeRail, setActiveRail] = createSignal('incident');
   const [activeScreen, setActiveScreen] = createSignal<
-    'home' | 'incident' | 'workloads' | 'graph' | 'metrics' | 'gitops' | 'cost' | 'settings'
+    'home' | 'incident' | 'workloads' | 'graph' | 'metrics' | 'gitops' | 'cost' | 'settings' | 'orkai'
   >('incident');
+  const [resolveToast, setResolveToast] = createSignal<{ msg: string; ok: boolean } | null>(null);
 
   const currentIncident = createMemo(() => {
     const incidents = props.incidents || [];
@@ -60,13 +62,33 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     if (selectedIndex() < props.incidents.length - 1) handleSelectIncident(selectedIndex() + 1);
   };
 
+  const showToast = (msg: string, ok: boolean) => {
+    setResolveToast({ msg, ok });
+    setTimeout(() => setResolveToast(null), 3500);
+  };
+
   const handleResolve = async () => {
     const inc = currentIncident();
     if (!inc) return;
     try {
       await api.resolveIncident(inc.id, 'Resolved from Intelligence Workspace');
+      showToast('✓ Incident resolved', true);
     } catch (err) {
-      console.error('Failed to resolve:', err);
+      showToast('✗ Failed to resolve incident', false);
+    }
+  };
+
+  // Navigate to the incident matching a workload by resource name
+  const handleWorkloadIncidentSelect = (name: string, ns: string) => {
+    const idx = (props.incidents || []).findIndex(
+      inc => inc.resource?.name === name && (!ns || !inc.resource?.namespace || inc.resource.namespace === ns)
+    );
+    if (idx >= 0) {
+      handleSelectIncident(idx);
+    } else {
+      // No matching incident found — just switch to incidents view
+      setActiveRail('incident');
+      setActiveScreen('incident');
     }
   };
 
@@ -123,12 +145,34 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     else if (id === 'gitops') setActiveScreen('gitops');
     else if (id === 'cost') setActiveScreen('cost');
     else if (id === 'settings') setActiveScreen('settings');
+    else if (id === 'orkai') setActiveScreen('orkai');
   };
 
   const critCount = createMemo(() => props.incidents.filter(i => i.severity === 'critical').length);
 
   return (
     <div class="shell">
+      {/* ═══ TOAST ═══ */}
+      <Show when={resolveToast()}>
+        {(toast) => (
+          <div style={{
+            position: 'fixed',
+            top: '16px',
+            right: '16px',
+            padding: '10px 16px',
+            background: toast().ok ? 'rgba(5,150,105,.95)' : 'rgba(220,38,38,.95)',
+            color: '#fff',
+            'border-radius': '8px',
+            'font-size': '12.5px',
+            'font-weight': '600',
+            'z-index': '9999',
+            'box-shadow': '0 4px 12px rgba(0,0,0,.2)',
+            animation: 'fadeIn 0.2s ease',
+          }}>
+            {toast().msg}
+          </div>
+        )}
+      </Show>
       {/* ═══ RAIL ═══ */}
       <nav class="rail">
         {/* Logo */}
@@ -181,6 +225,16 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
         {/* Cost */}
         <div class={`nav-item ${activeRail() === 'cost' ? 'active' : ''}`} title="Cost" onClick={() => handleRailClick('cost')}>
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        </div>
+
+        {/* Orkas AI */}
+        <div
+          class={`nav-item ${activeRail() === 'orkai' ? 'active' : ''}`}
+          title="Orkas AI"
+          onClick={() => handleRailClick('orkai')}
+          style={{ position: 'relative' }}
+        >
+          <img src="/orkas-logo.png" alt="Orkas AI" style={{ height: '18px', width: 'auto', 'object-fit': 'contain' }} />
         </div>
 
         <div class="rail-spacer" />
@@ -254,6 +308,12 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
                 Settings
               </div>
             </Show>
+            <Show when={activeScreen() === 'orkai'}>
+              <div class="stab on">
+                <img src="/orkas-logo.png" alt="" style={{ height: '11px', width: 'auto', 'object-fit': 'contain', 'vertical-align': 'middle' }} />
+                Orkas AI
+              </div>
+            </Show>
           </div>
 
           {/* ── Overview screen ── */}
@@ -293,6 +353,7 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
               <WorkloadScreen
                 incidents={props.incidents || []}
                 onViewIncident={() => { setActiveScreen('incident'); setActiveRail('incident'); }}
+                onSelectWorkloadIncident={handleWorkloadIncidentSelect}
               />
             </WorkspaceErrorBoundary>
           </Show>
@@ -336,6 +397,13 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
           <Show when={activeScreen() === 'settings'}>
             <WorkspaceErrorBoundary componentName="SettingsPanel">
               <SettingsPanel incidents={props.incidents} onClose={props.onClose} />
+            </WorkspaceErrorBoundary>
+          </Show>
+
+          {/* ── Orkas AI screen ── */}
+          <Show when={activeScreen() === 'orkai'}>
+            <WorkspaceErrorBoundary componentName="Orkas AI">
+              <OrkasAIPanel />
             </WorkspaceErrorBoundary>
           </Show>
         </div>
