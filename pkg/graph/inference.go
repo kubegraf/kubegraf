@@ -96,11 +96,16 @@ func (e *Engine) Analyze(req AnalyzeRequest) *CausalChain {
 	}
 
 	if len(rankedCandidates) == 0 {
-		// No upstream cause found — the affected node itself may be the source
+		// No upstream cause found — the affected node itself may be the source.
 		chain.RootCause = affected
 		chain.Confidence = 0.35
 		chain.Path = []CausalStep{{Node: affected, EventEvidence: eventMessages(chain.Evidence)}}
 		chain.BlastRadius = e.computeBlastRadius(affectedID)
+		// Cache even the self-cause result so repeated analysis within the TTL
+		// returns the same pointer and avoids redundant BFS traversals.
+		e.analysisMu.Lock()
+		e.lastAnalysis[affectedID] = chain
+		e.analysisMu.Unlock()
 		return chain
 	}
 

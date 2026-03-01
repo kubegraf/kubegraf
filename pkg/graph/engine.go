@@ -218,6 +218,16 @@ func (e *Engine) Start() {
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
+	// --- NetworkPolicy informer ---
+	// NETWORK_ALLOWS edges map which NetworkPolicy governs a pod's traffic.
+	// A misconfigured policy isolating a pod appears immediately in the blast radius.
+	npInformer := e.factory.Networking().V1().NetworkPolicies().Informer()
+	npInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { e.onNetworkPolicy(obj) },
+		UpdateFunc: func(_, obj interface{}) { e.onNetworkPolicy(obj) },
+		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
+	})
+
 	// --- Event informer (K8s Events — the incident signal source) ---
 	evtInformer := e.factory.Core().V1().Events().Informer()
 	evtInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -1050,6 +1060,67 @@ func (e *Engine) rebuildPDBEdges(pdb *policyv1.PodDisruptionBudget) {
 	}
 }
 
+// onNetworkPolicy handles NetworkPolicy add/update events.
+// It creates the NetworkPolicy node and builds NETWORK_ALLOWS edges to every
+// pod/workload whose labels match the policy's pod selector.
+// An empty pod selector matches all pods in the namespace (default deny/allow rules).
+func (e *Engine) onNetworkPolicy(obj interface{}) {
+	np, ok := obj.(*networkingv1.NetworkPolicy)
+	if !ok {
+		return
+	}
+	n := &GraphNode{
+		ID:              NodeID(KindNetworkPolicy, np.Namespace, np.Name),
+		Kind:            KindNetworkPolicy,
+		Name:            np.Name,
+		Namespace:       np.Namespace,
+		Labels:          np.Labels,
+		Status:          StatusHealthy,
+		ResourceVersion: np.ResourceVersion,
+		UpdatedAt:       time.Now(),
+		CreatedAt:       np.CreationTimestamp.Time,
+		Metadata: map[string]interface{}{
+			"ingress_rules": len(np.Spec.Ingress),
+			"egress_rules":  len(np.Spec.Egress),
+		},
+	}
+	e.upsertNode(n)
+	// Rebuild edges asynchronously to avoid blocking the informer callback.
+	go e.rebuildNetworkPolicyEdges(np)
+}
+
+// rebuildNetworkPolicyEdges builds NETWORK_ALLOWS edges from a NetworkPolicy to
+// every pod and workload whose labels match the policy's pod selector.
+// An empty selector matches all pods in the namespace.
+func (e *Engine) rebuildNetworkPolicyEdges(np *networkingv1.NetworkPolicy) {
+	sel, err := metav1.LabelSelectorAsSelector(&np.Spec.PodSelector)
+	if err != nil {
+		return
+	}
+	npID := NodeID(KindNetworkPolicy, np.Namespace, np.Name)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for _, n := range e.nodes {
+		if n.Namespace != np.Namespace {
+			continue
+		}
+		switch n.Kind {
+		case KindPod, KindDeployment, KindStatefulSet, KindDaemonSet:
+			if sel.Matches(labels.Set(n.Labels)) {
+				e.addEdge(&GraphEdge{
+					ID:     EdgeID(npID, EdgeNetworkAllows, n.ID),
+					From:   npID,
+					To:     n.ID,
+					Kind:   EdgeNetworkAllows,
+					Weight: 0.70,
+				})
+			}
+		}
+	}
+}
+
 // onDeleteResource handles deletion for all resource types except Pod, Node,
 // and Deployment (which have dedicated delete handlers with extra cleanup).
 // Resolves tombstone wrappers before type-switching to determine the node ID.
@@ -1081,6 +1152,8 @@ func (e *Engine) onDeleteResource(obj interface{}) {
 		nodeID = NodeID(KindHPA, v.Namespace, v.Name)
 	case *policyv1.PodDisruptionBudget:
 		nodeID = NodeID(KindPDB, v.Namespace, v.Name)
+	case *networkingv1.NetworkPolicy:
+		nodeID = NodeID(KindNetworkPolicy, v.Namespace, v.Name)
 	}
 	if nodeID != "" {
 		e.deleteNode(nodeID)
@@ -1516,6 +1589,38 @@ func (e *Engine) rebuildAllEdges() {
 						Kind:   EdgeProtects,
 						Weight: 0.85,
 					})
+				}
+			}
+		}
+	}
+
+	// NetworkPolicies — NETWORK_ALLOWS edges: NetworkPolicy → matching pods/workloads
+	netpols, err := e.client.NetworkingV1().NetworkPolicies("").List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, np := range netpols.Items {
+			npID := NodeID(KindNetworkPolicy, np.Namespace, np.Name)
+			if _, ok := e.nodes[npID]; !ok {
+				continue
+			}
+			sel, selErr := metav1.LabelSelectorAsSelector(&np.Spec.PodSelector)
+			if selErr != nil {
+				continue
+			}
+			for _, n := range e.nodes {
+				if n.Namespace != np.Namespace {
+					continue
+				}
+				switch n.Kind {
+				case KindPod, KindDeployment, KindStatefulSet, KindDaemonSet:
+					if sel.Matches(labels.Set(n.Labels)) {
+						e.addEdge(&GraphEdge{
+							ID:     EdgeID(npID, EdgeNetworkAllows, n.ID),
+							From:   npID,
+							To:     n.ID,
+							Kind:   EdgeNetworkAllows,
+							Weight: 0.70,
+						})
+					}
 				}
 			}
 		}
