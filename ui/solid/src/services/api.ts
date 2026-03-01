@@ -1300,6 +1300,13 @@ export const api = {
     });
   },
 
+  execRunbookStep: async (command: string) => {
+    return fetchAPI<{ output: string; exitCode: number; durationMs: number }>('/v2/runbook/exec', {
+      method: 'POST',
+      body: JSON.stringify({ command }),
+    });
+  },
+
   getIncidentRecommendations: async (incidentId: string) => {
     return fetchAPI<Recommendation[]>(`/v2/incidents/${incidentId}/recommendations`);
   },

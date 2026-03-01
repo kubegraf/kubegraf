@@ -65,7 +65,8 @@ const WorkloadScreen: Component<WorkloadScreenProps> = (props) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const [deploys, sts, ds, metrics] = await Promise.allSettled([
+      const [pods, deploys, sts, ds, metrics] = await Promise.allSettled([
+        api.getPods(),
         api.getDeployments(),
         api.getStatefulSets(),
         api.getDaemonSets(),
@@ -79,6 +80,7 @@ const WorkloadScreen: Component<WorkloadScreenProps> = (props) => {
       addItems(deploys, 'Deployment');
       addItems(sts, 'StatefulSet');
       addItems(ds, 'DaemonSet');
+      addItems(pods, 'Pod');
       if (metrics.status === 'fulfilled') setPodMetrics(metrics.value || {});
       setWorkloads(items);
     } finally {
@@ -118,7 +120,9 @@ const WorkloadScreen: Component<WorkloadScreenProps> = (props) => {
       ? api.getDeploymentYAML(w._name, w._ns)
       : w._kind === 'StatefulSet'
         ? api.getStatefulSetYAML(w._name, w._ns)
-        : api.getDaemonSetYAML(w._name, w._ns);
+        : w._kind === 'Pod'
+          ? api.getPodYAML(w._name, w._ns)
+          : api.getDaemonSetYAML(w._name, w._ns);
     call.then((r: any) => {
       const raw = typeof r === 'string' ? r : (r?.yaml || '');
       setYamlContent(raw);
@@ -231,6 +235,7 @@ const WorkloadScreen: Component<WorkloadScreenProps> = (props) => {
     try {
       const call = w._kind === 'Deployment'   ? api.restartDeployment(w._name, w._ns)
                  : w._kind === 'StatefulSet'  ? api.restartStatefulSet(w._name, w._ns)
+                 : w._kind === 'Pod'          ? api.deletePod(w._name, w._ns)
                  :                              api.restartDaemonSet(w._name, w._ns);
       await call;
       toast(`✓ ${w._name} restarted`, true);
@@ -248,6 +253,7 @@ const WorkloadScreen: Component<WorkloadScreenProps> = (props) => {
     try {
       const call = w._kind === 'Deployment'   ? api.deleteDeployment(w._name, w._ns)
                  : w._kind === 'StatefulSet'  ? api.deleteStatefulSet(w._name, w._ns)
+                 : w._kind === 'Pod'          ? api.deletePod(w._name, w._ns)
                  :                              api.deleteDaemonSet(w._name, w._ns);
       await call;
       toast(`✓ ${w._name} deleted`, true);
@@ -262,7 +268,7 @@ const WorkloadScreen: Component<WorkloadScreenProps> = (props) => {
 
   const doScale = async () => {
     const w = selected();
-    if (!w || w._kind === 'DaemonSet') return;
+    if (!w || w._kind === 'DaemonSet' || w._kind === 'Pod') return;
     setScaling(true);
     setScaleMsg('');
     try {

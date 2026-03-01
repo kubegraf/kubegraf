@@ -4,9 +4,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -23,6 +26,83 @@ func (ws *WebServer) RegisterIntelligenceWorkspaceRoutes() {
 
 	// YAML apply endpoint — POST /api/v1/apply { yaml, kind, name, namespace }
 	http.HandleFunc("/api/v1/apply", ws.handleYAMLApply)
+
+	// Runbook step execution — POST /api/v2/runbook/exec
+	http.HandleFunc("/api/v2/runbook/exec", ws.handleRunbookExec)
+}
+
+// handleRunbookExec executes a single kubectl command from a runbook step and returns its output.
+// POST /api/v2/runbook/exec
+// Body:     { "command": "kubectl describe pod/foo -n bar" }
+// Response: { "output": "...", "exitCode": 0, "durationMs": 312 }
+func (ws *WebServer) handleRunbookExec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Command string `json:"command"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	raw := strings.TrimSpace(body.Command)
+	if raw == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"output": "(no command)", "exitCode": 0, "durationMs": 0,
+		})
+		return
+	}
+
+	// Strip watch flags that would block forever: -w / --watch
+	safe := raw
+	safe = strings.ReplaceAll(safe, " -w ", " ")
+	safe = strings.ReplaceAll(safe, " --watch ", " ")
+	if strings.HasSuffix(safe, " -w") {
+		safe = strings.TrimSuffix(safe, " -w")
+	}
+	if strings.HasSuffix(safe, " --watch") {
+		safe = strings.TrimSuffix(safe, " --watch")
+	}
+
+	// Use sh -c so pipes, grep, tail, etc. work transparently
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", safe)
+	cmd.Env = os.Environ()
+
+	start := time.Now()
+	out, err := cmd.CombinedOutput()
+	durationMs := time.Since(start).Milliseconds()
+
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	output := string(out)
+	if len(output) > 40000 {
+		output = output[:40000] + "\n\n... (output truncated at 40 KB)"
+	}
+	if output == "" && exitCode != 0 {
+		output = fmt.Sprintf("(no output — exit code %d)", exitCode)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"output":     output,
+		"exitCode":   exitCode,
+		"durationMs": durationMs,
+	})
 }
 
 // handleWorkspaceInsights generates insights for all active incidents

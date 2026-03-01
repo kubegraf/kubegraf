@@ -5,6 +5,7 @@
 import { Component, Show, For, createSignal, createMemo, createEffect, untrack, onMount, onCleanup } from 'solid-js';
 import { Incident, api } from '../../services/api';
 import { currentContext } from '../../stores/cluster';
+import { addNotification } from '../../stores/ui';
 import { RCAReportGenerator } from './rcaReportGenerator';
 
 interface IncidentDetailProps {
@@ -74,6 +75,42 @@ function drawSpark(canvas: HTMLCanvasElement | null, data: number[], color: stri
   ctx.arc(lp.x, lp.y, 2.5, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
+}
+
+// Build sparkline data arrays from real incident signals rather than hardcoded values.
+// Each sparkline is a 7-point trend ending at the current known value.
+function buildSparkData(inc: any) {
+  const occ     = inc?.occurrences || 1;
+  const related = (inc?.relatedResources as any[])?.length || 0;
+  const firstMs = inc?.firstSeen ? new Date(inc.firstSeen).getTime() : Date.now();
+  const elMin   = Math.max(0.5, (Date.now() - firstMs) / 60000);
+  const syms: any[] = (inc?.symptoms as any[]) || [];
+  const errSym  = syms.find((s: any) =>
+    ['NO_ENDPOINTS', 'REPLICA_UNAVAILABLE', 'UPSTREAM_FAILURE', 'HTTP_ERROR_RATE'].includes(s.type));
+  const errorRate = errSym?.value != null ? Math.min(100, Math.round(errSym.value)) : null;
+
+  // sp1: restart/occurrence trend — quadratic rise to `occ`
+  const sp1 = Array.from({ length: 7 }, (_, i) => Math.round(occ * Math.pow(i / 6, 2)));
+  sp1[6] = occ;
+
+  // sp2: related services count — step up from 0
+  const sp2 = Array.from({ length: 7 }, (_, i) => {
+    if (related === 0) return 0;
+    return i < 2 ? 0 : +(related * Math.min(1, (i - 1) / 4)).toFixed(1);
+  });
+  sp2[6] = related;
+
+  // sp3: error rate trend — rises to errorRate if we have signal, else flat 0
+  const sp3 = errorRate != null
+    ? Array.from({ length: 7 }, (_, i) => Math.round(errorRate * Math.pow(i / 6, 1.5)))
+    : [0, 0, 0, 0, 0, 0, 0];
+  if (errorRate != null) sp3[6] = errorRate;
+
+  // sp4: elapsed time in minutes — monotonically increasing
+  const sp4 = Array.from({ length: 7 }, (_, i) => +(elMin * (i / 6)).toFixed(1));
+  sp4[6] = +elMin.toFixed(1);
+
+  return { sp1, sp2, sp3, sp4 };
 }
 
 function drawRpRing(canvas: HTMLCanvasElement | null, score: number) {
@@ -357,7 +394,7 @@ function drawMetricsCPU(canvas: HTMLCanvasElement | null, limitM = 1000, current
   ctx.scale(dpr, dpr);
   const PAD = { l: 38, r: 12, t: 8, b: 20 };
   const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
-  const peak = currentM > 0 ? currentM : limitM * 0.65;
+  const peak = currentM > 0 ? currentM : 0;
   const MAX = Math.ceil(limitM * 1.05 / 250) * 250;
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
@@ -414,7 +451,7 @@ function drawMetricsMem(canvas: HTMLCanvasElement | null, limitMi = 512, current
   ctx.scale(dpr, dpr);
   const PAD = { l: 38, r: 12, t: 8, b: 20 };
   const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
-  const peakMem = currentMi > 0 ? currentMi : limitMi * 0.99;
+  const peakMem = currentMi > 0 ? currentMi : 0;
   const MAX = Math.ceil(limitMi * 1.06 / 128) * 128;
   const yp = (v: number) => PAD.t + cH - (v / MAX) * cH;
   const xp = (i: number) => PAD.l + i / 19 * cW;
@@ -469,8 +506,20 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [copyMdMsg, setCopyMdMsg] = createSignal('');
   const [runbookRunning, setRunbookRunning] = createSignal(false);
   const [runbookStep, setRunbookStep] = createSignal(0);
+  interface RunbookStepResult {
+    stepNum: number; title: string; cmd: string;
+    output: string; exitCode: number; durationMs: number;
+    status: 'running' | 'success' | 'failed';
+  }
+  const [runbookResults, setRunbookResults] = createSignal<RunbookStepResult[]>([]);
+  const [runbookDone, setRunbookDone] = createSignal(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = createSignal<'worked' | 'not_worked' | 'unknown' | null>(null);
+  const [feedbackDone, setFeedbackDone] = createSignal<'worked' | 'not_worked' | 'unknown' | null>(null);
+  const [resolving, setResolving] = createSignal(false);
+  const [resolved, setResolved] = createSignal(false);
   const [k8sEvents, setK8sEvents] = createSignal<any[]>([]);
   const [eventsLoading, setEventsLoading] = createSignal(false);
+  const [eventsRefreshKey, setEventsRefreshKey] = createSignal(0);
   const [yamlContent, setYamlContent] = createSignal('');
   const [yamlLoading, setYamlLoading] = createSignal(false);
   const [yamlEditing, setYamlEditing] = createSignal(false);
@@ -484,6 +533,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [copiedKey, setCopiedKey] = createSignal('');
   const [logsData, setLogsData] = createSignal<any[]>([]);
   const [logsLoading, setLogsLoading] = createSignal(false);
+  const [logsRefreshKey, setLogsRefreshKey] = createSignal(0);
   const [metricsData, setMetricsData] = createSignal<any[]>([]);
   const [metricsLoading, setMetricsLoading] = createSignal(false);
   const [rawYaml, setRawYaml] = createSignal('');
@@ -644,6 +694,41 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(k => k === key ? '' : k), 1500);
     });
+  };
+
+  const handleFeedback = async (outcome: 'worked' | 'not_worked' | 'unknown') => {
+    const id = props.incident?.id;
+    if (!id || feedbackSubmitting() || feedbackDone()) return;
+    setFeedbackSubmitting(outcome);
+    try {
+      await api.submitIncidentFeedback(id, outcome);
+      setFeedbackDone(outcome);
+      addNotification(
+        outcome === 'worked' ? 'Feedback submitted — model will learn from this fix' :
+        outcome === 'not_worked' ? 'Feedback submitted — model will deprioritise this fix' :
+        'Feedback submitted — cause marked as incorrect',
+        'success',
+      );
+    } catch (e: any) {
+      addNotification(e?.message || 'Failed to submit feedback', 'error');
+    } finally {
+      setFeedbackSubmitting(null);
+    }
+  };
+
+  const handleResolveIncident = async () => {
+    const id = props.incident?.id;
+    if (!id || resolving() || resolved()) return;
+    setResolving(true);
+    try {
+      await api.resolveIncident(id, 'Resolved by user from Intelligence Workspace');
+      setResolved(true);
+      addNotification('Incident marked as resolved', 'success');
+    } catch (e: any) {
+      addNotification(e?.message || 'Failed to resolve incident', 'error');
+    } finally {
+      setResolving(false);
+    }
   };
   let sp1Ref: HTMLCanvasElement | undefined;
   let sp2Ref: HTMLCanvasElement | undefined;
@@ -831,9 +916,29 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     return { envVars, cpuReq, cpuLim, memReq, memLim, readPath, readPort, livePath, livePort };
   });
 
-  // Reset fetched data when incident changes; redraw health ring; background-fetch node/image
+  // Derive probe health from incident pattern.
+  // Any pattern that indicates the workload is effectively down (no ready endpoints,
+  // deployment unavailable, crashloop, etc.) means readiness is failing.
+  // Liveness is additionally failing for crash-loop and terminated patterns.
+  const probeStatus = createMemo(() => {
+    const pattern = props.incident?.pattern || '';
+    const downPatterns = [
+      'NO_READY_ENDPOINTS', 'DEPLOYMENT_UNAVAILABLE', 'NO_PODS_RUNNING',
+      'POD_NOT_RUNNING', 'REPLICA_UNAVAILABLE', 'ENDPOINT_NOT_READY',
+      'SERVICE_DOWN', 'ALL_REPLICAS_DOWN',
+    ];
+    const isDown = downPatterns.some(p => pattern.includes(p));
+    const readinessFailing = pattern.includes('READINESS') || isDown;
+    const livenessFailing = pattern.includes('LIVENESS') || pattern.includes('CRASHLOOP') || pattern.includes('TERMINATED') || pattern.includes('CRASH');
+    return { readinessFailing, livenessFailing };
+  });
+
+  // Reset fetched data when the INCIDENT ID changes (not on every object refresh).
+  // Reading only props.incident?.id means this effect is only reactive to the id field —
+  // a refresh that returns the same incident with a new object reference won't trigger it.
   createEffect(() => {
-    const inc = props.incident;
+    const _trackIdOnly = props.incident?.id;   // establish reactive dependency on ID only
+    const inc = untrack(() => props.incident); // read full object without tracking it
     const score = healthScore();
     setK8sEvents([]);
     setYamlContent('');
@@ -854,6 +959,12 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setCopyMdMsg('');
     setRunbookRunning(false);
     setRunbookStep(0);
+    setRunbookResults([]);
+    setRunbookDone(false);
+    setFeedbackSubmitting(null);
+    setFeedbackDone(null);
+    setResolving(false);
+    setResolved(false);
     setAiFixes([]);
     setAiFixError('');
     setAiFixFallback(false);
@@ -881,27 +992,68 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     }).catch(() => { /* leave defaults */ });
   });
 
-  // Fetch real K8s events via namespace-scoped /api/v1/namespaces/{ns}/pods/{name}/events
-  // (uses Events(namespace).List with field selector — works with namespace-level RBAC)
+  // Fetch K8s events: pod-level events + namespace-level events for scheduling incidents.
+  // For UNSCHEDULABLE pods, scheduler events (FailedScheduling, NotTriggerScaleUp) live in
+  // the namespace event stream and must be fetched separately from pod-specific events.
   createEffect(() => {
     if (activeTab() !== 'events') return;
-    const ns = incNs();
+    eventsRefreshKey(); // reactive dependency — bump to force re-fetch
+    const ns   = incNs();
     const name = incName();
-    if (!ns || !name) return;
-    if (untrack(eventsLoading) || untrack(k8sEvents).length > 0) return;
+    if (!ns || !name || ns === '—' || name === '—') return;
+    if (untrack(eventsLoading)) return;
     setEventsLoading(true);
-    api.getPodEvents(ns, name).then(r => {
-      const events = r?.events || [];
-      setK8sEvents(events.map((ev: any) => ({
-        type:     ev.type || 'Normal',
-        reason:   ev.reason || 'Event',
-        message:  ev.message || '',
-        count:    ev.count || 1,
-        lastTime: ev.lastTime ? new Date(ev.lastTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'recently',
-        source:   ev.source || '',
-      })));
-    }).catch(() => {
-      setK8sEvents([]);
+
+    const pattern = (props.incident?.pattern || '').toUpperCase();
+    const isScheduling = /UNSCHEDUL|INSUFFICIENT|PENDING|NOT_TRIGGER|SCALEUP/.test(pattern);
+
+    const mapEv = (ev: any) => ({
+      type:     ev.type     || 'Normal',
+      reason:   ev.reason   || 'Event',
+      message:  ev.message  || '',
+      count:    ev.count    || 1,
+      lastTime: ev.lastTime
+        ? new Date(ev.lastTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : 'recently',
+      source:   ev.source   || '',
+      object:   ev.object   || ev.involvedObject?.name || '',
+    });
+
+    const podFetch = api.getPodEvents(ns, name)
+      .then(r => (r?.events || []).map(mapEv))
+      .catch(() => [] as any[]);
+
+    // For scheduling incidents, also pull namespace events to surface
+    // NotTriggerScaleUp and any node-level scheduler messages
+    const nsFetch: Promise<any[]> = isScheduling
+      ? api.getEvents(ns, 150)
+          .then(r => (r?.events || [])
+            .filter((ev: any) =>
+              ev.involvedObject?.name === name ||
+              ev.reason === 'FailedScheduling' ||
+              ev.reason === 'NotTriggerScaleUp' ||
+              ev.reason === 'TriggeredScaleUp' ||
+              ev.reason === 'ScaleDown')
+            .map(mapEv))
+          .catch(() => [] as any[])
+      : Promise.resolve([] as any[]);
+
+    Promise.all([podFetch, nsFetch]).then(([podEvs, nsEvs]) => {
+      // Merge and deduplicate by reason + message prefix
+      const seen = new Set<string>();
+      const merged = [...podEvs, ...nsEvs].filter(ev => {
+        const key = `${ev.reason}|${ev.message.slice(0, 60)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      // Sort: Warning first, then by count descending
+      merged.sort((a, b) => {
+        if (a.type === 'Warning' && b.type !== 'Warning') return -1;
+        if (b.type === 'Warning' && a.type !== 'Warning') return 1;
+        return (b.count || 0) - (a.count || 0);
+      });
+      setK8sEvents(merged);
     }).finally(() => setEventsLoading(false));
   });
 
@@ -920,64 +1072,19 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       setYamlContent(rawYaml);
       setYamlEdited(rawYaml);
     }).catch(() => {
-      // Static YAML fallback
-      setYamlContent([
-        `apiVersion: apps/v1`,
-        `kind: ${props.incident?.resource?.kind || 'Deployment'}`,
-        `metadata:`,
-        `  name: ${name}`,
-        `  namespace: ${ns}`,
-        `  labels:`,
-        `    app: ${name}`,
-        `    version: v2.4.1`,
-        `spec:`,
-        `  replicas: 3`,
-        `  selector:`,
-        `    matchLabels:`,
-        `      app: ${name}`,
-        `  template:`,
-        `    spec:`,
-        `      containers:`,
-        `      - name: ${name}`,
-        `        image: ${name}-api:v2.4.1`,
-        `        resources:`,
-        `          requests:`,
-        `            memory: "256Mi"`,
-        `            cpu: "500m"`,
-        `          limits:`,
-        `            memory: "512Mi"`,
-        `            cpu: "1000m"`,
-        `        env:`,
-        `        - name: ENV`,
-        `          value: "production"`,
-        `        - name: DB_HOST`,
-        `          valueFrom:`,
-        `            secretKeyRef:`,
-        `              name: db-credentials`,
-        `              key: host`,
-        `        readinessProbe:`,
-        `          httpGet:`,
-        `            path: /health`,
-        `            port: 8080`,
-        `          initialDelaySeconds: 10`,
-        `          periodSeconds: 5`,
-      ].join('\n'));
-      setYamlEdited([
-        `apiVersion: apps/v1`,
-        `kind: ${props.incident?.resource?.kind || 'Deployment'}`,
-        `metadata:`,
-        `  name: ${name}`,
-        `  namespace: ${ns}`,
-      ].join('\n'));
+      // Signal error — do not generate fabricated YAML
+      setYamlContent('__ERROR__');
+      setYamlEdited('');
     }).finally(() => setYamlLoading(false));
   });
 
-  // Fetch real logs via /api/v2/incidents/{id}/logs when logs tab is active
+  // Fetch real logs via /api/v2/incidents/{id}/logs when logs tab is active or refresh triggered
   createEffect(() => {
     if (activeTab() !== 'logs') return;
+    logsRefreshKey(); // reactive dependency — bump to force re-fetch
     const inc = props.incident;
     if (!inc?.id) return;
-    if (untrack(logsLoading) || untrack(logsData).length > 0) return;
+    if (untrack(logsLoading)) return;
     setLogsLoading(true);
     api.getIncidentLogs(inc.id, 50).then(r => {
       setLogsData(r?.logs || []);
@@ -1059,10 +1166,11 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     const interval = setInterval(() => setSecs(s => s + 1), 1000);
 
     setTimeout(() => {
-      drawSpark(sp1Ref || null, [0, 0, 0, 0, 1, 2, 3], '#DC2626');
-      drawSpark(sp2Ref || null, [0, 0, 1, 2, 3, 4, 4], '#2563EB');
-      drawSpark(sp3Ref || null, [0, 0, 5, 30, 70, 90, 94], '#DC2626');
-      drawSpark(sp4Ref || null, [0, 1, 2, 3, 4, 5, 6.4], '#0891B2');
+      const sd = buildSparkData(props.incident);
+      drawSpark(sp1Ref || null, sd.sp1, '#DC2626');
+      drawSpark(sp2Ref || null, sd.sp2, '#2563EB');
+      drawSpark(sp3Ref || null, sd.sp3, '#DC2626');
+      drawSpark(sp4Ref || null, sd.sp4, '#0891B2');
     }, 80);
 
     const getMemLimits = () => {
@@ -1090,10 +1198,11 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     }, 130);
 
     const onResize = () => {
-      drawSpark(sp1Ref || null, [0, 0, 0, 0, 1, 2, 3], '#DC2626');
-      drawSpark(sp2Ref || null, [0, 0, 1, 2, 3, 4, 4], '#2563EB');
-      drawSpark(sp3Ref || null, [0, 0, 5, 30, 70, 90, 94], '#DC2626');
-      drawSpark(sp4Ref || null, [0, 1, 2, 3, 4, 5, 6.4], '#0891B2');
+      const sd = buildSparkData(props.incident);
+      drawSpark(sp1Ref || null, sd.sp1, '#DC2626');
+      drawSpark(sp2Ref || null, sd.sp2, '#2563EB');
+      drawSpark(sp3Ref || null, sd.sp3, '#DC2626');
+      drawSpark(sp4Ref || null, sd.sp4, '#0891B2');
       const chain2 = untrack(graphChain);
       const tlEvents = chain2 ? (graphEventsToTimeline(chain2).length > 0 ? graphEventsToTimeline(chain2) : buildTimelineEvents(props.incident)) : buildTimelineEvents(props.incident);
       const firstSeenMs = props.incident?.firstSeen ? new Date(props.incident.firstSeen).getTime() : undefined;
@@ -1126,6 +1235,90 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
+
+  // Derived scheduling analysis from live k8sEvents — used by both Events tab and Fix tab
+  const schedulingAnalysis = createMemo(() => {
+    const pat = (props.incident?.pattern || '').toUpperCase();
+    const isScheduling = /UNSCHEDUL|INSUFFICIENT|PENDING|NOT_TRIGGER|SCALEUP/i.test(pat)
+      || k8sEvents().some(e => e.reason === 'FailedScheduling' || e.reason === 'NotTriggerScaleUp');
+    if (!isScheduling) return null;
+
+    const failedEv  = k8sEvents().find(e => e.reason === 'FailedScheduling');
+    const scaleEv   = k8sEvents().find(e => e.reason === 'NotTriggerScaleUp');
+
+    // Parse "0/4 nodes are available: 4 Insufficient cpu" → { total:4, reason:"Insufficient cpu" }
+    const nodeMatch = failedEv?.message?.match(/(\d+)\/(\d+)\s+nodes\s+are\s+available[^:]*:\s*\d+\s+(.+?)[.,]/i);
+    const nodeAvail  = nodeMatch ? parseInt(nodeMatch[1]) : 0;
+    const nodeTotal  = nodeMatch ? parseInt(nodeMatch[2]) : 0;
+    const nodeReason = nodeMatch ? nodeMatch[3].trim() : (failedEv?.message?.match(/Insufficient\s+\w+/i)?.[0] || 'Insufficient resources');
+
+    // Parse "6 max node group size reached"
+    const maxGroupMatch = scaleEv?.message?.match(/(\d+)\s+max\s+node\s+group\s+size\s+reached/i);
+    const maxGroupSize  = maxGroupMatch ? parseInt(maxGroupMatch[1]) : null;
+
+    // Parse preemption failure
+    const preemptFail = /No preemption victims/i.test(failedEv?.message || '');
+
+    // Detect resource type (cpu vs memory)
+    const resourceType = /cpu/i.test(nodeReason) ? 'CPU' : /memory/i.test(nodeReason) ? 'Memory' : 'resources';
+
+    return {
+      isScheduling,
+      nodeAvail, nodeTotal, nodeReason, resourceType,
+      maxGroupSize, preemptFail,
+      failedMsg:  failedEv?.message  || '',
+      scaleMsg:   scaleEv?.message   || '',
+      failCount:  failedEv?.count    || 0,
+      scaleCount: scaleEv?.count     || 0,
+    };
+  });
+
+  /* ── Runbook steps as structured data (used by executor + JSX) ── */
+  const runbookSteps = createMemo((): { title: string; cmd: string }[] => {
+    const sa = schedulingAnalysis();
+    const ns = incNs();
+    const name = incName();
+    const kind = props.incident?.resource?.kind?.toLowerCase() || 'pod';
+    const deployName = name.replace(/-[a-z0-9]+-[a-z0-9]+$/, '');
+
+    if (sa) {
+      return [
+        { title: 'Confirm pod is Pending (scheduling failure)',
+          cmd: `kubectl describe pod ${name} -n ${ns} | grep -E "Status:|Events:" -A 10` },
+        { title: `Inspect ${sa.resourceType} requests vs node allocations`,
+          cmd: `kubectl describe nodes | grep -E "Name:|Allocatable:|Allocated" -A 5` },
+        { title: 'Check cluster autoscaler status',
+          cmd: `kubectl get events -n kube-system --field-selector reason=NotTriggerScaleUp --sort-by=.lastTimestamp | tail -5` },
+        { title: `Find workloads consuming ${sa.resourceType}`,
+          cmd: `kubectl top nodes && kubectl top pods -n ${ns} --sort-by=${sa.resourceType === 'CPU' ? 'cpu' : 'memory'}` },
+        { title: 'Reduce resource requests or scale down other workloads',
+          cmd: `kubectl set resources deploy/${deployName} -n ${ns} --requests=${sa.resourceType === 'CPU' ? 'cpu=100m' : 'memory=128Mi'}` },
+        { title: 'Verify pod schedules successfully',
+          cmd: `kubectl get pod ${name} -n ${ns}` },
+      ];
+    }
+
+    const recs: { title: string; cmd: string }[] = (aiData()?.recs || []).slice(0, 4).map((rec: any) => ({
+      title: rec.title,
+      cmd: rec.title?.toLowerCase().includes('restart') || rec.title?.toLowerCase().includes('rollback')
+        ? `kubectl rollout undo deploy/${deployName} -n ${ns}`
+        : rec.title?.toLowerCase().includes('scale')
+        ? `kubectl scale deploy/${deployName} --replicas=3 -n ${ns}`
+        : rec.title?.toLowerCase().includes('drain') || rec.title?.toLowerCase().includes('node')
+        ? `kubectl drain ${resourceMeta().node !== '—' ? resourceMeta().node : '<node>'} --ignore-daemonsets --delete-emptydir-data`
+        : rec.title?.toLowerCase().includes('secret')
+        ? `kubectl get secret -n ${ns}`
+        : rec.title?.toLowerCase().includes('config')
+        ? `kubectl get configmap -n ${ns}`
+        : `kubectl get events -n ${ns} --sort-by=.lastTimestamp | tail -20`,
+    }));
+
+    return [
+      { title: 'Verify current state', cmd: `kubectl describe ${kind}/${name} -n ${ns}` },
+      ...recs,
+      { title: 'Verify pod readiness', cmd: `kubectl get pods -n ${ns} --field-selector=status.phase!=Running` },
+    ];
+  });
 
   return (
     <div class="inc-layout">
@@ -1216,7 +1409,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
           </div>
           <div class="inc-meta-bar">
             <div class="meta-item">
-              <span class="meta-k">Pod</span>
+              <span class="meta-k">{props.incident?.resource?.kind || 'Pod'}</span>
               <span class="meta-v">{incName()}</span>
               <button class="copy-btn" title="Copy" onClick={() => copyVal('pod', incName())}>{copiedKey() === 'pod' ? '✓' : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>}</button>
             </div>
@@ -1237,13 +1430,16 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
             <Show when={resourceMeta().cpu !== '—'}>
               <div class="meta-item"><span class="meta-k">CPU</span><span class="meta-v">{resourceMeta().cpu}</span></div>
             </Show>
-            <div class="meta-item">
-              <span class="meta-k">Node</span>
-              <span class="meta-v" style={{ 'max-width': '180px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }} title={resourceMeta().node}>{resourceMeta().node}</span>
+            {/* Node is only meaningful for Pod resources; for Deployments show replica status */}
+            <Show when={props.incident?.resource?.kind === 'Pod' || !props.incident?.resource?.kind}>
               <Show when={resourceMeta().node !== '—'}>
-                <button class="copy-btn" title="Copy node name" onClick={() => copyVal('node', resourceMeta().node)}>{copiedKey() === 'node' ? '✓' : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>}</button>
+                <div class="meta-item">
+                  <span class="meta-k">Node</span>
+                  <span class="meta-v" style={{ 'max-width': '180px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }} title={resourceMeta().node}>{resourceMeta().node}</span>
+                  <button class="copy-btn" title="Copy node name" onClick={() => copyVal('node', resourceMeta().node)}>{copiedKey() === 'node' ? '✓' : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>}</button>
+                </div>
               </Show>
-            </div>
+            </Show>
             <div class="meta-item">
               <span class="meta-k">Namespace</span>
               <span class="meta-v">{incNs()}</span>
@@ -1307,7 +1503,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                       <div>
                         <div class="hyp-status possible">? Possibly Contributing</div>
                         <div class="hyp-title">{ai.h2Title}</div>
-                        <div class="hyp-conf" style={{ color: 'var(--warn)' }}>~{ai.contribConf}% likelihood</div>
+                        <div class="hyp-conf" style={{ color: 'var(--warn)' }}>possibly contributing</div>
                       </div>
                     </div>
                     <div class="hyp-bar-wrap"><div class="hyp-bar-fill" style={{ width: `${ai.contribConf}%`, background: 'var(--warn)' }} /></div>
@@ -1454,8 +1650,20 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                 <span class="chip new">LIVE</span>
                 <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>{incName()} · {incNs()}</span>
                 <Show when={logsData().length > 0}>
-                  <span style={{ 'margin-left': 'auto', 'font-size': '11px', color: 'var(--t5)' }}>{logsData().length} lines</span>
+                  <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>{logsData().length} lines</span>
                 </Show>
+                <button
+                  class="btn ghost"
+                  style={{ 'margin-left': 'auto', 'font-size': '11px', padding: '3px 8px' }}
+                  disabled={logsLoading()}
+                  title="Refresh logs"
+                  onClick={() => { setLogsData([]); setLogsRefreshKey(k => k + 1); }}
+                >
+                  <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path d="M2 8a10 10 0 0118-2.3M22 16a10 10 0 01-18 2.3"/>
+                    <path d="M22 4v6h-6M2 20v-6h6"/>
+                  </svg>
+                </button>
               </div>
               <div class="log-body">
                 <Show when={logsLoading()}>
@@ -1490,11 +1698,100 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
 
           {/* ── EVENTS TAB ── */}
           <Show when={activeTab() === 'events'}>
-            <div style={{ flex: '1', overflow: 'auto', padding: '14px' }}>
+            <div style={{ flex: '1', overflow: 'auto', padding: '14px', display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+
+              {/* Scheduling root-cause banner — shown when events indicate scheduling failure */}
+              <Show when={schedulingAnalysis()}>
+                {(sa) => (
+                  <div style={{
+                    background: 'rgba(220,38,38,.06)', border: '1px solid rgba(220,38,38,.25)',
+                    'border-radius': '8px', padding: '12px 14px',
+                    display: 'flex', 'flex-direction': 'column', gap: '8px',
+                  }}>
+                    <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
+                      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="var(--crit)" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <span style={{ 'font-size': '12px', 'font-weight': '700', color: 'var(--crit)' }}>
+                        Scheduling Failure — Root Cause
+                      </span>
+                    </div>
+
+                    {/* Node capacity summary */}
+                    <Show when={sa().nodeTotal > 0}>
+                      <div style={{ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }}>
+                        <div style={{ background: 'rgba(220,38,38,.1)', 'border-radius': '6px', padding: '6px 10px', 'flex': '1', 'min-width': '140px' }}>
+                          <div style={{ 'font-size': '10px', 'font-weight': '600', color: 'var(--t4)', 'text-transform': 'uppercase', 'letter-spacing': '.06em', 'margin-bottom': '2px' }}>Nodes Available</div>
+                          <div style={{ 'font-size': '20px', 'font-weight': '700', 'font-family': 'var(--mono)', color: 'var(--crit)' }}>
+                            {sa().nodeAvail}/{sa().nodeTotal}
+                          </div>
+                          <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '1px' }}>0 schedulable nodes</div>
+                        </div>
+                        <div style={{ background: 'rgba(220,38,38,.1)', 'border-radius': '6px', padding: '6px 10px', 'flex': '1', 'min-width': '140px' }}>
+                          <div style={{ 'font-size': '10px', 'font-weight': '600', color: 'var(--t4)', 'text-transform': 'uppercase', 'letter-spacing': '.06em', 'margin-bottom': '2px' }}>Blocking Reason</div>
+                          <div style={{ 'font-size': '13px', 'font-weight': '700', color: 'var(--warn)' }}>
+                            {sa().nodeReason}
+                          </div>
+                          <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '1px' }}>{sa().resourceType} exhausted on all nodes</div>
+                        </div>
+                        <Show when={sa().maxGroupSize !== null}>
+                          <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', 'border-radius': '6px', padding: '6px 10px', 'flex': '1', 'min-width': '140px' }}>
+                            <div style={{ 'font-size': '10px', 'font-weight': '600', color: 'var(--t4)', 'text-transform': 'uppercase', 'letter-spacing': '.06em', 'margin-bottom': '2px' }}>Cluster Autoscaler</div>
+                            <div style={{ 'font-size': '13px', 'font-weight': '700', color: 'var(--warn)' }}>
+                              Max size: {sa().maxGroupSize} nodes
+                            </div>
+                            <div style={{ 'font-size': '10px', color: 'var(--warn)', 'margin-top': '1px' }}>Scale-up blocked — limit reached</div>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    <Show when={sa().preemptFail}>
+                      <div style={{ 'font-size': '11px', color: 'var(--t4)', padding: '5px 8px', background: 'rgba(0,0,0,.15)', 'border-radius': '4px', 'font-family': 'var(--mono)' }}>
+                        Preemption disabled — no lower-priority pods to evict on any node
+                      </div>
+                    </Show>
+
+                    {/* Correlation message */}
+                    <div style={{ 'font-size': '11px', color: 'var(--t3)', 'line-height': '1.6', 'border-top': '1px solid rgba(220,38,38,.15)', 'padding-top': '8px' }}>
+                      <Show when={sa().maxGroupSize !== null}>
+                        Pod <span style={{ 'font-family': 'var(--mono)', color: 'var(--t1)' }}>{incName()}</span> cannot be scheduled because
+                        all {sa().nodeTotal} nodes have {sa().nodeReason.toLowerCase()} and the cluster autoscaler
+                        cannot add new nodes — the node group is already at its maximum size of {sa().maxGroupSize}.
+                        This pod will remain Pending until {sa().resourceType} is freed or the node group limit is increased.
+                      </Show>
+                      <Show when={sa().maxGroupSize === null}>
+                        Pod <span style={{ 'font-family': 'var(--mono)', color: 'var(--t1)' }}>{incName()}</span> cannot be scheduled:
+                        all {sa().nodeTotal} nodes report {sa().nodeReason.toLowerCase()}.
+                        Check whether the pod's resource requests can be reduced, or free capacity on existing nodes.
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </Show>
+
+              {/* Events card */}
               <div class="card">
                 <div class="card-head">
                   <span class="card-title">Kubernetes Events</span>
-                  <span style={{ 'margin-left': 'auto', 'font-size': '11px', color: 'var(--t5)' }}>{incNs()} / {incName()}</span>
+                  <span style={{ 'font-size': '11px', color: 'var(--t5)' }}>{incNs()} / {incName()}</span>
+                  <Show when={k8sEvents().length > 0}>
+                    <span style={{ 'font-size': '10px', color: 'var(--t5)', background: 'var(--s2)', padding: '1px 7px', 'border-radius': '10px' }}>
+                      {k8sEvents().filter(e => e.type === 'Warning').length} warnings
+                    </span>
+                  </Show>
+                  <button
+                    class="btn ghost"
+                    style={{ 'margin-left': 'auto', 'font-size': '11px', padding: '3px 8px' }}
+                    disabled={eventsLoading()}
+                    title="Refresh events"
+                    onClick={() => { setK8sEvents([]); setEventsRefreshKey(k => k + 1); }}
+                  >
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path d="M2 8a10 10 0 0118-2.3M22 16a10 10 0 01-18 2.3"/>
+                      <path d="M22 4v6h-6M2 20v-6h6"/>
+                    </svg>
+                  </button>
                 </div>
                 <div class="card-body" style={{ padding: '0' }}>
                   <Show when={eventsLoading()}>
@@ -1503,14 +1800,16 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                   <Show when={!eventsLoading()}>
                     <Show when={k8sEvents().length > 0} fallback={
                       <div style={{ padding: '20px 14px', color: 'var(--t5)', 'font-size': '12px', 'line-height': '1.6' }}>
-                        <div style={{ 'margin-bottom': '4px' }}>No Kubernetes events found for <span style={{ 'font-family': 'var(--mono)', color: 'var(--t3)' }}>{incName()}</span> or its parent resources in namespace <span style={{ 'font-family': 'var(--mono)', color: 'var(--t3)' }}>{incNs()}</span>.</div>
-                        <div style={{ color: 'var(--t6)', 'font-size': '11px' }}>Pod-level events typically expire after 1 hour. Try running: <span style={{ 'font-family': 'var(--mono)' }}>kubectl get events -n {incNs()} --sort-by=.lastTimestamp</span></div>
+                        <div style={{ 'margin-bottom': '4px' }}>No Kubernetes events found for <span style={{ 'font-family': 'var(--mono)', color: 'var(--t3)' }}>{incName()}</span> in namespace <span style={{ 'font-family': 'var(--mono)', color: 'var(--t3)' }}>{incNs()}</span>.</div>
+                        <div style={{ color: 'var(--t6)', 'font-size': '11px' }}>Events expire after 1 hour. Try: <span style={{ 'font-family': 'var(--mono)' }}>kubectl get events -n {incNs()} --sort-by=.lastTimestamp</span></div>
                       </div>
                     }>
                       <For each={k8sEvents()}>{(ev) => (
-                        <div class="event-row">
+                        <div class="event-row" style={{
+                          'border-left': ev.type === 'Warning' ? '3px solid var(--crit)' : '3px solid var(--b1)',
+                        }}>
                           <span class={`event-type ${ev.type === 'Warning' ? 'warning' : 'normal'}`}>{ev.type}</span>
-                          <span class="event-reason">{ev.reason}</span>
+                          <span class="event-reason" style={{ color: ev.reason === 'FailedScheduling' ? 'var(--crit)' : ev.reason === 'NotTriggerScaleUp' ? 'var(--warn)' : undefined }}>{ev.reason}</span>
                           <span class="event-msg">{ev.message}</span>
                           <span class="event-ts">×{ev.count ?? 1} · {ev.lastTime || 'recently'}</span>
                         </div>
@@ -1539,7 +1838,10 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                     </span>
                   </div>
                   <div class="spark-row" style={{ padding: '0 14px 14px' }}>
-                    <canvas ref={cpuMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
+                    <Show when={resourceMeta().cpu !== '—' || metricsData().some((m: any) => m.type === 'CPU_USAGE' || m.key?.toLowerCase().includes('cpu'))}
+                      fallback={<div style={{ padding: '20px', 'text-align': 'center', color: 'var(--t5)', 'font-size': '11px', 'font-style': 'italic' }}>No CPU metrics available from cluster — run: kubectl top pod {incName()} -n {incNs()}</div>}>
+                      <canvas ref={cpuMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
+                    </Show>
                   </div>
                 </div>
                 <div class="card">
@@ -1552,7 +1854,10 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                     </span>
                   </div>
                   <div class="spark-row" style={{ padding: '0 14px 14px' }}>
-                    <canvas ref={memMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
+                    <Show when={resourceMeta().memory !== '—' || metricsData().some((m: any) => m.type === 'MEMORY_USAGE' || m.key?.toLowerCase().includes('memory'))}
+                      fallback={<div style={{ padding: '20px', 'text-align': 'center', color: 'var(--t5)', 'font-size': '11px', 'font-style': 'italic' }}>No memory metrics available from cluster — run: kubectl top pod {incName()} -n {incNs()}</div>}>
+                      <canvas ref={memMetricsRef} style={{ display: 'block', width: '100%', height: '100px' }} />
+                    </Show>
                   </div>
                 </div>
                 <div class="card">
@@ -1650,15 +1955,15 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                       <tbody>
                         <tr>
                           <td>CPU</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().cpuReq || '—'}</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().cpuLim || '—'}</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: 'var(--t2)' }}>{resourceMeta().cpu !== '—' ? resourceMeta().cpu : '—'}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: parsedConfig().cpuReq === '—' ? 'var(--t5)' : undefined }}>{parsedConfig().cpuReq === '—' ? 'Not set' : parsedConfig().cpuReq}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: parsedConfig().cpuLim === '—' ? 'var(--t5)' : undefined }}>{parsedConfig().cpuLim === '—' ? 'Not set' : parsedConfig().cpuLim}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: resourceMeta().cpu !== '—' ? 'var(--t2)' : 'var(--t5)' }}>{resourceMeta().cpu !== '—' ? resourceMeta().cpu : '—'}</td>
                         </tr>
                         <tr>
                           <td>Memory</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().memReq || '—'}</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().memLim || '—'}</td>
-                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: resourceMeta().memory !== '—' ? 'var(--crit)' : 'var(--t2)' }}>{resourceMeta().memory !== '—' ? resourceMeta().memory : '—'}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: parsedConfig().memReq === '—' ? 'var(--t5)' : undefined }}>{parsedConfig().memReq === '—' ? 'Not set' : parsedConfig().memReq}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: parsedConfig().memLim === '—' ? 'var(--t5)' : undefined }}>{parsedConfig().memLim === '—' ? 'Not set' : parsedConfig().memLim}</td>
+                          <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px', color: resourceMeta().memory !== '—' ? 'var(--crit)' : 'var(--t5)' }}>{resourceMeta().memory !== '—' ? resourceMeta().memory : '—'}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1681,8 +1986,8 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                               <td>Readiness</td>
                               <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().readPath}</td>
                               <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().readPort || '—'}</td>
-                              <td style={{ color: props.incident?.pattern?.includes('READINESS') ? 'var(--crit)' : 'var(--ok)', 'font-size': '11px', 'font-weight': '600' }}>
-                                {props.incident?.pattern?.includes('READINESS') ? 'FAILING' : 'OK'}
+                              <td style={{ color: probeStatus().readinessFailing ? 'var(--crit)' : 'var(--ok)', 'font-size': '11px', 'font-weight': '600' }}>
+                                {probeStatus().readinessFailing ? 'FAILING' : 'OK'}
                               </td>
                             </tr>
                           </Show>
@@ -1691,8 +1996,8 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                               <td>Liveness</td>
                               <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().livePath}</td>
                               <td style={{ 'font-family': 'var(--mono)', 'font-size': '11px' }}>{parsedConfig().livePort || '—'}</td>
-                              <td style={{ color: props.incident?.pattern?.includes('LIVENESS') ? 'var(--crit)' : 'var(--ok)', 'font-size': '11px', 'font-weight': '600' }}>
-                                {props.incident?.pattern?.includes('LIVENESS') ? 'FAILING' : 'OK'}
+                              <td style={{ color: probeStatus().livenessFailing ? 'var(--crit)' : 'var(--ok)', 'font-size': '11px', 'font-weight': '600' }}>
+                                {probeStatus().livenessFailing ? 'FAILING' : 'OK'}
                               </td>
                             </tr>
                           </Show>
@@ -1741,7 +2046,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                       {yamlSaveMsg()}
                     </span>
                   </Show>
-                  <Show when={!yamlEditing()}>
+                  <Show when={!yamlEditing() && yamlContent() !== '__ERROR__' && yamlContent() !== ''}>
                     <button
                       class="btn ghost"
                       style={{ 'font-size': '11px', padding: '4px 10px' }}
@@ -1806,8 +2111,32 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                 />
               </Show>
 
+              {/* Error state — YAML could not be fetched from cluster */}
+              <Show when={!yamlLoading() && !yamlEditing() && yamlContent() === '__ERROR__'}>
+                <div style={{ padding: '24px 16px', display: 'flex', 'flex-direction': 'column', gap: '10px', 'align-items': 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}>
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="var(--crit)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span style={{ 'font-size': '13px', 'font-weight': '600', color: 'var(--t2)' }}>Could not load YAML from cluster</span>
+                  </div>
+                  <div style={{ 'font-size': '12px', color: 'var(--t4)', 'line-height': '1.6' }}>
+                    The {props.incident?.resource?.kind || 'resource'} <span style={{ 'font-family': 'var(--mono)', color: 'var(--t2)' }}>{incName()}</span> could not be fetched from namespace <span style={{ 'font-family': 'var(--mono)', color: 'var(--t2)' }}>{incNs()}</span>.<br/>
+                    This may mean the resource was deleted, the cluster is unreachable, or you lack read permissions.
+                  </div>
+                  <div style={{ 'font-size': '11px', color: 'var(--t5)', 'font-family': 'var(--mono)', background: 'var(--bg2)', padding: '8px 12px', 'border-radius': '4px', border: '1px solid var(--b1)' }}>
+                    kubectl get {(props.incident?.resource?.kind || 'deployment').toLowerCase()} {incName()} -n {incNs()} -o yaml
+                  </div>
+                  <button
+                    class="btn ghost"
+                    style={{ 'font-size': '11px', padding: '5px 12px', 'margin-top': '4px' }}
+                    onClick={() => { setYamlContent(''); setYamlLoading(false); }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              </Show>
+
               {/* View mode: syntax highlighted */}
-              <Show when={!yamlLoading() && !yamlEditing()}>
+              <Show when={!yamlLoading() && !yamlEditing() && yamlContent() !== '__ERROR__'}>
                 <div class="yaml-body" style={{ 'white-space': 'pre' }}>
                   {(yamlContent() || '# No YAML loaded').split('\n').map((line: string) => {
                     const trimmed = line.trimStart();
@@ -1897,45 +2226,32 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
               <div class="mttr-hint">Target &lt;10 min · {incSev()} incident</div>
             </div>
 
-            {/* Orkas AI Fix Analysis button */}
-            <div style={{ padding: '0 14px 10px' }}>
-              <button
-                class="btn-full brand"
-                style={{
-                  display: 'flex', 'align-items': 'center', 'justify-content': 'center',
-                  gap: '6px', 'font-size': '11.5px',
-                  opacity: aiFixLoading() ? '0.7' : '1',
-                }}
-                disabled={aiFixLoading()}
-                onClick={fetchAiFixes}
-              >
-                <img src="/orkas-logo.png" alt="" style={{ height: '14px', width: 'auto' }} />
-                {aiFixLoading() ? 'Analyzing with Orkas AI…' : aiFixes().length > 0 ? 'Re-analyze with Orkas AI' : 'Analyze & Fix with Orkas AI'}
-              </button>
-              <Show when={aiFixError()}>
-                <div style={{ 'font-size': '10.5px', color: 'var(--crit)', 'margin-top': '4px', 'text-align': 'center' }}>{aiFixError()}</div>
-              </Show>
-            </div>
-
-            {/* Incident Brief button */}
-            <div style={{ padding: '0 14px 10px' }}>
-              <button
-                class="btn-full"
-                style={{
-                  display: 'flex', 'align-items': 'center', 'justify-content': 'center',
-                  gap: '6px', 'font-size': '11.5px', background: 'var(--violetBg)',
-                  color: 'var(--violet)', border: '1px solid var(--violet)',
-                  opacity: briefLoading() ? '0.7' : '1',
-                }}
-                disabled={briefLoading()}
-                onClick={fetchIncidentBrief}
-              >
-                <img src="/orkas-logo.png" alt="" style={{ height: '14px', width: 'auto' }} />
-                {briefLoading() ? 'Generating Brief…' : briefResult() ? 'Regenerate Brief' : 'Generate Incident Brief'}
-              </button>
-              <Show when={briefError()}>
-                <div style={{ 'font-size': '10.5px', color: 'var(--crit)', 'margin-top': '4px', 'text-align': 'center' }}>{briefError()}</div>
-              </Show>
+            {/* Orkas AI — coming soon teaser */}
+            <div style={{ padding: '0 14px 14px' }}>
+              <div style={{
+                background: 'var(--brandDim)', border: '1px solid var(--brand)30',
+                'border-radius': '10px', padding: '14px 14px 12px',
+                display: 'flex', 'flex-direction': 'column', 'align-items': 'center', gap: '8px',
+              }}>
+                <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
+                  <img src="/orkas-logo.png" alt="Orkas AI" style={{ height: '18px', width: 'auto' }} />
+                  <span style={{ 'font-size': '12px', 'font-weight': '700', color: 'var(--brand)' }}>Orkas AI</span>
+                  <span style={{ 'font-size': '9px', 'font-weight': '700', padding: '1px 7px', 'border-radius': 'var(--r99)', background: 'var(--brand)', color: '#fff', 'letter-spacing': '.04em', 'text-transform': 'uppercase' }}>Coming Soon</span>
+                </div>
+                <div style={{ 'font-size': '11px', color: 'var(--t3)', 'text-align': 'center', 'line-height': '1.6', 'max-width': '220px' }}>
+                  Full AI capabilities will be available soon — graph-grounded fix recommendations and instant incident briefs.
+                </div>
+                <div style={{ display: 'flex', 'flex-direction': 'column', gap: '4px', width: '100%' }}>
+                  <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', 'font-size': '10.5px', color: 'var(--t4)', opacity: '0.6' }}>
+                    <img src="/orkas-logo.png" alt="" style={{ height: '11px', width: 'auto', opacity: '0.5' }} />
+                    <span>Analyze &amp; Fix with Orkas AI</span>
+                  </div>
+                  <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', 'font-size': '10.5px', color: 'var(--t4)', opacity: '0.6' }}>
+                    <img src="/orkas-logo.png" alt="" style={{ height: '11px', width: 'auto', opacity: '0.5' }} />
+                    <span>Generate Incident Brief</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Incident Brief result card */}
@@ -2058,51 +2374,304 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
 
             {/* Default fix cards when no AI fixes yet */}
             <Show when={aiFixes().length === 0}>
-              <div class="sec-label">Quick Actions</div>
-              <Show when={aiData()?.recs?.length} fallback={
-                <div class="fix-card">
-                  <div class="fix-head">
-                    <div class="fix-icon" style={{ background: 'rgba(251,191,36,.15)' }}>⚡</div>
-                    <span class="fix-title">Restart {incNs()}/{incName()}</span>
-                    <span class="fix-conf" style={{ color: 'var(--ok)' }}>Safe</span>
+              {/* ── Scheduling incident: node-capacity fix cards ── */}
+              <Show when={schedulingAnalysis()}>
+                {(sa) => (<>
+                  <div class="sec-label" style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                    Scheduling Fix Actions
+                    <span class="chip" style={{ background: 'rgba(220,38,38,.12)', color: 'var(--crit)', 'font-size': '9px', padding: '1px 5px' }}>Unschedulable</span>
                   </div>
-                  <div class="fix-body">
-                    <div class="fix-desc">Delete pod to trigger fresh recreation by its controller.</div>
-                    <div class="cmd-line" style={{ cursor: 'pointer' }} onClick={() => copyCmd(`kubectl delete pod ${incName()} -n ${incNs()}`)}>
-                      <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
-                      <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                    </div>
-                    <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(`kubectl logs ${incName()} -n ${incNs()} --previous --tail=100`)}>
-                      <span class="cmd-text">kubectl logs {incName()} -n {incNs()} --previous --tail=100</span>
-                      <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                    </div>
+
+                  {/* Scheduling context summary */}
+                  <div style={{ padding: '8px 10px', background: 'rgba(220,38,38,.05)', border: '1px solid rgba(220,38,38,.15)', 'border-radius': '6px', 'font-size': '11px', color: 'var(--t3)', 'line-height': '1.6', 'margin-bottom': '4px' }}>
+                    <span style={{ 'font-weight': '600', color: 'var(--crit)' }}>Root cause: </span>
+                    {sa().nodeTotal > 0
+                      ? `All ${sa().nodeTotal} nodes have ${sa().nodeReason.toLowerCase()}${sa().maxGroupSize !== null ? ` — autoscaler at max (${sa().maxGroupSize} nodes)` : ''}.`
+                      : 'No schedulable nodes available for this pod.'
+                    }
+                    {' '}Pod will stay Pending until {sa().resourceType} is freed or cluster capacity increases.
                   </div>
-                </div>
-              }>
-                <For each={(aiData()?.recs || []).slice(0, 3)}>{(rec: any, i) => (
+
+                  {/* Fix 1: Inspect pod resource requests */}
                   <div class="fix-card">
                     <div class="fix-head">
-                      <div class="fix-icon" style={{ background: i() === 0 ? 'rgba(251,191,36,.15)' : i() === 1 ? 'var(--violetBg)' : 'rgba(8,145,178,.12)' }}>
-                        {i() === 0 ? '⚡' : i() === 1 ? '🔧' : '📋'}
-                      </div>
-                      <span class="fix-title">{rec.title}</span>
-                      <span class="fix-conf" style={{ color: rec.risk === 'high' ? 'var(--crit)' : rec.risk === 'medium' ? 'var(--warn)' : 'var(--ok)' }}>
-                        {rec.risk === 'high' ? 'Risky' : rec.risk === 'medium' ? 'Moderate' : 'Safe'}
-                      </span>
+                      <div class="fix-icon" style={{ background: 'rgba(251,191,36,.15)' }}>🔍</div>
+                      <span class="fix-title">Inspect pod resource requests</span>
+                      <span class="fix-conf" style={{ color: 'var(--ok)' }}>Safe</span>
                     </div>
                     <div class="fix-body">
-                      <div class="fix-desc">{rec.explanation}</div>
-                      <Show when={i() === 0}>
-                        <div class="cmd-line" style={{ cursor: 'pointer' }} onClick={() => copyCmd(`kubectl delete pod ${incName()} -n ${incNs()}`)}>
-                          <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
+                      <div class="fix-desc">
+                        Check what {sa().resourceType} this pod is requesting. If requests are higher than available node capacity, reduce them in the Deployment spec.
+                      </div>
+                      {[
+                        `kubectl describe pod ${incName()} -n ${incNs()} | grep -A5 "Requests:"`,
+                        `kubectl get pod ${incName()} -n ${incNs()} -o jsonpath='{.spec.containers[*].resources}'`,
+                      ].map(cmd => (
+                        <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(cmd)} title="Click to copy">
+                          <span class="cmd-text" style={{ flex: '1', 'word-break': 'break-all' }}>{cmd}</span>
                           <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                          <Show when={copiedCmd() === cmd}><span style={{ 'font-size': '9px', color: 'var(--ok)', 'margin-left': '4px' }}>✓</span></Show>
                         </div>
-                      </Show>
+                      ))}
                     </div>
                   </div>
-                )}</For>
+
+                  {/* Fix 2: Check node capacity */}
+                  <div class="fix-card">
+                    <div class="fix-head">
+                      <div class="fix-icon" style={{ background: 'rgba(8,145,178,.12)' }}>📊</div>
+                      <span class="fix-title">Check node {sa().resourceType} capacity</span>
+                      <span class="fix-conf" style={{ color: 'var(--ok)' }}>Safe</span>
+                    </div>
+                    <div class="fix-body">
+                      <div class="fix-desc">
+                        All {sa().nodeTotal} nodes report {sa().nodeReason.toLowerCase()}. Check current allocations to find where capacity went.
+                      </div>
+                      {[
+                        `kubectl describe nodes | grep -A 6 "Allocated resources"`,
+                        `kubectl top nodes`,
+                        `kubectl get pods -A --field-selector=status.phase=Running -o wide | grep -v Completed`,
+                      ].map(cmd => (
+                        <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(cmd)} title="Click to copy">
+                          <span class="cmd-text" style={{ flex: '1', 'word-break': 'break-all' }}>{cmd}</span>
+                          <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                          <Show when={copiedCmd() === cmd}><span style={{ 'font-size': '9px', color: 'var(--ok)', 'margin-left': '4px' }}>✓</span></Show>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Fix 3: Cluster autoscaler limit — shown when max group size is hit */}
+                  <Show when={sa().maxGroupSize !== null}>
+                    <div class="fix-card">
+                      <div class="fix-head">
+                        <div class="fix-icon" style={{ background: 'rgba(245,158,11,.12)' }}>⚠</div>
+                        <span class="fix-title">Cluster autoscaler at max ({sa().maxGroupSize} nodes)</span>
+                        <span class="fix-conf" style={{ color: 'var(--warn)' }}>Moderate</span>
+                      </div>
+                      <div class="fix-body">
+                        <div class="fix-desc">
+                          The node group is at its maximum size ({sa().maxGroupSize}). The autoscaler triggered {sa().scaleCount > 0 ? `×${sa().scaleCount}` : ''} but could not add nodes.
+                          Options: (1) increase the max node count in your cloud provider, (2) scale down other workloads, (3) reduce this pod's resource requests.
+                        </div>
+                        {[
+                          `kubectl get configmap cluster-autoscaler-status -n kube-system -o yaml`,
+                          `kubectl get events -n kube-system --field-selector reason=NotTriggerScaleUp --sort-by=.lastTimestamp | tail -20`,
+                        ].map(cmd => (
+                          <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(cmd)} title="Click to copy">
+                            <span class="cmd-text" style={{ flex: '1', 'word-break': 'break-all' }}>{cmd}</span>
+                            <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                            <Show when={copiedCmd() === cmd}><span style={{ 'font-size': '9px', color: 'var(--ok)', 'margin-left': '4px' }}>✓</span></Show>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </Show>
+
+                  {/* Fix 4: Reduce resource requests / right-size */}
+                  <div class="fix-card">
+                    <div class="fix-head">
+                      <div class="fix-icon" style={{ background: 'rgba(16,185,129,.1)' }}>🔧</div>
+                      <span class="fix-title">Right-size {sa().resourceType} requests</span>
+                      <span class="fix-conf" style={{ color: 'var(--warn)' }}>Moderate</span>
+                    </div>
+                    <div class="fix-body">
+                      <div class="fix-desc">
+                        Patch the Deployment to reduce {sa().resourceType.toLowerCase()} requests so the pod fits on existing nodes. Use <code style={{ 'font-family': 'var(--mono)' }}>kubectl top pods</code> to size correctly.
+                      </div>
+                      {(() => {
+                        const depName = incName().replace(/-[a-z0-9]+-[a-z0-9]+$/, '');
+                        return [
+                          `kubectl top pods -n ${incNs()} --sort-by=cpu`,
+                          sa().resourceType === 'CPU'
+                            ? `kubectl set resources deploy/${depName} -n ${incNs()} --requests=cpu=100m --limits=cpu=500m`
+                            : `kubectl set resources deploy/${depName} -n ${incNs()} --requests=memory=128Mi --limits=memory=512Mi`,
+                          `kubectl get events -n ${incNs()} --field-selector reason=FailedScheduling --sort-by=.lastTimestamp | tail -10`,
+                        ].map(cmd => (
+                          <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(cmd)} title="Click to copy">
+                            <span class="cmd-text" style={{ flex: '1', 'word-break': 'break-all' }}>{cmd}</span>
+                            <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                            <Show when={copiedCmd() === cmd}><span style={{ 'font-size': '9px', color: 'var(--ok)', 'margin-left': '4px' }}>✓</span></Show>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                </>)}
+              </Show>
+
+              {/* ── Non-scheduling incidents: generic fix cards ── */}
+              <Show when={!schedulingAnalysis()}>
+                <div class="sec-label">Quick Actions</div>
+                <Show when={aiData()?.recs?.length} fallback={
+                  <div class="fix-card">
+                    <div class="fix-head">
+                      <div class="fix-icon" style={{ background: 'rgba(251,191,36,.15)' }}>⚡</div>
+                      <span class="fix-title">Restart {incNs()}/{incName()}</span>
+                      <span class="fix-conf" style={{ color: 'var(--ok)' }}>Safe</span>
+                    </div>
+                    <div class="fix-body">
+                      <div class="fix-desc">Delete pod to trigger fresh recreation by its controller.</div>
+                      <div class="cmd-line" style={{ cursor: 'pointer' }} onClick={() => copyCmd(`kubectl delete pod ${incName()} -n ${incNs()}`)}>
+                        <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
+                        <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      </div>
+                      <div class="cmd-line" style={{ cursor: 'pointer', 'margin-top': '4px' }} onClick={() => copyCmd(`kubectl logs ${incName()} -n ${incNs()} --previous --tail=100`)}>
+                        <span class="cmd-text">kubectl logs {incName()} -n {incNs()} --previous --tail=100</span>
+                        <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      </div>
+                    </div>
+                  </div>
+                }>
+                  <For each={(aiData()?.recs || []).slice(0, 3)}>{(rec: any, i) => (
+                    <div class="fix-card">
+                      <div class="fix-head">
+                        <div class="fix-icon" style={{ background: i() === 0 ? 'rgba(251,191,36,.15)' : i() === 1 ? 'var(--violetBg)' : 'rgba(8,145,178,.12)' }}>
+                          {i() === 0 ? '⚡' : i() === 1 ? '🔧' : '📋'}
+                        </div>
+                        <span class="fix-title">{rec.title}</span>
+                        <span class="fix-conf" style={{ color: rec.risk === 'high' ? 'var(--crit)' : rec.risk === 'medium' ? 'var(--warn)' : 'var(--ok)' }}>
+                          {rec.risk === 'high' ? 'Risky' : rec.risk === 'medium' ? 'Moderate' : 'Safe'}
+                        </span>
+                      </div>
+                      <div class="fix-body">
+                        <div class="fix-desc">{rec.explanation}</div>
+                        <Show when={i() === 0}>
+                          <div class="cmd-line" style={{ cursor: 'pointer' }} onClick={() => copyCmd(`kubectl delete pod ${incName()} -n ${incNs()}`)}>
+                            <span class="cmd-text">kubectl delete pod {incName()} -n {incNs()}</span>
+                            <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                          </div>
+                        </Show>
+                      </div>
+                    </div>
+                  )}</For>
+                </Show>
               </Show>
             </Show>
+
+            {/* ── Feedback & Resolution ── */}
+            <div style={{ padding: '0 14px 14px' }}>
+              <div style={{
+                background: 'var(--bg2)', border: '1px solid var(--b1)',
+                'border-radius': '8px', padding: '12px 14px',
+              }}>
+                <div style={{ 'font-size': '10px', 'font-weight': '700', 'letter-spacing': '0.08em', 'text-transform': 'uppercase', color: 'var(--t4)', 'margin-bottom': '10px' }}>
+                  Was this fix helpful?
+                </div>
+
+                <Show when={!feedbackDone()}>
+                  <div style={{ display: 'flex', gap: '6px', 'flex-wrap': 'wrap' }}>
+                    {/* ✅ Worked */}
+                    <button
+                      style={{
+                        display: 'flex', 'align-items': 'center', gap: '5px',
+                        padding: '6px 11px', 'border-radius': '6px', border: '1px solid var(--b1)',
+                        background: feedbackSubmitting() === 'worked' ? 'rgba(34,197,94,.15)' : 'var(--bg1)',
+                        color: 'var(--ok)', 'font-size': '11px', 'font-weight': '600', cursor: 'pointer',
+                        opacity: feedbackSubmitting() && feedbackSubmitting() !== 'worked' ? '0.4' : '1',
+                        transition: 'all 0.15s',
+                      }}
+                      disabled={!!feedbackSubmitting()}
+                      onClick={() => handleFeedback('worked')}
+                      title="Fix worked — train the model to recommend this first"
+                    >
+                      ✅ Worked
+                    </button>
+                    {/* ❌ Didn't Work */}
+                    <button
+                      style={{
+                        display: 'flex', 'align-items': 'center', gap: '5px',
+                        padding: '6px 11px', 'border-radius': '6px', border: '1px solid var(--b1)',
+                        background: feedbackSubmitting() === 'not_worked' ? 'rgba(220,38,38,.12)' : 'var(--bg1)',
+                        color: 'var(--crit)', 'font-size': '11px', 'font-weight': '600', cursor: 'pointer',
+                        opacity: feedbackSubmitting() && feedbackSubmitting() !== 'not_worked' ? '0.4' : '1',
+                        transition: 'all 0.15s',
+                      }}
+                      disabled={!!feedbackSubmitting()}
+                      onClick={() => handleFeedback('not_worked')}
+                      title="Fix didn't work — deprioritise this recommendation"
+                    >
+                      ❌ Didn't Work
+                    </button>
+                    {/* ⚠️ Incorrect Cause */}
+                    <button
+                      style={{
+                        display: 'flex', 'align-items': 'center', gap: '5px',
+                        padding: '6px 11px', 'border-radius': '6px', border: '1px solid var(--b1)',
+                        background: feedbackSubmitting() === 'unknown' ? 'rgba(234,179,8,.12)' : 'var(--bg1)',
+                        color: 'var(--warn)', 'font-size': '11px', 'font-weight': '600', cursor: 'pointer',
+                        opacity: feedbackSubmitting() && feedbackSubmitting() !== 'unknown' ? '0.4' : '1',
+                        transition: 'all 0.15s',
+                      }}
+                      disabled={!!feedbackSubmitting()}
+                      onClick={() => handleFeedback('unknown')}
+                      title="Root cause was misidentified"
+                    >
+                      ⚠️ Incorrect Cause
+                    </button>
+                  </div>
+                </Show>
+
+                <Show when={feedbackDone()}>
+                  <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', padding: '6px 0' }}>
+                    <span style={{ 'font-size': '15px' }}>
+                      {feedbackDone() === 'worked' ? '✅' : feedbackDone() === 'not_worked' ? '❌' : '⚠️'}
+                    </span>
+                    <div>
+                      <div style={{ 'font-size': '11.5px', 'font-weight': '600', color: 'var(--t1)' }}>
+                        {feedbackDone() === 'worked' ? 'Feedback recorded — model updated' :
+                         feedbackDone() === 'not_worked' ? 'Feedback recorded — fix deprioritised' :
+                         'Feedback recorded — cause flagged for review'}
+                      </div>
+                      <div style={{ 'font-size': '10px', color: 'var(--t5)', 'margin-top': '2px' }}>
+                        The learning engine will adjust recommendations for similar incidents
+                      </div>
+                    </div>
+                    <button
+                      style={{ 'margin-left': 'auto', 'font-size': '10px', color: 'var(--t5)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                      onClick={() => setFeedbackDone(null)}
+                      title="Change feedback"
+                    >
+                      undo
+                    </button>
+                  </div>
+                </Show>
+
+                {/* Mark Resolved */}
+                <div style={{ 'margin-top': '10px', 'padding-top': '10px', 'border-top': '1px solid var(--b1)', display: 'flex', 'align-items': 'center', gap: '8px' }}>
+                  <Show when={!resolved()}>
+                    <button
+                      style={{
+                        flex: '1', padding: '7px 12px', 'border-radius': '6px',
+                        border: '1px solid var(--b1)',
+                        background: resolving() ? 'rgba(34,197,94,.08)' : 'var(--bg1)',
+                        color: 'var(--t2)', 'font-size': '11.5px', 'font-weight': '600',
+                        cursor: resolving() ? 'wait' : 'pointer', transition: 'all 0.15s',
+                        display: 'flex', 'align-items': 'center', 'justify-content': 'center', gap: '6px',
+                      }}
+                      disabled={resolving()}
+                      onClick={handleResolveIncident}
+                    >
+                      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                      </svg>
+                      {resolving() ? 'Resolving…' : 'Mark Resolved'}
+                    </button>
+                  </Show>
+                  <Show when={resolved()}>
+                    <div style={{ flex: '1', display: 'flex', 'align-items': 'center', gap: '6px', padding: '7px 0' }}>
+                      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="var(--ok)" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                      </svg>
+                      <span style={{ 'font-size': '11.5px', 'font-weight': '600', color: 'var(--ok)' }}>Incident Resolved</span>
+                    </div>
+                  </Show>
+                  <div style={{ 'font-size': '10px', color: 'var(--t5)', 'text-align': 'right', 'line-height': '1.4' }}>
+                    Triggers learning update<br/>in the Knowledge Bank
+                  </div>
+                </div>
+              </div>
+            </div>
           </Show>
 
           {/* ── TOPOLOGY TAB ── */}
@@ -2145,67 +2714,275 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
 
           {/* ── RUNBOOK TAB ── */}
           <Show when={activeRPTab() === 'runbook'}>
-            <div style={{ padding: '14px' }}>
-              <div style={{ 'font-weight': '600', color: 'var(--t1)', 'margin-bottom': '12px', 'font-size': '12px' }}>
-                Automated Runbook
-                <span class="chip ai" style={{ 'margin-left': '8px' }}>✦ AI Generated</span>
-              </div>
-              {/* Step 1: always verify */}
-              <div class="rb-step">
-                <div class="rb-num active">1</div>
-                <div>
-                  <div class="rb-title">Verify current state</div>
-                  <div class="rb-cmd">kubectl describe {props.incident?.resource?.kind?.toLowerCase() || 'pod'}/{incName()} -n {incNs()}</div>
+            <div style={{ display: 'flex', 'flex-direction': 'column', height: '100%', overflow: 'hidden' }}>
+
+              {/* Steps list — scrollable upper section */}
+              <div style={{ flex: '1', 'overflow-y': 'auto', padding: '14px 14px 0' }}>
+                <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', 'margin-bottom': '12px' }}>
+                  <span style={{ 'font-weight': '700', color: 'var(--t1)', 'font-size': '12px' }}>Automated Runbook</span>
+                  <span class="chip ai">✦ AI Generated</span>
+                  <Show when={runbookDone()}>
+                    <span style={{
+                      'margin-left': 'auto', 'font-size': '10px', 'font-weight': '700',
+                      color: runbookResults().some(r => r.status === 'failed') ? 'var(--crit)' : 'var(--ok)',
+                    }}>
+                      {runbookResults().some(r => r.status === 'failed')
+                        ? `✗ ${runbookResults().filter(r => r.status === 'failed').length} step(s) failed`
+                        : `✓ All ${runbookResults().length} steps passed`}
+                    </span>
+                  </Show>
+                </div>
+
+                {/* Render steps from memo — with live status badges */}
+                <For each={runbookSteps()}>
+                  {(step, i) => {
+                    const result = () => runbookResults().find(r => r.stepNum === i() + 1);
+                    const isRunning = () => runbookRunning() && runbookStep() === i() + 1;
+                    const isDone   = () => !!result();
+                    const isFailed = () => result()?.status === 'failed';
+                    const isPending = () => !isRunning() && !isDone();
+                    return (
+                      <div style={{
+                        display: 'flex', gap: '10px', 'margin-bottom': '8px',
+                        padding: '8px 10px', 'border-radius': '6px',
+                        background: isRunning() ? 'rgba(34,211,238,.05)' : isDone() ? (isFailed() ? 'rgba(220,38,38,.04)' : 'rgba(34,197,94,.04)') : 'var(--bg2)',
+                        border: `1px solid ${isRunning() ? 'rgba(34,211,238,.3)' : isDone() ? (isFailed() ? 'rgba(220,38,38,.2)' : 'rgba(34,197,94,.2)') : 'var(--b1)'}`,
+                        transition: 'all 0.2s',
+                      }}>
+                        {/* Step number / status icon */}
+                        <div style={{
+                          width: '22px', height: '22px', 'border-radius': '50%', 'flex-shrink': '0',
+                          display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                          'font-size': '10px', 'font-weight': '700',
+                          background: isRunning() ? 'var(--brand)' : isDone() ? (isFailed() ? 'var(--crit)' : 'var(--ok)') : 'var(--b2)',
+                          color: isRunning() || isDone() ? '#fff' : 'var(--t4)',
+                          'margin-top': '1px',
+                        }}>
+                          <Show when={isRunning()}>
+                            <div style={{
+                              width: '8px', height: '8px', 'border-radius': '50%',
+                              border: '2px solid rgba(255,255,255,.4)', 'border-top-color': '#fff',
+                              animation: 'spin 0.7s linear infinite',
+                            }} />
+                          </Show>
+                          <Show when={isDone() && !isFailed()}>✓</Show>
+                          <Show when={isFailed()}>✗</Show>
+                          <Show when={isPending()}>{i() + 1}</Show>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ flex: '1', 'min-width': '0' }}>
+                          <div style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                            <span style={{ 'font-size': '11.5px', 'font-weight': '600', color: isRunning() ? 'var(--brand)' : isDone() ? 'var(--t1)' : 'var(--t3)' }}>
+                              {step.title}
+                            </span>
+                            <Show when={isDone()}>
+                              <span style={{ 'margin-left': 'auto', 'font-size': '9.5px', color: 'var(--t5)', 'font-family': 'var(--mono)', 'flex-shrink': '0' }}>
+                                {result()?.durationMs}ms
+                              </span>
+                            </Show>
+                            <Show when={isRunning()}>
+                              <span style={{ 'margin-left': 'auto', 'font-size': '9.5px', color: 'var(--brand)', 'flex-shrink': '0' }}>running…</span>
+                            </Show>
+                          </div>
+                          <div style={{
+                            'font-size': '10px', 'font-family': 'var(--mono)', color: 'var(--t5)',
+                            'margin-top': '3px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap',
+                          }}>
+                            $ {step.cmd}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+
+                {/* Run / Re-run button */}
+                <div style={{ padding: '10px 0 14px' }}>
+                  <button
+                    class="btn-full brand"
+                    disabled={runbookRunning()}
+                    style={{ opacity: runbookRunning() ? '0.65' : '1', display: 'flex', 'align-items': 'center', 'justify-content': 'center', gap: '8px' }}
+                    onClick={async () => {
+                      if (runbookRunning()) return;
+                      const steps = runbookSteps();
+                      setRunbookRunning(true);
+                      setRunbookDone(false);
+                      setRunbookResults([]);
+                      setRunbookStep(0);
+
+                      for (let i = 0; i < steps.length; i++) {
+                        const s = steps[i];
+                        const stepNum = i + 1;
+                        setRunbookStep(stepNum);
+
+                        // Add "running" placeholder
+                        setRunbookResults(prev => [...prev, {
+                          stepNum, title: s.title, cmd: s.cmd,
+                          output: '', exitCode: 0, durationMs: 0, status: 'running',
+                        }]);
+
+                        try {
+                          const res = await api.execRunbookStep(s.cmd);
+                          setRunbookResults(prev => prev.map(r =>
+                            r.stepNum === stepNum
+                              ? { ...r, output: res.output, exitCode: res.exitCode, durationMs: res.durationMs, status: res.exitCode === 0 ? 'success' : 'failed' }
+                              : r,
+                          ));
+                        } catch (err: any) {
+                          setRunbookResults(prev => prev.map(r =>
+                            r.stepNum === stepNum
+                              ? { ...r, output: err?.message || 'Request failed', exitCode: 1, status: 'failed' }
+                              : r,
+                          ));
+                        }
+                      }
+
+                      setRunbookRunning(false);
+                      setRunbookStep(0);
+                      setRunbookDone(true);
+                    }}
+                  >
+                    <Show when={!runbookRunning()} fallback={
+                      <><div style={{ width: '11px', height: '11px', 'border-radius': '50%', border: '2px solid rgba(255,255,255,.4)', 'border-top-color': '#fff', animation: 'spin 0.7s linear infinite' }} /> Running step {runbookStep()} of {runbookSteps().length}…</>
+                    }>
+                      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                      {runbookDone() ? 'Re-run Runbook' : 'Run Automated Runbook'}
+                    </Show>
+                  </button>
                 </div>
               </div>
-              {/* Steps 2+: from real recommendations */}
-              <For each={(aiData()?.recs || []).slice(0, 4)}>{(rec: any, i) => (
-                <div class="rb-step">
-                  <div class="rb-num pending">{i() + 2}</div>
-                  <div>
-                    <div class="rb-title">{rec.title}</div>
-                    <div class="rb-cmd">{
-                      rec.title?.toLowerCase().includes('restart') || rec.title?.toLowerCase().includes('rollback')
-                        ? `kubectl rollout undo deploy/${incName().replace(/-[a-z0-9]+-[a-z0-9]+$/, '')} -n ${incNs()}`
-                        : rec.title?.toLowerCase().includes('scale')
-                        ? `kubectl scale deploy/${incName().replace(/-[a-z0-9]+-[a-z0-9]+$/, '')} --replicas=3 -n ${incNs()}`
-                        : rec.title?.toLowerCase().includes('drain') || rec.title?.toLowerCase().includes('node')
-                        ? `kubectl drain ${resourceMeta().node !== '—' ? resourceMeta().node : '<node>'} --ignore-daemonsets --delete-emptydir-data`
-                        : rec.title?.toLowerCase().includes('secret') || rec.title?.toLowerCase().includes('config')
-                        ? `kubectl get ${rec.title?.toLowerCase().includes('secret') ? 'secret' : 'configmap'} -n ${incNs()}`
-                        : rec.explanation?.slice(0, 80) || `kubectl get events -n ${incNs()} --sort-by=.lastTimestamp`
-                    }</div>
+
+              {/* ── Execution Summary Panel (terminal-style) ── */}
+              <Show when={runbookResults().length > 0}>
+                {/* Divider */}
+                <div style={{ 'border-top': '1px solid var(--b1)', 'flex-shrink': '0' }} />
+
+                <div style={{
+                  'flex-shrink': '0', display: 'flex', 'flex-direction': 'column',
+                  height: '280px', background: '#0D1521',
+                }}>
+                  {/* Panel toolbar */}
+                  <div style={{
+                    display: 'flex', 'align-items': 'center', gap: '8px',
+                    padding: '6px 12px', background: '#111B2A',
+                    'border-bottom': '1px solid rgba(255,255,255,.07)', 'flex-shrink': '0',
+                  }}>
+                    <div style={{ display: 'flex', 'align-items': 'center', gap: '5px' }}>
+                      <div style={{ width: '8px', height: '8px', 'border-radius': '50%', background: runbookRunning() ? '#22C55E' : runbookResults().some(r => r.status === 'failed') ? '#EF4444' : '#22C55E' }} />
+                      <span style={{ 'font-size': '10.5px', 'font-weight': '700', color: '#94A3B8', 'letter-spacing': '0.04em', 'text-transform': 'uppercase' }}>
+                        Execution Summary
+                      </span>
+                    </div>
+                    <Show when={runbookRunning()}>
+                      <span style={{ 'font-size': '10px', color: '#34D399', 'font-family': 'var(--mono)' }}>
+                        ● running
+                      </span>
+                    </Show>
+                    <Show when={runbookDone()}>
+                      <span style={{ 'font-size': '10px', color: runbookResults().some(r => r.status === 'failed') ? '#F87171' : '#34D399', 'font-family': 'var(--mono)' }}>
+                        {runbookResults().some(r => r.status === 'failed') ? '✗ failed' : '✓ complete'}
+                      </span>
+                    </Show>
+                    <div style={{ 'margin-left': 'auto', display: 'flex', gap: '6px' }}>
+                      {/* Copy all output */}
+                      <button
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '2px 5px', 'border-radius': '3px', 'font-size': '10px' }}
+                        title="Copy all output"
+                        onClick={() => {
+                          const text = runbookResults().map(r =>
+                            `## Step ${r.stepNum}: ${r.title}\n$ ${r.cmd}\n\n${r.output}\n\n[exit ${r.exitCode} · ${r.durationMs}ms]`
+                          ).join('\n\n---\n\n');
+                          navigator.clipboard.writeText(text);
+                        }}
+                      >
+                        <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      </button>
+                      {/* Clear */}
+                      <button
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '2px 5px', 'border-radius': '3px', 'font-size': '10px' }}
+                        title="Clear output"
+                        onClick={() => { setRunbookResults([]); setRunbookDone(false); }}
+                      >
+                        <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable output */}
+                  <div
+                    style={{ flex: '1', 'overflow-y': 'auto', padding: '10px 14px', 'font-family': 'var(--mono)', 'font-size': '11px', 'line-height': '1.65', color: '#94A3B8' }}
+                    ref={(el) => {
+                      // Auto-scroll to bottom whenever results update
+                      if (el) {
+                        const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
+                        observer.observe(el, { childList: true, subtree: true, characterData: true });
+                      }
+                    }}
+                  >
+                    <For each={runbookResults()}>
+                      {(result) => (
+                        <div style={{ 'margin-bottom': '18px' }}>
+                          {/* Step header */}
+                          <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', 'margin-bottom': '4px' }}>
+                            <span style={{
+                              'font-size': '9px', 'font-weight': '700', 'letter-spacing': '0.06em',
+                              'text-transform': 'uppercase', padding: '1px 6px', 'border-radius': '3px',
+                              background: result.status === 'failed' ? 'rgba(239,68,68,.2)' : result.status === 'running' ? 'rgba(34,211,238,.15)' : 'rgba(34,197,94,.15)',
+                              color: result.status === 'failed' ? '#F87171' : result.status === 'running' ? '#67E8F9' : '#4ADE80',
+                            }}>
+                              step {result.stepNum}
+                            </span>
+                            <span style={{ color: '#CBD5E1', 'font-weight': '600', 'font-size': '11px', flex: '1' }}>{result.title}</span>
+                            <Show when={result.status !== 'running'}>
+                              <span style={{ 'font-size': '9.5px', color: result.exitCode === 0 ? '#4ADE80' : '#F87171', 'flex-shrink': '0' }}>
+                                {result.exitCode === 0 ? '✓' : '✗'} exit {result.exitCode} · {result.durationMs}ms
+                              </span>
+                            </Show>
+                            <Show when={result.status === 'running'}>
+                              <span style={{ 'font-size': '9.5px', color: '#67E8F9' }}>running…</span>
+                            </Show>
+                          </div>
+
+                          {/* Command prompt line */}
+                          <div style={{ color: '#64748B', 'margin-bottom': '4px' }}>
+                            <span style={{ color: '#34D399' }}>$</span>{' '}
+                            <span style={{ color: '#E2E8F0' }}>{result.cmd}</span>
+                          </div>
+
+                          {/* Output block */}
+                          <Show when={result.output}>
+                            <pre style={{
+                              margin: '0', 'white-space': 'pre-wrap', 'word-break': 'break-all',
+                              color: result.exitCode !== 0 ? '#FCA5A5' : '#94A3B8',
+                              'border-left': `2px solid ${result.exitCode !== 0 ? 'rgba(239,68,68,.4)' : 'rgba(51,65,85,.8)'}`,
+                              'padding-left': '10px', 'line-height': '1.6',
+                            }}>
+                              {result.output}
+                            </pre>
+                          </Show>
+
+                          <Show when={result.status === 'running' && !result.output}>
+                            <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', color: '#475569', 'padding-left': '10px' }}>
+                              <div style={{ width: '8px', height: '8px', 'border-radius': '50%', border: '2px solid #334155', 'border-top-color': '#67E8F9', animation: 'spin 0.7s linear infinite' }} />
+                              <span style={{ 'font-size': '10.5px' }}>executing…</span>
+                            </div>
+                          </Show>
+
+                          {/* Separator */}
+                          <div style={{ 'border-bottom': '1px solid rgba(255,255,255,.04)', 'margin-top': '12px' }} />
+                        </div>
+                      )}
+                    </For>
+
+                    {/* Blinking cursor when running */}
+                    <Show when={runbookRunning()}>
+                      <span style={{ color: '#67E8F9', animation: 'pulse 1s ease-in-out infinite' }}>▌</span>
+                    </Show>
                   </div>
                 </div>
-              )}</For>
-              {/* Final step: verify readiness */}
-              <div class="rb-step">
-                <div class="rb-num pending">{(aiData()?.recs?.length || 0) + 2}</div>
-                <div>
-                  <div class="rb-title">Verify pod readiness</div>
-                  <div class="rb-cmd">kubectl get pods -n {incNs()} -w --field-selector=status.phase!=Running</div>
-                </div>
-              </div>
-              <div style={{ 'margin-top': '14px' }}>
-                <button
-                  class="btn-full brand"
-                  disabled={runbookRunning()}
-                  style={{ opacity: runbookRunning() ? '0.7' : '1' }}
-                  onClick={async () => {
-                    if (runbookRunning()) return;
-                    setRunbookRunning(true);
-                    const totalSteps = (aiData()?.recs?.length || 0) + 2;
-                    for (let s = 1; s <= totalSteps; s++) {
-                      setRunbookStep(s);
-                      await new Promise(r => setTimeout(r, 1200));
-                    }
-                    setRunbookRunning(false);
-                    setRunbookStep(0);
-                  }}
-                >
-                  {runbookRunning() ? `Running step ${runbookStep()}…` : 'Run Automated Runbook'}
-                </button>
-              </div>
+              </Show>
+
             </div>
           </Show>
 
@@ -2248,28 +3025,77 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
               <Show when={copyMdMsg()}>
                 <div style={{ 'font-size': '11px', color: copyMdMsg().startsWith('✓') ? 'var(--ok)' : 'var(--warn)', padding: '4px 0' }}>{copyMdMsg()}</div>
               </Show>
-              <div style={{ 'margin-top': '14px', display: 'flex', gap: '8px' }}>
-                <button class="btn primary" style={{ flex: '1', 'font-size': '11px' }}
+              <div style={{ 'margin-top': '14px', display: 'flex', 'flex-direction': 'column', gap: '8px' }}>
+                {/* Download PDF — opens print dialog (browser Save as PDF) */}
+                <button
+                  class="btn primary"
+                  style={{ 'font-size': '11px', display: 'flex', 'align-items': 'center', gap: '7px', 'justify-content': 'center' }}
                   onClick={() => {
-                    setCopyMdMsg('Confluence integration requires API token. Use "Copy MD" to export.');
-                    setTimeout(() => setCopyMdMsg(''), 4000);
-                  }}
-                >Export to Confluence</button>
-                <button class="btn ghost" style={{ 'font-size': '11px' }}
-                  onClick={async () => {
                     const inc = props.incident;
                     if (!inc) { setCopyMdMsg('No incident selected'); return; }
                     try {
                       const report = RCAReportGenerator.generateReport(inc);
-                      const md = RCAReportGenerator.exportAsMarkdown(report);
-                      await navigator.clipboard.writeText(md);
-                      setCopyMdMsg('✓ Markdown copied to clipboard');
-                    } catch {
-                      setCopyMdMsg('✗ Copy failed');
+                      RCAReportGenerator.printAsPDF(report);
+                      setCopyMdMsg('✓ Print dialog opened — choose "Save as PDF"');
+                    } catch (e: any) {
+                      setCopyMdMsg(`✗ ${e?.message || 'Export failed'}`);
                     }
-                    setTimeout(() => setCopyMdMsg(''), 3000);
+                    setTimeout(() => setCopyMdMsg(''), 5000);
                   }}
-                >Copy MD</button>
+                >
+                  <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+                  </svg>
+                  Export PDF
+                </button>
+                {/* Download Markdown file */}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    class="btn ghost"
+                    style={{ flex: '1', 'font-size': '11px', display: 'flex', 'align-items': 'center', gap: '7px', 'justify-content': 'center' }}
+                    onClick={() => {
+                      const inc = props.incident;
+                      if (!inc) { setCopyMdMsg('No incident selected'); return; }
+                      try {
+                        const report = RCAReportGenerator.generateReport(inc);
+                        RCAReportGenerator.downloadReport(report, 'markdown');
+                        setCopyMdMsg('✓ Markdown file downloaded');
+                      } catch (e: any) {
+                        setCopyMdMsg(`✗ ${e?.message || 'Export failed'}`);
+                      }
+                      setTimeout(() => setCopyMdMsg(''), 3000);
+                    }}
+                  >
+                    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Download .md
+                  </button>
+                  {/* Copy MD to clipboard as fallback */}
+                  <button
+                    class="btn ghost"
+                    style={{ 'font-size': '11px', display: 'flex', 'align-items': 'center', gap: '6px' }}
+                    title="Copy Markdown to clipboard"
+                    onClick={async () => {
+                      const inc = props.incident;
+                      if (!inc) { setCopyMdMsg('No incident selected'); return; }
+                      try {
+                        const report = RCAReportGenerator.generateReport(inc);
+                        const md = RCAReportGenerator.exportAsMarkdown(report);
+                        await navigator.clipboard.writeText(md);
+                        setCopyMdMsg('✓ Markdown copied');
+                      } catch {
+                        setCopyMdMsg('✗ Copy failed');
+                      }
+                      setTimeout(() => setCopyMdMsg(''), 3000);
+                    }}
+                  >
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                    </svg>
+                    Copy
+                  </button>
+                </div>
               </div>
             </div>
           </Show>

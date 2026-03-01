@@ -528,9 +528,14 @@ func (ws *WebServer) handleKnowledgeExport(w http.ResponseWriter, r *http.Reques
 		},
 	}
 
+	prettyJSON, err := json.MarshalIndent(export, "", "  ")
+	if err != nil {
+		http.Error(w, "Failed to encode export", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=kubegraf-knowledge-%s.json", time.Now().Format("2006-01-02")))
-	json.NewEncoder(w).Encode(export)
+	w.Write(prettyJSON)
 }
 
 // handleKnowledgeImport handles POST /api/knowledge/import

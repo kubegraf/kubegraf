@@ -705,14 +705,20 @@ export const GitOpsPanel: Component = () => {
 export const CostPanel: Component = () => {
   const [loading, setLoading] = createSignal(true);
   const [costData, setCostData] = createSignal<any>(null);
+  const [idleData, setIdleData] = createSignal<any>(null);
   const [error, setError] = createSignal('');
+  const [activeTab, setActiveTab] = createSignal<'overview' | 'namespaces' | 'idle'>('overview');
 
   const fetchCost = async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getClusterCost();
-      setCostData(data);
+      const [cost, idle] = await Promise.allSettled([
+        api.getClusterCost(),
+        api.getIdleResources(),
+      ]);
+      if (cost.status === 'fulfilled') setCostData(cost.value);
+      if (idle.status === 'fulfilled') setIdleData(idle.value);
     } catch (e: any) {
       setError('Cost analysis not available');
     } finally {
@@ -722,51 +728,290 @@ export const CostPanel: Component = () => {
 
   onMount(fetchCost);
 
+  const fmt$ = (v: number | undefined) => v !== undefined && v !== null ? `$${v.toFixed(2)}` : '--';
+  const fmtCPU = (v: number | undefined) => {
+    if (v === undefined || v === null) return '--';
+    return v < 1 ? `${(v * 1000).toFixed(0)}m` : `${v.toFixed(2)} cores`;
+  };
+  const fmtMem = (v: number | undefined) => {
+    if (v === undefined || v === null) return '--';
+    return v < 1 ? `${(v * 1024).toFixed(0)} Mi` : `${v.toFixed(2)} Gi`;
+  };
+
+  const potentialSavings = () => {
+    const idle = (idleData()?.idleResources || []) as any[];
+    return idle.reduce((acc: number, r: any) => acc + (r.wastedCost || 0), 0) * 720;
+  };
+
+  const CloudBadge = () => {
+    const p = () => costData()?.cloud?.provider;
+    return (
+      <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', padding: '4px 10px', background: 'var(--s3)', 'border-radius': 'var(--r8)', border: '1px solid var(--b1)', 'font-size': '11px' }}>
+        <Show when={p() === 'gcp'}>
+          <svg width="16" height="16" viewBox="0 0 48 48">
+            <path fill="#4285F4" d="M24 4L6 14v20l18 10 18-10V14L24 4z"/><path fill="#EA4335" d="M24 4L6 14l18 10 18-10L24 4z"/><path fill="#34A853" d="M6 34l18 10V24L6 14v20z"/><path fill="#FBBC05" d="M42 34V14L24 24v20l18-10z"/>
+          </svg>
+        </Show>
+        <Show when={p() === 'aws'}>
+          <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#FF9900" d="M8 24c0-8.8 7.2-16 16-16s16 7.2 16 16-7.2 16-16 16S8 32.8 8 24z"/></svg>
+        </Show>
+        <Show when={p() === 'azure'}>
+          <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#0089D6" d="M24 4L8 24l8 16h16l8-16L24 4z"/></svg>
+        </Show>
+        <Show when={!p() || p() === 'unknown'}>
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+        </Show>
+        <span style={{ color: 'var(--t3)', 'font-weight': '600' }}>{costData()?.cloud?.displayName || 'Cloud'}</span>
+        <Show when={costData()?.cloud?.region}>
+          <span style={{ color: 'var(--t5)' }}>{costData()?.cloud?.region}</span>
+        </Show>
+      </div>
+    );
+  };
+
   return (
     <div class="panel">
-      <PanelHeader title="Cost Analysis" subtitle="Cluster cost breakdown" onRefresh={fetchCost} loading={loading()} />
+      <div class="panel-header" style={{ 'flex-wrap': 'wrap', gap: '6px' }}>
+        <div>
+          <h2 class="panel-title">Cost Analysis</h2>
+          <span class="panel-subtitle">Cluster cost estimation &amp; optimization</span>
+        </div>
+        <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', 'margin-left': 'auto' }}>
+          <Show when={costData()}><CloudBadge /></Show>
+          <button class="btn btn-ghost btn-sm" onClick={fetchCost} disabled={loading()} title="Refresh">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0111.5-2.3M14 8a6 6 0 01-11.5 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14 2v4h-4M2 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            {loading() ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
       <div class="panel-scroll">
         <Show when={!loading()} fallback={<PanelLoading />}>
           <Show when={!error()} fallback={<PanelEmpty message={error()} />}>
+            {/* Summary cards */}
             <Show when={costData()}>
-              {(data) => {
-                const d = data();
-                const total = d.totalCost ?? d.total ?? 0;
-                const namespaces = d.namespaces || d.breakdown || [];
-                return (
-                  <>
-                    <div class="panel-summary-grid">
-                      <PanelCard label="Total Cost" value={`$${Number(total).toFixed(2)}`} color="teal" />
-                      <PanelCard label="Namespaces" value={namespaces.length} color="blue" />
-                      <PanelCard label="Top NS" value={namespaces[0]?.name || namespaces[0]?.namespace || '—'} color="amber" />
-                    </div>
-                    <Show when={namespaces.length > 0}>
-                      <table class="panel-table">
-                        <thead>
-                          <tr><th>Namespace</th><th>CPU Cost</th><th>Mem Cost</th><th>Total</th><th>% Cluster</th></tr>
-                        </thead>
-                        <tbody>
-                          <For each={namespaces}>
-                            {(ns: any) => {
-                              const nsCost = ns.totalCost ?? ns.total ?? 0;
-                              const pct = total > 0 ? ((nsCost / total) * 100).toFixed(1) : '0';
-                              return (
-                                <tr>
-                                  <td class="panel-cell-name">{ns.name || ns.namespace}</td>
-                                  <td>${Number(ns.cpuCost ?? 0).toFixed(2)}</td>
-                                  <td>${Number(ns.memoryCost ?? ns.memCost ?? 0).toFixed(2)}</td>
-                                  <td>${Number(nsCost).toFixed(2)}</td>
-                                  <td>{pct}%</td>
-                                </tr>
-                              );
-                            }}
-                          </For>
-                        </tbody>
-                      </table>
+              <div class="panel-summary-grid" style={{ 'grid-template-columns': 'repeat(2,1fr)' }}>
+                <PanelCard label="Hourly" value={fmt$(costData()?.hourlyCost)} color="teal" />
+                <PanelCard label="Daily" value={fmt$(costData()?.dailyCost)} color="blue" />
+                <PanelCard label="Monthly Est." value={fmt$(costData()?.monthlyCost)} color="amber" />
+                <PanelCard label="Potential Savings" value={fmt$(potentialSavings())} color="teal" />
+              </div>
+            </Show>
+
+            {/* Tab bar */}
+            <div style={{ display: 'flex', 'border-bottom': '1px solid var(--b1)', padding: '0 16px', 'margin-bottom': '0', 'flex-shrink': '0' }}>
+              {(['overview', 'namespaces', 'idle'] as const).map(tab => (
+                <button
+                  onClick={() => setActiveTab(tab)}
+                  style={{
+                    padding: '7px 12px',
+                    'font-size': '11px',
+                    'font-weight': '600',
+                    background: 'none',
+                    border: 'none',
+                    'border-bottom': `2px solid ${activeTab() === tab ? 'var(--brand)' : 'transparent'}`,
+                    color: activeTab() === tab ? 'var(--brand)' : 'var(--t4)',
+                    cursor: 'pointer',
+                    transition: 'all .15s',
+                    'margin-bottom': '-1px',
+                  }}
+                >
+                  {tab === 'overview' ? 'Overview' : tab === 'namespaces' ? 'By Namespace' : 'Idle Resources'}
+                </button>
+              ))}
+            </div>
+
+            {/* Overview tab */}
+            <Show when={activeTab() === 'overview'}>
+              <Show when={costData()}>
+                {/* Cost by namespace top-8 */}
+                <div style={{ padding: '12px 16px 0' }}>
+                  <div class="sec"><div class="sec-diamond" /><span class="sec-title">Cost by Namespace</span></div>
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '6px', 'margin-top': '8px' }}>
+                    <For each={(costData()?.namespaceCosts || []).slice(0, 6)}>
+                      {(ns: any) => (
+                        <div style={{ display: 'flex', 'align-items': 'center', 'justify-content': 'space-between', padding: '8px 10px', background: 'var(--s2)', 'border-radius': 'var(--r8)', border: '1px solid var(--b1)' }}>
+                          <div>
+                            <div style={{ 'font-size': '12px', 'font-weight': '600', color: 'var(--t1)' }}>{ns.namespace}</div>
+                            <div style={{ 'font-size': '9.5px', color: 'var(--t5)', 'font-family': 'var(--mono)' }}>
+                              {ns.podCount} pods · {fmtCPU(ns.totalCpu)} CPU · {fmtMem(ns.totalMemory)} mem
+                            </div>
+                          </div>
+                          <div style={{ 'text-align': 'right' }}>
+                            <div style={{ 'font-size': '12px', 'font-weight': '700', color: 'var(--warn)' }}>{fmt$(ns.monthlyCost)}/mo</div>
+                            <div style={{ 'font-size': '9.5px', color: 'var(--t5)' }}>{fmt$(ns.dailyCost)}/day</div>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                    <Show when={!(costData()?.namespaceCosts?.length)}>
+                      <div style={{ 'text-align': 'center', color: 'var(--t5)', 'font-size': '12px', padding: '12px' }}>No namespace cost data</div>
                     </Show>
-                  </>
-                );
-              }}
+                  </div>
+                </div>
+
+                {/* Resource allocation + pricing */}
+                <div style={{ padding: '12px 16px' }}>
+                  <div class="sec"><div class="sec-diamond" /><span class="sec-title">Resource Allocation</span></div>
+                  <div style={{ 'margin-top': '8px', display: 'flex', 'flex-direction': 'column', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', 'justify-content': 'space-between', 'font-size': '11px', 'margin-bottom': '4px' }}>
+                        <span style={{ color: 'var(--t3)' }}>CPU ({fmtCPU(costData()?.totalCpu)})</span>
+                        <span style={{ color: 'var(--t5)' }}>{costData()?.nodeCount || 0} nodes</span>
+                      </div>
+                      <div style={{ height: '4px', background: 'var(--s4)', 'border-radius': '2px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: '100%', background: 'var(--brand)', 'border-radius': '2px' }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', 'justify-content': 'space-between', 'font-size': '11px', 'margin-bottom': '4px' }}>
+                        <span style={{ color: 'var(--t3)' }}>Memory ({fmtMem(costData()?.totalMemory)})</span>
+                      </div>
+                      <div style={{ height: '4px', background: 'var(--s4)', 'border-radius': '2px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: '100%', background: 'var(--blue)', 'border-radius': '2px' }} />
+                      </div>
+                    </div>
+                  </div>
+                  {/* Pricing rates */}
+                  <div style={{ 'margin-top': '12px', 'padding-top': '10px', 'border-top': '1px solid var(--b1)' }}>
+                    <div style={{ 'font-size': '10px', 'font-weight': '700', color: 'var(--t4)', 'text-transform': 'uppercase', 'letter-spacing': '.5px', 'margin-bottom': '6px' }}>
+                      Pricing ({costData()?.pricing?.provider || 'Generic'}{costData()?.pricing?.region ? ` · ${costData()?.pricing?.region}` : ''})
+                    </div>
+                    <div style={{ display: 'flex', 'flex-direction': 'column', gap: '4px', 'font-size': '11px' }}>
+                      <div style={{ display: 'flex', 'justify-content': 'space-between' }}>
+                        <span style={{ color: 'var(--t4)' }}>CPU /core/hr</span>
+                        <span style={{ color: 'var(--t2)', 'font-family': 'var(--mono)' }}>${(costData()?.pricing?.cpuPerCoreHour || 0.0336).toFixed(4)}</span>
+                      </div>
+                      <div style={{ display: 'flex', 'justify-content': 'space-between' }}>
+                        <span style={{ color: 'var(--t4)' }}>Memory /GB/hr</span>
+                        <span style={{ color: 'var(--t2)', 'font-family': 'var(--mono)' }}>${(costData()?.pricing?.memoryPerGBHour || 0.0045).toFixed(4)}</span>
+                      </div>
+                      <div style={{ display: 'flex', 'justify-content': 'space-between' }}>
+                        <span style={{ color: 'var(--t4)' }}>Storage /GB/mo</span>
+                        <span style={{ color: 'var(--t2)', 'font-family': 'var(--mono)' }}>${(costData()?.pricing?.storagePerGBMonth || 0.10).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recommendations */}
+                <Show when={(costData()?.recommendations || []).length > 0}>
+                  <div style={{ padding: '0 16px 12px' }}>
+                    <div class="sec"><div class="sec-diamond" /><span class="sec-title">Optimization Recommendations</span></div>
+                    <div style={{ display: 'flex', 'flex-direction': 'column', gap: '8px', 'margin-top': '8px' }}>
+                      <For each={(costData()?.recommendations || []).slice(0, 5)}>
+                        {(rec: any) => (
+                          <div style={{
+                            padding: '10px 12px',
+                            'border-radius': 'var(--r8)',
+                            border: `1px solid ${rec.impact === 'high' ? 'var(--warnBdr)' : 'var(--b1)'}`,
+                            background: rec.impact === 'high' ? 'var(--warnBg)' : 'var(--s2)',
+                          }}>
+                            <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'flex-start', gap: '8px' }}>
+                              <div style={{ flex: '1' }}>
+                                <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', 'margin-bottom': '3px' }}>
+                                  <span style={{ 'font-size': '11.5px', 'font-weight': '700', color: 'var(--t1)' }}>{rec.title}</span>
+                                  <span style={{
+                                    'font-size': '8.5px', 'font-weight': '800', padding: '1px 5px', 'border-radius': '3px',
+                                    background: rec.impact === 'high' ? 'var(--warn)' : 'var(--brand)', color: '#fff',
+                                  }}>{(rec.impact || '').toUpperCase()}</span>
+                                </div>
+                                <div style={{ 'font-size': '10.5px', color: 'var(--t4)' }}>{rec.description}</div>
+                              </div>
+                              <div style={{ 'text-align': 'right', 'flex-shrink': '0' }}>
+                                <div style={{ 'font-size': '13px', 'font-weight': '800', color: 'var(--ok)' }}>{fmt$(rec.savings)}</div>
+                                <div style={{ 'font-size': '9px', color: 'var(--t5)' }}>mo savings</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              </Show>
+            </Show>
+
+            {/* By Namespace tab */}
+            <Show when={activeTab() === 'namespaces'}>
+              <table class="panel-table">
+                <thead>
+                  <tr><th>Namespace</th><th>Pods</th><th>CPU</th><th>Memory</th><th>Hourly</th><th>Monthly</th></tr>
+                </thead>
+                <tbody>
+                  <Show when={(costData()?.namespaceCosts || []).length > 0} fallback={
+                    <tr><td colspan="6" style={{ 'text-align': 'center', padding: '24px', color: 'var(--t5)' }}>No namespace cost data</td></tr>
+                  }>
+                    <For each={costData()?.namespaceCosts || []}>
+                      {(ns: any) => (
+                        <tr>
+                          <td class="panel-cell-name" style={{ color: 'var(--brand)' }}>{ns.namespace}</td>
+                          <td>{ns.podCount}</td>
+                          <td style={{ 'font-family': 'var(--mono)' }}>{fmtCPU(ns.totalCpu)}</td>
+                          <td style={{ 'font-family': 'var(--mono)' }}>{fmtMem(ns.totalMemory)}</td>
+                          <td style={{ 'font-family': 'var(--mono)' }}>{fmt$(ns.hourlyCost)}</td>
+                          <td style={{ 'font-weight': '700', color: 'var(--warn)', 'font-family': 'var(--mono)' }}>{fmt$(ns.monthlyCost)}</td>
+                        </tr>
+                      )}
+                    </For>
+                  </Show>
+                </tbody>
+              </table>
+            </Show>
+
+            {/* Idle Resources tab */}
+            <Show when={activeTab() === 'idle'}>
+              <div style={{ padding: '12px 16px 8px', display: 'flex', 'align-items': 'center', gap: '8px', background: 'var(--okBg)', border: '1px solid var(--okBdr)', margin: '8px 16px', 'border-radius': 'var(--r8)' }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--ok)', 'flex-shrink': '0' }}><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                  <div style={{ 'font-size': '11px', 'font-weight': '700', color: 'var(--ok)' }}>Optimization Opportunities</div>
+                  <div style={{ 'font-size': '10px', color: 'var(--t4)' }}>Resources using &lt;10% of requests could be scaled down</div>
+                </div>
+              </div>
+              <table class="panel-table">
+                <thead>
+                  <tr><th>Resource</th><th>Namespace</th><th>Kind</th><th>CPU%</th><th>Mem%</th><th>Wasted/hr</th></tr>
+                </thead>
+                <tbody>
+                  <Show when={(idleData()?.idleResources || []).length > 0} fallback={
+                    <tr><td colspan="6" style={{ 'text-align': 'center', padding: '24px', color: 'var(--t5)' }}>
+                      <div>No idle resources found</div>
+                      <div style={{ 'font-size': '10px', 'margin-top': '4px' }}>All resources are being utilized efficiently</div>
+                    </td></tr>
+                  }>
+                    <For each={idleData()?.idleResources || []}>
+                      {(r: any) => {
+                        const cpuPct = r.cpuRequest > 0 ? Math.min(100, (r.cpuUsage / r.cpuRequest) * 100) : 0;
+                        const memPct = r.memoryRequest > 0 ? Math.min(100, (r.memoryUsage / r.memoryRequest) * 100) : 0;
+                        return (
+                          <tr>
+                            <td class="panel-cell-name" style={{ color: 'var(--brand)' }}>{r.name}</td>
+                            <td>{r.namespace}</td>
+                            <td><span class="svc-kind">{r.kind}</span></td>
+                            <td>
+                              <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
+                                <div style={{ width: '36px', height: '4px', background: 'var(--s4)', 'border-radius': '2px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${cpuPct}%`, background: 'var(--warn)', 'border-radius': '2px' }} />
+                                </div>
+                                <span style={{ 'font-size': '9.5px', color: 'var(--t4)', 'font-family': 'var(--mono)' }}>{cpuPct.toFixed(0)}%</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
+                                <div style={{ width: '36px', height: '4px', background: 'var(--s4)', 'border-radius': '2px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${memPct}%`, background: 'var(--blue)', 'border-radius': '2px' }} />
+                                </div>
+                                <span style={{ 'font-size': '9.5px', color: 'var(--t4)', 'font-family': 'var(--mono)' }}>{memPct.toFixed(0)}%</span>
+                              </div>
+                            </td>
+                            <td style={{ 'font-weight': '700', color: 'var(--ok)', 'font-family': 'var(--mono)' }}>{fmt$(r.wastedCost)}</td>
+                          </tr>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </tbody>
+              </table>
             </Show>
           </Show>
         </Show>

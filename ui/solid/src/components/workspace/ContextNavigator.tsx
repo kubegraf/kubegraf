@@ -8,8 +8,8 @@ import { currentContext } from '../../stores/cluster';
 
 interface ContextNavigatorProps {
   incidents: Incident[];
-  currentIndex: number;
-  onSelectIncident: (index: number) => void;
+  selectedId: string | null;
+  onSelectIncident: (id: string) => void;
   onFilterChange?: (filters: FilterState) => void;
 }
 
@@ -233,7 +233,7 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
       <div class="sb-head">
         <div class="cluster-sel">
           <div class="live-dot" />
-          <span class="cluster-name">{currentContext() || 'prod-cluster-01'}</span>
+          <span class="cluster-name" title={currentContext() || 'prod-cluster-01'}>{currentContext() || 'prod-cluster-01'}</span>
           <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="sb-search">
@@ -338,7 +338,7 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
               </div>
               <For each={items}>
                 {(item) => {
-                  const isSelected = item.originalIndex === props.currentIndex;
+                  const isSelected = () => item.incident.id === props.selectedId;
                   const dotClass = getStatusDot(item.incident);
                   const nameClass = getNameClass(item.incident);
                   const restarts = item.incident.occurrences || 0;
@@ -346,8 +346,8 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
                   const kColor = kindColor(kind);
                   return (
                     <div
-                      class={`svc-row${isSelected ? ' sel' : ''}`}
-                      onClick={() => props.onSelectIncident(item.originalIndex)}
+                      class={`svc-row${isSelected() ? ' sel' : ''}`}
+                      onClick={() => item.incident.id && props.onSelectIncident(item.incident.id)}
                     >
                       <div class="svc-tree-line">
                         <div class={`status-dot ${dotClass}`} style={{ 'margin-top': '11px' }} />
@@ -391,16 +391,15 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
           </div>
           <For each={demoIncidents()}>
             {(inc) => {
-              const origIdx = inc.id ? (idToIndex().get(inc.id) ?? props.incidents.indexOf(inc)) : props.incidents.indexOf(inc);
-              const isSelected = origIdx === props.currentIndex;
+              const isSelected = () => inc.id === props.selectedId;
               const dotClass = getStatusDot(inc);
               const nameClass = getNameClass(inc);
               const restarts = inc.occurrences || 0;
               return (
                 <div
-                  class={`svc-row${isSelected ? ' sel' : ''}`}
+                  class={`svc-row${isSelected() ? ' sel' : ''}`}
                   style={{ opacity: '0.75' }}
-                  onClick={() => props.onSelectIncident(origIdx)}
+                  onClick={() => inc.id && props.onSelectIncident(inc.id)}
                 >
                   <div class="svc-tree-line">
                     <div class={`status-dot ${dotClass}`} style={{ 'margin-top': '11px' }} />

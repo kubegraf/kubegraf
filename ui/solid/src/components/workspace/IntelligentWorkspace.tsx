@@ -3,7 +3,7 @@
  * Layout: 52px rail | content-area (260px sidebar | 1fr main-panel)
  */
 
-import { Component, createSignal, createMemo, Show, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, Show, onMount, onCleanup } from 'solid-js';
 import { Incident, api } from '../../services/api';
 import { wsService } from '../../services/websocket';
 import ContextNavigator, { FilterState } from './ContextNavigator';
@@ -19,6 +19,9 @@ import {
   SettingsPanel,
 } from './WorkspacePanels';
 import OrkasAIPanel from './OrkasAIPanel';
+import SafeFixPanel from './SafeFixPanel';
+import MLInsightsPanel from './MLInsightsPanel';
+import KnowledgeBankPanel from './KnowledgeBankPanel';
 import './workspace.css';
 
 interface IntelligentWorkspaceProps {
@@ -29,22 +32,62 @@ interface IntelligentWorkspaceProps {
 }
 
 const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
+  // Track selection by ID so it stays stable when the list refreshes and re-sorts
+  const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [activeRail, setActiveRail] = createSignal('incident');
   const [activeScreen, setActiveScreen] = createSignal<
-    'home' | 'incident' | 'workloads' | 'graph' | 'metrics' | 'gitops' | 'cost' | 'settings' | 'orkai'
+    'home' | 'incident' | 'workloads' | 'graph' | 'metrics' | 'gitops' | 'cost' | 'settings' | 'orkai' | 'safefix' | 'mlinsights' | 'knowledgebank'
   >('incident');
   const [resolveToast, setResolveToast] = createSignal<{ msg: string; ok: boolean } | null>(null);
   const [graphAlert, setGraphAlert] = createSignal<{ rootName: string; pattern: string; conf: number } | null>(null);
 
-  const currentIncident = createMemo(() => {
+  // Only propagate a new value to consumers (IncidentDetail) when the incident ID
+  // actually changes. Same ID from a refreshed array → same memo output → no
+  // downstream effects re-fire, no panel flash.
+  const currentIncident = createMemo(
+    () => {
+      const incidents = props.incidents || [];
+      const id = selectedId();
+      if (id) {
+        const found = incidents.find(i => i.id === id);
+        if (found) return found;
+      }
+      // If the selected ID is gone from the list (resolved/deleted), fall back to
+      // the first incident — but do NOT fall back merely because selectedId is null.
+      // selectedId will be seeded below via createEffect once incidents first load.
+      return null;
+    },
+    null,
+    { equals: (a, b) => a?.id === b?.id },
+  );
+
+  // Seed / re-seed the selection:
+  //   1. On first load — the parent clears localIncidents before fetching, so
+  //      onMount fires before any incidents exist. This effect fires once they arrive.
+  //   2. If the previously selected incident was resolved/deleted and is no longer
+  //      in the list — auto-advance to the first remaining incident rather than
+  //      showing a blank panel.
+  // In all other cases (auto-refresh with the selected incident still present)
+  // this is a no-op because selectedId() is non-null and found in the list.
+  createEffect(() => {
     const incidents = props.incidents || [];
-    return incidents[selectedIndex()] || null;
+    const id = selectedId();
+    // Case 1: nothing selected yet
+    if (id === null) {
+      const first = incidents[0];
+      if (first?.id) setSelectedId(first.id);
+      return;
+    }
+    // Case 2: selected incident was removed from the list
+    const stillExists = incidents.some(i => i.id === id);
+    if (!stillExists && incidents.length > 0) {
+      setSelectedId(incidents[0].id);
+    }
   });
 
-  const handleSelectIncident = (index: number) => {
-    const incident = props.incidents[index];
-    setSelectedIndex(index);
+  const handleSelectById = (id: string) => {
+    const incident = (props.incidents || []).find(i => i.id === id);
+    setSelectedId(id);
     setActiveRail('incident');
     setActiveScreen('incident');
     if (incident && props.onIncidentSelect) {
@@ -52,16 +95,37 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     }
   };
 
+  // Kept for internal callers that pass an ID directly
+  const handleSelectIncident = (id: string) => handleSelectById(id);
+
   const handleFilterChange = (_newFilters: FilterState) => {
-    setSelectedIndex(0);
+    // Selection is ID-based — no need to reset on filter change.
+    // The incident remains highlighted if it's still visible after filtering.
   };
 
+  // prev/next navigate in props.incidents order (stable fetch order, not UI sort)
+  const currentNavIndex = createMemo(() => {
+    const id = selectedId();
+    if (!id) return 0;
+    const idx = (props.incidents || []).findIndex(i => i.id === id);
+    return idx >= 0 ? idx : 0;
+  });
+
   const handlePrevious = () => {
-    if (selectedIndex() > 0) handleSelectIncident(selectedIndex() - 1);
+    const idx = currentNavIndex();
+    if (idx > 0) {
+      const prev = (props.incidents || [])[idx - 1];
+      if (prev?.id) handleSelectById(prev.id);
+    }
   };
 
   const handleNext = () => {
-    if (selectedIndex() < props.incidents.length - 1) handleSelectIncident(selectedIndex() + 1);
+    const idx = currentNavIndex();
+    const list = props.incidents || [];
+    if (idx < list.length - 1) {
+      const next = list[idx + 1];
+      if (next?.id) handleSelectById(next.id);
+    }
   };
 
   const showToast = (msg: string, ok: boolean) => {
@@ -82,23 +146,19 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
 
   // Navigate to the incident matching a workload by resource name
   const handleWorkloadIncidentSelect = (name: string, ns: string) => {
-    const idx = (props.incidents || []).findIndex(
+    const match = (props.incidents || []).find(
       inc => inc.resource?.name === name && (!ns || !inc.resource?.namespace || inc.resource.namespace === ns)
     );
-    if (idx >= 0) {
-      handleSelectIncident(idx);
+    if (match?.id) {
+      handleSelectById(match.id);
     } else {
-      // No matching incident found — just switch to incidents view
       setActiveRail('incident');
       setActiveScreen('incident');
     }
   };
 
   const handleSelectRelated = (incidentId: string) => {
-    const idx = (props.incidents || []).findIndex(inc => inc.id === incidentId);
-    if (idx >= 0) {
-      handleSelectIncident(idx);
-    }
+    handleSelectById(incidentId);
   };
 
   // Keyboard navigation
@@ -130,7 +190,6 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
 
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
-    if (props.incidents?.length > 0) setSelectedIndex(0);
 
     // Subscribe to graph engine anomaly pushes — show a dismissible banner
     const unsub = wsService.subscribe((msg) => {
@@ -160,7 +219,10 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     else if (id === 'gitops') setActiveScreen('gitops');
     else if (id === 'cost') setActiveScreen('cost');
     else if (id === 'settings') setActiveScreen('settings');
-    else if (id === 'orkai') setActiveScreen('orkai');
+    else if (id === 'orkai')         setActiveScreen('orkai');
+    else if (id === 'safefix')       setActiveScreen('safefix');
+    else if (id === 'mlinsights')    setActiveScreen('mlinsights');
+    else if (id === 'knowledgebank') setActiveScreen('knowledgebank');
   };
 
   const critCount = createMemo(() => props.incidents.filter(i => i.severity === 'critical').length);
@@ -255,6 +317,30 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
 
+        {/* SafeFix */}
+        <div class={`nav-item ${activeRail() === 'safefix' ? 'active' : ''}`} title="SafeFix Engine" onClick={() => handleRailClick('safefix')}>
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <polyline points="9 12 11 14 15 10"/>
+          </svg>
+        </div>
+
+        {/* ML Insights */}
+        <div class={`nav-item ${activeRail() === 'mlinsights' ? 'active' : ''}`} title="ML Insights" onClick={() => handleRailClick('mlinsights')}>
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+          </svg>
+        </div>
+
+        {/* Knowledge Bank */}
+        <div class={`nav-item ${activeRail() === 'knowledgebank' ? 'active' : ''}`} title="Knowledge Bank" onClick={() => handleRailClick('knowledgebank')}>
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/>
+            <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+        </div>
+
         <div class="rail-sep" />
 
         {/* GitOps */}
@@ -295,7 +381,7 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
         <WorkspaceErrorBoundary componentName="ContextNavigator">
           <ContextNavigator
             incidents={props.incidents || []}
-            currentIndex={selectedIndex()}
+            selectedId={selectedId()}
             onSelectIncident={handleSelectIncident}
             onFilterChange={handleFilterChange}
           />
@@ -330,6 +416,18 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
                 Metrics
               </div>
             </Show>
+            <Show when={activeScreen() === 'safefix'}>
+              <div class="stab on">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                SafeFix
+              </div>
+            </Show>
+            <Show when={activeScreen() === 'mlinsights'}>
+              <div class="stab on">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                ML Insights
+              </div>
+            </Show>
             <Show when={activeScreen() === 'gitops'}>
               <div class="stab on">
                 <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
@@ -352,6 +450,16 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
               <div class="stab on">
                 <img src="/orkas-logo.png" alt="" style={{ height: '11px', width: 'auto', 'object-fit': 'contain', 'vertical-align': 'middle' }} />
                 Orkas AI
+              </div>
+            </Show>
+            <Show when={activeScreen() === 'knowledgebank'}>
+              <div class="stab on">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                  <path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/>
+                  <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+                </svg>
+                Knowledge Bank
               </div>
             </Show>
           </div>
@@ -379,9 +487,9 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
                 onResolve={handleResolve}
                 onSelectRelated={handleSelectRelated}
                 onClose={props.onClose}
-                canNavigatePrevious={selectedIndex() > 0}
-                canNavigateNext={selectedIndex() < (props.incidents?.length || 0) - 1}
-                currentIndex={selectedIndex()}
+                canNavigatePrevious={currentNavIndex() > 0}
+                canNavigateNext={currentNavIndex() < (props.incidents?.length || 0) - 1}
+                currentIndex={currentNavIndex()}
                 totalIncidents={props.incidents?.length || 0}
               />
             </WorkspaceErrorBoundary>
@@ -419,6 +527,20 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
             </WorkspaceErrorBoundary>
           </Show>
 
+          {/* ── SafeFix screen ── */}
+          <Show when={activeScreen() === 'safefix'}>
+            <WorkspaceErrorBoundary componentName="SafeFixPanel">
+              <SafeFixPanel />
+            </WorkspaceErrorBoundary>
+          </Show>
+
+          {/* ── ML Insights screen ── */}
+          <Show when={activeScreen() === 'mlinsights'}>
+            <WorkspaceErrorBoundary componentName="MLInsightsPanel">
+              <MLInsightsPanel />
+            </WorkspaceErrorBoundary>
+          </Show>
+
           {/* ── GitOps screen ── */}
           <Show when={activeScreen() === 'gitops'}>
             <WorkspaceErrorBoundary componentName="GitOpsPanel">
@@ -437,6 +559,13 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
           <Show when={activeScreen() === 'settings'}>
             <WorkspaceErrorBoundary componentName="SettingsPanel">
               <SettingsPanel incidents={props.incidents} onClose={props.onClose} />
+            </WorkspaceErrorBoundary>
+          </Show>
+
+          {/* ── Knowledge Bank screen ── */}
+          <Show when={activeScreen() === 'knowledgebank'}>
+            <WorkspaceErrorBoundary componentName="KnowledgeBankPanel">
+              <KnowledgeBankPanel />
             </WorkspaceErrorBoundary>
           </Show>
 

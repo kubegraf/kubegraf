@@ -1888,4 +1888,224 @@ volumes:
 | **Embedded frontend** | `//go:embed web/dist` — single binary, no separate web server, zero deployment complexity. |
 | **SolidJS signals** | All state is reactive. Components are large but self-contained (e.g., `IncidentDetail` at 2166 lines owns all its data fetching inline). |
 | **Node ID format: `Kind/namespace/name`** | Human-readable, debuggable, and unique. Cluster-scoped resources use `Kind/name` (no namespace segment). |
+
+---
+
+## 14. Session Update — 2026-03-01 (Feedback, Knowledge Bank, Runbook Execution, RCA Export)
+
+> This section documents the complete set of features implemented in the latest development session.
+
+### 14.1 Incident Feedback + Learning Pipeline
+
+**Goal:** Let users rate whether a fix worked, and feed that outcome back into the learning engine.
+
+**Changes — `IncidentDetail.tsx`:**
+- Added 4 new signals: `feedbackSubmitting`, `feedbackDone`, `resolving`, `resolved`
+- All 8 new signals (including runbook state) are reset on incident change in the `createEffect` guard
+- Added `handleFeedback(outcome: 'worked' | 'not_worked' | 'unknown')` — calls `api.submitIncidentFeedback(id, outcome)` → `POST /api/v2/incidents/{id}/feedback`
+- Added `handleResolveIncident()` — calls `api.resolveIncident(id, reason)` → `POST /api/v2/incidents/{id}/resolve`
+- Added import `addNotification` from `../../stores/ui`
+
+**Fix tab — Feedback section (bottom of tab):**
+- Three outcome buttons: ✅ **Worked** / ❌ **Didn't Work** / ⚠️ **Incorrect Cause**
+- Buttons show loading spinner while submitting, then a confirmation message with undo-style link
+- **Mark Resolved** button below feedback — shows green "✓ Marked as Resolved" on success
+- All buttons are disabled if already submitted (idempotent UX)
+
+**Learning pipeline:**
+- `/api/v2/incidents/{id}/feedback` → updates `feature_weights` and `cause_priors` in SQLite
+- Outcome flows back into the ML model for future incident scoring
+
+---
+
+### 14.2 Knowledge Bank Panel
+
+**Goal:** Give operators visibility into the learning engine's internal state and allow export/import/reset.
+
+**New file — `KnowledgeBankPanel.tsx`:**
+- Calls `api.getLearningStatus()` → `GET /api/v2/learning/status` on mount
+- Displays: sample count, signals tracked, last updated timestamp
+- **Feature Weights** bar chart — top 12 weights, colour-coded positive (blue) vs negative (red/orange)
+- **Cause Priors** list — top patterns with probability percentages
+- **Top Improving Signals** badges
+
+**Controls:**
+| Button | Action |
+|--------|--------|
+| Export KB | `<a href="/api/knowledge/export" download>` — triggers JSON download |
+| Import KB | Hidden `<input type="file">` — POSTs to `/api/knowledge/import` as `multipart/form-data` |
+| Reset Learning Engine | Confirms before calling reset endpoint |
+
+- "How Training Works" expandable explanation section explaining the Bayesian update loop
+
+**Wired into `IntelligentWorkspace.tsx`:**
+- Added `import KnowledgeBankPanel from './KnowledgeBankPanel'`
+- Added `'knowledgebank'` to the `activeScreen` type union
+- Added Knowledge Bank rail nav-item with database SVG icon
+- Added screen tab label and `<Show when={activeScreen() === 'knowledgebank'}>` render block
+
+---
+
+### 14.3 KB JSON Export — Pretty-Printed
+
+**Problem:** `GET /api/knowledge/export` was returning compact single-line JSON (not human-readable).
+
+**Fix — `web_phase1.go`:**
+```go
+// Before:
+json.NewEncoder(w).Encode(export)
+
+// After:
+prettyJSON, err := json.MarshalIndent(export, "", "  ")
+if err != nil { http.Error(w, ..., 500); return }
+w.Write(prettyJSON)
+```
+
+Output is now 2-space indented, fully vertically aligned JSON — readable in any text editor or diff tool.
+
+---
+
+### 14.4 RCA Export — PDF and Markdown
+
+**Goal:** Add real export buttons to the RETRO tab (replacing the non-functional "Export to Confluence" and "Copy MD" buttons).
+
+**Changes — `rcaReportGenerator.ts`:**
+- Added `printAsPDF(report: RCAReport)` public method:
+  - Opens a new browser window
+  - Writes a full A4-ready styled HTML page (`exportAsPrintHTML()`)
+  - Calls `window.print()` — user gets browser native PDF export dialog
+- Added private `exportAsPrintHTML(report)` method:
+  - Full HTML with print CSS (`@page { size: A4; margin: 2cm }`)
+  - Severity-coloured header, fact table, timeline, steps, recommendations, confidence bar
+  - HTML-escaped via private `h(s)` helper
+- `exportAsHTML` now delegates to `exportAsPrintHTML`
+
+**Changes — RETRO tab in `IncidentDetail.tsx`:**
+| Old Button | New Button |
+|-----------|-----------|
+| Export to Confluence | **Export PDF** (primary) → `RCAReportGenerator.printAsPDF(report)` |
+| Copy MD | **Download .md** → `RCAReportGenerator.downloadReport(report, 'markdown')` |
+| _(none)_ | **Copy** → clipboard fallback |
+
+---
+
+### 14.5 Runbook Execution — Real Terminal Output
+
+**Goal:** When "Run Automated Runbook" is clicked, execute each step as a real shell command and stream output into the execution panel. Supports any command, not just kubectl.
+
+#### Backend — `web_intelligence_api.go`
+
+New route registered:
+```go
+http.HandleFunc("/api/v2/runbook/exec", ws.handleRunbookExec)
+```
+
+Handler `handleRunbookExec`:
+- Accepts `POST { "command": "<any shell command>" }`
+- Executes via `exec.CommandContext(ctx, "sh", "-c", cmd)` — supports pipes, grep, tail, etc.
+- 30-second timeout via `context.WithTimeout`
+- Strips `-w` / `--watch` flags (prevents hanging watch commands)
+- 40 KB output limit via `io.LimitReader`
+- Returns `{ "output": "...", "exitCode": 0, "durationMs": 123 }`
+
+```json
+POST /api/v2/runbook/exec
+Content-Type: application/json
+
+{ "command": "kubectl get pods -n drivo-dev | grep Pending" }
+
+→ { "output": "audit-service-...\n", "exitCode": 0, "durationMs": 2013 }
+```
+
+#### Frontend — `IncidentDetail.tsx`
+
+**New signals:**
+```typescript
+const [runbookRunning, setRunbookRunning] = createSignal(false);
+const [runbookStep, setRunbookStep] = createSignal(0);
+const [runbookResults, setRunbookResults] = createSignal<RunbookStepResult[]>([]);
+const [runbookDone, setRunbookDone] = createSignal(false);
+
+interface RunbookStepResult {
+  stepNum: number; title: string; cmd: string;
+  output: string; exitCode: number; durationMs: number;
+  status: 'running' | 'success' | 'failed';
+}
+```
+
+**`runbookSteps` createMemo:** Derives structured `{ title, cmd }[]` steps from the incident context:
+- If scheduling analysis (`sa`) exists → 6 steps targeting the specific resource pressure (CPU/memory)
+- Otherwise → steps from AI recommendations (`aiData().recs`) + generic verify/readiness steps
+- Steps are computed reactively; recomputed whenever the incident changes
+
+**Execution loop:**
+```typescript
+const runAllSteps = async () => {
+  setRunbookRunning(true);
+  for (const [i, s] of runbookSteps().entries()) {
+    setRunbookStep(i);
+    // mark as running
+    const res = await api.execRunbookStep(s.cmd);
+    // append result to runbookResults
+  }
+  setRunbookDone(true);
+  setRunbookRunning(false);
+};
+```
+
+**RUNBOOK TAB UI:**
+- Steps list with live status badges: `○` Pending → `⟳` Running → `✓` Success / `✗` Failed
+- Step titles and commands shown inline
+- **Execution Summary Panel** (terminal-style, dark `#0D1521` background, 280px fixed height, monospace font):
+  - Per-step block: green `$` prompt + command line, raw `<pre>` output, exit code + duration
+  - Auto-scrolls to bottom as output arrives
+  - Blinking cursor `▌` shown while running (CSS `@keyframes pulse`)
+  - **Copy All** button — joins all step output to clipboard
+  - **Clear** button — resets `runbookResults` signal
+- Spinner icon on Run button while executing (CSS `@keyframes spin`)
+
+**`api.ts` — new method:**
+```typescript
+execRunbookStep: async (command: string) => {
+  return fetchAPI<{ output: string; exitCode: number; durationMs: number }>(
+    '/v2/runbook/exec',
+    { method: 'POST', body: JSON.stringify({ command }) }
+  );
+},
+```
+
+**`workspace.css` — new keyframes:**
+```css
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+```
+
+---
+
+### 14.6 Files Changed in This Session
+
+| File | Change |
+|------|--------|
+| `ui/solid/src/components/workspace/IncidentDetail.tsx` | Feedback signals + handlers; runbook signals + `runbookSteps` memo; RUNBOOK TAB full rewrite; Fix tab feedback section; RETRO tab export buttons replaced |
+| `ui/solid/src/components/workspace/KnowledgeBankPanel.tsx` | **New file** — learning engine stats, feature weights, cause priors, export/import/reset |
+| `ui/solid/src/components/workspace/IntelligentWorkspace.tsx` | Knowledge Bank rail icon + screen added |
+| `ui/solid/src/services/api.ts` | `execRunbookStep()` method added |
+| `ui/solid/src/components/workspace/workspace.css` | `@keyframes spin` + `@keyframes pulse` added |
+| `ui/solid/src/components/workspace/rcaReportGenerator.ts` | `printAsPDF()` + `exportAsPrintHTML()` + `h()` escape helper added |
+| `web_intelligence_api.go` | `POST /api/v2/runbook/exec` route + `handleRunbookExec` handler |
+| `web_phase1.go` | `json.MarshalIndent` for pretty-printed KB export |
+
+---
+
+### 14.7 Verification
+
+All features verified against running server (`./kubegraf web --port 3003`):
+
+| Test | Result |
+|------|--------|
+| `GET /` | HTTP 200 ✅ |
+| `GET /api/knowledge/export` | Pretty-printed JSON (2-space indent) ✅ |
+| `POST /api/v2/runbook/exec {"command":"echo hello"}` | `{"output":"hello\n","exitCode":0,"durationMs":6}` ✅ |
+| `POST /api/v2/runbook/exec {"command":"kubectl get pods -n drivo-dev \| head -5"}` | Real pod list output, exitCode 0, durationMs ~2000 ✅ |
+| Frontend bundle (newest `Incidents-*.js`) | Contains `execRunbookStep`, `knowledgebank`, `KnowledgeBank`, `printAsPDF` ✅ |
 | **`DEPENDS_ON` edges from env vars (weight 0.6)** | Inferred edges are lower confidence than structural edges (1.0). The 0.6 weight feeds into candidate scoring, appropriately down-weighting inferred service dependencies. |

@@ -254,7 +254,14 @@ func (scm *SimpleClusterManager) CheckClusterHealth() error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// GKE clusters use gke-gcloud-auth-plugin which refreshes short-lived OAuth
+	// tokens on first use after expiry — this adds 1–3 s of latency. Use a
+	// generous timeout so a token refresh doesn't falsely trip the health check.
+	healthTimeout := 6 * time.Second
+	if strings.HasPrefix(currentContext, "gke_") {
+		healthTimeout = 15 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
 	defer cancel()
 	_, err = clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
 	if err == nil || k8serrors.IsForbidden(err) || k8serrors.IsUnauthorized(err) {
@@ -329,8 +336,14 @@ func (scm *SimpleClusterManager) CheckAllClustersHealth() {
 				return
 			}
 
-			// Set a short timeout for health checks
-			restConfig.Timeout = 3 * time.Second
+			// GKE clusters use gke-gcloud-auth-plugin which may refresh OAuth tokens
+			// on first use, adding 1–3 s of latency. The restConfig HTTP-level timeout
+			// must be at least as large as the context timeout, or the smaller wins.
+			healthTimeout := 6 * time.Second
+			if strings.HasPrefix(ctx, "gke_") {
+				healthTimeout = 15 * time.Second
+			}
+			restConfig.Timeout = healthTimeout
 
 			clientset, err := kubernetes.NewForConfig(restConfig)
 			if err != nil {
@@ -341,7 +354,7 @@ func (scm *SimpleClusterManager) CheckAllClustersHealth() {
 			// Check reachability. A proper K8s API response (including 403/401)
 			// means the API server is up — only network failures or cloud-IAM
 			// HTML responses indicate the cluster is truly unreachable.
-			nsCtx, nsCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			nsCtx, nsCancel := context.WithTimeout(context.Background(), healthTimeout)
 			_, err = clientset.CoreV1().Namespaces().List(nsCtx, metav1.ListOptions{Limit: 1})
 			nsCancel()
 			if err == nil || k8serrors.IsForbidden(err) || k8serrors.IsUnauthorized(err) {
