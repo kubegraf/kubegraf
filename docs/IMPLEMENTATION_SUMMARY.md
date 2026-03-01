@@ -1818,7 +1818,7 @@ volumes:
 |-----------|-------------|
 | `pkg/graph/types.go` | All type definitions: GraphNode, GraphEdge, CausalChain, CausalStep, CausalCandidate, RemediationPlan, RemediationStep, GraphSnapshot, SubgraphQuery, AnalyzeRequest — 21 NodeKinds, 15 EdgeKinds, 6 NodeStatus values |
 | `pkg/graph/patterns.go` | 10 pre-encoded failure patterns: node_disk_pressure_eviction_cascade, node_memory_pressure_oom_cascade, oom_kill_crash_loop, image_pull_scheduling_block, config_change_induced_crash, node_not_ready_pod_eviction, pvc_pending_pod_block, hpa_thrashing, resource_quota_exhaustion, upstream_service_dependency_failure |
-| `pkg/graph/engine.go` | SharedInformerFactory watching 13 resource types; node upsert/delete; edge construction; rolling event buffer; **+ `OnAnomaly func(*CausalChain)` callback; `isSevereEvent()` for 13 critical K8s reasons; `maybeNotifyAnomaly()` with 2-min per-node throttle + 0.7 confidence gate** |
+| `pkg/graph/engine.go` | SharedInformerFactory watching **15 resource types** (HPA + PDB added); `OnAnomaly` callback; `isSevereEvent()` + `maybeNotifyAnomaly()`; **`onHPA()` SCALES edges + thrashing detection; `onPDB()` PROTECTS edges + `rebuildPDBEdges()`; `invalidateAnalysisCache()` on node status change; `onDeleteResource()` full type switch with tombstone unwrapping; Secret stub nodes in `rebuildAllEdges()` (MOUNTS_SECRET edges now resolve); HPA SCALES + PDB PROTECTS in `rebuildAllEdges()`** |
 | `pkg/graph/inference.go` | `Analyze()`: 10-step BFS causal inference with candidate scoring, pattern matching, path construction, blast radius; `BuildRemediationPlan()`: graph-validated remediation steps per root cause kind; 30-second analysis cache |
 | `web_graph.go` | 6 HTTP handlers: handleGraphStatus, handleGraphTopology, handleGraphAnalyze, handleGraphBlastRadius, handleGraphNode, handleGraphRemediation; `RegisterGraphRoutes()` |
 | `web_server.go` | `graphEngine *graph.Engine` field; `OnAnomaly` wired to `broadcastGraphIncident()`; **`broadcastGraphIncident()` pushes `graph_incident` WS msg to all clients; `startGraphSnapshots()` goroutine — 60s ticker, saves graph snapshot to SQLite** |
@@ -1831,6 +1831,8 @@ volumes:
 | `IntelligentWorkspace.tsx` | Root shell layout; **now shows dismissible graph incident alert banner (red, fixed-position) with root cause + pattern + confidence; auto-dismisses after 15s; subscribes to `graph_incident` WS messages** |
 | `WebSocketProvider.tsx` | WS context; **added `GraphIncidentAlert` interface; `graphIncident`/`clearGraphIncident` signals; handler for `graph_incident` message type** |
 | `websocket.ts` | WS service type; **added `'graph_incident'` to `WebSocketMessage.type` union** |
+| `web_orka.go` (new) | **Go proxy for Orkas AI: `RegisterOrkaRoutes()`; `handleOrkaProxy()` → `/api/orka/*` → `ORKAS_AI_URL` (default localhost:8000); `handleRemediationDecision()` POST; `handleListRemediationDecisions()` GET; enriches requests with `X-Kubegraf-Context` header** |
+| `docs/PRODUCT_STRATEGY.md` (new) | **Full product strategy: technical differentiation, system architecture deep-dive, AI agent interaction, incident workflow, 60-day MVP, UI/UX principles, defensibility/moat, positioning statements for investors/website** |
 | Built-in AI | `/api/ai/*` (Ollama/OpenAI/Claude) |
 | Incident intelligence | `/api/v2/incidents/*` |
 | Multi-cluster context | Context switching, GKE auth |
@@ -1840,24 +1842,27 @@ volumes:
 
 | Item | Priority | Notes |
 |------|----------|-------|
-| Remediation approval persistence | Medium | Approve/Reject decisions currently held in component state; need backend `/api/graph/remediation/approve` endpoint + DB table |
-| Edge construction for HPA SCALES | Medium | `onHPA()` handler not yet implemented in engine.go |
-| Edge construction for PDB PROTECTS | Medium | `onPDB()` handler not yet implemented |
-| Edge construction for NetworkPolicy NETWORK_ALLOWS | Low | Complex: requires label selector matching on NetworkPolicy |
-| Analysis cache invalidation | Medium | Currently TTL-only; should also invalidate on graph mutation |
-| Integration tests for graph engine | High | Unit tests for inference.go scoring and pattern matching |
-| Go proxy layer for Orkas AI calls | Low (v2) | Currently browser calls Orkas AI directly |
+| Edge construction for NetworkPolicy NETWORK_ALLOWS | Low | Complex: requires label selector matching on NetworkPolicy spec; planned v2 |
+| Integration tests for graph engine | High | Unit tests for inference.go BFS scoring and pattern matching |
+| `KUBEGRAF_URL` env var in Orkas AI | Done | `ORKAS_AI_URL` added to web_orka.go proxy |
+| Multi-cluster graph federation | v2 | Single graph engine per cluster; cross-cluster planned v2 |
 
 ### Known Gaps
 
-| Gap | Impact | Plan |
-|-----|--------|------|
-| `onDeleteResource` in engine.go is incomplete | Low — nodes eventually get stale but don't cause crashes | Fix: extract kind from tombstone and call deleteNode correctly |
-| `MOUNTS_SECRET` edges not built in `rebuildAllEdges` | Low — only built incrementally in `rebuildPodEdges` | Add Secrets list pass in `rebuildAllEdges` |
+| Gap | Impact | Status |
+|-----|--------|--------|
+| `onDeleteResource` — full type switch | Fixed ✅ | Handles all 11 resource types + tombstone unwrapping; `onDeletePod/Node/Deployment` also tombstone-safe |
+| `MOUNTS_SECRET` edges silently dropped | Fixed ✅ | Secret stub nodes created in `rebuildAllEdges()` before pod edge rebuild; `addEdge()` no longer drops MOUNTS_SECRET |
+| HPA SCALES edges missing | Fixed ✅ | `onHPA()` handler + `rebuildAllEdges()` HPA pass |
+| PDB PROTECTS edges missing | Fixed ✅ | `onPDB()` + `rebuildPDBEdges()` + `rebuildAllEdges()` PDB pass |
+| Analysis cache TTL-only (no mutation invalidation) | Fixed ✅ | `upsertNode()` calls `invalidateAnalysisCache()` when node status changes |
+| Remediation decisions not persisted | Fixed ✅ | `remediation_decisions` SQLite table + `POST /api/graph/remediation/decision` |
+| Go proxy for Orkas AI (hardcoded localhost:8000) | Fixed ✅ | `web_orka.go` `/api/orka/*` proxy + `ORKAS_AI_URL` env var |
 | ConfigMap system prefix filter (`kube-*`) may be too broad | Low | Some kube-system configmaps may be relevant to failure analysis |
-| Graph snapshots rebuilt on engine restart | Low | `graph_snapshots` table persists historical snapshots for trend analysis but the live in-memory graph always rebuilds from informers (~10s sync) |
-| Analysis confidence cap at 0.99 | Low | Intentional — epistemic humility. Document in UI. |
-| Remediation decisions not persisted | Medium | Approve/Reject state lives in OrkasAIPanel component; lost on page refresh |
+| Graph snapshots rebuilt on engine restart | Low | Snapshots persist for trend analysis; live graph always rebuilds from informers (~10s sync) |
+| Analysis confidence cap at 0.99 | Low | Intentional epistemic humility |
+| NetworkPolicy NETWORK_ALLOWS edges | Low | Planned v2 — complex label selector matching on NetworkPolicy spec |
+| Integration tests | Medium | Unit tests for inference.go BFS scoring and pattern matching — planned |
 
 ---
 

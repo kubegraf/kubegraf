@@ -516,7 +516,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setOrkasLoading(true);
     const t0 = Date.now();
     try {
-      const res = await fetch('http://localhost:8000/ask', {
+      const res = await fetch('/api/orka/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: ctx, namespace: inc?.resource?.namespace || 'default' }),
@@ -541,7 +541,7 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     setAiFixLoading(true);
     setAiFixError('');
     try {
-      const res = await fetch('http://localhost:8000/incident/fix', {
+      const res = await fetch('/api/orka/incident/fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

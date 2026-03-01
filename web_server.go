@@ -846,6 +846,9 @@ func (ws *WebServer) Start(port int) error {
 	// Topology graph engine: live K8s causal model + incident reasoning APIs
 	ws.RegisterGraphRoutes()
 
+	// Orkas AI proxy (/api/orka/*) + remediation decision persistence
+	ws.RegisterOrkaRoutes()
+
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 

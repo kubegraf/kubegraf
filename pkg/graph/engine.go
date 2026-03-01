@@ -12,9 +12,11 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
@@ -198,6 +200,24 @@ func (e *Engine) Start() {
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
+	// --- HPA informer ---
+	// HPA SCALES edges are critical for diagnosing thrashing / scale storms.
+	hpaInformer := e.factory.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
+	hpaInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { e.onHPA(obj) },
+		UpdateFunc: func(_, obj interface{}) { e.onHPA(obj) },
+		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
+	})
+
+	// --- PDB informer ---
+	// PDB PROTECTS edges explain why pod evictions fail during maintenance or node drain.
+	pdbInformer := e.factory.Policy().V1().PodDisruptionBudgets().Informer()
+	pdbInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { e.onPDB(obj) },
+		UpdateFunc: func(_, obj interface{}) { e.onPDB(obj) },
+		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
+	})
+
 	// --- Event informer (K8s Events — the incident signal source) ---
 	evtInformer := e.factory.Core().V1().Events().Informer()
 	evtInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -360,8 +380,25 @@ func (e *Engine) RecentEvents(nodeID string, since time.Time) []GraphEvent {
 
 func (e *Engine) upsertNode(n *GraphNode) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	prev, exists := e.nodes[n.ID]
 	e.nodes[n.ID] = n
+	statusChanged := exists && prev.Status != n.Status
+	e.mu.Unlock()
+
+	// Invalidate analysis cache when a node changes status — TTL-only cache
+	// would otherwise serve stale causal chains for up to 30 seconds after a
+	// status flip, which is unacceptable during an active incident.
+	if statusChanged {
+		e.invalidateAnalysisCache(n.ID)
+	}
+}
+
+// invalidateAnalysisCache removes a cached causal chain for the given node.
+// Called on node status changes to ensure the next Analyze() call re-runs BFS.
+func (e *Engine) invalidateAnalysisCache(nodeID string) {
+	e.analysisMu.Lock()
+	delete(e.lastAnalysis, nodeID)
+	e.analysisMu.Unlock()
 }
 
 func (e *Engine) deleteNode(id string) {
@@ -471,11 +508,16 @@ func (e *Engine) onPod(obj interface{}) {
 }
 
 func (e *Engine) onDeletePod(obj interface{}) {
+	if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = t.Obj
+	}
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return
 	}
-	e.deleteNode(NodeID(KindPod, pod.Namespace, pod.Name))
+	id := NodeID(KindPod, pod.Namespace, pod.Name)
+	e.deleteNode(id)
+	e.invalidateAnalysisCache(id)
 }
 
 func (e *Engine) onNode(obj interface{}) {
@@ -520,11 +562,16 @@ func (e *Engine) onNode(obj interface{}) {
 }
 
 func (e *Engine) onDeleteNode(obj interface{}) {
+	if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = t.Obj
+	}
 	node, ok := obj.(*corev1.Node)
 	if !ok {
 		return
 	}
-	e.deleteNode(NodeID(KindNode, "", node.Name))
+	id := NodeID(KindNode, "", node.Name)
+	e.deleteNode(id)
+	e.invalidateAnalysisCache(id)
 }
 
 func (e *Engine) onDeployment(obj interface{}) {
@@ -562,11 +609,16 @@ func (e *Engine) onDeployment(obj interface{}) {
 }
 
 func (e *Engine) onDeleteDeployment(obj interface{}) {
+	if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = t.Obj
+	}
 	d, ok := obj.(*appsv1.Deployment)
 	if !ok {
 		return
 	}
-	e.deleteNode(NodeID(KindDeployment, d.Namespace, d.Name))
+	id := NodeID(KindDeployment, d.Namespace, d.Name)
+	e.deleteNode(id)
+	e.invalidateAnalysisCache(id)
 }
 
 func (e *Engine) onReplicaSet(obj interface{}) {
@@ -856,21 +908,183 @@ func (e *Engine) onJob(obj interface{}) {
 	e.upsertNode(n)
 }
 
+func (e *Engine) onHPA(obj interface{}) {
+	hpa, ok := obj.(*autoscalingv2.HorizontalPodAutoscaler)
+	if !ok {
+		return
+	}
+
+	// HPA is degraded when it cannot reach its desired replica count,
+	// or when desired differs from current (scale storm / thrashing).
+	status := StatusHealthy
+	if hpa.Status.DesiredReplicas != hpa.Status.CurrentReplicas {
+		status = StatusDegraded
+	}
+	// ScalingLimited condition means the HPA wants to scale but something prevents it.
+	for _, c := range hpa.Status.Conditions {
+		if string(c.Type) == "ScalingLimited" && c.Status == corev1.ConditionTrue {
+			status = StatusDegraded
+		}
+	}
+
+	minReplicas := int32(1)
+	if hpa.Spec.MinReplicas != nil {
+		minReplicas = *hpa.Spec.MinReplicas
+	}
+
+	n := &GraphNode{
+		ID:              NodeID(KindHPA, hpa.Namespace, hpa.Name),
+		Kind:            KindHPA,
+		Name:            hpa.Name,
+		Namespace:       hpa.Namespace,
+		Labels:          hpa.Labels,
+		Status:          status,
+		ResourceVersion: hpa.ResourceVersion,
+		UpdatedAt:       time.Now(),
+		CreatedAt:       hpa.CreationTimestamp.Time,
+		Metadata: map[string]interface{}{
+			"min_replicas":         minReplicas,
+			"max_replicas":         hpa.Spec.MaxReplicas,
+			"current_replicas":     hpa.Status.CurrentReplicas,
+			"desired_replicas":     hpa.Status.DesiredReplicas,
+			"scale_target_ref":     hpa.Spec.ScaleTargetRef.Name,
+			"scale_target_kind":    hpa.Spec.ScaleTargetRef.Kind,
+		},
+	}
+	e.upsertNode(n)
+
+	// SCALES edge: HPA → Deployment / StatefulSet
+	// This edge is the key signal for diagnosing HPA thrashing cascades.
+	var targetKind NodeKind
+	switch hpa.Spec.ScaleTargetRef.Kind {
+	case "Deployment":
+		targetKind = KindDeployment
+	case "StatefulSet":
+		targetKind = KindStatefulSet
+	}
+	if targetKind != "" {
+		hpaID := NodeID(KindHPA, hpa.Namespace, hpa.Name)
+		targetID := NodeID(targetKind, hpa.Namespace, hpa.Spec.ScaleTargetRef.Name)
+		e.mu.Lock()
+		e.addEdge(&GraphEdge{
+			ID:     EdgeID(hpaID, EdgeScales, targetID),
+			From:   hpaID,
+			To:     targetID,
+			Kind:   EdgeScales,
+			Weight: 0.9,
+		})
+		e.mu.Unlock()
+	}
+}
+
+func (e *Engine) onPDB(obj interface{}) {
+	pdb, ok := obj.(*policyv1.PodDisruptionBudget)
+	if !ok {
+		return
+	}
+
+	// PDB is degraded when disruptions are not allowed (0 allowed and pods exist).
+	status := StatusHealthy
+	if pdb.Status.DisruptionsAllowed == 0 && pdb.Status.ExpectedPods > 0 {
+		status = StatusDegraded
+	}
+
+	n := &GraphNode{
+		ID:              NodeID(KindPDB, pdb.Namespace, pdb.Name),
+		Kind:            KindPDB,
+		Name:            pdb.Name,
+		Namespace:       pdb.Namespace,
+		Labels:          pdb.Labels,
+		Status:          status,
+		ResourceVersion: pdb.ResourceVersion,
+		UpdatedAt:       time.Now(),
+		CreatedAt:       pdb.CreationTimestamp.Time,
+		Metadata: map[string]interface{}{
+			"disruptions_allowed": pdb.Status.DisruptionsAllowed,
+			"current_healthy":     pdb.Status.CurrentHealthy,
+			"expected_pods":       pdb.Status.ExpectedPods,
+		},
+	}
+	e.upsertNode(n)
+
+	// Build PROTECTS edges lazily — PDB selector matching requires scanning
+	// all pods in the namespace. We trigger a targeted edge rebuild here
+	// so the relationship appears immediately, not just at next full rebuild.
+	if pdb.Spec.Selector != nil {
+		go e.rebuildPDBEdges(pdb)
+	}
+}
+
+// rebuildPDBEdges builds PROTECTS edges from a PDB to any Deployment or
+// StatefulSet whose pod template labels match the PDB's selector.
+// Runs asynchronously from onPDB to avoid holding the informer callback.
+func (e *Engine) rebuildPDBEdges(pdb *policyv1.PodDisruptionBudget) {
+	if pdb.Spec.Selector == nil {
+		return
+	}
+	sel, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+	if err != nil {
+		return
+	}
+	pdbID := NodeID(KindPDB, pdb.Namespace, pdb.Name)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for _, n := range e.nodes {
+		if n.Namespace != pdb.Namespace {
+			continue
+		}
+		if n.Kind != KindDeployment && n.Kind != KindStatefulSet && n.Kind != KindDaemonSet {
+			continue
+		}
+		if sel.Matches(labels.Set(n.Labels)) {
+			e.addEdge(&GraphEdge{
+				ID:     EdgeID(pdbID, EdgeProtects, n.ID),
+				From:   pdbID,
+				To:     n.ID,
+				Kind:   EdgeProtects,
+				Weight: 0.85,
+			})
+		}
+	}
+}
+
+// onDeleteResource handles deletion for all resource types except Pod, Node,
+// and Deployment (which have dedicated delete handlers with extra cleanup).
+// Resolves tombstone wrappers before type-switching to determine the node ID.
 func (e *Engine) onDeleteResource(obj interface{}) {
-	type withMeta interface {
-		GetNamespace() string
-		GetName() string
+	if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = t.Obj
 	}
-	// Handle tombstone wrapper
-	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
-		obj = tombstone.Obj
+	var nodeID string
+	switch v := obj.(type) {
+	case *appsv1.ReplicaSet:
+		nodeID = NodeID(KindReplicaSet, v.Namespace, v.Name)
+	case *appsv1.StatefulSet:
+		nodeID = NodeID(KindStatefulSet, v.Namespace, v.Name)
+	case *appsv1.DaemonSet:
+		nodeID = NodeID(KindDaemonSet, v.Namespace, v.Name)
+	case *corev1.Service:
+		nodeID = NodeID(KindService, v.Namespace, v.Name)
+	case *networkingv1.Ingress:
+		nodeID = NodeID(KindIngress, v.Namespace, v.Name)
+	case *corev1.PersistentVolumeClaim:
+		nodeID = NodeID(KindPVC, v.Namespace, v.Name)
+	case *corev1.ConfigMap:
+		nodeID = NodeID(KindConfigMap, v.Namespace, v.Name)
+	case *corev1.Namespace:
+		nodeID = NodeID(KindNamespace, "", v.Name)
+	case *batchv1.Job:
+		nodeID = NodeID(KindJob, v.Namespace, v.Name)
+	case *autoscalingv2.HorizontalPodAutoscaler:
+		nodeID = NodeID(KindHPA, v.Namespace, v.Name)
+	case *policyv1.PodDisruptionBudget:
+		nodeID = NodeID(KindPDB, v.Namespace, v.Name)
 	}
-	type namer interface {
-		GetName() string
-		GetNamespace() string
-	}
-	if n, ok := obj.(namer); ok {
-		_ = n
+	if nodeID != "" {
+		e.deleteNode(nodeID)
+		e.invalidateAnalysisCache(nodeID)
 	}
 }
 
@@ -1196,6 +1410,113 @@ func (e *Engine) rebuildAllEdges() {
 					Kind:   EdgeClaims,
 					Weight: 1.0,
 				})
+			}
+		}
+	}
+
+	// Secrets — create stub nodes so MOUNTS_SECRET edges from pods are retained.
+	// Without Secret nodes in the graph, addEdge() silently drops those edges.
+	// We only create the node; we do not watch Secrets via informer to avoid
+	// reading secret values into memory.
+	secrets, err := e.client.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, sec := range secrets.Items {
+			// Skip service-account token secrets — not relevant for causal reasoning.
+			if sec.Type == corev1.SecretTypeServiceAccountToken {
+				continue
+			}
+			secID := NodeID(KindSecret, sec.Namespace, sec.Name)
+			if _, exists := e.nodes[secID]; !exists {
+				e.nodes[secID] = &GraphNode{
+					ID:        secID,
+					Kind:      KindSecret,
+					Name:      sec.Name,
+					Namespace: sec.Namespace,
+					Labels:    sec.Labels,
+					Status:    StatusHealthy,
+					UpdatedAt: time.Now(),
+					CreatedAt: sec.CreationTimestamp.Time,
+				}
+			}
+		}
+	}
+
+	// Rebuild pod edges now that Secret nodes exist (MOUNTS_SECRET edges will resolve).
+	pods2, err := e.client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for i := range pods2.Items {
+			// Remove existing pod edges first (may have been built above without Secrets)
+			podID := NodeID(KindPod, pods2.Items[i].Namespace, pods2.Items[i].Name)
+			for _, eid := range e.outEdges[podID] {
+				if edge := e.edges[eid]; edge != nil {
+					e.removeInEdge(edge.To, eid)
+				}
+				delete(e.edges, eid)
+			}
+			delete(e.outEdges, podID)
+			e.rebuildPodEdges(&pods2.Items[i])
+		}
+	}
+
+	// HPAs — SCALES edges: HPA → Deployment / StatefulSet
+	hpas, err := e.client.AutoscalingV2().HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, hpa := range hpas.Items {
+			hpaID := NodeID(KindHPA, hpa.Namespace, hpa.Name)
+			if _, ok := e.nodes[hpaID]; !ok {
+				continue // HPA node not yet in graph (informer may not have fired)
+			}
+			var targetKind NodeKind
+			switch hpa.Spec.ScaleTargetRef.Kind {
+			case "Deployment":
+				targetKind = KindDeployment
+			case "StatefulSet":
+				targetKind = KindStatefulSet
+			}
+			if targetKind != "" {
+				targetID := NodeID(targetKind, hpa.Namespace, hpa.Spec.ScaleTargetRef.Name)
+				e.addEdge(&GraphEdge{
+					ID:     EdgeID(hpaID, EdgeScales, targetID),
+					From:   hpaID,
+					To:     targetID,
+					Kind:   EdgeScales,
+					Weight: 0.9,
+				})
+			}
+		}
+	}
+
+	// PDBs — PROTECTS edges: PDB → Deployment / StatefulSet / DaemonSet
+	pdbs, err := e.client.PolicyV1().PodDisruptionBudgets("").List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, pdb := range pdbs.Items {
+			if pdb.Spec.Selector == nil {
+				continue
+			}
+			sel, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+			if err != nil {
+				continue
+			}
+			pdbID := NodeID(KindPDB, pdb.Namespace, pdb.Name)
+			if _, ok := e.nodes[pdbID]; !ok {
+				continue
+			}
+			for _, n := range e.nodes {
+				if n.Namespace != pdb.Namespace {
+					continue
+				}
+				if n.Kind != KindDeployment && n.Kind != KindStatefulSet && n.Kind != KindDaemonSet {
+					continue
+				}
+				if sel.Matches(labels.Set(n.Labels)) {
+					e.addEdge(&GraphEdge{
+						ID:     EdgeID(pdbID, EdgeProtects, n.ID),
+						From:   pdbID,
+						To:     n.ID,
+						Kind:   EdgeProtects,
+						Weight: 0.85,
+					})
+				}
 			}
 		}
 	}

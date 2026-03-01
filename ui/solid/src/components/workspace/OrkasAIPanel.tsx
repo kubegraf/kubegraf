@@ -38,7 +38,9 @@ interface ModelInfo {
   model: string;
 }
 
-const ORKA = 'http://localhost:8000';
+// All Orkas AI calls go through the Go proxy at /api/orka/* to avoid
+// hardcoded localhost:8000 and to enable cluster context enrichment.
+const ORKA = '/api/orka';
 
 // Combined suggestions — cluster analysis presets merged with general Q&A
 const SUGGESTIONS = [
@@ -412,12 +414,38 @@ const OrkasAIPanel: Component = () => {
                 <Show when={!decision()}>
                   <div style={{ display: 'flex', gap: '6px', 'margin-top': '2px' }}>
                     <button
-                      onClick={() => setRemediationDecisions(d => ({ ...d, [idx()]: 'approved' }))}
+                      onClick={() => {
+                        setRemediationDecisions(d => ({ ...d, [idx()]: 'approved' }));
+                        fetch('/api/graph/remediation/decision', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            decision: 'approved',
+                            root_cause: rootName,
+                            affected_node: affName,
+                            pattern_matched: inc.pattern_matched || '',
+                            confidence: inc.confidence || 0,
+                          }),
+                        }).catch(() => {/* best effort */});
+                      }}
                       style={{ flex: '1', background: 'var(--okBg)', border: '1px solid var(--okBdr)', color: 'var(--ok)', 'border-radius': 'var(--r6)', padding: '6px', 'font-size': '11.5px', 'font-weight': '700', cursor: 'pointer', 'font-family': 'var(--font)' }}>
                       ✓ Approve Remediation
                     </button>
                     <button
-                      onClick={() => setRemediationDecisions(d => ({ ...d, [idx()]: 'rejected' }))}
+                      onClick={() => {
+                        setRemediationDecisions(d => ({ ...d, [idx()]: 'rejected' }));
+                        fetch('/api/graph/remediation/decision', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            decision: 'rejected',
+                            root_cause: rootName,
+                            affected_node: affName,
+                            pattern_matched: inc.pattern_matched || '',
+                            confidence: inc.confidence || 0,
+                          }),
+                        }).catch(() => {/* best effort */});
+                      }}
                       style={{ flex: '1', background: 'var(--critBg)', border: '1px solid var(--critBdr)', color: 'var(--crit)', 'border-radius': 'var(--r6)', padding: '6px', 'font-size': '11.5px', 'font-weight': '700', cursor: 'pointer', 'font-family': 'var(--font)' }}>
                       ✗ Reject
                     </button>

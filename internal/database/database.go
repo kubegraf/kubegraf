@@ -319,6 +319,21 @@ func (d *Database) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_graph_snapshots_snapshot_at ON graph_snapshots(snapshot_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_graph_snapshots_context ON graph_snapshots(context_name);
 
+	CREATE TABLE IF NOT EXISTS remediation_decisions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		decided_at DATETIME NOT NULL,
+		root_cause TEXT NOT NULL DEFAULT '',
+		affected_node TEXT NOT NULL DEFAULT '',
+		pattern_matched TEXT NOT NULL DEFAULT '',
+		confidence REAL NOT NULL DEFAULT 0.0,
+		decision TEXT NOT NULL DEFAULT 'pending',
+		decided_by TEXT NOT NULL DEFAULT 'user',
+		notes TEXT NOT NULL DEFAULT '',
+		context_name TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_remediation_decisions_at ON remediation_decisions(decided_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_remediation_decisions_context ON remediation_decisions(context_name);
+
 	CREATE INDEX IF NOT EXISTS idx_log_errors_namespace ON log_errors(namespace);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_method ON log_errors(method);
 	CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
@@ -386,6 +401,71 @@ func (d *Database) SaveGraphSnapshot(contextName string, nodeCount, edgeCount in
 		contextName, contextName,
 	)
 	return nil
+}
+
+// RemediationDecision records a human approve/reject decision on a graph incident.
+type RemediationDecision struct {
+	ID             int       `json:"id"`
+	DecidedAt      time.Time `json:"decided_at"`
+	RootCause      string    `json:"root_cause"`
+	AffectedNode   string    `json:"affected_node"`
+	PatternMatched string    `json:"pattern_matched"`
+	Confidence     float64   `json:"confidence"`
+	Decision       string    `json:"decision"` // "approved" | "rejected"
+	DecidedBy      string    `json:"decided_by"`
+	Notes          string    `json:"notes"`
+	ContextName    string    `json:"context_name"`
+}
+
+// SaveRemediationDecision persists an approve/reject decision from the Incidents tab UI.
+func (d *Database) SaveRemediationDecision(rec RemediationDecision) error {
+	if !d.enabled || d.db == nil {
+		return nil
+	}
+	_, err := d.db.Exec(
+		`INSERT INTO remediation_decisions
+		 (decided_at, root_cause, affected_node, pattern_matched, confidence, decision, decided_by, notes, context_name)
+		 VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.RootCause, rec.AffectedNode, rec.PatternMatched, rec.Confidence,
+		rec.Decision, rec.DecidedBy, rec.Notes, rec.ContextName,
+	)
+	return err
+}
+
+// ListRemediationDecisions returns the most recent remediation decisions for a context.
+func (d *Database) ListRemediationDecisions(contextName string, limit int) ([]RemediationDecision, error) {
+	if !d.enabled || d.db == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := d.db.Query(
+		`SELECT id, decided_at, root_cause, affected_node, pattern_matched, confidence,
+		        decision, decided_by, notes, context_name
+		 FROM remediation_decisions
+		 WHERE context_name = ?
+		 ORDER BY decided_at DESC LIMIT ?`,
+		contextName, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []RemediationDecision
+	for rows.Next() {
+		var rec RemediationDecision
+		if err := rows.Scan(
+			&rec.ID, &rec.DecidedAt, &rec.RootCause, &rec.AffectedNode,
+			&rec.PatternMatched, &rec.Confidence, &rec.Decision,
+			&rec.DecidedBy, &rec.Notes, &rec.ContextName,
+		); err != nil {
+			continue
+		}
+		results = append(results, rec)
+	}
+	return results, nil
 }
 
 // Encrypt encrypts data using AES-256-GCM
