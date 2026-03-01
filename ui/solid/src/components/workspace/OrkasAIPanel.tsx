@@ -11,8 +11,10 @@
  * IncidentDetail's right panel — zero duplication here.
  */
 
-import { Component, createSignal, For, Show, onMount, createEffect } from 'solid-js';
+import { Component, createSignal, For, Show, onMount, createEffect, onCleanup } from 'solid-js';
 import { marked } from 'marked';
+import { wsService } from '../../services/websocket';
+import type { GraphIncidentAlert } from '../../providers/WebSocketProvider';
 
 interface OrkaMessage {
   role: 'user' | 'assistant';
@@ -50,7 +52,7 @@ const SUGGESTIONS = [
 
 const OrkasAIPanel: Component = () => {
   // ── Navigation ───────────────────────────────────────────────────────────
-  const [tab, setTab] = createSignal<'ask' | 'knowledge'>('ask');
+  const [tab, setTab] = createSignal<'ask' | 'knowledge' | 'incidents'>('ask');
 
   // ── Status ───────────────────────────────────────────────────────────────
   const [orkaStatus, setOrkaStatus] = createSignal<'checking' | 'online' | 'offline'>('checking');
@@ -72,6 +74,12 @@ const OrkasAIPanel: Component = () => {
   const [ingestLoading, setIngestLoading] = createSignal(false);
   const [ingestMsg, setIngestMsg] = createSignal('');
 
+  // ── Graph incidents (proactive push from graph engine via WebSocket) ──────
+  const [graphIncidents, setGraphIncidents] = createSignal<GraphIncidentAlert[]>([]);
+  const [incidentBadge, setIncidentBadge] = createSignal(0);
+  // Remediation decisions: 'approved' | 'rejected' keyed by incident index
+  const [remediationDecisions, setRemediationDecisions] = createSignal<Record<number, 'approved' | 'rejected'>>({});
+
   // ── Init ─────────────────────────────────────────────────────────────────
   onMount(async () => {
     try {
@@ -88,6 +96,17 @@ const OrkasAIPanel: Component = () => {
       const r = await fetch(`${ORKA}/models`, { signal: AbortSignal.timeout(5000) });
       if (r.ok) { const d = await r.json(); setModels(d.models || []); }
     } catch {}
+
+    // Subscribe to graph_incident WebSocket messages
+    const unsub = wsService.subscribe((msg) => {
+      if (msg.type === 'graph_incident' && msg.data) {
+        setGraphIncidents(prev => [msg.data as GraphIncidentAlert, ...prev].slice(0, 20));
+        if (tab() !== 'incidents') {
+          setIncidentBadge(b => b + 1);
+        }
+      }
+    });
+    onCleanup(unsub);
   });
 
   // ── Ask ───────────────────────────────────────────────────────────────────
@@ -193,20 +212,25 @@ const OrkasAIPanel: Component = () => {
         </div>
       </Show>
 
-      {/* ── Tab bar (2 tabs only) ── */}
+      {/* ── Tab bar (3 tabs) ── */}
       <div style={{ display: 'flex', 'flex-shrink': '0', background: 'var(--s1)', 'border-bottom': '1px solid var(--b1)' }}>
-        {(['ask', 'knowledge'] as const).map(t => (
+        {(['ask', 'knowledge', 'incidents'] as const).map(t => (
           <button
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); if (t === 'incidents') setIncidentBadge(0); }}
             style={{
               flex: '1', background: 'none', border: 'none', cursor: 'pointer',
               padding: '9px 4px', 'font-size': '11.5px', 'font-weight': '600',
               color: tab() === t ? 'var(--brand)' : 'var(--t4)',
               'border-bottom': tab() === t ? '2px solid var(--brand)' : '2px solid transparent',
-              transition: 'color .15s', 'font-family': 'var(--font)',
+              transition: 'color .15s', 'font-family': 'var(--font)', position: 'relative',
             }}
           >
-            {t === 'ask' ? 'Ask' : 'Knowledge'}
+            {t === 'ask' ? 'Ask' : t === 'knowledge' ? 'Knowledge' : 'Incidents'}
+            <Show when={t === 'incidents' && incidentBadge() > 0}>
+              <span style={{ position: 'absolute', top: '5px', right: '4px', background: 'var(--crit)', color: '#fff', 'border-radius': '99px', 'font-size': '9px', 'font-weight': '700', padding: '0 4px', 'min-width': '14px', 'text-align': 'center', 'line-height': '14px' }}>
+                {incidentBadge()}
+              </span>
+            </Show>
           </button>
         ))}
       </div>
@@ -333,6 +357,86 @@ const OrkasAIPanel: Component = () => {
               <div style={{ 'font-size': '11.5px', padding: '7px 10px', 'border-radius': 'var(--r6)', background: ingestMsg().startsWith('✓') ? 'var(--okBg)' : 'var(--critBg)', color: ingestMsg().startsWith('✓') ? 'var(--ok)' : 'var(--crit)' }}>{ingestMsg()}</div>
             </Show>
           </div>
+        </div>
+      </Show>
+
+      {/* ════════════════════ TAB: INCIDENTS ════════════════════ */}
+      <Show when={tab() === 'incidents'}>
+        <div style={{ flex: '1', 'overflow-y': 'auto', padding: '12px 14px', display: 'flex', 'flex-direction': 'column', gap: '10px' }}>
+          <Show when={graphIncidents().length === 0}>
+            <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', flex: '1', padding: '32px 0', gap: '8px' }}>
+              <div style={{ 'font-size': '28px', opacity: '.3' }}>⬡</div>
+              <div style={{ 'font-size': '12px', color: 'var(--t5)', 'text-align': 'center' }}>
+                No graph incidents yet.<br />The topology graph engine pushes incidents here<br />when confidence ≥ 70%.
+              </div>
+            </div>
+          </Show>
+          <For each={graphIncidents()}>{(inc, idx) => {
+            const decision = () => remediationDecisions()[idx()];
+            const rootName = inc.root_cause ? `${inc.root_cause.kind}/${inc.root_cause.namespace ? inc.root_cause.namespace + '/' : ''}${inc.root_cause.name}` : '—';
+            const affName  = inc.affected_node ? `${inc.affected_node.kind}/${inc.affected_node.namespace ? inc.affected_node.namespace + '/' : ''}${inc.affected_node.name}` : '—';
+            const confPct  = Math.round((inc.confidence || 0) * 100);
+            const confCol  = confPct >= 80 ? 'var(--crit)' : confPct >= 60 ? 'var(--warn)' : 'var(--t4)';
+            return (
+              <div style={{ background: 'var(--s1)', border: '1px solid var(--b2)', 'border-radius': 'var(--r8)', padding: '11px 13px', display: 'flex', 'flex-direction': 'column', gap: '8px' }}>
+                {/* Header row */}
+                <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
+                  <div style={{ width: '7px', height: '7px', 'border-radius': '50%', background: 'var(--crit)', 'flex-shrink': '0' }} />
+                  <span style={{ 'font-size': '12px', 'font-weight': '700', color: 'var(--t1)', flex: '1' }}>
+                    {inc.pattern_matched ? inc.pattern_matched.replace(/_/g, ' ') : 'Graph Incident'}
+                  </span>
+                  <span style={{ 'font-size': '10px', 'font-weight': '700', color: confCol }}>
+                    {confPct}% conf
+                  </span>
+                </div>
+                {/* Root cause / affected */}
+                <div style={{ display: 'grid', 'grid-template-columns': '1fr 1fr', gap: '6px' }}>
+                  <div style={{ background: 'var(--critBg)', 'border-radius': 'var(--r6)', padding: '5px 8px' }}>
+                    <div style={{ 'font-size': '9px', 'font-weight': '700', color: 'var(--crit)', 'text-transform': 'uppercase', 'letter-spacing': '.06em' }}>Root Cause</div>
+                    <div style={{ 'font-size': '11px', color: 'var(--t1)', 'font-family': 'var(--mono)', 'margin-top': '2px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{rootName}</div>
+                  </div>
+                  <div style={{ background: 'var(--warnBg)', 'border-radius': 'var(--r6)', padding: '5px 8px' }}>
+                    <div style={{ 'font-size': '9px', 'font-weight': '700', color: 'var(--warn)', 'text-transform': 'uppercase', 'letter-spacing': '.06em' }}>Affected</div>
+                    <div style={{ 'font-size': '11px', color: 'var(--t1)', 'font-family': 'var(--mono)', 'margin-top': '2px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{affName}</div>
+                  </div>
+                </div>
+                {/* Blast radius */}
+                <Show when={inc.blast_radius?.length > 0}>
+                  <div style={{ 'font-size': '10.5px', color: 'var(--t4)' }}>
+                    <span style={{ 'font-weight': '600', color: 'var(--t3)' }}>Blast radius:</span>{' '}
+                    {inc.blast_radius.slice(0, 5).map(n => n.name).join(', ')}
+                    {inc.blast_radius.length > 5 ? ` +${inc.blast_radius.length - 5} more` : ''}
+                  </div>
+                </Show>
+                {/* Approve / Reject remediation */}
+                <Show when={!decision()}>
+                  <div style={{ display: 'flex', gap: '6px', 'margin-top': '2px' }}>
+                    <button
+                      onClick={() => setRemediationDecisions(d => ({ ...d, [idx()]: 'approved' }))}
+                      style={{ flex: '1', background: 'var(--okBg)', border: '1px solid var(--okBdr)', color: 'var(--ok)', 'border-radius': 'var(--r6)', padding: '6px', 'font-size': '11.5px', 'font-weight': '700', cursor: 'pointer', 'font-family': 'var(--font)' }}>
+                      ✓ Approve Remediation
+                    </button>
+                    <button
+                      onClick={() => setRemediationDecisions(d => ({ ...d, [idx()]: 'rejected' }))}
+                      style={{ flex: '1', background: 'var(--critBg)', border: '1px solid var(--critBdr)', color: 'var(--crit)', 'border-radius': 'var(--r6)', padding: '6px', 'font-size': '11.5px', 'font-weight': '700', cursor: 'pointer', 'font-family': 'var(--font)' }}>
+                      ✗ Reject
+                    </button>
+                  </div>
+                </Show>
+                <Show when={decision()}>
+                  <div style={{ 'font-size': '11px', 'font-weight': '600', color: decision() === 'approved' ? 'var(--ok)' : 'var(--crit)', 'text-align': 'center', padding: '5px 0' }}>
+                    {decision() === 'approved' ? '✓ Remediation approved' : '✗ Remediation rejected'}
+                  </div>
+                </Show>
+                {/* Timestamp */}
+                <Show when={inc.analyzed_at}>
+                  <div style={{ 'font-size': '9.5px', color: 'var(--t5)', 'text-align': 'right' }}>
+                    {new Date(inc.analyzed_at!).toLocaleTimeString()}
+                  </div>
+                </Show>
+              </div>
+            );
+          }}</For>
         </div>
       </Show>
 

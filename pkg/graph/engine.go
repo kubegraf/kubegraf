@@ -60,6 +60,16 @@ type Engine struct {
 	lastAnalysis map[string]*CausalChain
 	analysisMu   sync.RWMutex
 
+	// OnAnomaly is called whenever the graph engine detects a high-confidence
+	// causal chain (confidence >= 0.7). It is safe to set before Start().
+	// Implementations must be non-blocking (use a goroutine if needed).
+	OnAnomaly func(*CausalChain)
+
+	// anomalyThrottle prevents flooding OnAnomaly for the same node.
+	// A node will not trigger OnAnomaly more than once per 2 minutes.
+	anomalyThrottle map[string]time.Time
+	anomalyMu       sync.Mutex
+
 	client  kubernetes.Interface
 	factory informers.SharedInformerFactory
 	stopCh  chan struct{}
@@ -70,14 +80,15 @@ type Engine struct {
 // Call Start() to begin watching resources.
 func NewEngine(client kubernetes.Interface) *Engine {
 	return &Engine{
-		nodes:        make(map[string]*GraphNode),
-		edges:        make(map[string]*GraphEdge),
-		outEdges:     make(map[string][]string),
-		inEdges:      make(map[string][]string),
-		events:       make([]GraphEvent, 0, maxEvents),
-		lastAnalysis: make(map[string]*CausalChain),
-		client:       client,
-		stopCh:       make(chan struct{}),
+		nodes:           make(map[string]*GraphNode),
+		edges:           make(map[string]*GraphEdge),
+		outEdges:        make(map[string][]string),
+		inEdges:         make(map[string][]string),
+		events:          make([]GraphEvent, 0, maxEvents),
+		lastAnalysis:    make(map[string]*CausalChain),
+		anomalyThrottle: make(map[string]time.Time),
+		client:          client,
+		stopCh:          make(chan struct{}),
 	}
 }
 
@@ -936,6 +947,49 @@ func (e *Engine) onEvent(obj interface{}) {
 	}
 	e.events = append(e.events, gev)
 	e.evMu.Unlock()
+
+	// Trigger proactive causal analysis for severe events.
+	// This runs asynchronously so the informer callback is not blocked.
+	if e.OnAnomaly != nil && isSevereEvent(ev.Reason) {
+		go e.maybeNotifyAnomaly(nodeID)
+	}
+}
+
+// isSevereEvent returns true for Kubernetes event reasons that typically indicate
+// a real incident rather than transient noise.
+func isSevereEvent(reason string) bool {
+	switch reason {
+	case "BackOff", "OOMKilling", "Evicted", "Failed", "FailedMount",
+		"FailedScheduling", "FailedCreate", "NodeNotReady",
+		"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull",
+		"Killing", "PreemptingShutdown":
+		return true
+	}
+	return false
+}
+
+// maybeNotifyAnomaly runs causal analysis on the given node and calls
+// OnAnomaly if confidence exceeds 0.7. It respects a 2-minute per-node
+// throttle to avoid flooding the callback.
+func (e *Engine) maybeNotifyAnomaly(nodeID string) {
+	// Check throttle
+	e.anomalyMu.Lock()
+	if last, ok := e.anomalyThrottle[nodeID]; ok && time.Since(last) < 2*time.Minute {
+		e.anomalyMu.Unlock()
+		return
+	}
+	e.anomalyThrottle[nodeID] = time.Now()
+	e.anomalyMu.Unlock()
+
+	chain := e.Analyze(AnalyzeRequest{NodeID: nodeID, WindowMinutes: 10})
+	if chain == nil || chain.Confidence < 0.7 {
+		return
+	}
+
+	cb := e.OnAnomaly
+	if cb != nil {
+		cb(chain)
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

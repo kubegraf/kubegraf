@@ -38,7 +38,7 @@
 │  │    ├── WorkloadScreen      Pods, deployments, statefulsets                   │     │
 │  │    ├── ContextGraphScreen  Service topology canvas graph                     │     │
 │  │    ├── WorkspacePanels     Metrics, GitOps, Cost panels                      │     │
-│  │    ├── OrkasAIPanel        Global AI assistant (Ask + Knowledge)             │     │
+│  │    ├── OrkasAIPanel        Global AI assistant (Ask + Knowledge + Incidents) │     │
 │  │    └── ContextNavigator    Sidebar: incident list, filters                   │     │
 │  └──────────────────────────────────────────────────────────────────────────────┘     │
 │                  │ HTTP REST + WebSocket (/ws)                                         │
@@ -1818,13 +1818,19 @@ volumes:
 |-----------|-------------|
 | `pkg/graph/types.go` | All type definitions: GraphNode, GraphEdge, CausalChain, CausalStep, CausalCandidate, RemediationPlan, RemediationStep, GraphSnapshot, SubgraphQuery, AnalyzeRequest — 21 NodeKinds, 15 EdgeKinds, 6 NodeStatus values |
 | `pkg/graph/patterns.go` | 10 pre-encoded failure patterns: node_disk_pressure_eviction_cascade, node_memory_pressure_oom_cascade, oom_kill_crash_loop, image_pull_scheduling_block, config_change_induced_crash, node_not_ready_pod_eviction, pvc_pending_pod_block, hpa_thrashing, resource_quota_exhaustion, upstream_service_dependency_failure |
-| `pkg/graph/engine.go` | SharedInformerFactory watching 13 resource types; node upsert/delete; edge construction (SCHEDULES_ON, OWNS, EXPOSES, ROUTES_TO, CLAIMS, MOUNTS, MOUNTS_CONFIG, MOUNTS_SECRET, DEPENDS_ON from env vars); BFS helpers; full edge rebuild after initial sync; rolling event buffer (2000 events, 2h max age) |
+| `pkg/graph/engine.go` | SharedInformerFactory watching 13 resource types; node upsert/delete; edge construction; rolling event buffer; **+ `OnAnomaly func(*CausalChain)` callback; `isSevereEvent()` for 13 critical K8s reasons; `maybeNotifyAnomaly()` with 2-min per-node throttle + 0.7 confidence gate** |
 | `pkg/graph/inference.go` | `Analyze()`: 10-step BFS causal inference with candidate scoring, pattern matching, path construction, blast radius; `BuildRemediationPlan()`: graph-validated remediation steps per root cause kind; 30-second analysis cache |
 | `web_graph.go` | 6 HTTP handlers: handleGraphStatus, handleGraphTopology, handleGraphAnalyze, handleGraphBlastRadius, handleGraphNode, handleGraphRemediation; `RegisterGraphRoutes()` |
-| `web_server.go` (modified) | Added `graphEngine *graph.Engine` field; initialised in `NewWebServer()` from `app.clientset`; started with `go ws.graphEngine.Start()`; registered graph routes |
+| `web_server.go` | `graphEngine *graph.Engine` field; `OnAnomaly` wired to `broadcastGraphIncident()`; **`broadcastGraphIncident()` pushes `graph_incident` WS msg to all clients; `startGraphSnapshots()` goroutine — 60s ticker, saves graph snapshot to SQLite** |
+| `internal/database/database.go` | Existing encrypted SQLite schema; **+ `graph_snapshots` table (id, snapshot_at, node_count, edge_count, context_name, data_json); `SaveGraphSnapshot()` method; indexed on snapshot_at + context_name; auto-prunes to 288 snapshots per context (24h at 60s interval)** |
 | Orkas AI graph tools | kubegraf_analyze, kubegraf_remediation, kubegraf_blast_radius, kubegraf_topology, kubegraf_node, kubegraf_graph_status registered in Orkas AI tool registry |
 | `POST /incident/brief` | Orkas AI endpoint orchestrating graph API calls into structured incident brief with natural language summary |
-| SolidJS frontend | IntelligentWorkspace, OrkasAIPanel, IncidentDetail, HomeScreen, WorkloadScreen, WorkspacePanels, ContextGraphScreen, ContextNavigator — all screens done |
+| `ContextGraphScreen.tsx` | Live topology canvas; **now polls `GET /api/graph/topology` every 30s; maps live nodes/edges to canvas format with auto-layout; shows green "● live" badge when using live data; falls back to incidents-based graph when engine has no data** |
+| `IncidentDetail.tsx` | Timeline canvas, Fix/RCA/AI tabs; **now fetches `POST /api/graph/analyze` on incident change; maps causal chain `Evidence[]` to `TLEvent[]` for timeline canvas; uses graph events when confidence > 0.3 + evidence > 0** |
+| `OrkasAIPanel.tsx` | Global AI panel; **now has 3 tabs: Ask + Knowledge + Incidents; Incidents tab shows live `graph_incident` WS alerts with root cause, affected node, blast radius, confidence; Approve/Reject remediation decision buttons per incident; red badge counter on tab** |
+| `IntelligentWorkspace.tsx` | Root shell layout; **now shows dismissible graph incident alert banner (red, fixed-position) with root cause + pattern + confidence; auto-dismisses after 15s; subscribes to `graph_incident` WS messages** |
+| `WebSocketProvider.tsx` | WS context; **added `GraphIncidentAlert` interface; `graphIncident`/`clearGraphIncident` signals; handler for `graph_incident` message type** |
+| `websocket.ts` | WS service type; **added `'graph_incident'` to `WebSocketMessage.type` union** |
 | Built-in AI | `/api/ai/*` (Ollama/OpenAI/Claude) |
 | Incident intelligence | `/api/v2/incidents/*` |
 | Multi-cluster context | Context switching, GKE auth |
@@ -1834,14 +1840,12 @@ volumes:
 
 | Item | Priority | Notes |
 |------|----------|-------|
-| `ContextGraphScreen` using live graph API | High | Replace `/api/v2/topology` with `/api/graph/topology` for live data |
-| `IncidentDetail` "Generate Brief" button | High | Call Orkas AI `POST /incident/brief` endpoint |
+| Remediation approval persistence | Medium | Approve/Reject decisions currently held in component state; need backend `/api/graph/remediation/approve` endpoint + DB table |
 | Edge construction for HPA SCALES | Medium | `onHPA()` handler not yet implemented in engine.go |
 | Edge construction for PDB PROTECTS | Medium | `onPDB()` handler not yet implemented |
 | Edge construction for NetworkPolicy NETWORK_ALLOWS | Low | Complex: requires label selector matching on NetworkPolicy |
 | Analysis cache invalidation | Medium | Currently TTL-only; should also invalidate on graph mutation |
 | Integration tests for graph engine | High | Unit tests for inference.go scoring and pattern matching |
-| `KUBEGRAF_URL` env var documentation in Orkas AI | Done | See section 11 |
 | Go proxy layer for Orkas AI calls | Low (v2) | Currently browser calls Orkas AI directly |
 
 ### Known Gaps
@@ -1851,8 +1855,9 @@ volumes:
 | `onDeleteResource` in engine.go is incomplete | Low — nodes eventually get stale but don't cause crashes | Fix: extract kind from tombstone and call deleteNode correctly |
 | `MOUNTS_SECRET` edges not built in `rebuildAllEdges` | Low — only built incrementally in `rebuildPodEdges` | Add Secrets list pass in `rebuildAllEdges` |
 | ConfigMap system prefix filter (`kube-*`) may be too broad | Low | Some kube-system configmaps may be relevant to failure analysis |
-| No graph persistence | Medium | Engine is rebuilt from scratch on restart (informer sync takes ~10s) |
+| Graph snapshots rebuilt on engine restart | Low | `graph_snapshots` table persists historical snapshots for trend analysis but the live in-memory graph always rebuilds from informers (~10s sync) |
 | Analysis confidence cap at 0.99 | Low | Intentional — epistemic humility. Document in UI. |
+| Remediation decisions not persisted | Medium | Approve/Reject state lives in OrkasAIPanel component; lost on page refresh |
 
 ---
 
@@ -1869,8 +1874,10 @@ volumes:
 | **Confidence cap at 0.99** | Epistemic humility. The algorithm can never be 100% certain of a root cause — there may always be an unmodelled factor. This is surfaced to users. |
 | **Pattern confidence overrides scoring up to pattern.Confidence** | Patterns are domain expert knowledge. If graph scoring gives 0.6 but the pattern has 0.92 confidence, trust the pattern — it's been validated against real incidents. |
 | **Remediation is propose-only in v1** | Auto-executed remediation requires much higher confidence and approval workflows. Propose-only is safe for MVP. |
-| **2-tab OrkasAIPanel** (Ask + Knowledge) | "Cluster" tab was a duplicate of Ask — same `/ask` call with preset prompts. Merged into Ask tab. |
-| **No incident fix in OrkasAIPanel** | Incident fix lives exclusively in `IncidentDetail` right panel (Fix tab). Avoids duplication. |
+| **3-tab OrkasAIPanel** (Ask + Knowledge + Incidents) | "Cluster" tab was a duplicate of Ask — merged into Ask tab. "Incidents" tab added for proactive graph anomaly push via WebSocket — separate from incident-specific Fix tab in IncidentDetail. |
+| **No incident fix in OrkasAIPanel** | Incident fix lives exclusively in `IncidentDetail` right panel (Fix tab). The Incidents tab in OrkasAIPanel is for proactive anomaly alerts from the graph engine, not for user-initiated incident analysis. |
+| **Proactive anomaly push via WebSocket** | `OnAnomaly` callback in Engine → `broadcastGraphIncident()` in WebServer → all WS clients. Two-minute per-node throttle prevents alert storms. 0.7 confidence gate prevents low-signal noise. |
+| **Graph snapshot persistence** | 60-second SQLite snapshots preserve historical topology for trend analysis and post-incident review. Auto-prunes to 288 rows per context (24h window at 60s interval). |
 | **Direct browser → Orkas AI** | Simple, no proxy latency. Trade-off: hardcoded `localhost:8000`, no context enrichment. Planned future: Go proxy layer. |
 | **KubeGraf built-in AI ≠ Orkas AI** | `/api/ai/*` (KubeGraf) uses Ollama/OpenAI natively for simple queries. Orkas AI (`localhost:8000`) is richer with RAG, knowledge base, multi-model routing, and graph tools. |
 | **Embedded frontend** | `//go:embed web/dist` — single binary, no separate web server, zero deployment complexity. |

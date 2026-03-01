@@ -3,11 +3,23 @@ import { wsService } from '../services/websocket';
 import type { WebSocketMessage } from '../services/websocket';
 import { registerInsightEvent } from '../stores/insightsPulse';
 
+/** A graph-derived causal chain pushed proactively by the graph engine. */
+export interface GraphIncidentAlert {
+  root_cause?: { kind: string; name: string; namespace?: string; status: string };
+  affected_node?: { kind: string; name: string; namespace?: string; status: string };
+  confidence: number;
+  pattern_matched?: string;
+  blast_radius: Array<{ kind: string; name: string; namespace?: string }>;
+  analyzed_at?: string;
+}
+
 interface WebSocketContextValue {
   socket: () => WebSocket | null;
   connected: () => boolean;
   subscribe: (handler: (message: WebSocketMessage) => void) => () => void;
   send: (message: any) => void;
+  graphIncident: () => GraphIncidentAlert | null;
+  clearGraphIncident: () => void;
 }
 
 const WSContext = createContext<WebSocketContextValue | null>(null);
@@ -15,6 +27,7 @@ const WSContext = createContext<WebSocketContextValue | null>(null);
 export function WebSocketProvider(props: { children: JSX.Element }) {
   const [connected, setConnected] = createSignal(false);
   const [socket, setSocket] = createSignal<WebSocket | null>(null);
+  const [graphIncident, setGraphIncident] = createSignal<GraphIncidentAlert | null>(null);
 
   onMount(() => {
     // Connect WebSocket
@@ -32,6 +45,11 @@ export function WebSocketProvider(props: { children: JSX.Element }) {
       if (msg.type === 'event' || msg.type === 'monitored_event') {
         registerInsightEvent(1);
       }
+
+      // Graph engine anomaly push — proactive incident detection
+      if (msg.type === 'graph_incident' && msg.data) {
+        setGraphIncident(msg.data as GraphIncidentAlert);
+      }
     });
 
     // Cleanup on unmount
@@ -46,6 +64,8 @@ export function WebSocketProvider(props: { children: JSX.Element }) {
     connected,
     subscribe: (handler) => wsService.subscribe(handler),
     send: (message) => wsService.send(message),
+    graphIncident,
+    clearGraphIncident: () => setGraphIncident(null),
   };
 
   return (

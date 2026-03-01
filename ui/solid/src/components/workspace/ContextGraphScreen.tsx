@@ -4,8 +4,95 @@
  * falls back to a static demo layout when there are none.
  */
 
-import { Component, createSignal, createMemo, onMount, onCleanup, Show } from 'solid-js';
+import { Component, createSignal, createMemo, onMount, onCleanup, Show, createEffect } from 'solid-js';
 import { Incident } from '../../services/api';
+
+// ── Live graph topology types (mirror of pkg/graph Go types) ─────────────────
+interface LiveGraphNode {
+  id: string;
+  kind: string;
+  name: string;
+  namespace?: string;
+  status: 'Healthy' | 'Degraded' | 'Failed' | 'Pending' | 'Evicted' | 'Unknown';
+  phase?: string;
+}
+
+interface LiveGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: string;
+}
+
+interface LiveTopologyResponse {
+  nodes: LiveGraphNode[];
+  edges: LiveGraphEdge[];
+  node_count: number;
+  edge_count: number;
+}
+
+/** Map a live graph node status to the canvas severity class */
+function liveStatusToSeverity(status: string): 'crit' | 'warn' | 'ok' {
+  switch (status) {
+    case 'Failed': case 'Evicted': return 'crit';
+    case 'Degraded': case 'Pending': return 'warn';
+    default: return 'ok';
+  }
+}
+
+/** Convert a live topology API response to the canvas GraphNode/GraphEdge format */
+function liveToCanvasGraph(topo: LiveTopologyResponse): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  if (!topo || !topo.nodes || topo.nodes.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  // Split by severity for layout
+  const critNodes = topo.nodes.filter(n => n.status === 'Failed' || n.status === 'Evicted');
+  const warnNodes = topo.nodes.filter(n => n.status === 'Degraded' || n.status === 'Pending');
+  const okNodes   = topo.nodes.filter(n => n.status !== 'Failed' && n.status !== 'Evicted' && n.status !== 'Degraded' && n.status !== 'Pending');
+
+  const positionGroup = (group: LiveGraphNode[], xCenter: number, xSpread: number): GraphNode[] => {
+    const count = group.length;
+    return group.map((n, i) => {
+      const s = liveStatusToSeverity(n.status);
+      return {
+        id: n.id,
+        lbl: n.name,
+        sub: n.phase || n.status,
+        s,
+        icon: n.kind.charAt(0).toUpperCase(),
+        rx: xCenter + (i % 2 === 1 ? xSpread : 0),
+        ry: count <= 1 ? 0.5 : 0.12 + (i / Math.max(count - 1, 1)) * 0.76,
+        r: s === 'crit' ? 26 : s === 'warn' ? 20 : 14,
+        namespace: n.namespace,
+      };
+    });
+  };
+
+  const nodes: GraphNode[] = [
+    ...positionGroup(critNodes, 0.12, 0.14),
+    ...positionGroup(warnNodes, 0.52, 0.12),
+    ...positionGroup(okNodes,   0.82, 0),
+  ];
+
+  // Build edge labels from edge kind
+  const edgeKindLabel: Record<string, string> = {
+    owns: 'owns', exposes: 'exposes', routes_to: 'routes',
+    schedules_on: 'on', mounts: 'mounts', mounts_config: 'cfg',
+    mounts_secret: 'sec', claims: 'claims', depends_on: 'depends',
+  };
+
+  const nodeStatusMap = new Map(topo.nodes.map(n => [n.id, n.status]));
+  const edges: GraphEdge[] = topo.edges
+    .filter(e => nodes.some(n => n.id === e.from) && nodes.some(n => n.id === e.to))
+    .map(e => {
+      const fromStatus = nodeStatusMap.get(e.from) || 'Healthy';
+      const s = liveStatusToSeverity(fromStatus);
+      return { f: e.from, t: e.to, s, lbl: edgeKindLabel[e.kind] || e.kind };
+    });
+
+  return { nodes, edges };
+}
 
 interface GraphNode {
   id: string;
@@ -179,9 +266,35 @@ const ContextGraphScreen: Component<{
   let wrapRef: HTMLDivElement | undefined;
   let animId: number | undefined;
   let resizeObserver: ResizeObserver | undefined;
+  let pollTimer: number | undefined;
   const [nodeInfo, setNodeInfo] = createSignal<NodeInfo | null>(null);
+  const [liveTopology, setLiveTopology] = createSignal<LiveTopologyResponse | null>(null);
+  const [usingLive, setUsingLive] = createSignal(false);
 
-  const graphData = createMemo(() => buildGraph(props.incidents || []));
+  /** Fetch the live graph topology from Kubegraf's graph API */
+  async function fetchTopology() {
+    try {
+      const r = await fetch('/api/graph/topology', { signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        const data: LiveTopologyResponse = await r.json();
+        if (data && data.node_count > 0) {
+          setLiveTopology(data);
+          setUsingLive(true);
+        }
+      }
+    } catch {
+      // Silently fall back to incident-based graph
+    }
+  }
+
+  // Derive graph data: prefer live topology, fall back to incidents-based
+  const graphData = createMemo(() => {
+    const live = liveTopology();
+    if (live && live.node_count > 0) {
+      return liveToCanvasGraph(live);
+    }
+    return buildGraph(props.incidents || []);
+  });
 
   function initGraph() {
     const canvas = canvasRef;
@@ -376,6 +489,10 @@ const ContextGraphScreen: Component<{
   };
 
   onMount(() => {
+    // Fetch live topology immediately and then every 30 seconds
+    fetchTopology();
+    pollTimer = window.setInterval(fetchTopology, 30_000);
+
     const wrap = wrapRef;
     if (wrap) {
       // Use ResizeObserver so the canvas initialises as soon as the wrapper
@@ -395,11 +512,12 @@ const ContextGraphScreen: Component<{
 
   onCleanup(() => {
     if (animId !== undefined) cancelAnimationFrame(animId);
+    if (pollTimer !== undefined) clearInterval(pollTimer);
     window.removeEventListener('resize', initGraph);
     resizeObserver?.disconnect();
   });
 
-  const isDemo = () => !props.incidents || props.incidents.length === 0;
+  const isDemo = () => !usingLive() && (!props.incidents || props.incidents.length === 0);
   const nodeCount = () => graphData().nodes.length;
   const edgeCount = () => graphData().edges.length;
 
@@ -412,6 +530,9 @@ const ContextGraphScreen: Component<{
         </span>
         <span style={{ 'font-size': '11px', color: 'var(--t5)', 'margin-left': '6px' }}>
           {nodeCount()} nodes · {edgeCount()} edges
+          <Show when={usingLive()}>
+            <span style={{ 'margin-left': '6px', color: 'var(--ok)', 'font-size': '10px', 'font-weight': '700' }}>● live</span>
+          </Show>
           <Show when={isDemo()}>
             <span style={{ 'margin-left': '6px', color: 'var(--warn)', 'font-size': '10px' }}>(demo)</span>
           </Show>

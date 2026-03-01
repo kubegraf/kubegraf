@@ -308,6 +308,17 @@ func (d *Database) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitored_events_namespace ON monitored_events(namespace);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_timestamp ON log_errors(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_status_code ON log_errors(status_code);
+	CREATE TABLE IF NOT EXISTS graph_snapshots (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		snapshot_at DATETIME NOT NULL,
+		node_count INTEGER NOT NULL DEFAULT 0,
+		edge_count INTEGER NOT NULL DEFAULT 0,
+		context_name TEXT NOT NULL DEFAULT '',
+		data_json TEXT NOT NULL DEFAULT '{}'
+	);
+	CREATE INDEX IF NOT EXISTS idx_graph_snapshots_snapshot_at ON graph_snapshots(snapshot_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_graph_snapshots_context ON graph_snapshots(context_name);
+
 	CREATE INDEX IF NOT EXISTS idx_log_errors_namespace ON log_errors(namespace);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_method ON log_errors(method);
 	CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
@@ -349,6 +360,31 @@ func (d *Database) migrateSchema() error {
 		}
 	}
 
+	return nil
+}
+
+// SaveGraphSnapshot persists a topology graph snapshot to the database.
+// It keeps the most recent 288 snapshots per context (24h at 5-min intervals).
+func (d *Database) SaveGraphSnapshot(contextName string, nodeCount, edgeCount int, dataJSON string) error {
+	if !d.enabled || d.db == nil {
+		return nil
+	}
+	_, err := d.db.Exec(
+		`INSERT INTO graph_snapshots (snapshot_at, node_count, edge_count, context_name, data_json)
+		 VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+		nodeCount, edgeCount, contextName, dataJSON,
+	)
+	if err != nil {
+		return err
+	}
+	// Prune old snapshots: keep last 288 per context
+	_, _ = d.db.Exec(
+		`DELETE FROM graph_snapshots WHERE context_name = ? AND id NOT IN (
+			SELECT id FROM graph_snapshots WHERE context_name = ?
+			ORDER BY snapshot_at DESC LIMIT 288
+		)`,
+		contextName, contextName,
+	)
 	return nil
 }
 

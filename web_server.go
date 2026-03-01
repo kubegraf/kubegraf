@@ -417,6 +417,9 @@ func NewWebServer(app *App) *WebServer {
 	// the live causal model used for graph-based incident reasoning.
 	if app.clientset != nil {
 		ws.graphEngine = graph.NewEngine(app.clientset)
+		// Wire the anomaly callback so the graph engine can push incidents
+		// directly to connected WebSocket clients when confidence >= 0.7.
+		ws.graphEngine.OnAnomaly = ws.broadcastGraphIncident
 		go ws.graphEngine.Start()
 		fmt.Println("✅ Topology graph engine started (live K8s causal model)")
 	} else {
@@ -891,6 +894,9 @@ func (ws *WebServer) Start(port int) error {
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
 
+	// Start periodic graph snapshots (every 60s) for moat/history feature
+	go ws.startGraphSnapshots()
+
 	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
 	go ws.watchKubernetesEvents()
 
@@ -1117,6 +1123,52 @@ func (ws *WebServer) broadcastEvent(event WebEvent) {
 		if err := client.WriteJSON(msg); err != nil {
 			client.Close()
 			delete(ws.clients, client)
+		}
+	}
+}
+
+// broadcastGraphIncident pushes a graph-derived causal chain to all WebSocket clients.
+// Called by the graph engine's OnAnomaly callback when confidence >= 0.7.
+func (ws *WebServer) broadcastGraphIncident(chain *graph.CausalChain) {
+	if chain == nil {
+		return
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "graph_incident",
+		"data": chain,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// startGraphSnapshots takes a topology snapshot every 60 seconds and persists
+// it to SQLite. This enables the historical diff / moat feature.
+func (ws *WebServer) startGraphSnapshots() {
+	if ws.graphEngine == nil || ws.db == nil {
+		return
+	}
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		snap := ws.graphEngine.Snapshot()
+		if snap == nil || snap.NodeCount == 0 {
+			continue
+		}
+		data, err := json.Marshal(snap)
+		if err != nil {
+			continue
+		}
+		ctx := ws.getCurrentContext()
+		if err := ws.db.SaveGraphSnapshot(ctx, snap.NodeCount, snap.EdgeCount, string(data)); err != nil {
+			log.Printf("[graph] snapshot save error: %v", err)
 		}
 	}
 }

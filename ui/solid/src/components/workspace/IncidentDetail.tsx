@@ -111,6 +111,45 @@ function drawRpRing(canvas: HTMLCanvasElement | null, score: number) {
 
 interface TLEvent { t: number; lbl: string; col: string; root: boolean; err: boolean; }
 
+/** A graph engine event from /api/graph/analyze */
+interface GraphEvent {
+  node_id: string;
+  reason: string;
+  message: string;
+  timestamp: string;
+  count: number;
+  event_type: string;
+}
+
+interface CausalChain {
+  root_cause?: { kind: string; name: string; namespace?: string };
+  evidence: GraphEvent[];
+  confidence: number;
+  pattern_matched?: string;
+}
+
+/** Convert graph engine evidence events to timeline events */
+function graphEventsToTimeline(chain: CausalChain): TLEvent[] {
+  const evs = chain.evidence || [];
+  if (evs.length === 0) return [];
+
+  const sorted = [...evs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const first = new Date(sorted[0].timestamp).getTime();
+  const last  = new Date(sorted[sorted.length - 1].timestamp).getTime();
+  const range = Math.max(last - first, 60_000);
+
+  const rootNodeId = chain.root_cause ? `${chain.root_cause.kind.toLowerCase()}/${chain.root_cause.namespace || ''}/${chain.root_cause.name}` : '';
+
+  return sorted.map(ev => {
+    const tPos = range > 0 ? (new Date(ev.timestamp).getTime() - first) / range : 0.5;
+    const reason = ev.reason || '';
+    const err    = ['BackOff', 'OOMKilling', 'Evicted', 'Failed', 'FailedMount', 'CrashLoop', 'ImagePullBackOff', 'Killing'].some(r => reason.includes(r));
+    const root   = ev.node_id === rootNodeId || ev.node_id.endsWith(rootNodeId.split('/').pop() || '___');
+    const col    = root ? '#7C3AED' : err ? '#DC2626' : reason.includes('Scheduled') ? '#2563EB' : '#A1A1AA';
+    return { t: Math.min(0.95, Math.max(0.05, tPos * 0.9 + 0.05)), lbl: reason.slice(0, 12), col, root, err };
+  });
+}
+
 function buildTimelineEvents(incident: any): TLEvent[] {
   const rawTL: any[] = (incident?.timeline) || [];
   if (rawTL.length > 0) {
@@ -450,6 +489,8 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [rawYaml, setRawYaml] = createSignal('');
   const [podDetails, setPodDetails] = createSignal<any>(null);
   const [configLoading, setConfigLoading] = createSignal(false);
+  // ── Graph causal chain (from Kubegraf /api/graph/analyze) ────────────────
+  const [graphChain, setGraphChain] = createSignal<CausalChain | null>(null);
 
   // ── Orkas AI inline chat ─────────────────────────────────────────────────
   interface OrkasMsg { role: 'user' | 'assistant'; text: string; model?: string; confidence?: number; latency?: number; }
@@ -929,6 +970,26 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     }, 60);
   });
 
+  // Fetch causal chain from graph engine when incident changes —
+  // used to enrich the timeline with real K8s event evidence.
+  createEffect(() => {
+    const inc = props.incident;
+    if (!inc) { setGraphChain(null); return; }
+    const name = inc.resource?.name || inc.title?.split(' ').slice(0, 2).join('-') || '';
+    const ns   = inc.resource?.namespace || 'default';
+    const kind = inc.resource?.kind || 'Pod';
+    if (!name) return;
+    fetch('/api/graph/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, namespace: ns, kind, window_minutes: 30 }),
+      signal: AbortSignal.timeout(5000),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data && data.confidence > 0.3 && (data.evidence?.length > 0)) setGraphChain(data); })
+      .catch(() => { /* silent — fall back to static timeline */ });
+  });
+
   onMount(() => {
     const interval = setInterval(() => setSecs(s => s + 1), 1000);
 
@@ -949,7 +1010,9 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
     };
 
     setTimeout(() => {
-      const tlEvents = buildTimelineEvents(props.incident);
+      // Prefer graph engine evidence events; fall back to static timeline
+      const chain = untrack(graphChain);
+      const tlEvents = chain ? (graphEventsToTimeline(chain).length > 0 ? graphEventsToTimeline(chain) : buildTimelineEvents(props.incident)) : buildTimelineEvents(props.incident);
       const firstSeenMs = props.incident?.firstSeen ? new Date(props.incident.firstSeen).getTime() : undefined;
       tlCleanup = initTimeline(tlRef || null, tlEvents, firstSeenMs);
     }, 120);
@@ -966,7 +1029,8 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       drawSpark(sp2Ref || null, [0, 0, 1, 2, 3, 4, 4], '#2563EB');
       drawSpark(sp3Ref || null, [0, 0, 5, 30, 70, 90, 94], '#DC2626');
       drawSpark(sp4Ref || null, [0, 1, 2, 3, 4, 5, 6.4], '#0891B2');
-      const tlEvents = buildTimelineEvents(props.incident);
+      const chain2 = untrack(graphChain);
+      const tlEvents = chain2 ? (graphEventsToTimeline(chain2).length > 0 ? graphEventsToTimeline(chain2) : buildTimelineEvents(props.incident)) : buildTimelineEvents(props.incident);
       const firstSeenMs = props.incident?.firstSeen ? new Date(props.incident.firstSeen).getTime() : undefined;
       if (tlCleanup) { tlCleanup(); tlCleanup = initTimeline(tlRef || null, tlEvents, firstSeenMs); }
       const { limitMi, currentMi } = getMemLimits();

@@ -5,6 +5,7 @@
 
 import { Component, createSignal, createMemo, Show, onMount, onCleanup } from 'solid-js';
 import { Incident, api } from '../../services/api';
+import { wsService } from '../../services/websocket';
 import ContextNavigator, { FilterState } from './ContextNavigator';
 import IncidentDetail from './IncidentDetail';
 import WorkspaceErrorBoundary from './ErrorBoundary';
@@ -34,6 +35,7 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
     'home' | 'incident' | 'workloads' | 'graph' | 'metrics' | 'gitops' | 'cost' | 'settings' | 'orkai'
   >('incident');
   const [resolveToast, setResolveToast] = createSignal<{ msg: string; ok: boolean } | null>(null);
+  const [graphAlert, setGraphAlert] = createSignal<{ rootName: string; pattern: string; conf: number } | null>(null);
 
   const currentIncident = createMemo(() => {
     const incidents = props.incidents || [];
@@ -129,6 +131,19 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
     if (props.incidents?.length > 0) setSelectedIndex(0);
+
+    // Subscribe to graph engine anomaly pushes — show a dismissible banner
+    const unsub = wsService.subscribe((msg) => {
+      if (msg.type === 'graph_incident' && msg.data) {
+        const d = msg.data;
+        const rootName = d.root_cause ? `${d.root_cause.kind}/${d.root_cause.name}` : 'Unknown';
+        const pattern  = d.pattern_matched ? d.pattern_matched.replace(/_/g, ' ') : 'Anomaly';
+        const conf     = Math.round((d.confidence || 0) * 100);
+        setGraphAlert({ rootName, pattern, conf });
+        setTimeout(() => setGraphAlert(null), 15_000);
+      }
+    });
+    onCleanup(unsub);
   });
 
   onCleanup(() => {
@@ -170,6 +185,31 @@ const IntelligentWorkspace: Component<IntelligentWorkspaceProps> = (props) => {
             animation: 'fadeIn 0.2s ease',
           }}>
             {toast().msg}
+          </div>
+        )}
+      </Show>
+      {/* ═══ GRAPH INCIDENT ALERT BANNER ═══ */}
+      <Show when={graphAlert()}>
+        {(alert) => (
+          <div style={{
+            position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(220,38,38,.95)', color: '#fff', 'border-radius': '8px',
+            padding: '10px 16px', 'font-size': '12.5px', 'font-weight': '600',
+            'z-index': '9999', 'box-shadow': '0 4px 16px rgba(220,38,38,.3)',
+            display: 'flex', 'align-items': 'center', gap: '10px', 'max-width': '480px',
+            animation: 'fadeIn 0.2s ease',
+          }}>
+            <span style={{ opacity: '.8', 'font-size': '14px' }}>⬡</span>
+            <div>
+              <span style={{ 'font-weight': '700' }}>Graph Incident: </span>
+              <span>{alert().pattern} on {alert().rootName}</span>
+              <span style={{ opacity: '.75', 'margin-left': '8px', 'font-size': '11px' }}>({alert().conf}% confidence)</span>
+            </div>
+            <button
+              onClick={() => setGraphAlert(null)}
+              style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', 'border-radius': '4px', cursor: 'pointer', padding: '2px 7px', 'font-size': '12px', 'font-family': 'inherit', 'flex-shrink': '0' }}>
+              ✕
+            </button>
           </div>
         )}
       </Show>
