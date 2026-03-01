@@ -504,6 +504,20 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
   const [aiFixError, setAiFixError] = createSignal('');
   const [copiedCmd, setCopiedCmd] = createSignal('');
 
+  // ── Incident Brief (graph-grounded narrative) ──────────────────────────────
+  interface IncidentBrief {
+    brief: string;
+    confidence: number;
+    pattern_matched?: string;
+    blast_radius_count: number;
+    remediation_plan?: { steps: { action: string; command?: string; risk_level: string }[] };
+    model_used?: string;
+    latency_ms?: number;
+  }
+  const [briefResult, setBriefResult] = createSignal<IncidentBrief | null>(null);
+  const [briefLoading, setBriefLoading] = createSignal(false);
+  const [briefError, setBriefError] = createSignal('');
+
   const orkasSend = async (overrideQuery?: string) => {
     const q = (overrideQuery ?? orkasInput()).trim();
     if (!q || orkasLoading()) return;
@@ -563,6 +577,38 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
       setAiFixError(`Could not reach Orkas AI: ${e}`);
     } finally {
       setAiFixLoading(false);
+    }
+  };
+
+  const fetchIncidentBrief = async () => {
+    const inc = props.incident;
+    if (!inc || briefLoading()) return;
+    setBriefLoading(true);
+    setBriefError('');
+    setBriefResult(null);
+    try {
+      const res = await fetch('/api/orka/incident/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: inc.resource?.name || inc.title || 'unknown',
+          namespace: inc.resource?.namespace || 'default',
+          kind: inc.resource?.kind || 'Pod',
+          pattern: inc.pattern || 'UNKNOWN',
+          severity: inc.severity || 'high',
+          description: inc.description || inc.title || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.brief) {
+        setBriefResult(data as IncidentBrief);
+      } else {
+        setBriefError(data.error || 'No brief generated.');
+      }
+    } catch (e) {
+      setBriefError(`Could not reach Orkas AI: ${e}`);
+    } finally {
+      setBriefLoading(false);
     }
   };
 
@@ -1851,6 +1897,96 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
                 <div style={{ 'font-size': '10.5px', color: 'var(--crit)', 'margin-top': '4px', 'text-align': 'center' }}>{aiFixError()}</div>
               </Show>
             </div>
+
+            {/* Incident Brief button */}
+            <div style={{ padding: '0 14px 10px' }}>
+              <button
+                class="btn-full"
+                style={{
+                  display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                  gap: '6px', 'font-size': '11.5px', background: 'var(--violetBg)',
+                  color: 'var(--violet)', border: '1px solid var(--violet)',
+                  opacity: briefLoading() ? '0.7' : '1',
+                }}
+                disabled={briefLoading()}
+                onClick={fetchIncidentBrief}
+              >
+                <img src="/orkas-logo.png" alt="" style={{ height: '14px', width: 'auto' }} />
+                {briefLoading() ? 'Generating Brief…' : briefResult() ? 'Regenerate Brief' : 'Generate Incident Brief'}
+              </button>
+              <Show when={briefError()}>
+                <div style={{ 'font-size': '10.5px', color: 'var(--crit)', 'margin-top': '4px', 'text-align': 'center' }}>{briefError()}</div>
+              </Show>
+            </div>
+
+            {/* Incident Brief result card */}
+            <Show when={briefResult()}>
+              {(brief) => (
+                <div style={{ padding: '0 14px 14px' }}>
+                  <div style={{
+                    background: 'var(--violetBg)', border: '1px solid var(--violet)',
+                    'border-radius': '8px', padding: '12px',
+                  }}>
+                    <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', 'margin-bottom': '8px' }}>
+                      <span style={{ 'font-size': '11px', 'font-weight': '600', color: 'var(--violet)' }}>✦ Incident Brief</span>
+                      <Show when={brief().pattern_matched}>
+                        <span class="chip ai" style={{ 'font-size': '9px', padding: '1px 5px' }}>{brief().pattern_matched}</span>
+                      </Show>
+                      <span style={{ 'margin-left': 'auto', 'font-size': '10px', color: 'var(--t3)' }}>
+                        {Math.round((brief().confidence || 0) * 100)}% confidence
+                      </span>
+                    </div>
+                    <p style={{ 'font-size': '11.5px', color: 'var(--t1)', 'line-height': '1.6', margin: '0 0 8px' }}>
+                      {brief().brief}
+                    </p>
+                    <Show when={(brief().blast_radius_count || 0) > 0}>
+                      <div style={{ 'font-size': '10.5px', color: 'var(--warn)', 'margin-bottom': '8px' }}>
+                        ⚠ Blast radius: {brief().blast_radius_count} affected resource{brief().blast_radius_count !== 1 ? 's' : ''}
+                      </div>
+                    </Show>
+                    <Show when={brief().remediation_plan?.steps?.length}>
+                      <div style={{ 'font-size': '10.5px', 'font-weight': '600', color: 'var(--t2)', 'margin-bottom': '4px' }}>Remediation Steps</div>
+                      <For each={brief().remediation_plan!.steps}>{(step, i) => (
+                        <div style={{ display: 'flex', gap: '6px', 'align-items': 'flex-start', 'margin-bottom': '6px' }}>
+                          <span style={{ 'font-size': '10px', color: 'var(--t4)', 'min-width': '16px', 'padding-top': '1px' }}>{i() + 1}.</span>
+                          <div style={{ flex: '1' }}>
+                            <div style={{ 'font-size': '11px', color: 'var(--t1)' }}>{step.action}</div>
+                            <Show when={step.command}>
+                              <div
+                                class="cmd-line"
+                                style={{ cursor: 'pointer', 'margin-top': '3px' }}
+                                onClick={() => copyCmd(step.command!)}
+                                title="Click to copy"
+                              >
+                                <span class="cmd-text" style={{ flex: '1', 'word-break': 'break-all' }}>{step.command}</span>
+                                <svg class="cmd-copy" width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <rect x="9" y="9" width="13" height="13" rx="2"/>
+                                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                                </svg>
+                                <Show when={copiedCmd() === step.command}>
+                                  <span style={{ 'font-size': '9px', color: 'var(--ok)', 'margin-left': '4px' }}>✓</span>
+                                </Show>
+                              </div>
+                            </Show>
+                            <span style={{
+                              'font-size': '9.5px',
+                              color: step.risk_level === 'high' ? 'var(--crit)' : step.risk_level === 'medium' ? 'var(--warn)' : 'var(--ok)',
+                            }}>
+                              {step.risk_level === 'high' ? 'High risk' : step.risk_level === 'medium' ? 'Medium risk' : 'Low risk'}
+                            </span>
+                          </div>
+                        </div>
+                      )}</For>
+                    </Show>
+                    <Show when={brief().model_used}>
+                      <div style={{ 'font-size': '9.5px', color: 'var(--t5)', 'margin-top': '4px' }}>
+                        Model: {brief().model_used}{brief().latency_ms ? ` · ${brief().latency_ms}ms` : ''}
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              )}
+            </Show>
 
             {/* AI-generated fixes */}
             <Show when={aiFixes().length > 0}>

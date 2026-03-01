@@ -94,8 +94,17 @@ func (ws *WebServer) handleOrkaProxy(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("X-Kubegraf-Context", ctx)
 	}
 
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(req)
+	// For SSE streams, disable the timeout — the connection lives as long as
+	// the client stays connected. For regular calls, use a 120s ceiling.
+	isSSE := r.Header.Get("Accept") == "text/event-stream"
+	var httpClient *http.Client
+	if isSSE {
+		httpClient = &http.Client{} // no timeout — caller context cancels
+	} else {
+		httpClient = &http.Client{Timeout: 120 * time.Second}
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Printf("[orka-proxy] upstream error for %s %s: %v", r.Method, downstreamPath, err)
 		http.Error(w, fmt.Sprintf("Orkas AI unavailable: %v", err), http.StatusBadGateway)
@@ -110,6 +119,29 @@ func (ws *WebServer) handleOrkaProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
+
+	// For SSE (text/event-stream), flush each chunk immediately so the browser
+	// receives tokens as they arrive rather than waiting for the full response.
+	// Without Flusher, Go's ResponseWriter buffers the entire body.
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		flusher, ok := w.(http.Flusher)
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				_, _ = w.Write(buf[:n])
+				if ok {
+					flusher.Flush()
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+		return
+	}
+
 	_, _ = io.Copy(w, resp.Body)
 }
 
