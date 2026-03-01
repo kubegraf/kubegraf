@@ -164,6 +164,9 @@ func launchWebUI(port int, ephemeralMode bool) {
 				webServer.simpleClusterManager = app.simpleClusterManager
 				fmt.Println("✅ Simple cluster manager assigned to web server (post-init)")
 			}
+			// Start the topology graph engine now that app.clientset is ready.
+			// This must run after Initialize() so the engine has a valid clientset.
+			webServer.InitGraphEngine()
 		}
 	}()
 

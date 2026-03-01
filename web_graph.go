@@ -4,11 +4,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/kubegraf/kubegraf/pkg/graph"
 )
@@ -267,4 +272,42 @@ func graphJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// probeGraphNamespaces detects whether the kubeconfig context permits cluster-
+// scoped LIST/WATCH operations. If the probe fails (e.g. GKE Connect Gateway
+// with namespace-scoped IAM), it returns the list of accessible namespaces so
+// the graph engine can be started in namespace-scoped mode.
+//
+// Returns nil (zero-length) when cluster-scoped access works — the caller
+// should use cluster-scoped mode in that case.
+func probeGraphNamespaces(client kubernetes.Interface) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	// Try a cluster-scoped Deployment LIST (limit=1, very cheap).
+	_, err := client.AppsV1().Deployments("").List(ctx, metav1.ListOptions{Limit: 1})
+	if err == nil {
+		// Cluster access works — no namespace restriction needed.
+		return nil
+	}
+
+	log.Printf("[graph] cluster-scoped probe failed (%v); switching to namespace-scoped mode", err)
+
+	// Fall back: list all namespaces the credential can see.
+	nsList, nsErr := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if nsErr != nil {
+		log.Printf("[graph] namespace list also failed (%v); informers will start cluster-scoped and may see permission errors", nsErr)
+		return nil
+	}
+
+	var names []string
+	for _, ns := range nsList.Items {
+		names = append(names, ns.Name)
+	}
+	if len(names) == 0 {
+		log.Printf("[graph] namespace list returned 0 namespaces; falling back to cluster-scoped mode")
+		return nil
+	}
+	return names
 }

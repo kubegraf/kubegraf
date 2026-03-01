@@ -412,19 +412,8 @@ func NewWebServer(app *App) *WebServer {
 	// Note: incident intelligence is initialized in RegisterIncidentIntelligenceRoutes()
 	// to ensure it's only created once and routes are properly registered
 
-	// Initialize and start the topology graph engine.
-	// The engine watches all K8s resources via SharedInformerFactory and builds
-	// the live causal model used for graph-based incident reasoning.
-	if app.clientset != nil {
-		ws.graphEngine = graph.NewEngine(app.clientset)
-		// Wire the anomaly callback so the graph engine can push incidents
-		// directly to connected WebSocket clients when confidence >= 0.7.
-		ws.graphEngine.OnAnomaly = ws.broadcastGraphIncident
-		go ws.graphEngine.Start()
-		fmt.Println("✅ Topology graph engine started (live K8s causal model)")
-	} else {
-		fmt.Println("⚠️  Topology graph engine skipped: no K8s clientset available")
-	}
+	// Note: the topology graph engine is started by InitGraphEngine(), which
+	// must be called AFTER app.Initialize() so that app.clientset is available.
 
 	return ws
 }
@@ -1150,6 +1139,34 @@ func (ws *WebServer) broadcastGraphIncident(chain *graph.CausalChain) {
 			delete(ws.clients, client)
 		}
 	}
+}
+
+// InitGraphEngine creates and starts the topology graph engine.
+//
+// This must be called AFTER app.Initialize() completes so that app.clientset
+// is available. Calling it from NewWebServer would race with the async cluster
+// initialisation in launchWebUI.
+func (ws *WebServer) InitGraphEngine() {
+	if ws.app == nil || ws.app.clientset == nil {
+		fmt.Println("⚠️  Topology graph engine skipped: no K8s clientset available")
+		return
+	}
+	if ws.graphEngine != nil {
+		return // already initialised
+	}
+	ws.graphEngine = graph.NewEngine(ws.app.clientset)
+	ws.graphEngine.OnAnomaly = ws.broadcastGraphIncident
+	// Probe cluster-scope access. GKE Connect Gateway enforces namespace-scoped
+	// IAM that blocks cluster-wide LIST/WATCH even when per-namespace access works.
+	namespaces := probeGraphNamespaces(ws.app.clientset)
+	if len(namespaces) > 0 {
+		fmt.Printf("✅ Topology graph engine started (namespace-scoped mode: %v)\n", namespaces)
+		ws.graphEngine.StartWithNamespaces(namespaces)
+	} else {
+		fmt.Println("✅ Topology graph engine started (cluster-scoped mode)")
+		ws.graphEngine.Start()
+	}
+	go ws.startGraphSnapshots()
 }
 
 // startGraphSnapshots takes a topology snapshot every 60 seconds and persists

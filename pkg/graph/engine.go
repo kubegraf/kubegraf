@@ -73,9 +73,12 @@ type Engine struct {
 	anomalyMu       sync.Mutex
 
 	client  kubernetes.Interface
-	factory informers.SharedInformerFactory
-	stopCh  chan struct{}
-	started bool
+	// factories holds all active SharedInformerFactories.
+	// In cluster-scoped mode there is exactly one. In namespace-scoped mode
+	// (e.g. GKE Connect Gateway) there is one factory per namespace.
+	factories []informers.SharedInformerFactory
+	stopCh    chan struct{}
+	started   bool
 }
 
 // NewEngine creates a new topology graph engine backed by the given K8s client.
@@ -94,163 +97,222 @@ func NewEngine(client kubernetes.Interface) *Engine {
 	}
 }
 
-// Start initialises the SharedInformerFactory and begins watching all resource types.
-// This method is non-blocking; watchers run in background goroutines.
+// Start initialises a cluster-scoped SharedInformerFactory and begins watching all
+// resource types. This method is non-blocking; watchers run in background goroutines.
+//
+// If the current kubeconfig context does not have cluster-scoped WATCH permission
+// (e.g. GKE Connect Gateway with namespace-scoped IAM), call StartWithNamespaces
+// instead to scope each factory to a specific namespace.
 func (e *Engine) Start() {
+	e.StartWithNamespaces(nil)
+}
+
+// StartWithNamespaces starts the engine using per-namespace informer factories.
+//
+// When namespaces is nil or empty the engine behaves identically to Start():
+// a single cluster-scoped factory watches all resources.
+//
+// When namespaces is non-empty the engine creates one factory per namespace for
+// all namespace-scoped resources. Cluster-scoped resources (Nodes, Namespaces)
+// are watched via a separate cluster-scoped factory; failures there are logged
+// but do not block startup.
+//
+// This method is non-blocking; watchers run in background goroutines.
+func (e *Engine) StartWithNamespaces(namespaces []string) {
 	if e.started {
 		return
 	}
 	e.started = true
 
-	e.factory = informers.NewSharedInformerFactory(e.client, resyncPeriod)
+	if len(namespaces) == 0 {
+		// ── Cluster-scoped mode (default) ──────────────────────────────────────
+		f := informers.NewSharedInformerFactory(e.client, resyncPeriod)
+		e.factories = []informers.SharedInformerFactory{f}
+		e.wireNamespacedInformers(f)
+		e.wireClusterInformers(f)
+		f.Start(e.stopCh)
 
+		go func() {
+			log.Println("[graph] Waiting for informer caches to sync...")
+			synced := f.WaitForCacheSync(e.stopCh)
+			for t, ok := range synced {
+				if !ok {
+					log.Printf("[graph] WARNING: cache for %v never synced", t)
+				}
+			}
+			e.rebuildAllEdges()
+			log.Printf("[graph] Topology graph ready: %d nodes", e.NodeCount())
+		}()
+		return
+	}
+
+	// ── Namespace-scoped mode (GKE / restricted RBAC) ─────────────────────────
+	// One factory per namespace for all namespace-scoped resources.
+	log.Printf("[graph] Starting in namespace-scoped mode: %v", namespaces)
+	for _, ns := range namespaces {
+		nsCopy := ns
+		f := informers.NewSharedInformerFactoryWithOptions(
+			e.client, resyncPeriod,
+			informers.WithNamespace(nsCopy),
+		)
+		e.factories = append(e.factories, f)
+		e.wireNamespacedInformers(f)
+		f.Start(e.stopCh)
+	}
+
+	// Attempt cluster-scoped resources (Nodes, Namespaces) in a separate factory.
+	// If these LIST/WATCH calls are forbidden the errors are logged but engine
+	// startup continues with namespaced data only.
+	clusterFactory := informers.NewSharedInformerFactory(e.client, resyncPeriod)
+	e.wireClusterInformers(clusterFactory)
+	clusterFactory.Start(e.stopCh)
+	e.factories = append(e.factories, clusterFactory)
+
+	go func() {
+		// Wait for namespace-scoped factories (all except the last cluster factory).
+		var wg sync.WaitGroup
+		for i, f := range e.factories {
+			isClusterFactory := i == len(e.factories)-1
+			wg.Add(1)
+			ff := f
+			go func(isCluster bool) {
+				defer wg.Done()
+				synced := ff.WaitForCacheSync(e.stopCh)
+				for t, ok := range synced {
+					if !ok {
+						if isCluster {
+							log.Printf("[graph] cluster-scoped cache for %v not synced (may lack permissions — Nodes/Namespaces will be absent from graph)", t)
+						} else {
+							log.Printf("[graph] WARNING: cache for %v never synced", t)
+						}
+					}
+				}
+			}(isClusterFactory)
+		}
+		wg.Wait()
+		e.rebuildAllEdges()
+		log.Printf("[graph] Topology graph ready: %d nodes across %d namespaces", e.NodeCount(), len(namespaces))
+	}()
+}
+
+// wireNamespacedInformers registers informers for all namespace-scoped K8s resources
+// on the given factory. Safe to call with a namespace-scoped factory.
+func (e *Engine) wireNamespacedInformers(f informers.SharedInformerFactory) {
 	// --- Pod informer ---
-	podInformer := e.factory.Core().V1().Pods().Informer()
-	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onPod(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onPod(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeletePod(obj) },
 	})
 
-	// --- Node informer ---
-	nodeInformer := e.factory.Core().V1().Nodes().Informer()
-	nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { e.onNode(obj) },
-		UpdateFunc: func(_, obj interface{}) { e.onNode(obj) },
-		DeleteFunc: func(obj interface{}) { e.onDeleteNode(obj) },
-	})
-
 	// --- Deployment informer ---
-	deployInformer := e.factory.Apps().V1().Deployments().Informer()
-	deployInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Apps().V1().Deployments().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onDeployment(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onDeployment(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteDeployment(obj) },
 	})
 
 	// --- ReplicaSet informer ---
-	rsInformer := e.factory.Apps().V1().ReplicaSets().Informer()
-	rsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Apps().V1().ReplicaSets().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onReplicaSet(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onReplicaSet(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- StatefulSet informer ---
-	stsInformer := e.factory.Apps().V1().StatefulSets().Informer()
-	stsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Apps().V1().StatefulSets().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onStatefulSet(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onStatefulSet(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- DaemonSet informer ---
-	dsInformer := e.factory.Apps().V1().DaemonSets().Informer()
-	dsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Apps().V1().DaemonSets().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onDaemonSet(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onDaemonSet(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- Service informer ---
-	svcInformer := e.factory.Core().V1().Services().Informer()
-	svcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Core().V1().Services().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onService(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onService(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- Ingress informer ---
-	ingInformer := e.factory.Networking().V1().Ingresses().Informer()
-	ingInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Networking().V1().Ingresses().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onIngress(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onIngress(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- PVC informer ---
-	pvcInformer := e.factory.Core().V1().PersistentVolumeClaims().Informer()
-	pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Core().V1().PersistentVolumeClaims().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onPVC(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onPVC(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- ConfigMap informer ---
-	cmInformer := e.factory.Core().V1().ConfigMaps().Informer()
-	cmInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Core().V1().ConfigMaps().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onConfigMap(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onConfigMap(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
-	// --- Namespace informer ---
-	nsInformer := e.factory.Core().V1().Namespaces().Informer()
-	nsInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { e.onNamespace(obj) },
-		UpdateFunc: func(_, obj interface{}) { e.onNamespace(obj) },
-		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
-	})
-
 	// --- Job informer ---
-	jobInformer := e.factory.Batch().V1().Jobs().Informer()
-	jobInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Batch().V1().Jobs().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onJob(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onJob(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
-	// --- HPA informer ---
-	// HPA SCALES edges are critical for diagnosing thrashing / scale storms.
-	hpaInformer := e.factory.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
-	hpaInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// --- HPA informer (SCALES edges) ---
+	f.Autoscaling().V2().HorizontalPodAutoscalers().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onHPA(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onHPA(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
-	// --- PDB informer ---
-	// PDB PROTECTS edges explain why pod evictions fail during maintenance or node drain.
-	pdbInformer := e.factory.Policy().V1().PodDisruptionBudgets().Informer()
-	pdbInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// --- PDB informer (PROTECTS edges) ---
+	f.Policy().V1().PodDisruptionBudgets().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onPDB(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onPDB(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
-	// --- NetworkPolicy informer ---
-	// NETWORK_ALLOWS edges map which NetworkPolicy governs a pod's traffic.
-	// A misconfigured policy isolating a pod appears immediately in the blast radius.
-	npInformer := e.factory.Networking().V1().NetworkPolicies().Informer()
-	npInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// --- NetworkPolicy informer (NETWORK_ALLOWS edges) ---
+	f.Networking().V1().NetworkPolicies().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onNetworkPolicy(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onNetworkPolicy(obj) },
 		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
 	})
 
 	// --- Event informer (K8s Events — the incident signal source) ---
-	evtInformer := e.factory.Core().V1().Events().Informer()
-	evtInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	f.Core().V1().Events().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { e.onEvent(obj) },
 		UpdateFunc: func(_, obj interface{}) { e.onEvent(obj) },
 	})
+}
 
-	// Start all informers and wait for initial cache sync
-	e.factory.Start(e.stopCh)
+// wireClusterInformers registers informers for cluster-scoped K8s resources
+// (Nodes, Namespaces). These require cluster-level LIST/WATCH permission.
+// They must be registered on a cluster-scoped factory (no WithNamespace option).
+func (e *Engine) wireClusterInformers(f informers.SharedInformerFactory) {
+	// --- Node informer ---
+	f.Core().V1().Nodes().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { e.onNode(obj) },
+		UpdateFunc: func(_, obj interface{}) { e.onNode(obj) },
+		DeleteFunc: func(obj interface{}) { e.onDeleteNode(obj) },
+	})
 
-	go func() {
-		log.Println("[graph] Waiting for informer caches to sync...")
-		synced := e.factory.WaitForCacheSync(e.stopCh)
-		for informerType, ok := range synced {
-			if !ok {
-				log.Printf("[graph] WARNING: cache for %v never synced", informerType)
-			}
-		}
-
-		// After initial sync, rebuild all edges from current state
-		e.rebuildAllEdges()
-		log.Printf("[graph] Topology graph ready: %d nodes", e.NodeCount())
-	}()
+	// --- Namespace informer ---
+	f.Core().V1().Namespaces().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { e.onNamespace(obj) },
+		UpdateFunc: func(_, obj interface{}) { e.onNamespace(obj) },
+		DeleteFunc: func(obj interface{}) { e.onDeleteResource(obj) },
+	})
 }
 
 // Stop shuts down all informers and stops graph updates.
