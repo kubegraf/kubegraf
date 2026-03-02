@@ -29,12 +29,12 @@ jobs:
           cd ui/solid
           npm ci
           npm run build
+          # Vite outDir is ../../web/dist — output is already at web/dist
 
-      - name: Copy UI dist to web/dist
+      - name: Verify UI dist was built
         run: |
-          mkdir -p web
-          rm -rf web/dist
-          cp -r ui/solid/dist web/dist
+          echo "Contents of web/dist:"
+          ls -la web/dist | head -20
 
       - name: Clean Go toolchain cache (fix corrupted cache)
         run: |

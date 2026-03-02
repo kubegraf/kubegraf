@@ -33,17 +33,18 @@ jobs:
         run: |
           cd ui/solid
           npm run build
+          # Vite outDir is ../../web/dist — output is already at web/dist
 
       - name: Verify UI dist was built
         run: |
-          echo "Contents of ui/solid/dist:"
-          ls -laR ui/solid/dist || echo "ui/solid/dist does not exist"
+          echo "Contents of web/dist:"
+          ls -la web/dist | head -20
 
       - name: Upload UI dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: ui-dist
-          path: ui/solid/dist
+          path: web/dist          # Vite outputs here directly
           retention-days: 1
 
   lint:
@@ -58,18 +59,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web-temp
-
-      - name: Copy UI dist to web/dist
-        run: |
-          mkdir -p web
-          rm -rf web/dist
-          cp -r web-temp/dist web/dist || cp -r web-temp web/dist
+          path: web/dist          # restore directly to web/dist
 
       - name: Verify web/dist contents
         run: |
           echo "Contents of web/dist:"
-          ls -laR web/dist || echo "web/dist does not exist"
+          ls -la web/dist | head -20
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -102,18 +97,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web-temp
-
-      - name: Copy UI dist to web/dist
-        run: |
-          mkdir -p web
-          rm -rf web/dist
-          cp -r web-temp/dist web/dist || cp -r web-temp web/dist
+          path: web/dist          # restore directly to web/dist
 
       - name: Verify web/dist contents
         run: |
           echo "Contents of web/dist:"
-          ls -laR web/dist || echo "web/dist does not exist"
+          ls -la web/dist | head -20
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -140,18 +129,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-dist
-          path: web-temp
-
-      - name: Copy UI dist to web/dist
-        run: |
-          mkdir -p web
-          rm -rf web/dist
-          cp -r web-temp/dist web/dist || cp -r web-temp web/dist
+          path: web/dist          # restore directly to web/dist
 
       - name: Verify web/dist contents
         run: |
           echo "Contents of web/dist:"
-          ls -laR web/dist || echo "web/dist does not exist"
+          ls -la web/dist | head -20
 
       - name: Set up Go
         uses: actions/setup-go@v5
