@@ -1,3 +1,5 @@
+# NOTE: This workflow is disabled (trigger changed to workflow_dispatch).
+# KubeGraf is a Go CLI tool — use release.yml (GoReleaser) for releases.
 name: Build and Release All Platforms
 
 # This workflow should be in the MAIN kubegraf repository (not kubegraf.io)

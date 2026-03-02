@@ -1,9 +1,9 @@
+# NOTE: This workflow is disabled (trigger changed to workflow_dispatch).
+# KubeGraf is a Go CLI tool — use release.yml (GoReleaser) for releases.
 name: Desktop Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch: # disabled — not applicable for Go CLI binary
 
 permissions:
   contents: write
