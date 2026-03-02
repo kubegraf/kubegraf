@@ -2,9 +2,84 @@
 
 ## Overview
 
+KubeGraf has two distinct AI integration surfaces:
+
+1. **Built-in Incident AI** — used by the Incident Intelligence workspace for "Analyze & Fix" recommendations. Configured via environment variables; auto-selects the best available provider with no manual setup required.
+2. **MCP Server** — exposes KubeGraf cluster tools to external AI agents (Claude Desktop, Cursor, etc.) via the Model Context Protocol.
+
+---
+
+## Built-in Incident AI — Provider Architecture
+
+### Provider Priority Chain
+
+KubeGraf evaluates providers in order and uses the **first available** one automatically. No manual selection required.
+
+```
+1. Orkas AI Cloud    (ORKAS_API_KEY set)     → future primary, zero setup
+2. Anthropic Claude  (ANTHROPIC_API_KEY set) → cloud, requires API key
+3. OpenAI            (OPENAI_API_KEY set)    → cloud, requires API key
+4. Ollama local      (running on localhost)  → optional, for power users
+5. None              (nothing configured)   → pattern-based fallbacks
+```
+
+On every startup, KubeGraf logs which provider is active:
+
+```
+[AI] Provider: Orkas AI Cloud (https://api.orkas.ai)
+[AI] Provider: Anthropic Claude (model: claude-3-haiku-20240307)
+[AI] Provider: OpenAI (model: gpt-4o-mini)
+[AI] Provider: Ollama local (model: llama3.2:3b @ http://127.0.0.1:11434)
+[AI] No AI provider active — AI features will use pattern-based fallbacks.
+```
+
+### Configuration
+
+All configuration is via environment variables. No config files, no model names baked into code.
+
+| Variable | Description | Priority |
+|---|---|---|
+| `ORKAS_API_KEY` | Orkas AI Cloud API key | Highest |
+| `ORKAS_API_URL` | Override Orkas endpoint (default: `https://api.orkas.ai`) | — |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key | 2nd |
+| `KUBEGRAF_CLAUDE_MODEL` | Override Claude model (default: auto) | — |
+| `OPENAI_API_KEY` | OpenAI API key | 3rd |
+| `KUBEGRAF_OPENAI_MODEL` | Override OpenAI model (default: auto) | — |
+| `KUBEGRAF_OLLAMA_URL` | Ollama server URL (default: `http://127.0.0.1:11434`) | 4th |
+| `KUBEGRAF_OLLAMA_MODEL` | Pin a specific Ollama model (omit to auto-detect) | — |
+| `KUBEGRAF_AI_KEEP_ALIVE` | Keep model in memory after last request (default: `5m`) | — |
+
+**No model name is hardcoded.** KubeGraf queries Ollama's `/api/tags` to find whatever model you have installed, automatically filtering out embedding-only models.
+
+### Pattern-Based Fallbacks (No AI Required)
+
+When no AI provider is configured, KubeGraf generates fix recommendations deterministically from the incident pattern:
+
+| Pattern | Fallback recommendations |
+|---|---|
+| `IMAGE_PULL_FAILURE` | Verify image tag in registry, check pull secret, rollout restart |
+| `CRASH_LOOP_BACKOFF` | Inspect previous logs, describe pod events, rollback deployment |
+| `OOM_KILLED` | Check memory consumption with `kubectl top`, increase memory limit |
+| `NO_READY_ENDPOINTS` | Check backing pods, inspect readiness probe config |
+| Any other pattern | Describe resource, check logs, restart workload |
+
+These are always accurate because they're based on known failure signatures. The UI shows a `⚙ Pattern-based` badge when a fallback was used.
+
+### Roadmap
+
+| Timeline | Change |
+|---|---|
+| **Now** | Ollama (optional), OpenAI, Claude — user-configured |
+| **3–6 months** | Orkas AI Cloud launches — set `ORKAS_API_KEY`, done |
+| **Future** | `ORKAS_API_KEY` becomes the default recommended path for all users |
+
+---
+
+## MCP Server — External AI Agent Integration
+
 KubeGraf supports AI agent integration via **Model Context Protocol (MCP)** for intelligent cluster management, anomaly detection, and automated recommendations.
 
-## Supported AI Agents
+## Supported AI Agents (MCP)
 
 ### 1. Claude Desktop (Anthropic)
 - Full MCP support via native integration
@@ -79,11 +154,11 @@ KubeGraf exposes 16 production-ready MCP tools:
 | `rollback_helm_release` | Rollback to previous Helm revision |
 | `analyze_cluster_health` | AI-powered cluster health analysis |
 
-## Local AI Agent Setup
+## Local AI Agent Setup (Ollama)
 
 ### Prerequisites
 
-**Ollama** (recommended):
+**Ollama** (optional — for users who want local, offline AI):
 ```bash
 # macOS/Linux
 curl -fsSL https://ollama.ai/install.sh | sh
@@ -92,14 +167,25 @@ curl -fsSL https://ollama.ai/install.sh | sh
 winget install Ollama.Ollama
 ```
 
-### Enable Local AI
+### Model Selection
 
-1. **Settings** → **AI Agents** → **Local AI Agent**
-2. Select model:
-   - `llama3.2:3b` (lightweight, 2GB RAM, fast)
-   - `mistral:7b` (balanced, 4GB RAM)
-   - `mixtral:8x7b` (powerful, 32GB RAM, GPU recommended)
-3. Click **Download & Start**
+KubeGraf **auto-detects** whatever model you have installed via Ollama's `/api/tags` endpoint — no model name needs to be configured.
+
+If you have multiple models installed, KubeGraf logs the selection and lets you pin one:
+
+```
+[AI] Multiple Ollama models found: [mistral-nemo:latest llama3.2:3b]
+[AI] Auto-selected: mistral-nemo:latest — set KUBEGRAF_OLLAMA_MODEL=<name> to override
+```
+
+To pin a specific model (e.g., if the auto-selected one is too large for your RAM):
+
+```bash
+export KUBEGRAF_OLLAMA_MODEL=llama3.2:3b
+./kubegraf web --port=3003
+```
+
+**Embedding-only models** (`nomic-embed-text`, `bge-*`, `e5-*`, `minilm`) are automatically skipped — they cannot generate text.
 
 ### Features
 

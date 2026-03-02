@@ -1,0 +1,44 @@
+name: Release Please
+
+# Release Please watches commits on main and maintains a rolling "Release PR".
+# When you're ready to release, merge the Release PR — it will:
+#   1. Bump version in version.go, cli/cmd/version.go, ui/solid/package.json
+#   2. Generate/update CHANGELOG.md
+#   3. Create a GitHub release tag (e.g. v1.7.61)
+#   4. That tag triggers release.yml → GoReleaser → binaries published
+#
+# Commit message conventions (Conventional Commits):
+#   feat: ...        → minor bump  (1.7.x → 1.8.0)
+#   fix: ...         → patch bump  (1.7.x → 1.7.x+1)
+#   feat!: ...       → major bump  (1.x → 2.0.0)
+#   BREAKING CHANGE: → major bump
+#   chore/docs/...   → no release (hidden in changelog)
+#
+# For urgent hotfixes, use hotfix-release.yml (manual trigger) instead.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false  # Never cancel — could corrupt the manifest
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

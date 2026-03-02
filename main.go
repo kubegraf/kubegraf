@@ -29,6 +29,11 @@ import (
 	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/telemetry"
 	oldtelemetry "github.com/kubegraf/kubegraf/pkg/telemetry"
+
+	// Register all Kubernetes client-go auth plugins (OIDC, GCP, Azure, AWS, etc.)
+	// Without this, kubeconfigs using auth-provider: name: oidc will fail with
+	// "no Auth Provider found for name 'oidc'".
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 
@@ -83,11 +88,13 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v":
-			// Route to Cobra version command
+			// Rewrite args so Cobra dispatches to the version subcommand
+			os.Args = []string{os.Args[0], "version"}
 			cli.Execute()
 			return
 		case "--help", "-h":
-			// Route to Cobra help
+			// Rewrite args so Cobra dispatches to the help output
+			os.Args = []string{os.Args[0], "--help"}
 			cli.Execute()
 			return
 		}
@@ -164,6 +171,9 @@ func launchWebUI(port int, ephemeralMode bool) {
 				webServer.simpleClusterManager = app.simpleClusterManager
 				fmt.Println("✅ Simple cluster manager assigned to web server (post-init)")
 			}
+			// Start the topology graph engine now that app.clientset is ready.
+			// This must run after Initialize() so the engine has a valid clientset.
+			webServer.InitGraphEngine()
 		}
 	}()
 

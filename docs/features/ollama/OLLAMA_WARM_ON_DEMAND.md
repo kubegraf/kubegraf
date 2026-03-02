@@ -1,175 +1,146 @@
-# Ollama Warm-On-Demand with Idle Unload Implementation
+# AI Provider Architecture — Warm-On-Demand & Cloud-Ready
 
-## Summary
+## Overview
 
-This implementation makes KubeGraf's Ollama integration production-ready by implementing warm-on-demand model loading with automatic idle unload. Models are only loaded when users ask AI questions, and automatically unloaded after a configurable idle period.
+KubeGraf's AI system is designed around a single principle: **no user should be blocked from using the tool because they don't have a local AI model installed.**
 
-## Problem Solved
+AI features degrade gracefully:
+- With a provider configured → AI-generated analysis and fix recommendations
+- Without any provider → deterministic pattern-based fallbacks (always accurate, always available)
 
-**Before**: KubeGraf kept Ollama models loaded on GPU even when users weren't using AI, wasting GPU memory and resources.
+---
 
-**After**: 
-- Models load only when users ask questions
-- Models stay loaded for a short idle window (default 5 minutes) for follow-up questions
-- Models automatically unload after idle period
-- No background calls trigger model loading
-- Minimal TCP connections (shared HTTP client)
+## Provider Priority Chain
 
-## Configuration
+Providers are evaluated in this order. The first available provider is used automatically — no manual selection required.
 
-All configuration is via environment variables with sensible defaults:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KUBEGRAF_AI_ENABLED` | `true` | Enable/disable AI features |
-| `KUBEGRAF_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server URL |
-| `KUBEGRAF_AI_MODEL` | `llama3.1:latest` | Model to use (if not auto-detected) |
-| `KUBEGRAF_AI_KEEP_ALIVE` | `5m` | How long to keep model loaded after last request |
-| `KUBEGRAF_AI_AUTOSTART` | `false` | Do NOT preload models on app startup |
-| `KUBEGRAF_AI_HEALTHCHECK` | `version` | Health check endpoint (`version` or `tags`) |
-| `KUBEGRAF_AI_MAX_IDLE_CONNS` | `2` | Max idle connections in HTTP client |
-| `KUBEGRAF_AI_IDLE_CONN_TIMEOUT` | `30s` | Timeout for idle connections |
-
-### Keep-Alive Values
-
-- `5m` (default): Keep model loaded for 5 minutes after last request
-- `0`: Unload immediately after each request
-- `-1`: Never unload (keep model loaded permanently)
-- Any duration: e.g., `10m`, `1h`, `30s`
-
-## Implementation Details
-
-### 1. Configuration (`AIConfig`)
-
-Added new fields to `AIConfig`:
-- `KeepAlive`: Duration to keep model loaded after last request
-- `AutoStart`: Whether to check availability on startup (default: false)
-- `HealthCheckEndpoint`: Endpoint for health checks (default: "version")
-- `MaxIdleConns`: Max idle connections in HTTP client
-- `IdleConnTimeout`: Timeout for idle connections
-
-### 2. Shared HTTP Client
-
-Implemented a shared HTTP client for all Ollama connections to prevent connection leaks:
-- Singleton pattern with `sync.Once`
-- Configurable max idle connections and timeout
-- Reused across all Ollama provider instances
-
-### 3. Health Checks (`IsAvailable()`)
-
-Changed from `/api/tags` to `/api/version`:
-- `/api/version` is lightweight and doesn't trigger model loading
-- `/api/tags` can trigger model loading in some Ollama versions
-- Health checks are now safe to call frequently
-
-### 4. Keep-Alive in Requests
-
-Added `keep_alive` parameter to all `/api/generate` requests:
-- Tells Ollama how long to keep the model loaded after the request
-- Value is calculated from `KUBEGRAF_AI_KEEP_ALIVE` environment variable
-- Supports immediate unload (`0`), never unload (`-1`), or duration (e.g., `300s`)
-
-### 5. Idle Unload Timer
-
-Implemented automatic model unload after idle period:
-- Timer starts/resets on each AI request
-- After `keepAlive` duration of inactivity, model is unloaded
-- Uses `keep_alive=0` in a dummy request to trigger unload
-- Timer is disabled if `KEEP_ALIVE=0` (always unload) or `KEEP_ALIVE=-1` (never unload)
-
-### 6. Lazy Initialization
-
-Provider availability is checked lazily:
-- If `AUTOSTART=false` (default), no API calls on startup
-- Provider is only checked when user makes first query
-- `IsAvailable()` performs lazy check without setting provider (for status endpoints)
-
-### 7. No Background Calls
-
-Audited all code paths:
-- Removed any startup warmup/polling that calls `/api/chat` or `/api/generate`
-- Health checks use `/api/version` only
-- Model detection (`/api/tags`) only runs if `AUTOSTART=true`
-
-## Code Changes
-
-### Modified Files
-
-- `ai.go`: Complete refactor of Ollama integration
-  - Added configuration fields
-  - Implemented shared HTTP client
-  - Added keep-alive support
-  - Implemented idle unload timer
-  - Changed health checks to `/api/version`
-  - Implemented lazy initialization
-
-## Testing
-
-### Acceptance Tests
-
-1. **Start KubeGraf, do NOT use AI:**
-   ```bash
-   ./kubegraf web --port 3000
-   ollama ps  # Should be empty
-   lsof -nP -iTCP:11434  # Should show LISTEN only, or at most 1 short-lived connection
-   ```
-
-2. **Ask a question in KubeGraf:**
-   - Navigate to AI Assistant
-   - Ask a question
-   - `ollama ps` should show model loaded
-
-3. **Ask 2nd question immediately:**
-   - Should get instant response
-   - Model should still be loaded
-
-4. **Wait 5 minutes idle:**
-   - `ollama ps` should show empty (model unloaded)
-
-5. **Manual unload:**
-   ```bash
-   ollama stop llama3.1:latest
-   ```
-   - Should not cause immediate reload unless user asks again
-
-### Environment Variable Examples
-
-```bash
-# Keep model loaded for 10 minutes after last request
-export KUBEGRAF_AI_KEEP_ALIVE=10m
-
-# Always unload immediately after each request
-export KUBEGRAF_AI_KEEP_ALIVE=0
-
-# Never unload (keep model loaded permanently)
-export KUBEGRAF_AI_KEEP_ALIVE=-1
-
-# Use custom model
-export KUBEGRAF_AI_MODEL=llama3.2:latest
-
-# Enable auto-start (check availability on startup)
-export KUBEGRAF_AI_AUTOSTART=true
+```
+1. Orkas AI Cloud    (ORKAS_API_KEY set)     → future primary, zero setup
+2. Anthropic Claude  (ANTHROPIC_API_KEY set) → cloud, requires API key
+3. OpenAI            (OPENAI_API_KEY set)    → cloud, requires API key
+4. Ollama local      (running on localhost)  → optional, for power users
+5. None              (nothing configured)    → pattern-based fallbacks
 ```
 
-## Benefits
+### Startup log
 
-1. **GPU Memory Efficiency**: Models only loaded when needed
-2. **Fast Follow-ups**: Model stays loaded for short window for quick follow-up questions
-3. **Automatic Cleanup**: Models unload automatically after idle period
-4. **No Connection Leaks**: Shared HTTP client prevents connection buildup
-5. **Production Ready**: No background calls, proper resource management
+On every startup, KubeGraf logs which provider is active:
 
-## Backward Compatibility
+```
+[AI] Provider: Orkas AI Cloud (https://api.orkas.ai)
+[AI] Provider: Anthropic Claude (model: claude-3-haiku-20240307)
+[AI] Provider: OpenAI (model: gpt-4o-mini)
+[AI] Provider: Ollama local (model: llama3.2:3b @ http://127.0.0.1:11434)
+[AI] No AI provider active — AI features will use pattern-based fallbacks.
+```
 
-- All existing functionality preserved
-- Default behavior is warm-on-demand (no breaking changes)
-- Environment variables are optional (sensible defaults)
-- Existing code using `NewAIAssistant()` continues to work
+---
 
-## Future Improvements
+## Configuration Reference
 
-- Add metrics for model load/unload events
-- Add configuration UI in web interface
-- Support multiple models with separate keep-alive timers
-- Add graceful shutdown to unload models on exit
+All configuration is via environment variables. No config files, no model names baked into code.
 
+### Orkas AI Cloud (future primary)
+
+| Variable | Description |
+|---|---|
+| `ORKAS_API_KEY` | Your Orkas API key — activates cloud AI, highest priority |
+| `ORKAS_API_URL` | Override endpoint (default: `https://api.orkas.ai`) |
+
+When set, all AI analysis is handled by the Orkas cloud service. No local resources consumed. No model selection needed — the cloud picks the best available model automatically.
+
+### Anthropic Claude
+
+| Variable | Description |
+|---|---|
+| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+| `KUBEGRAF_CLAUDE_MODEL` | Override model (default: `claude-3-haiku-20240307`) |
+
+### OpenAI
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | Your OpenAI API key |
+| `KUBEGRAF_OPENAI_MODEL` | Override model (default: `gpt-4o-mini`) |
+
+### Ollama (local, optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `KUBEGRAF_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server URL |
+| `KUBEGRAF_OLLAMA_MODEL` | auto-detected | Pin a specific model; omit to use first installed |
+| `KUBEGRAF_AI_KEEP_ALIVE` | `5m` | How long to keep model in memory after last request |
+| `KUBEGRAF_AI_AUTOSTART` | `false` | Load model on startup (not recommended — uses memory) |
+| `KUBEGRAF_AI_MAX_IDLE_CONNS` | `2` | HTTP connection pool size |
+| `KUBEGRAF_AI_IDLE_CONN_TIMEOUT` | `30s` | Idle connection timeout |
+
+**No model name is hardcoded.** KubeGraf queries `/api/tags` to find whatever model you have installed, skipping embedding-only models (`nomic-embed-text`, `bge-*`, `e5-*`, etc.) that cannot generate text.
+
+If multiple models are installed, the first text-generation model is used and a log message lists all candidates:
+
+```
+[AI] Multiple Ollama models found: [mistral-nemo:latest llama3.2:3b]
+[AI] Auto-selected: mistral-nemo:latest — set KUBEGRAF_OLLAMA_MODEL=<name> to override
+```
+
+If the auto-selected model is too large for your machine, pin the smaller one:
+
+```bash
+export KUBEGRAF_OLLAMA_MODEL=llama3.2:3b
+./kubegraf web --port=3003
+```
+
+---
+
+## Why Ollama Is Optional (Not the Default)
+
+Ollama runs models locally, which means:
+- **Memory overhead**: even a 3B model requires ~2 GB RAM; 7B+ models need 4–8 GB
+- **Not practical for all users**: engineers on constrained laptops should not be penalised
+- **Resource competition**: running a model alongside a Kubernetes control plane can cause OOM pressure
+
+For teams, the recommended path is a shared cloud provider (Orkas AI, OpenAI, or Claude) so individual engineers don't need any local setup.
+
+---
+
+## Warm-On-Demand Behaviour (Ollama)
+
+When Ollama is configured, models are loaded lazily — **never on startup**.
+
+| Event | What happens |
+|---|---|
+| KubeGraf starts | No Ollama call made |
+| User clicks "Analyze & Fix" | Model loads on first request |
+| Follow-up questions within keep-alive window | Model stays loaded (fast) |
+| No requests for `KUBEGRAF_AI_KEEP_ALIVE` duration | Model unloads automatically |
+
+Keep-alive values:
+- `5m` (default) — unload after 5 minutes idle
+- `0` — unload immediately after every request
+- `-1` — never unload
+
+---
+
+## Pattern-Based Fallbacks (No AI Required)
+
+When no AI provider is available, KubeGraf generates fix recommendations deterministically from the incident pattern. These are always accurate because they're based on the known failure signatures.
+
+| Pattern | Fallback recommendations |
+|---|---|
+| `IMAGE_PULL_FAILURE` | Verify image tag in registry, check pull secret, rollout restart |
+| `CRASH_LOOP_BACKOFF` | Inspect previous logs, describe pod events, rollback deployment |
+| `OOM_KILLED` | Check memory consumption with `kubectl top`, increase memory limit |
+| `NO_READY_ENDPOINTS` | Check backing pods, inspect readiness probe config |
+| Any other pattern | Describe resource, check logs, restart workload |
+
+---
+
+## Roadmap
+
+| Timeline | Change |
+|---|---|
+| **Now** | Ollama local (optional), OpenAI, Claude — user-configured |
+| **3–6 months** | Orkas AI Cloud launches — set `ORKAS_API_KEY`, done |
+| **Future** | `ORKAS_API_KEY` becomes the default recommended path for all users |
+
+The provider abstraction is already in place (`orderedProviders()` in `ai.go`). When the Orkas cloud service goes live, no KubeGraf code changes are needed — users just set the API key.

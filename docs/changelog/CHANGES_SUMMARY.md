@@ -534,3 +534,96 @@ Open browser DevTools (F12) → Console tab:
 - ✅ Type safety maintained
 - ✅ No breaking changes
 
+---
+
+## 2026-03-01 — AI Architecture + Incident Workspace Improvements
+
+### AI Provider Architecture (ai.go, web_orka.go)
+
+**Problem:** KubeGraf had `llama3.1:latest` hardcoded as the Ollama fallback model and only detected the installed model when `KUBEGRAF_AI_AUTOSTART=true` (default: false). This caused 404 errors for users with different models (e.g., `llama3.2:3b`).
+
+**Solution:**
+- Auto-detect the installed Ollama model at startup by always querying `/api/tags` (listing models does NOT load them into memory)
+- Filter out embedding-only models (`nomic-embed-text`, `bge-*`, `e5-*`, `minilm`) which cannot generate text
+- When multiple models are found, log all candidates and allow pinning via `KUBEGRAF_OLLAMA_MODEL`
+- No model name is hardcoded anywhere in the codebase
+
+**New provider priority chain** (`orderedProviders()` in `ai.go`):
+```
+1. Orkas AI Cloud    (ORKAS_API_KEY)     — future primary, zero setup
+2. Anthropic Claude  (ANTHROPIC_API_KEY) — cloud, requires API key
+3. OpenAI            (OPENAI_API_KEY)    — cloud, requires API key
+4. Ollama local      (auto-detected)    — optional, for power users
+5. None                                 — pattern-based fallbacks
+```
+
+`OrkasCloudProvider` is already implemented. When the Orkas cloud service goes live, users set `ORKAS_API_KEY` and zero other changes are needed.
+
+**Files changed:** `ai.go`, `web_orka.go`, `docs/features/ollama/OLLAMA_WARM_ON_DEMAND.md`, `docs/integrations/AI_AGENT_INTEGRATION.md`
+
+---
+
+### AI Fix — Robust JSON Extraction + Pattern-Based Fallback (web_orka.go)
+
+**Problem:** LLM models like `llama3.2:3b` append explanatory text after the JSON response. The previous `extractJSONFromLLM` used `strings.LastIndex` which failed when trailing text existed, returning "AI returned malformed response."
+
+**Solution:**
+- Replaced `extractJSONFromLLM` with a bracket-counting state machine that handles nested JSON objects and trailing text
+- Three strategies: (1) ` ```json ` fence, (2) plain ` ``` ` fence, (3) bracket-counting with `json.Valid()` verification
+- Added `generateFallbackFixes()` — deterministic kubectl recommendations keyed by incident pattern (`IMAGE_PULL_FAILURE`, `CRASH_LOOP_BACKOFF`, `OOM_KILLED`, `NO_READY_ENDPOINTS`)
+- Response now includes `"fallback": true` flag so the UI can show a `⚙ Pattern-based` badge
+
+**Users now always get actionable output** — no more dead ends when AI parsing fails.
+
+---
+
+### Incident Workspace Sidebar — Stable Sort + Workloads Filter (ContextNavigator.tsx)
+
+**Problem:** The incident sidebar list kept reordering every few seconds. Two incidents with the same severity and timestamp had an unstable `Array.sort()` order.
+
+**Solution:**
+- Added `id` as a deterministic tiebreaker in the sort comparator — list positions are now stable
+- Replaced `indexOf()` reference-based lookup (breaks when array is recreated on poll) with an ID-to-index `Map` built as a `createMemo`
+
+**Services tab removed** per product decision — the sidebar now shows only **All** and **Workloads** tabs. Services are not relevant in the incident triage context.
+
+Color-coded kind badges added (Deployment = blue, StatefulSet = cyan, Pod = purple).
+
+**File changed:** `ui/solid/src/components/workspace/ContextNavigator.tsx`
+
+---
+
+### kubectl Command Overflow Fix (workspace.css)
+
+**Problem:** kubectl commands in the Incident Brief and Quick Actions cards overflowed the right panel. Words at the end of long commands were clipped and invisible.
+
+**Solution:** Changed `.cmd-text` from `white-space: nowrap` to `white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere`. Also set `min-width: 0` on flex containers to allow shrinking below their content width.
+
+**File changed:** `ui/solid/src/components/workspace/workspace.css`
+
+---
+
+### Incident Detail — AI Fix Fallback UI (IncidentDetail.tsx)
+
+Added `aiFixFallback` signal to `IncidentDetail.tsx`:
+- When the backend returns `"fallback": true`, the Fix tab shows a `⚙ Pattern-based` badge instead of `✦ Orkas AI`
+- A subtle info note explains that AI parsing failed and pattern-based recommendations are shown
+- Signal resets when the user selects a different incident
+
+**File changed:** `ui/solid/src/components/workspace/IncidentDetail.tsx`
+
+---
+
+### Summary of Files Changed
+
+| File | Change |
+|---|---|
+| `ai.go` | OrkasCloudProvider, orderedProviders(), embedding filter, startup log |
+| `web_orka.go` | extractJSONFromLLM (bracket-counting), generateFallbackFixes(), fallback flag |
+| `ui/solid/src/components/workspace/ContextNavigator.tsx` | Stable sort, ID-map lookup, Workloads filter, kind badges |
+| `ui/solid/src/components/workspace/IncidentDetail.tsx` | aiFixFallback signal, Pattern-based badge, info note |
+| `ui/solid/src/components/workspace/workspace.css` | cmd-text overflow fix |
+| `docs/features/ollama/OLLAMA_WARM_ON_DEMAND.md` | Complete rewrite — provider chain, config reference, roadmap |
+| `docs/integrations/AI_AGENT_INTEGRATION.md` | New Built-in Incident AI section, removed hardcoded model names |
+| `docs/features/incidents/INCIDENT_INTELLIGENCE.md` | Workspace UI section, stable sort, AI fallback, Chat tab |
+

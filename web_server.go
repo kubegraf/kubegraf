@@ -61,6 +61,7 @@ import (
 	"github.com/kubegraf/kubegraf/internal/uilogger"
 	"github.com/kubegraf/kubegraf/mcp/server"
 	"github.com/kubegraf/kubegraf/pkg/capabilities"
+	"github.com/kubegraf/kubegraf/pkg/graph"
 	"github.com/kubegraf/kubegraf/pkg/incidents"
 	"github.com/kubegraf/kubegraf/pkg/instrumentation"
 	windowsterminal "github.com/kubegraf/kubegraf/pkg/terminal/windows"
@@ -245,6 +246,14 @@ type WebServer struct {
 	announcementsService *AnnouncementsService
 	// Incident intelligence system for RCA and auto-remediation
 	incidentIntelligence *IncidentIntelligence
+	// routesOnce ensures incident intelligence routes are registered exactly once.
+	// Go 1.22+ ServeMux panics on duplicate pattern registration; this prevents
+	// that panic if RegisterIncidentIntelligenceRoutes is ever called more than once.
+	routesOnce sync.Once
+	// graphEngine is the live Kubernetes topology graph engine.
+	// It maintains a continuously-updated causal model of the cluster and
+	// provides the foundation for graph-traversal-based incident reasoning.
+	graphEngine *graph.Engine
 }
 
 // NewWebServer creates a new web server
@@ -406,6 +415,9 @@ func NewWebServer(app *App) *WebServer {
 
 	// Note: incident intelligence is initialized in RegisterIncidentIntelligenceRoutes()
 	// to ensure it's only created once and routes are properly registered
+
+	// Note: the topology graph engine is started by InitGraphEngine(), which
+	// must be called AFTER app.Initialize() so that app.clientset is available.
 
 	return ws
 }
@@ -824,6 +836,12 @@ func (ws *WebServer) Start(port int) error {
 	// Phase 1 features (Change Intelligence, Explain Pod, Multi-Cluster, Knowledge Sharing)
 	ws.registerPhase1Routes()
 
+	// Topology graph engine: live K8s causal model + incident reasoning APIs
+	ws.RegisterGraphRoutes()
+
+	// Orkas AI proxy (/api/orka/*) + remediation decision persistence
+	ws.RegisterOrkaRoutes()
+
 	// Static files and SPA routing (must be last to not override API routes)
 	http.HandleFunc("/", staticHandler)
 
@@ -871,6 +889,9 @@ func (ws *WebServer) Start(port int) error {
 
 	// Start broadcasting updates
 	go ws.broadcastUpdates()
+
+	// Start periodic graph snapshots (every 60s) for moat/history feature
+	go ws.startGraphSnapshots()
 
 	// Start watching Kubernetes events for real-time stream (waits for cluster connection)
 	go ws.watchKubernetesEvents()
@@ -1098,6 +1119,80 @@ func (ws *WebServer) broadcastEvent(event WebEvent) {
 		if err := client.WriteJSON(msg); err != nil {
 			client.Close()
 			delete(ws.clients, client)
+		}
+	}
+}
+
+// broadcastGraphIncident pushes a graph-derived causal chain to all WebSocket clients.
+// Called by the graph engine's OnAnomaly callback when confidence >= 0.7.
+func (ws *WebServer) broadcastGraphIncident(chain *graph.CausalChain) {
+	if chain == nil {
+		return
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type": "graph_incident",
+		"data": chain,
+	}
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(msg); err != nil {
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// InitGraphEngine creates and starts the topology graph engine.
+//
+// This must be called AFTER app.Initialize() completes so that app.clientset
+// is available. Calling it from NewWebServer would race with the async cluster
+// initialisation in launchWebUI.
+func (ws *WebServer) InitGraphEngine() {
+	if ws.app == nil || ws.app.clientset == nil {
+		fmt.Println("⚠️  Topology graph engine skipped: no K8s clientset available")
+		return
+	}
+	if ws.graphEngine != nil {
+		return // already initialised
+	}
+	ws.graphEngine = graph.NewEngine(ws.app.clientset)
+	ws.graphEngine.OnAnomaly = ws.broadcastGraphIncident
+	// Probe cluster-scope access. GKE Connect Gateway enforces namespace-scoped
+	// IAM that blocks cluster-wide LIST/WATCH even when per-namespace access works.
+	namespaces := probeGraphNamespaces(ws.app.clientset)
+	if len(namespaces) > 0 {
+		fmt.Printf("✅ Topology graph engine started (namespace-scoped mode: %v)\n", namespaces)
+		ws.graphEngine.StartWithNamespaces(namespaces)
+	} else {
+		fmt.Println("✅ Topology graph engine started (cluster-scoped mode)")
+		ws.graphEngine.Start()
+	}
+	go ws.startGraphSnapshots()
+}
+
+// startGraphSnapshots takes a topology snapshot every 60 seconds and persists
+// it to SQLite. This enables the historical diff / moat feature.
+func (ws *WebServer) startGraphSnapshots() {
+	if ws.graphEngine == nil || ws.db == nil {
+		return
+	}
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		snap := ws.graphEngine.Snapshot()
+		if snap == nil || snap.NodeCount == 0 {
+			continue
+		}
+		data, err := json.Marshal(snap)
+		if err != nil {
+			continue
+		}
+		ctx := ws.getCurrentContext()
+		if err := ws.db.SaveGraphSnapshot(ctx, snap.NodeCount, snap.EdgeCount, string(data)); err != nil {
+			log.Printf("[graph] snapshot save error: %v", err)
 		}
 	}
 }

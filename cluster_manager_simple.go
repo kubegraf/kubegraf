@@ -2,11 +2,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -83,6 +87,11 @@ func (scm *SimpleClusterManager) loadContexts() error {
 			scm.currentContext = config.CurrentContext
 			if cluster, ok := scm.clusters[config.CurrentContext]; ok {
 				cluster.IsActive = true
+				// Optimistically mark the active cluster as reachable so the UI can
+				// navigate to the dashboard immediately on startup. The background
+				// health-check (CheckAllClustersHealth) will correct this if the
+				// cluster turns out to be unreachable.
+				cluster.IsReachable = true
 			}
 		}
 	}
@@ -90,7 +99,7 @@ func (scm *SimpleClusterManager) loadContexts() error {
 	return nil
 }
 
-// ListClusters returns all cluster information
+// ListClusters returns all cluster information sorted by name for stable ordering
 func (scm *SimpleClusterManager) ListClusters() []*ClusterInfo {
 	scm.mu.RLock()
 	defer scm.mu.RUnlock()
@@ -100,6 +109,10 @@ func (scm *SimpleClusterManager) ListClusters() []*ClusterInfo {
 		clusterCopy := *cluster
 		clusters = append(clusters, &clusterCopy)
 	}
+	// Sort alphabetically so the UI list order is stable across refreshes
+	sort.Slice(clusters, func(i, j int) bool {
+		return clusters[i].Name < clusters[j].Name
+	})
 	return clusters
 }
 
@@ -241,15 +254,40 @@ func (scm *SimpleClusterManager) CheckClusterHealth() error {
 		return err
 	}
 
-	// Simple health check: get server version
-	_, err = clientset.Discovery().ServerVersion()
-	if err != nil {
-		scm.updateClusterHealth(currentContext, false, err.Error())
-		return fmt.Errorf("cluster health check failed: %w", err)
+	// GKE clusters use gke-gcloud-auth-plugin which refreshes short-lived OAuth
+	// tokens on first use after expiry — this adds 1–3 s of latency. Use a
+	// generous timeout so a token refresh doesn't falsely trip the health check.
+	healthTimeout := 6 * time.Second
+	if strings.HasPrefix(currentContext, "gke_") {
+		healthTimeout = 15 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
+	defer cancel()
+	_, err = clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
+	if err == nil || k8serrors.IsForbidden(err) || k8serrors.IsUnauthorized(err) {
+		// nil  → success
+		// 403/401 JSON from K8s API server → server is up, just an RBAC boundary
+		scm.updateClusterHealth(currentContext, true, "")
+		return nil
 	}
 
-	scm.updateClusterHealth(currentContext, true, "")
-	return nil
+	scm.updateClusterHealth(currentContext, false, cleanError(err.Error()))
+	return fmt.Errorf("cluster health check failed: %w", err)
+}
+
+// cleanError strips HTML from error messages so the UI always shows
+// plain text regardless of what the server returned.
+func cleanError(errMsg string) string {
+	if strings.Contains(errMsg, "<!DOCTYPE") || strings.Contains(errMsg, "<html") {
+		if strings.Contains(errMsg, "403") || strings.Contains(errMsg, "Forbidden") {
+			return "Authentication failed (403 Forbidden) — credentials may have expired"
+		}
+		if strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized") {
+			return "Authentication failed (401 Unauthorized) — credentials may have expired"
+		}
+		return "Authentication error — check cluster credentials"
+	}
+	return errMsg
 }
 
 // updateClusterHealth updates the health status of a cluster
@@ -298,8 +336,14 @@ func (scm *SimpleClusterManager) CheckAllClustersHealth() {
 				return
 			}
 
-			// Set a short timeout for health checks
-			restConfig.Timeout = 3 * time.Second
+			// GKE clusters use gke-gcloud-auth-plugin which may refresh OAuth tokens
+			// on first use, adding 1–3 s of latency. The restConfig HTTP-level timeout
+			// must be at least as large as the context timeout, or the smaller wins.
+			healthTimeout := 6 * time.Second
+			if strings.HasPrefix(ctx, "gke_") {
+				healthTimeout = 15 * time.Second
+			}
+			restConfig.Timeout = healthTimeout
 
 			clientset, err := kubernetes.NewForConfig(restConfig)
 			if err != nil {
@@ -307,12 +351,16 @@ func (scm *SimpleClusterManager) CheckAllClustersHealth() {
 				return
 			}
 
-			// Check if cluster is reachable
-			_, err = clientset.Discovery().ServerVersion()
-			if err != nil {
-				scm.updateClusterHealth(ctx, false, err.Error())
-			} else {
+			// Check reachability. A proper K8s API response (including 403/401)
+			// means the API server is up — only network failures or cloud-IAM
+			// HTML responses indicate the cluster is truly unreachable.
+			nsCtx, nsCancel := context.WithTimeout(context.Background(), healthTimeout)
+			_, err = clientset.CoreV1().Namespaces().List(nsCtx, metav1.ListOptions{Limit: 1})
+			nsCancel()
+			if err == nil || k8serrors.IsForbidden(err) || k8serrors.IsUnauthorized(err) {
 				scm.updateClusterHealth(ctx, true, "")
+			} else {
+				scm.updateClusterHealth(ctx, false, cleanError(err.Error()))
 			}
 		}(contextName)
 	}
@@ -320,13 +368,12 @@ func (scm *SimpleClusterManager) CheckAllClustersHealth() {
 	wg.Wait()
 }
 
-// Refresh reloads contexts from kubeconfig file
+// Refresh reloads contexts from kubeconfig file.
+// The active cluster is re-derived from the kubeconfig current-context so that
+// kubegraf always matches what `kubectl config current-context` reports.
 func (scm *SimpleClusterManager) Refresh() error {
 	scm.mu.Lock()
 	defer scm.mu.Unlock()
-
-	// Clear existing contexts but preserve active state
-	currentBeforeRefresh := scm.currentContext
 
 	// Clear maps
 	scm.clusters = make(map[string]*ClusterInfo)
@@ -339,16 +386,6 @@ func (scm *SimpleClusterManager) Refresh() error {
 
 	if err != nil {
 		return fmt.Errorf("failed to refresh: %w", err)
-	}
-
-	// Restore active context (preserve app's selection)
-	if currentBeforeRefresh != "" {
-		if _, exists := scm.contexts[currentBeforeRefresh]; exists {
-			scm.currentContext = currentBeforeRefresh
-			if cluster, exists := scm.clusters[currentBeforeRefresh]; exists {
-				cluster.IsActive = true
-			}
-		}
 	}
 
 	return nil

@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo, onMount } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, onMount } from 'solid-js';
 import { clusterSimpleStore } from '../stores/clusterSimple';
 import { addNotification, setCurrentView } from '../stores/ui';
 
@@ -17,6 +17,7 @@ const ClusterManagerSimple: Component = () => {
   const currentCluster = clusterSimpleStore.currentCluster;
   const loading = clusterSimpleStore.isLoading;
   const error = clusterSimpleStore.getError;
+  const [switchingContext, setSwitchingContext] = createSignal<string | null>(null);
 
   // Get reachable clusters
   const reachableClusters = createMemo(() => {
@@ -29,6 +30,7 @@ const ClusterManagerSimple: Component = () => {
   });
 
   const handleSwitchCluster = async (contextName: string) => {
+    setSwitchingContext(contextName);
     try {
       await clusterSimpleStore.switchCluster(contextName);
       addNotification(`Switched to cluster: ${contextName}`, 'success');
@@ -36,6 +38,8 @@ const ClusterManagerSimple: Component = () => {
       setCurrentView('dashboard');
     } catch (err: any) {
       addNotification(err?.message || 'Failed to switch cluster', 'error');
+    } finally {
+      setSwitchingContext(null);
     }
   };
 
@@ -58,19 +62,32 @@ const ClusterManagerSimple: Component = () => {
               Discover, connect, and manage every Kubernetes cluster from one place.
             </p>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex flex-col items-end gap-1">
             <button
-              class="px-3 py-1.5 rounded-md text-sm transition-colors"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
               style={{
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-tertiary)',
-                color: 'var(--text-primary)',
+                background: loading() ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
+                color: loading() ? 'var(--text-muted)' : '#000',
+                border: '1px solid transparent',
+                opacity: loading() ? '0.6' : '1',
+                'box-shadow': loading() ? 'none' : '0 0 0 2px rgba(6,182,212,0.25)',
               }}
               disabled={loading()}
               onClick={handleRefresh}
             >
-              Refresh
+              <svg
+                class={loading() ? 'animate-spin' : ''}
+                style={{ width: '15px', height: '15px', 'flex-shrink': '0' }}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {loading() ? 'Refreshing...' : 'Refresh'}
             </button>
+            <span class="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Click to pick up new clusters from ~/.kube/config
+            </span>
           </div>
         </div>
       </div>
@@ -157,11 +174,13 @@ const ClusterManagerSimple: Component = () => {
                         class="px-3 py-1.5 text-sm rounded-md transition-all"
                         style={{
                           background: 'var(--accent-primary)',
-                          color: '#000'
+                          color: '#000',
+                          opacity: switchingContext() === cluster.contextName ? '0.7' : '1',
                         }}
+                        disabled={switchingContext() !== null}
                         onClick={() => handleSwitchCluster(cluster.contextName)}
                       >
-                        Select
+                        {switchingContext() === cluster.contextName ? 'Switching...' : 'Select'}
                       </button>
                     }>
                       <button
