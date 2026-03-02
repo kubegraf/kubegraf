@@ -54,6 +54,8 @@ type AIConfig struct {
 	OpenAIModel string // env: KUBEGRAF_OPENAI_MODEL  (default: gpt-4o-mini)
 	ClaudeKey   string // env: ANTHROPIC_API_KEY
 	ClaudeModel string // env: KUBEGRAF_CLAUDE_MODEL  (default: claude-3-haiku-20240307)
+	GeminiKey   string // env: GEMINI_API_KEY
+	GeminiModel string // env: KUBEGRAF_GEMINI_MODEL  (default: gemini-2.0-flash)
 }
 
 // getAvailableOllamaModels fetches the list of available models from Ollama
@@ -190,12 +192,16 @@ func DefaultAIConfig() *AIConfig {
 		OpenAIModel: getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
 		ClaudeKey:   os.Getenv("ANTHROPIC_API_KEY"),
 		ClaudeModel: getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
+		GeminiKey:   os.Getenv("GEMINI_API_KEY"),
+		GeminiModel: getAIEnvOrDefault("KUBEGRAF_GEMINI_MODEL", "gemini-2.0-flash"),
 	}
 
 	// Log the active AI backend clearly on startup
 	switch {
 	case cfg.OrkasAPIKey != "":
 		log.Printf("[AI] Provider: Orkas AI Cloud (%s)", cfg.OrkasAPIURL)
+	case cfg.GeminiKey != "":
+		log.Printf("[AI] Provider: Google Gemini (model: %s)", cfg.GeminiModel)
 	case cfg.ClaudeKey != "":
 		log.Printf("[AI] Provider: Anthropic Claude (model: %s)", cfg.ClaudeModel)
 	case cfg.OpenAIKey != "":
@@ -204,7 +210,7 @@ func DefaultAIConfig() *AIConfig {
 		log.Printf("[AI] Provider: Ollama local (model: %s @ %s)", cfg.OllamaModel, cfg.OllamaURL)
 	default:
 		log.Printf("[AI] No AI provider active — AI features will use pattern-based fallbacks.")
-		log.Printf("[AI] To enable AI: set ORKAS_API_KEY (cloud), OPENAI_API_KEY, ANTHROPIC_API_KEY, or install Ollama locally.")
+		log.Printf("[AI] To enable AI: set GEMINI_API_KEY, ORKAS_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or install Ollama locally.")
 	}
 
 	return cfg
@@ -241,6 +247,7 @@ type AIAssistant struct {
 func orderedProviders(config *AIConfig) []AIProvider {
 	return []AIProvider{
 		NewOrkasCloudProvider(config.OrkasAPIKey, config.OrkasAPIURL),
+		NewGeminiProvider(config.GeminiKey, config.GeminiModel),
 		NewClaudeProvider(config.ClaudeKey, config.ClaudeModel),
 		NewOpenAIProvider(config.OpenAIKey, config.OpenAIModel),
 		NewOllamaProvider(config.OllamaURL, config.OllamaModel, config.KeepAlive, config.MaxIdleConns, config.IdleConnTimeout),
@@ -453,6 +460,94 @@ func buildOptimizationPrompt(input OptimizationInput) string {
 	sb.WriteString("\nBe specific with numbers when possible.")
 
 	return sb.String()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GeminiProvider — Google Gemini via REST API
+//
+// Set GEMINI_API_KEY to activate. Model defaults to gemini-2.0-flash.
+// Override with KUBEGRAF_GEMINI_MODEL.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type GeminiProvider struct {
+	apiKey string
+	model  string
+	client *http.Client
+}
+
+func NewGeminiProvider(apiKey, model string) *GeminiProvider {
+	if model == "" {
+		model = "gemini-2.0-flash"
+	}
+	return &GeminiProvider{
+		apiKey: apiKey,
+		model:  model,
+		client: &http.Client{Timeout: 60 * time.Second},
+	}
+}
+
+func (g *GeminiProvider) Name() string      { return fmt.Sprintf("gemini (%s)", g.model) }
+func (g *GeminiProvider) IsAvailable() bool { return g.apiKey != "" }
+
+func (g *GeminiProvider) Query(ctx context.Context, prompt string) (string, error) {
+	url := fmt.Sprintf(
+		"https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
+		g.model, g.apiKey,
+	)
+
+	payload := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{"role": "user", "parts": []map[string]string{{"text": prompt}}},
+		},
+		"systemInstruction": map[string]interface{}{
+			"parts": []map[string]string{
+				{"text": "You are a Kubernetes expert SRE assistant. Be concise and practical."},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"temperature":     0.7,
+			"maxOutputTokens": 2048,
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("gemini: marshal failed: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("gemini: request creation failed: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("gemini: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("gemini: status %d: %s", resp.StatusCode, string(b))
+	}
+
+	var result struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("gemini: decode failed: %w", err)
+	}
+	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("gemini: empty response")
+	}
+	return strings.TrimSpace(result.Candidates[0].Content.Parts[0].Text), nil
 }
 
 // OllamaProvider implements the AIProvider interface for Ollama
