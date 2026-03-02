@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -381,9 +382,19 @@ func TestInvalidRequests(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
-			// Route to appropriate handler
-			if tt.path == "/api/v2/workspace/insights" {
+			// Route to appropriate handler based on path
+			switch {
+			case tt.path == "/api/v2/workspace/insights":
 				ws.handleWorkspaceInsights(w, req)
+			case strings.Contains(tt.path, "/story"):
+				// Extract incident ID from path: /api/v2/workspace/incidents/<id>/story
+				parts := strings.Split(tt.path, "/")
+				incID := parts[len(parts)-2]
+				ws.handleIncidentStory(w, req, incID)
+			case strings.Contains(tt.path, "/predict-success"):
+				parts := strings.Split(tt.path, "/")
+				incID := parts[len(parts)-2]
+				ws.handlePredictSuccess(w, req, incID)
 			}
 
 			if w.Code != tt.expectedStatus {
