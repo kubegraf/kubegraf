@@ -203,6 +203,9 @@ jobs:
     needs: [build-binaries, build-windows-installer]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout (needed for gh CLI repo detection)
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -222,9 +225,10 @@ jobs:
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           echo "Uploading assets to release $TAG"
-          # Upload all .tar.gz, .zip, .exe, .sha256 files — --clobber overwrites if already exists
-          find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.exe" -o -name "*.sha256" \) \
-            -exec gh release upload "$TAG" {} --clobber \;
+          # Collect all files into an array then upload in one gh call
+          FILES=$(find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.exe" -o -name "*.sha256" \))
+          echo "$FILES"
+          gh release upload "$TAG" $FILES --clobber --repo kubegraf/kubegraf
           echo "✅ All artifacts uploaded to $TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
