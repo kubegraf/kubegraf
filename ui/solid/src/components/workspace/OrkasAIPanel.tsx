@@ -371,9 +371,19 @@ const OrkasAIPanel: Component<OrkasAIPanelProps> = (props) => {
   const send = async (q: string) => {
     if (!q.trim() || loading()) return;
     setTab('ask');
-    const prefixed = buildContextPrefix() + q;
     setMessages(m => [...m, { role: 'user', content: q }]);
     setInput('');
+
+    // If AI is known offline, skip the network call and explain immediately
+    if (orkaStatus() === 'offline') {
+      setMessages(m => [...m, {
+        role: 'assistant',
+        content: 'Orkas AI is not connected. Full AI capabilities — cluster Q&A, incident analysis, and auto-fix — will be available soon.\n\nIn the meantime, use the **Commands** tab for kubectl quick-reference and AI prompt templates.',
+      }]);
+      return;
+    }
+
+    const prefixed = buildContextPrefix() + q;
     setLoading(true);
     try {
       const r = await fetch(`${ORKA}/ask`, {
@@ -390,7 +400,8 @@ const OrkasAIPanel: Component<OrkasAIPanelProps> = (props) => {
         latencyMs: d.latency_ms, reasoningSteps: d.reasoning_steps,
       }]);
     } catch (e) {
-      setMessages(m => [...m, { role: 'assistant', content: `Error: ${e instanceof Error ? e.message : 'Could not reach Orkas AI'}` }]);
+      setOrkaStatus('offline');
+      setMessages(m => [...m, { role: 'assistant', content: 'Could not reach Orkas AI. Check that the AI service is running, or try again later.' }]);
     } finally { setLoading(false); }
   };
 
@@ -522,7 +533,7 @@ const OrkasAIPanel: Component<OrkasAIPanelProps> = (props) => {
           <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
             <div style={{ width: '6px', height: '6px', 'border-radius': '50%', background: orkaStatus() === 'online' ? 'var(--ok)' : orkaStatus() === 'offline' ? 'var(--warn)' : 'var(--t5)' }} />
             <span style={{ 'font-size': '10px', color: 'var(--t5)' }}>
-              {orkaStatus() === 'online' ? 'Connected' : orkaStatus() === 'offline' ? 'Preview' : '…'}
+              {orkaStatus() === 'online' ? 'Connected' : orkaStatus() === 'offline' ? 'Not connected' : '…'}
             </span>
           </div>
         </div>

@@ -2372,6 +2372,14 @@ const IncidentDetail: Component<IncidentDetailProps> = (props) => {
               )}</For>
             </Show>
 
+            {/* AI fix error banner */}
+            <Show when={aiFixError() && aiFixes().length === 0}>
+              <div style={{ margin: '0 14px 10px', padding: '8px 12px', background: 'var(--warnBg)', border: '1px solid var(--warnBdr)', 'border-radius': '6px', display: 'flex', 'align-items': 'flex-start', gap: '7px' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" style={{ 'flex-shrink': '0', 'margin-top': '1px' }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span style={{ 'font-size': '11px', color: 'var(--t2)', 'line-height': '1.5' }}>{aiFixError()}</span>
+              </div>
+            </Show>
+
             {/* Default fix cards when no AI fixes yet */}
             <Show when={aiFixes().length === 0}>
               {/* ── Scheduling incident: node-capacity fix cards ── */}

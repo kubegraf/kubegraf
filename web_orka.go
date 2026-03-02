@@ -192,8 +192,13 @@ Respond with ONLY valid JSON, no markdown, no explanation text outside the JSON:
 
 	assistant := newIncidentAIAssistant()
 	if !assistant.IsAvailable() {
-		graphJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "No AI provider available. Configure Ollama, OPENAI_API_KEY, or ANTHROPIC_API_KEY.",
+		// No AI provider — return pattern-based fallback fixes so the user always
+		// sees actionable kubectl commands regardless of AI configuration.
+		graphJSON(w, http.StatusOK, map[string]interface{}{
+			"fixes":      generateFallbackFixes(req),
+			"model_used": "pattern-based (no AI configured)",
+			"latency_ms": time.Since(t0).Milliseconds(),
+			"fallback":   true,
 		})
 		return
 	}
@@ -204,7 +209,13 @@ Respond with ONLY valid JSON, no markdown, no explanation text outside the JSON:
 	raw, err := assistant.Query(ctx, prompt)
 	if err != nil {
 		log.Printf("[incident/fix] AI query failed: %v", err)
-		graphJSON(w, http.StatusInternalServerError, map[string]string{"error": "AI query failed: " + err.Error()})
+		// AI call failed — return pattern-based fallback rather than an error.
+		graphJSON(w, http.StatusOK, map[string]interface{}{
+			"fixes":      generateFallbackFixes(req),
+			"model_used": "pattern-based (AI query failed)",
+			"latency_ms": time.Since(t0).Milliseconds(),
+			"fallback":   true,
+		})
 		return
 	}
 
