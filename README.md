@@ -99,6 +99,7 @@ No C compiler needed — KubeGraf uses a pure-Go SQLite driver (`CGO_ENABLED=0`)
 
 **Prerequisites:** Go 1.22+, Node 18+, npm 9+
 
+**macOS / Linux**
 ```bash
 git clone https://github.com/kubegraf/kubegraf.git
 cd kubegraf
@@ -113,6 +114,24 @@ make go   # compiles Go binary → ./kubegraf
 # Run
 ./kubegraf web --port=3000
 ```
+
+**Windows (PowerShell)**
+```powershell
+git clone https://github.com/kubegraf/kubegraf.git
+cd kubegraf
+
+# One-step build
+.\build.ps1
+
+# Or step by step:
+.\build.ps1 ui   # builds SolidJS → web\dist\
+.\build.ps1 go   # compiles Go binary → .\kubegraf.exe
+
+# Run
+.\build.ps1 run
+```
+
+> **Windows users with Git Bash or WSL** can use `make build` directly instead.
 
 ---
 

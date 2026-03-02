@@ -1,5 +1,6 @@
-# KubeGraf Makefile
-# Builds the frontend and Go binary in the correct order.
+# KubeGraf Makefile — macOS and Linux only
+# Windows users: use .\build.ps1 instead (PowerShell script in repo root)
+# Windows with Git Bash or WSL: this Makefile works as-is
 
 BINARY      := kubegraf
 UI_DIR      := ui/solid
