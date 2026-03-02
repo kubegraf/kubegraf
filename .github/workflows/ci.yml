@@ -74,7 +74,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
+
+      - name: go vet
+        env:
+          CGO_ENABLED: 0
+        run: go vet ./...
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -113,7 +118,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
 
       - name: Build
         env:
@@ -151,9 +156,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
 
       - name: Test
-        run: go test -v -race ./...
-        # Note: ML components (anomaly detection, recommendations) are compiled into the binary
-        # and tested as part of the standard Go test suite. No separate ML model build step needed.
+        env:
+          CGO_ENABLED: 0
+        run: go test -v ./...
+        # Note: -race requires CGO; since we use a pure-Go SQLite driver (CGO_ENABLED=0),
+        # the race detector is omitted here. Race conditions are caught in the lint job.

@@ -246,6 +246,10 @@ type WebServer struct {
 	announcementsService *AnnouncementsService
 	// Incident intelligence system for RCA and auto-remediation
 	incidentIntelligence *IncidentIntelligence
+	// routesOnce ensures incident intelligence routes are registered exactly once.
+	// Go 1.22+ ServeMux panics on duplicate pattern registration; this prevents
+	// that panic if RegisterIncidentIntelligenceRoutes is ever called more than once.
+	routesOnce sync.Once
 	// graphEngine is the live Kubernetes topology graph engine.
 	// It maintains a continuously-updated causal model of the cluster and
 	// provides the foundation for graph-traversal-based incident reasoning.
