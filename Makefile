@@ -8,7 +8,7 @@ WEB_DIST    := web/dist
 GO_FLAGS    := -ldflags="-s -w"
 CGO_ENABLED := 0
 
-.PHONY: all build ui go clean run help
+.PHONY: all build ui go clean run release help
 
 ## all: Build everything (UI + Go binary)
 all: build
@@ -35,6 +35,14 @@ go:
 ## run: Build and run the server on port 3000
 run: build
 	./$(BINARY) web --port=3000
+
+## release VERSION=x.y.z: Bump version, commit, tag, and push (triggers GoReleaser)
+release:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "ERROR: VERSION is required. Usage: make release VERSION=0.80.0"; \
+		exit 1; \
+	fi
+	@bash scripts/bump-version.sh $(VERSION)
 
 ## clean: Remove build artifacts
 clean:
