@@ -1,5 +1,6 @@
 # NOTE: This workflow is disabled (trigger changed to workflow_dispatch).
 # KubeGraf is a Go CLI tool — use release.yml (GoReleaser) for releases.
+# This workflow adds the Windows installer on top of GoReleaser binaries.
 name: Build and Release All Platforms
 
 # This workflow should be in the MAIN kubegraf repository (not kubegraf.io)
@@ -9,7 +10,7 @@ on:
   workflow_dispatch:  # Manual trigger only — disabled from auto-run
     inputs:
       version:
-        description: 'Version to build (e.g., 1.0.0)'
+        description: 'Version to build (e.g., 1.7.60). Must match an existing GitHub release tag.'
         required: true
 
 permissions:
@@ -53,7 +54,7 @@ jobs:
           # Windows builds
           - os: windows
             arch: amd64
-            runner: ubuntu-latest  # Can cross-compile Windows from Linux
+            runner: ubuntu-latest  # Cross-compile Windows from Linux
             goos: windows
             goarch: amd64
 
@@ -61,49 +62,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch full history for proper version detection
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'  # Update to your Go version
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        id: go-cache
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-        continue-on-error: true  # Cache failures are non-critical and won't show warnings
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        id: npm-cache
-        with:
-          path: ui/solid/node_modules
-          key: ${{ runner.os }}-npm-${{ hashFiles('ui/solid/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-        continue-on-error: true  # Cache failures are non-critical and won't show warnings
+          cache: 'npm'
+          cache-dependency-path: ui/solid/package-lock.json
 
       - name: Get version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"   # strip leading v if present
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
       - name: Build Web UI
@@ -111,13 +92,12 @@ jobs:
           cd ui/solid
           npm ci
           npm run build
-          cd ../..
+          # Vite outDir is ../../web/dist — output lands at web/dist directly
 
-      - name: Verify web/dist directory
+      - name: Verify web/dist
         run: |
-          # Vite outDir is ../../web/dist — npm run build outputs here directly
           echo "Contents of web/dist:"
-          ls -la web/dist/
+          ls -la web/dist/ | head -20
 
       - name: Build binary
         env:
@@ -127,26 +107,20 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           OUTPUT_NAME="kubegraf"
-
           if [ "${{ matrix.goos }}" = "windows" ]; then
             OUTPUT_NAME="kubegraf.exe"
           fi
 
           echo "Building ${OUTPUT_NAME} for ${{ matrix.os }}-${{ matrix.arch }}"
-
           go build \
-            -ldflags="-s -w -X main.version=${VERSION}" \
+            -ldflags="-s -w -X main.version=${VERSION} -X github.com/kubegraf/kubegraf/cli/cmd.cliVersion=${VERSION}" \
             -o ${OUTPUT_NAME} \
             .
-
-          # Verify binary was created
           ls -lh ${OUTPUT_NAME}
 
       - name: Create archive
         id: archive
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
           if [ "${{ matrix.goos }}" = "windows" ]; then
             ARCHIVE="kubegraf-${{ matrix.os }}-${{ matrix.arch }}.zip"
             zip ${ARCHIVE} kubegraf.exe
@@ -158,7 +132,6 @@ jobs:
           echo "Created: ${ARCHIVE}"
           ls -lh ${ARCHIVE}
 
-          # Calculate checksums
           if [ "${{ matrix.goos }}" = "darwin" ]; then
             shasum -a 256 ${ARCHIVE} > ${ARCHIVE}.sha256
           else
@@ -190,109 +163,102 @@ jobs:
           name: kubegraf-windows-amd64
           path: ./
 
-      - name: Extract binary
+      - name: Extract binary and place for Inno Setup
         run: |
           Expand-Archive kubegraf-windows-amd64.zip -DestinationPath .
-          Move-Item kubegraf.exe installer/windows/
+          Move-Item kubegraf.exe installer\windows\kubegraf.exe -Force
 
       - name: Install Inno Setup
-        run: choco install innosetup -y
+        run: choco install innosetup -y --no-progress
 
       - name: Get version
         id: version
         run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ github.event.inputs.version }}"
-          } else {
-            $version = "${{ github.ref_name }}".TrimStart("v")
-          }
+          $version = "${{ github.event.inputs.version }}".TrimStart("v")
           echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "Version: $version"
 
       - name: Update version in installer script
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $content = Get-Content installer/windows/kubegraf-setup.iss -Raw
-          $content = $content -replace '#define AppVersion ".*"', "#define AppVersion `"$version`""
-          Set-Content installer/windows/kubegraf-setup.iss -Value $content
-          echo "Updated version to: $version"
+          $content = Get-Content installer\windows\kubegraf-setup.iss -Raw
+          $content = $content -replace '#define AppVersion "[^"]*"', "#define AppVersion `"$version`""
+          Set-Content installer\windows\kubegraf-setup.iss -Value $content
+          echo "Updated AppVersion to: $version"
 
       - name: Build installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/windows/kubegraf-setup.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\windows\kubegraf-setup.iss
 
-      - name: Upload installer
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: kubegraf-windows-installer
           path: dist/windows/kubegraf-*-setup.exe
+          retention-days: 7
 
-  # Create GitHub release with all artifacts
-  create-release:
-    name: Create GitHub Release
+  # Upload all artifacts to the existing GitHub release
+  upload-to-release:
+    name: Upload to GitHub Release
     needs: [build-binaries, build-windows-installer]
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
-      - name: Display structure
-        run: ls -R artifacts/
+      - name: Display artifacts
+        run: find artifacts/ -type f | sort
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.zip
-            artifacts/**/*.exe
-            artifacts/**/*.sha256
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+      - name: Get version/tag
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts to existing release
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          echo "Uploading assets to release $TAG"
+          # Upload all .tar.gz, .zip, .exe, .sha256 files — --clobber overwrites if already exists
+          find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.exe" -o -name "*.sha256" \) \
+            -exec gh release upload "$TAG" {} --clobber \;
+          echo "✅ All artifacts uploaded to $TAG"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Update Homebrew formula (for macOS)
+  # Update Homebrew formula (only if token is configured)
   update-homebrew:
     name: Update Homebrew Formula
-    needs: [build-binaries, create-release]
+    needs: upload-to-release
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
       - name: Checkout homebrew-tap
         uses: actions/checkout@v4
         with:
-          repository: kubegraf/homebrew-tap  # Your Homebrew tap repo
+          repository: kubegraf/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Get version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"  # Remove 'v' prefix
-          fi
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Version: ${VERSION}"
 
       - name: Update formula
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Download checksums
-          curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-amd64.tar.gz.sha256 > darwin-amd64.sha256
-          curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-arm64.tar.gz.sha256 > darwin-arm64.sha256
+          curl -fL https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-amd64.tar.gz.sha256 -o darwin-amd64.sha256 || true
+          curl -fL https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-darwin-arm64.tar.gz.sha256 -o darwin-arm64.sha256 || true
 
-          AMD64_SHA=$(cat darwin-amd64.sha256 | cut -d ' ' -f1)
-          ARM64_SHA=$(cat darwin-arm64.sha256 | cut -d ' ' -f1)
+          AMD64_SHA=$(cut -d ' ' -f1 darwin-amd64.sha256 2>/dev/null || echo "")
+          ARM64_SHA=$(cut -d ' ' -f1 darwin-arm64.sha256 2>/dev/null || echo "")
 
-          # Update formula file
           cat > Formula/kubegraf.rb <<EOF
           class Kubegraf < Formula
             desc "Intelligent Kubernetes Control Center"
@@ -317,9 +283,8 @@ jobs:
           end
           EOF
 
-          # Commit and push
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/kubegraf.rb
           if git diff --cached --quiet; then
             echo "No changes to commit"
@@ -328,40 +293,34 @@ jobs:
             git push
           fi
 
-  # Update Scoop manifest (for Windows)
+  # Update Scoop manifest (only if token is configured)
   update-scoop:
     name: Update Scoop Manifest
-    needs: [build-binaries, create-release]
+    needs: upload-to-release
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ secrets.SCOOP_BUCKET_TOKEN != '' }}
     steps:
       - name: Checkout scoop-bucket
         uses: actions/checkout@v4
         with:
-          repository: kubegraf/scoop-bucket  # Your Scoop bucket repo
+          repository: kubegraf/scoop-bucket
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
 
       - name: Get version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"  # Remove 'v' prefix
-          fi
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Version: ${VERSION}"
 
       - name: Update manifest
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Download and calculate hash
-          curl -L https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-windows-amd64.zip > kubegraf.zip
+          curl -fL https://github.com/kubegraf/kubegraf/releases/download/v${VERSION}/kubegraf-windows-amd64.zip -o kubegraf.zip
           HASH=$(sha256sum kubegraf.zip | cut -d ' ' -f1)
 
-          # Update manifest
+          mkdir -p bucket
           cat > bucket/kubegraf.json <<EOF
           {
             "version": "${VERSION}",
@@ -380,9 +339,8 @@ jobs:
           }
           EOF
 
-          # Commit and push
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add bucket/kubegraf.json
           if git diff --cached --quiet; then
             echo "No changes to commit"
