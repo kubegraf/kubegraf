@@ -5,6 +5,12 @@
 #   .\build.ps1 go       # Build Go binary only (requires web\dist to exist)
 #   .\build.ps1 clean    # Remove build artifacts
 #   .\build.ps1 run      # Build and run the server on port 3000
+#
+# FIRST-TIME SETUP (Windows execution policy):
+#   If you see "running scripts is disabled on this system", run ONE of:
+#     powershell -ExecutionPolicy Bypass -File .\build.ps1
+#   Or permanently for your user account (recommended):
+#     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 param([string]$Target = "build")
 
@@ -30,7 +36,7 @@ function Build-Go {
     }
     Write-Host "==> Building Go binary..." -ForegroundColor Cyan
     $env:CGO_ENABLED = "0"
-    go build -ldflags="-s -w" -o $BINARY .
+    go build -ldflags='-s -w' -o $BINARY .
     Write-Host "==> Binary built: .\$BINARY" -ForegroundColor Green
 }
 

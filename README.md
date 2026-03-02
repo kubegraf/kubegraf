@@ -131,6 +131,12 @@ cd kubegraf
 .\build.ps1 run
 ```
 
+> **First-time Windows setup — execution policy**: If you see *"running scripts is disabled on this system"*, run:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+> Or bypass for a single run: `powershell -ExecutionPolicy Bypass -File .\build.ps1`
+
 > **Windows users with Git Bash or WSL** can use `make build` directly instead.
 
 ---
