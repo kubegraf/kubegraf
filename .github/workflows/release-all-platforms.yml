@@ -113,11 +113,10 @@ jobs:
           npm run build
           cd ../..
 
-      - name: Prepare web/dist directory
+      - name: Verify web/dist directory
         run: |
-          mkdir -p web/dist
-          cp -r ui/solid/dist/* web/dist/
-          echo "Web UI files copied to web/dist"
+          # Vite outDir is ../../web/dist — npm run build outputs here directly
+          echo "Contents of web/dist:"
           ls -la web/dist/
 
       - name: Build binary
