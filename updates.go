@@ -360,11 +360,8 @@ func extractAndInstallFromTarGz(r io.Reader, execPath, tmpFile string) error {
 			// Install it
 			if runtime.GOOS == "windows" {
 				return performWindowsUpdate(execPath, tmpFile)
-			} else {
-				return performUnixUpdate(execPath, tmpFile)
 			}
-
-			return nil
+			return performUnixUpdate(execPath, tmpFile)
 		}
 	}
 
@@ -444,11 +441,8 @@ func extractAndInstallFromZip(r io.Reader, execPath, tmpFile string) error {
 			// Install it
 			if runtime.GOOS == "windows" {
 				return performWindowsUpdate(execPath, tmpFile)
-			} else {
-				return performUnixUpdate(execPath, tmpFile)
 			}
-
-			return nil
+			return performUnixUpdate(execPath, tmpFile)
 		}
 	}
 

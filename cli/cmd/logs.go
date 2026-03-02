@@ -103,7 +103,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 				}
 				fmt.Print(c.Name)
 			}
-			fmt.Println("\n")
+			fmt.Println()
 		}
 	} else {
 		// Validate that the specified container exists

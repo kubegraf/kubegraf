@@ -26,11 +26,6 @@ type CostRecommendation struct {
 func (c *CostEstimator) GetCostRecommendations(ctx context.Context) ([]CostRecommendation, error) {
 	var recommendations []CostRecommendation
 
-	// Check if clientset is available
-	if c.app == nil || c.app.clientset == nil {
-		return recommendations, fmt.Errorf("cluster not connected")
-	}
-
 	// Get cluster cost data
 	clusterCost, err := c.EstimateClusterCost(ctx)
 	if err != nil {
@@ -171,48 +166,25 @@ func (c *CostEstimator) analyzeIdleResources(ctx context.Context, clusterCost *C
 		return nil
 	}
 
-	// Get idle resources (using the existing method from cost.go)
-	// Note: We'll calculate idle resources inline to avoid circular dependency
-	podList, err := c.app.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	// Get idle resources
+	idleResources, err := c.GetIdleResources(ctx, "", 0.2, 0.2)
 	if err != nil {
 		return nil
 	}
 
-	// Count resources with low utilization
-	idleCount := 0
-	totalWastedCost := 0.0
-	for _, pod := range podList.Items {
-		var totalCPU, totalMemory float64
-		for _, container := range pod.Spec.Containers {
-			cpu := container.Resources.Requests.Cpu()
-			if cpu.IsZero() {
-				cpu = container.Resources.Limits.Cpu()
-			}
-			mem := container.Resources.Requests.Memory()
-			if mem.IsZero() {
-				mem = container.Resources.Limits.Memory()
-			}
-			totalCPU += float64(cpu.MilliValue()) / 1000
-			totalMemory += float64(mem.Value()) / (1024 * 1024 * 1024)
-		}
-
-		// Simple heuristic: if resources are very small, consider them potentially idle
-		// This is a simplified check - the full idle resource detection is in cost.go
-		if totalCPU < 0.1 && totalMemory < 0.5 {
-			idleCount++
-			podCost := c.calculateHourlyCost(totalCPU, totalMemory, 0)
-			// Assume 50% could be saved
-			totalWastedCost += podCost * 0.5
-		}
-	}
-
-	if idleCount == 0 {
+	if len(idleResources) == 0 {
 		return nil
 	}
 
-	monthlyWastedCost := totalWastedCost * 730
+	// Calculate total wasted cost (hourly cost of idle resources, extrapolated to monthly)
+	totalWastedCostPerHour := 0.0
+	for _, resource := range idleResources {
+		totalWastedCostPerHour += resource.HourlyCost
+	}
 
-	if monthlyWastedCost > 10 && idleCount > 0 { // Only recommend if significant waste
+	monthlyWastedCost := totalWastedCostPerHour * 730
+
+	if monthlyWastedCost > 10 { // Only recommend if significant waste
 		impact := "medium"
 		if monthlyWastedCost > 200 {
 			impact = "high"
@@ -223,10 +195,10 @@ func (c *CostEstimator) analyzeIdleResources(ctx context.Context, clusterCost *C
 		return &CostRecommendation{
 			Type:        "idle_resources",
 			Title:       "Right-Size Underutilized Resources",
-			Description: fmt.Sprintf("Found %d resources with low utilization. Right-sizing these resources could save approximately $%.2f/month.", idleCount, monthlyWastedCost),
+			Description: fmt.Sprintf("Found %d resources with low utilization. Right-sizing these resources could save approximately $%.2f/month.", len(idleResources), monthlyWastedCost),
 			Impact:      impact,
 			Savings:     monthlyWastedCost,
-			Action:      fmt.Sprintf("Review and adjust resource requests/limits for %d underutilized resources.", idleCount),
+			Action:      fmt.Sprintf("Review and adjust resource requests/limits for %d underutilized resources.", len(idleResources)),
 			Priority:    7, // High priority
 		}
 	}

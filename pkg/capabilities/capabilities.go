@@ -3,14 +3,10 @@
 
 package capabilities
 
-import (
-	"sync"
-)
+import "sync"
 
 // Capabilities represents the feature flags for KubeGraf
 type Capabilities struct {
-	mu sync.RWMutex
-
 	// Incident Intelligence Core (always enabled)
 	IncidentDetection   bool `json:"incidentDetection"`   // Always true - core feature
 	IncidentDiagnosis   bool `json:"incidentDiagnosis"`   // Always true - core feature
