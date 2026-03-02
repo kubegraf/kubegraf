@@ -93,6 +93,70 @@ kubegraf web
 
 For more installation options, see the [Installation Guide](https://kubegraf.io/docs/installation.html).
 
+#### Build from source
+
+No C compiler needed — KubeGraf uses a pure-Go SQLite driver (`CGO_ENABLED=0`).
+
+**Prerequisites:** Go 1.22+, Node 18+, npm 9+
+
+**macOS / Linux**
+```bash
+git clone https://github.com/kubegraf/kubegraf.git
+cd kubegraf
+
+# One-step build (frontend + binary)
+make build
+
+# Or step by step:
+make ui   # builds SolidJS → web/dist/
+make go   # compiles Go binary → ./kubegraf
+
+# Run
+./kubegraf web --port=3000
+```
+
+**Windows (PowerShell)**
+```powershell
+git clone https://github.com/kubegraf/kubegraf.git
+cd kubegraf
+
+# One-step build
+.\build.ps1
+
+# Or step by step:
+.\build.ps1 ui   # builds SolidJS → web\dist\
+.\build.ps1 go   # compiles Go binary → .\kubegraf.exe
+
+# Run
+.\build.ps1 run
+```
+
+> **First-time Windows setup — execution policy**: If you see *"running scripts is disabled on this system"*, run:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+> Or bypass for a single run: `powershell -ExecutionPolicy Bypass -File .\build.ps1`
+
+> **Windows users with Git Bash or WSL** can use `make build` directly instead.
+
+---
+
+## 🔐 Authentication support
+
+KubeGraf registers all standard Kubernetes client-go auth plugins at startup:
+
+| Auth method | Example | Supported |
+|-------------|---------|-----------|
+| Certificate (client cert/key) | Most self-hosted clusters | ✅ |
+| Bearer token | Service accounts | ✅ |
+| OIDC | EKS + OIDC, Dex, Keycloak | ✅ |
+| GKE / GCP | `auth-provider: name: gcp` | ✅ |
+| Azure | `auth-provider: name: azure` | ✅ |
+| AWS IAM (`exec`) | `aws-iam-authenticator`, `kubelogin` | ✅ |
+| Generic `exec` | Any credential plugin | ✅ |
+
+> **Enterprise clusters using OIDC**: Works out of the box. No extra flags or environment variables needed.
+
 ---
 
 ## 🔥 Key Features

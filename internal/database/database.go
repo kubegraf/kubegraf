@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO required)
 )
 
 // Database provides encrypted storage for credentials and sessions
@@ -86,7 +86,7 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 	// busy_timeout: Wait up to 5 seconds for locks (prevents "database is locked" errors)
 	// foreign_keys: Enable foreign key constraints for data integrity
 	// synchronous: NORMAL mode balances safety and performance
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -308,6 +308,32 @@ func (d *Database) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitored_events_namespace ON monitored_events(namespace);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_timestamp ON log_errors(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_status_code ON log_errors(status_code);
+	CREATE TABLE IF NOT EXISTS graph_snapshots (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		snapshot_at DATETIME NOT NULL,
+		node_count INTEGER NOT NULL DEFAULT 0,
+		edge_count INTEGER NOT NULL DEFAULT 0,
+		context_name TEXT NOT NULL DEFAULT '',
+		data_json TEXT NOT NULL DEFAULT '{}'
+	);
+	CREATE INDEX IF NOT EXISTS idx_graph_snapshots_snapshot_at ON graph_snapshots(snapshot_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_graph_snapshots_context ON graph_snapshots(context_name);
+
+	CREATE TABLE IF NOT EXISTS remediation_decisions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		decided_at DATETIME NOT NULL,
+		root_cause TEXT NOT NULL DEFAULT '',
+		affected_node TEXT NOT NULL DEFAULT '',
+		pattern_matched TEXT NOT NULL DEFAULT '',
+		confidence REAL NOT NULL DEFAULT 0.0,
+		decision TEXT NOT NULL DEFAULT 'pending',
+		decided_by TEXT NOT NULL DEFAULT 'user',
+		notes TEXT NOT NULL DEFAULT '',
+		context_name TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_remediation_decisions_at ON remediation_decisions(decided_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_remediation_decisions_context ON remediation_decisions(context_name);
+
 	CREATE INDEX IF NOT EXISTS idx_log_errors_namespace ON log_errors(namespace);
 	CREATE INDEX IF NOT EXISTS idx_log_errors_method ON log_errors(method);
 	CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
@@ -350,6 +376,96 @@ func (d *Database) migrateSchema() error {
 	}
 
 	return nil
+}
+
+// SaveGraphSnapshot persists a topology graph snapshot to the database.
+// It keeps the most recent 288 snapshots per context (24h at 5-min intervals).
+func (d *Database) SaveGraphSnapshot(contextName string, nodeCount, edgeCount int, dataJSON string) error {
+	if !d.enabled || d.db == nil {
+		return nil
+	}
+	_, err := d.db.Exec(
+		`INSERT INTO graph_snapshots (snapshot_at, node_count, edge_count, context_name, data_json)
+		 VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+		nodeCount, edgeCount, contextName, dataJSON,
+	)
+	if err != nil {
+		return err
+	}
+	// Prune old snapshots: keep last 288 per context
+	_, _ = d.db.Exec(
+		`DELETE FROM graph_snapshots WHERE context_name = ? AND id NOT IN (
+			SELECT id FROM graph_snapshots WHERE context_name = ?
+			ORDER BY snapshot_at DESC LIMIT 288
+		)`,
+		contextName, contextName,
+	)
+	return nil
+}
+
+// RemediationDecision records a human approve/reject decision on a graph incident.
+type RemediationDecision struct {
+	ID             int       `json:"id"`
+	DecidedAt      time.Time `json:"decided_at"`
+	RootCause      string    `json:"root_cause"`
+	AffectedNode   string    `json:"affected_node"`
+	PatternMatched string    `json:"pattern_matched"`
+	Confidence     float64   `json:"confidence"`
+	Decision       string    `json:"decision"` // "approved" | "rejected"
+	DecidedBy      string    `json:"decided_by"`
+	Notes          string    `json:"notes"`
+	ContextName    string    `json:"context_name"`
+}
+
+// SaveRemediationDecision persists an approve/reject decision from the Incidents tab UI.
+func (d *Database) SaveRemediationDecision(rec RemediationDecision) error {
+	if !d.enabled || d.db == nil {
+		return nil
+	}
+	_, err := d.db.Exec(
+		`INSERT INTO remediation_decisions
+		 (decided_at, root_cause, affected_node, pattern_matched, confidence, decision, decided_by, notes, context_name)
+		 VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.RootCause, rec.AffectedNode, rec.PatternMatched, rec.Confidence,
+		rec.Decision, rec.DecidedBy, rec.Notes, rec.ContextName,
+	)
+	return err
+}
+
+// ListRemediationDecisions returns the most recent remediation decisions for a context.
+func (d *Database) ListRemediationDecisions(contextName string, limit int) ([]RemediationDecision, error) {
+	if !d.enabled || d.db == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := d.db.Query(
+		`SELECT id, decided_at, root_cause, affected_node, pattern_matched, confidence,
+		        decision, decided_by, notes, context_name
+		 FROM remediation_decisions
+		 WHERE context_name = ?
+		 ORDER BY decided_at DESC LIMIT ?`,
+		contextName, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []RemediationDecision
+	for rows.Next() {
+		var rec RemediationDecision
+		if err := rows.Scan(
+			&rec.ID, &rec.DecidedAt, &rec.RootCause, &rec.AffectedNode,
+			&rec.PatternMatched, &rec.Confidence, &rec.Decision,
+			&rec.DecidedBy, &rec.Notes, &rec.ContextName,
+		); err != nil {
+			continue
+		}
+		results = append(results, rec)
+	}
+	return results, nil
 }
 
 // Encrypt encrypts data using AES-256-GCM
@@ -732,7 +848,7 @@ func (d *Database) Backup(backupPath string) error {
 	}
 
 	// Verify backup integrity
-	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
+	backupDB, err := sql.Open("sqlite", backupPath+"?_journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("open backup for verification: %w", err)
 	}
@@ -776,7 +892,7 @@ func (d *Database) fileCopyBackup(backupPath string) error {
 // WARNING: This will overwrite the current database
 func (d *Database) RestoreFromBackup(backupPath, dbPath string) error {
 	// Verify backup integrity first
-	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
+	backupDB, err := sql.Open("sqlite", backupPath+"?_journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("open backup database: %w", err)
 	}
@@ -817,7 +933,7 @@ func (d *Database) RestoreFromBackup(backupPath, dbPath string) error {
 	}
 
 	// Reopen database
-	newDB, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
+	newDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
 	if err != nil {
 		return fmt.Errorf("reopen database: %w", err)
 	}

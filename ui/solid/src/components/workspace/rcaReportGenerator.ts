@@ -524,29 +524,184 @@ export class RCAReportGenerator {
     }
   }
 
+  /**
+   * Open a print-ready HTML in a new window and trigger the browser print dialog.
+   * The user can "Save as PDF" from there — works in all major browsers.
+   */
+  static printAsPDF(report: RCAReport): void {
+    const html = this.exportAsPrintHTML(report);
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) {
+      // Popup blocked — fall back to blob download of the HTML
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `RCA-${report.metadata.reportId}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    // Give browser time to render fonts before triggering print
+    win.onload = () => { setTimeout(() => win.print(), 400); };
+    // Fallback if onload doesn't fire (e.g. same-origin blob)
+    setTimeout(() => { try { win.print(); } catch { /* already printed */ } }, 800);
+  }
+
   private static exportAsHTML(report: RCAReport): string {
-    // Convert markdown to HTML (simplified version)
-    const markdown = this.exportAsMarkdown(report);
+    return this.exportAsPrintHTML(report);
+  }
+
+  /** Generates a fully self-contained, print-ready HTML document. */
+  private static exportAsPrintHTML(report: RCAReport): string {
+    const md = report;
+    const sevColor =
+      md.metadata.severity === 'critical' ? '#DC2626' :
+      md.metadata.severity === 'high' ? '#EA580C' :
+      md.metadata.severity === 'medium' ? '#CA8A04' : '#16A34A';
+
+    const factRow = (label: string, value: string) =>
+      `<tr><td class="fact-label">${label}</td><td class="fact-value">${value}</td></tr>`;
+
+    const step = (n: number, title: string, desc: string) =>
+      `<div class="step"><div class="step-num">${n}</div><div class="step-body"><div class="step-title">${title}</div><div class="step-desc">${this.h(desc)}</div></div></div>`;
+
+    const rec = (r: Recommendation, i: number) =>
+      `<div class="rec-row"><span class="rec-pri ${r.priority}">${r.priority.toUpperCase()}</span><div><div class="rec-cat">${this.h(r.category)}</div><div class="rec-text">${this.h(r.recommendation)}</div><div class="rec-rat">${this.h(r.rationale)}</div></div></div>`;
 
     return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>RCA Report - ${report.metadata.reportId}</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; line-height: 1.6; }
-    h1 { color: #4F46E5; border-bottom: 3px solid #4F46E5; padding-bottom: 10px; }
-    h2 { color: #6366F1; margin-top: 30px; }
-    h3 { color: #818CF8; }
-    pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
-    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
-    .metadata { background: #EEF2FF; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-    ul { margin-left: 20px; }
-  </style>
+<meta charset="UTF-8">
+<title>RCA — ${report.metadata.reportId}</title>
+<style>
+  @media print {
+    @page { margin: 18mm 16mm; size: A4; }
+    .no-print { display: none !important; }
+    body { font-size: 11pt; }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #111; background: #fff; max-width: 860px; margin: 0 auto; padding: 32px 24px; line-height: 1.55; }
+  /* ── Header ── */
+  .rca-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid ${sevColor}; padding-bottom: 12px; margin-bottom: 22px; }
+  .rca-title { font-size: 22pt; font-weight: 700; color: #0f172a; }
+  .rca-sev { display: inline-block; background: ${sevColor}; color: #fff; font-size: 10pt; font-weight: 700; padding: 3px 12px; border-radius: 4px; letter-spacing: .04em; margin-top: 6px; }
+  .rca-meta { text-align: right; font-size: 9pt; color: #64748b; line-height: 1.8; }
+  .rca-id { font-family: monospace; font-weight: 700; font-size: 10pt; color: #374151; }
+  /* ── Sections ── */
+  h2 { font-size: 13pt; font-weight: 700; color: ${sevColor}; margin: 24px 0 10px; padding-bottom: 4px; border-bottom: 1px solid #e2e8f0; }
+  h3 { font-size: 11pt; font-weight: 600; color: #1e293b; margin: 14px 0 6px; }
+  p { margin-bottom: 8px; }
+  /* ── Fact table ── */
+  .fact-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  .fact-table tr { border-bottom: 1px solid #f1f5f9; }
+  .fact-label { width: 28%; font-size: 9pt; color: #64748b; text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px 6px 0; vertical-align: top; }
+  .fact-value { font-size: 10.5pt; color: #0f172a; padding: 6px 0; }
+  /* ── Timeline ── */
+  .tl-row { display: flex; gap: 12px; padding: 5px 0; font-size: 10pt; }
+  .tl-time { min-width: 130px; color: #64748b; font-family: monospace; font-size: 9pt; }
+  .tl-icon { flex-shrink: 0; }
+  .tl-text { color: #1e293b; }
+  /* ── Steps ── */
+  .step { display: flex; gap: 12px; margin-bottom: 10px; align-items: flex-start; }
+  .step-num { width: 24px; height: 24px; background: ${sevColor}; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9pt; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .step-title { font-weight: 600; font-size: 10.5pt; color: #1e293b; }
+  .step-desc { font-size: 10pt; color: #475569; margin-top: 2px; }
+  /* ── Recommendations ── */
+  .rec-row { display: flex; gap: 10px; margin-bottom: 8px; align-items: flex-start; }
+  .rec-pri { flex-shrink: 0; font-size: 8pt; font-weight: 700; padding: 2px 7px; border-radius: 3px; margin-top: 2px; letter-spacing: .04em; }
+  .rec-pri.high { background: #fee2e2; color: #b91c1c; }
+  .rec-pri.medium { background: #fef3c7; color: #92400e; }
+  .rec-pri.low { background: #dcfce7; color: #166534; }
+  .rec-cat { font-weight: 600; font-size: 10pt; color: #1e293b; }
+  .rec-text { font-size: 10pt; color: #374151; }
+  .rec-rat { font-size: 9pt; color: #64748b; margin-top: 2px; }
+  /* ── Confidence bar ── */
+  .conf-bar-bg { background: #e2e8f0; border-radius: 3px; height: 6px; width: 100%; margin-top: 4px; }
+  .conf-bar-fill { background: ${sevColor}; border-radius: 3px; height: 6px; }
+  /* ── Footer ── */
+  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 8.5pt; color: #94a3b8; text-align: center; }
+  /* ── Print button ── */
+  .print-btn { no-print; position: fixed; top: 16px; right: 16px; background: ${sevColor}; color: #fff; border: none; padding: 9px 18px; border-radius: 6px; cursor: pointer; font-size: 11pt; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+</style>
 </head>
 <body>
-  <pre>${markdown.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+
+<button class="print-btn no-print" onclick="window.print()">⬇ Save as PDF</button>
+
+<div class="rca-header">
+  <div>
+    <div class="rca-title">Root Cause Analysis</div>
+    <div class="rca-sev">${md.metadata.severity.toUpperCase()}</div>
+  </div>
+  <div class="rca-meta">
+    <div class="rca-id">${md.metadata.reportId}</div>
+    <div>Generated: ${md.metadata.generatedAt.toLocaleString()}</div>
+    <div>By: ${md.metadata.generatedBy}</div>
+    <div>Duration: ${md.metadata.duration}</div>
+    <div>Status: ${md.metadata.status}</div>
+  </div>
+</div>
+
+<h2>Executive Summary</h2>
+<p>${this.h(md.executiveSummary)}</p>
+
+<h2>Incident Details</h2>
+<table class="fact-table">
+  ${factRow('Incident ID', md.metadata.incidentId)}
+  ${factRow('Severity', `<strong style="color:${sevColor}">${md.metadata.severity.toUpperCase()}</strong>`)}
+  ${factRow('Duration', md.metadata.duration)}
+  ${factRow('Status', md.metadata.status)}
+  ${factRow('Affected Resource', md.impactAssessment.affectedResources.join(', '))}
+  ${factRow('Estimated Downtime', md.impactAssessment.estimatedDowntime)}
+</table>
+
+<h2>Incident Timeline</h2>
+${md.incidentTimeline.map(e => `<div class="tl-row"><div class="tl-time">${new Date(e.timestamp).toLocaleString()}</div><div class="tl-icon">${this.getTimelineIcon(e.type)}</div><div class="tl-text">${this.h(e.event)}</div></div>`).join('')}
+
+<h2>Root Cause Analysis</h2>
+<h3>Primary Cause</h3>
+<p>${this.h(md.rootCauseAnalysis.primaryCause)}</p>
+${md.rootCauseAnalysis.contributingFactors.length > 0 ? `
+<h3>Contributing Factors</h3>
+<ul style="margin:0 0 10px 20px">${md.rootCauseAnalysis.contributingFactors.map(f => `<li style="margin-bottom:4px">${this.h(f)}</li>`).join('')}</ul>
+` : ''}
+<h3>Technical Details</h3>
+<p>${this.h(md.rootCauseAnalysis.technicalDetails)}</p>
+<div style="margin-top:6px"><span style="font-size:9pt;color:#64748b">Confidence: ${md.rootCauseAnalysis.confidenceLevel}%</span>
+<div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${md.rootCauseAnalysis.confidenceLevel}%"></div></div></div>
+
+<h2>Impact Assessment</h2>
+<table class="fact-table">
+  ${factRow('Affected Resources', md.impactAssessment.affectedResources.join('<br>'))}
+  ${factRow('User Impact', md.impactAssessment.userImpact)}
+  ${factRow('Business Impact', md.impactAssessment.businessImpact)}
+  ${factRow('Estimated Downtime', md.impactAssessment.estimatedDowntime)}
+</table>
+
+<h2>Resolution Steps</h2>
+${md.resolutionSteps.map((s, i) => step(i + 1, s.action, s.result)).join('')}
+
+<h2>Recommendations</h2>
+${md.recommendations.map((r, i) => rec(r, i)).join('')}
+
+${md.supportingEvidence.logs.length > 0 ? `
+<h2>Supporting Evidence</h2>
+<pre style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:9pt;overflow-x:auto;white-space:pre-wrap">${md.supportingEvidence.logs.slice(0, 15).map(l => this.h(l)).join('\n')}</pre>
+` : ''}
+
+<div class="footer">
+  Generated by KubeGraf Incident Intelligence · ${md.metadata.generatedAt.toLocaleDateString()}
+</div>
+
 </body>
 </html>`;
+  }
+
+  /** HTML-escape a string */
+  private static h(s: string): string {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 }

@@ -8,8 +8,8 @@ import { currentContext } from '../../stores/cluster';
 
 interface ContextNavigatorProps {
   incidents: Incident[];
-  currentIndex: number;
-  onSelectIncident: (index: number) => void;
+  selectedId: string | null;
+  onSelectIncident: (id: string) => void;
   onFilterChange?: (filters: FilterState) => void;
 }
 
@@ -43,13 +43,53 @@ function sevOrder(inc: Incident): number {
   }
 }
 
+// Kind grouping: workloads vs networking
+function kindGroup(kind: string | undefined): 'workload' | 'service' | 'other' {
+  switch (kind) {
+    case 'Pod':
+    case 'Deployment':
+    case 'StatefulSet':
+    case 'DaemonSet':
+    case 'Job':
+    case 'CronJob':
+    case 'ReplicaSet':
+      return 'workload';
+    case 'Service':
+      return 'service';
+    default:
+      return 'other';
+  }
+}
+
+// Visual kind badge color
+function kindColor(kind: string | undefined): string {
+  switch (kind) {
+    case 'Deployment':   return '#3B82F6'; // blue
+    case 'StatefulSet':  return '#0891B2'; // cyan
+    case 'DaemonSet':    return '#0D9488'; // teal
+    case 'Pod':          return '#7C3AED'; // purple
+    case 'Service':      return '#EA580C'; // orange
+    case 'Job':
+    case 'CronJob':      return '#CA8A04'; // amber
+    default:             return 'var(--t5)';
+  }
+}
+
 const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [activeSeverity, setActiveSeverity] = createSignal<string | null>(null);
+  const [activeKind, setActiveKind] = createSignal<'all' | 'workloads'>('all');
 
-  // SLO derived from real (non-demo) incidents only
+  // Actionable incidents — real, non-demo, non-service
+  // Service incidents (NO_READY_ENDPOINTS etc.) are symptoms of workload failures;
+  // the fix is always on the backing Deployment/Pod, never on the Service itself.
+  const actionableIncidents = createMemo(() =>
+    props.incidents.filter(i => !i.metadata?.['is_demo'] && kindGroup(i.resource?.kind) !== 'service')
+  );
+
+  // SLO derived from actionable incidents only
   const sloData = createMemo(() => {
-    const real = props.incidents.filter(i => !i.metadata?.['is_demo']);
+    const real = actionableIncidents();
     const critCount = real.filter(i => i.severity === 'critical').length;
     const total = real.length;
     const errorRate = total > 0 ? Math.min(100, (critCount / total) * 100) : 0;
@@ -75,10 +115,10 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
     ];
   });
 
-  // Counts for health chips — real incidents only
+  // Counts for health chips — actionable incidents only (no Services)
   const counts = createMemo(() => {
     const c = { critical: 0, high: 0, ok: 0 };
-    props.incidents.filter(i => !i.metadata?.['is_demo']).forEach((i) => {
+    actionableIncidents().forEach((i) => {
       if (i.severity === 'critical') c.critical++;
       else if (i.severity === 'high') c.high++;
       else c.ok++;
@@ -86,8 +126,19 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
     return c;
   });
 
+  // Build a stable ID-to-index map so selection doesn't drift when list refreshes
+  const idToIndex = createMemo(() => {
+    const m = new Map<string, number>();
+    props.incidents.forEach((inc, idx) => {
+      if (inc.id) m.set(inc.id, idx);
+    });
+    return m;
+  });
+
   const filteredIncidents = createMemo(() => {
     let list = [...props.incidents];
+
+    // Text search
     const q = searchQuery().toLowerCase();
     if (q) {
       list = list.filter(
@@ -98,15 +149,30 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
           i.resource?.namespace?.toLowerCase().includes(q)
       );
     }
+
+    // Severity filter
     const sev = activeSeverity();
     if (sev) {
       list = list.filter((i) => i.severity === sev);
     }
+
+    // Always exclude Services — their incidents are workload symptoms, not actionable on their own
+    list = list.filter(i => kindGroup(i.resource?.kind) !== 'service');
+
+    // Kind filter — workloads-only tab further narrows to Pod/Deployment/StatefulSet etc.
+    if (activeKind() === 'workloads') {
+      list = list.filter(i => kindGroup(i.resource?.kind) === 'workload');
+    }
+
+    // Stable sort: severity → firstSeen (desc) → id (tiebreaker, alphabetic)
     list.sort((a, b) => {
       const so = sevOrder(a) - sevOrder(b);
       if (so !== 0) return so;
-      return new Date(b.firstSeen || 0).getTime() - new Date(a.firstSeen || 0).getTime();
+      const td = new Date(b.firstSeen || 0).getTime() - new Date(a.firstSeen || 0).getTime();
+      if (td !== 0) return td;
+      return (a.id || '').localeCompare(b.id || '');
     });
+
     return list;
   });
 
@@ -119,7 +185,8 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
     const map = new Map<string, { incident: Incident; originalIndex: number }[]>();
     realIncidents().forEach((inc) => {
       const ns = inc.resource?.namespace || 'default';
-      const origIdx = props.incidents.indexOf(inc);
+      // Use ID-based lookup for stable index resolution
+      const origIdx = inc.id ? (idToIndex().get(inc.id) ?? props.incidents.indexOf(inc)) : props.incidents.indexOf(inc);
       if (!map.has(ns)) map.set(ns, []);
       map.get(ns)!.push({ incident: inc, originalIndex: origIdx });
     });
@@ -151,21 +218,29 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
     }
   };
 
+  // Kind counts for filter tabs — Services excluded from both counts
+  const kindCounts = createMemo(() => {
+    const real = actionableIncidents();
+    return {
+      all: real.length,
+      workloads: real.filter(i => kindGroup(i.resource?.kind) === 'workload').length,
+    };
+  });
+
   return (
     <aside class="sidebar" role="navigation" aria-label="Incident list">
       {/* Cluster selector */}
       <div class="sb-head">
         <div class="cluster-sel">
           <div class="live-dot" />
-          <span class="cluster-name">{currentContext() || 'prod-cluster-01'}</span>
-
+          <span class="cluster-name" title={currentContext() || 'prod-cluster-01'}>{currentContext() || 'prod-cluster-01'}</span>
           <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="sb-search">
           <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
             class="sb-input"
-            placeholder="Filter services..."
+            placeholder="Filter incidents..."
             value={searchQuery()}
             onInput={(e) => {
               setSearchQuery(e.currentTarget.value);
@@ -211,18 +286,44 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
       {/* Health chips */}
       <div class="sb-head" style={{ padding: '8px 12px' }}>
         <div class="health-chips">
-          <div class={`hchip crit ${activeSeverity() === 'critical' ? '' : ''}`} onClick={() => handleChipClick('critical')} style={{ cursor: 'pointer' }}>
+          <div class={`hchip crit${activeSeverity() === 'critical' ? ' active' : ''}`} onClick={() => handleChipClick('critical')} style={{ cursor: 'pointer' }}>
             <div class="hchip-dot" />
             {counts().critical} Critical
           </div>
-          <div class="hchip warn" onClick={() => handleChipClick('high')} style={{ cursor: 'pointer' }}>
+          <div class={`hchip warn${activeSeverity() === 'high' ? ' active' : ''}`} onClick={() => handleChipClick('high')} style={{ cursor: 'pointer' }}>
             <div class="hchip-dot" />
             {counts().high} Warn
           </div>
-          <div class="hchip ok" onClick={() => handleChipClick(null)} style={{ cursor: 'pointer' }}>
+          <div class={`hchip ok${activeSeverity() === null && !activeSeverity() ? '' : ''}`} onClick={() => handleChipClick(null)} style={{ cursor: 'pointer' }}>
             <div class="hchip-dot" />
             {counts().ok} OK
           </div>
+        </div>
+      </div>
+
+      {/* Kind filter tabs — All vs Workloads only */}
+      <div class="sb-head" style={{ padding: '0 12px', 'border-bottom': '1px solid var(--b1)' }}>
+        <div style={{ display: 'flex', gap: '0' }}>
+          {(['all', 'workloads'] as const).map(k => (
+            <button
+              style={{
+                flex: '1',
+                padding: '6px 4px',
+                'font-size': '9.5px',
+                'font-weight': '600',
+                background: 'none',
+                border: 'none',
+                'border-bottom': `2px solid ${activeKind() === k ? 'var(--brand)' : 'transparent'}`,
+                color: activeKind() === k ? 'var(--brand)' : 'var(--t4)',
+                cursor: 'pointer',
+                transition: 'all .15s',
+                'text-align': 'center',
+              }}
+              onClick={() => setActiveKind(k)}
+            >
+              {k === 'all' ? `All (${kindCounts().all})` : `Workloads (${kindCounts().workloads})`}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -237,25 +338,29 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
               </div>
               <For each={items}>
                 {(item) => {
-                  const isSelected = item.originalIndex === props.currentIndex;
+                  const isSelected = () => item.incident.id === props.selectedId;
                   const dotClass = getStatusDot(item.incident);
                   const nameClass = getNameClass(item.incident);
                   const restarts = item.incident.occurrences || 0;
+                  const kind = item.incident.resource?.kind;
+                  const kColor = kindColor(kind);
                   return (
                     <div
-                      class={`svc-row${isSelected ? ' sel' : ''}`}
-                      onClick={() => props.onSelectIncident(item.originalIndex)}
+                      class={`svc-row${isSelected() ? ' sel' : ''}`}
+                      onClick={() => item.incident.id && props.onSelectIncident(item.incident.id)}
                     >
                       <div class="svc-tree-line">
                         <div class={`status-dot ${dotClass}`} style={{ 'margin-top': '11px' }} />
                       </div>
                       <div class="svc-inner">
-                        <span class={nameClass}>
+                        <span class={nameClass} style={{ flex: '1', 'min-width': '0', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>
                           {item.incident.resource?.name || item.incident.title || 'unknown'}
                         </span>
-                        <span class="svc-kind">{item.incident.resource?.kind || 'Deploy'}</span>
+                        <span class="svc-kind" style={{ color: kColor, 'flex-shrink': '0', 'font-size': '8.5px', 'font-weight': '700', 'text-transform': 'uppercase', 'letter-spacing': '.3px' }}>
+                          {kind || 'Deploy'}
+                        </span>
                         <Show when={restarts > 1}>
-                          <span class="svc-restarts">{restarts}x</span>
+                          <span class="svc-restarts" style={{ 'flex-shrink': '0' }}>{restarts}x</span>
                         </Show>
                       </div>
                     </div>
@@ -286,22 +391,21 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
           </div>
           <For each={demoIncidents()}>
             {(inc) => {
-              const origIdx = props.incidents.indexOf(inc);
-              const isSelected = origIdx === props.currentIndex;
+              const isSelected = () => inc.id === props.selectedId;
               const dotClass = getStatusDot(inc);
               const nameClass = getNameClass(inc);
               const restarts = inc.occurrences || 0;
               return (
                 <div
-                  class={`svc-row${isSelected ? ' sel' : ''}`}
+                  class={`svc-row${isSelected() ? ' sel' : ''}`}
                   style={{ opacity: '0.75' }}
-                  onClick={() => props.onSelectIncident(origIdx)}
+                  onClick={() => inc.id && props.onSelectIncident(inc.id)}
                 >
                   <div class="svc-tree-line">
                     <div class={`status-dot ${dotClass}`} style={{ 'margin-top': '11px' }} />
                   </div>
                   <div class="svc-inner">
-                    <span class={nameClass}>
+                    <span class={nameClass} style={{ flex: '1', 'min-width': '0', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>
                       {inc.resource?.name || inc.title || 'unknown'}
                     </span>
                     <span class="svc-kind" style={{ color: '#7C3AED', 'font-size': '8.5px' }}>DEMO</span>
@@ -315,6 +419,7 @@ const ContextNavigator: Component<ContextNavigatorProps> = (props) => {
           </For>
         </Show>
       </div>
+
     </aside>
   );
 };

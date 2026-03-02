@@ -1653,7 +1653,7 @@ const Deployments: Component = () => {
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = '';
-                      e.currentTarget.style.borderColor = 'var(--error-color)';
+                      e.currentTarget.style.borderColor = 'var(--border-color)';
                     }}
                     style={{ color: 'var(--error-color)', border: '1px solid var(--error-color)' }}
                     title="Delete"

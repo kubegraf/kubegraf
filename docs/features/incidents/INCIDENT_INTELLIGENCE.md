@@ -1058,6 +1058,57 @@ The UI can show a subtle loading indicator while `scanInProgress` is true, witho
 
 ---
 
+## Workspace Incident Detail (Sidebar + Panel UI)
+
+In addition to the full-page Incidents view, KubeGraf has an **Incident Intelligence Workspace** — a side-by-side panel UI accessible from the main cluster view. This workspace shows live incidents in a collapsible sidebar alongside a detailed analysis panel.
+
+### Incident Sidebar (ContextNavigator)
+
+The sidebar lists all detected incidents with the following UX guarantees:
+
+- **Stable ordering** — incidents are sorted by severity (critical first), then by `firstSeen` timestamp, then by incident ID as a tiebreaker. This prevents the list from shuffling on every poll.
+- **Filter tabs** — only two tabs are shown: **All** and **Workloads**. Services are excluded to keep the focus on workload health.
+- **Color-coded kind badges** — resource types are color-coded (Deployment = blue, StatefulSet = cyan, Pod = purple).
+- **Search** — filter incidents by name/namespace/resource.
+
+### Incident Detail Panel (IncidentDetail)
+
+Clicking an incident opens a detail panel on the right side. The panel has multiple tabs:
+
+| Tab | Description |
+|---|---|
+| **Fix** | AI-generated remediation steps with kubectl commands |
+| **Topology** | Visual service dependency graph for the affected resource |
+| **Runbook** | Step-by-step operational runbook for the failure pattern |
+| **Chat** | Conversational AI interface to ask follow-up questions about the incident |
+| **Retro** | Post-incident retrospective template pre-filled with incident data |
+
+### AI Fix Panel — Orkas AI + Pattern-Based Fallback
+
+The **Fix** tab calls the built-in incident AI (`POST /api/incident/fix`) and displays `kubectl` commands with:
+
+- **Confidence badge** — percentage confidence in the fix
+- **Risk indicator** — low / medium / high
+- **Copy-to-clipboard** for every command
+
+If the AI provider is unavailable or returns an unparseable response, the panel falls back to **deterministic pattern-based recommendations** automatically. The user sees a `⚙ Pattern-based` badge and a note explaining the fallback — they always get actionable output regardless of AI availability.
+
+#### kubectl Command Display
+
+Commands are rendered in a dark code block that wraps correctly within the panel. Long commands like `kubectl rollout restart deployment/...` do not overflow or clip — they wrap with `word-break: break-all` for copy-paste safety.
+
+### Component Files (Workspace UI)
+
+```
+ui/solid/src/components/workspace/
+├── ContextNavigator.tsx   # Incident sidebar (stable sort, filter tabs, kind badges)
+├── IncidentDetail.tsx     # Detail panel with Fix/Topology/Runbook/Chat/Retro tabs
+├── OrkasAIPanel.tsx       # Embedded AI chat panel (Chat tab content)
+└── workspace.css          # Shared styles (cmd-line, fix-head, etc.)
+```
+
+---
+
 ## Future Improvements
 
 - [x] Custom symptom rules via YAML config
@@ -1074,3 +1125,6 @@ The UI can show a subtle loading indicator while `scanInProgress` is true, witho
 - [x] Log Analysis for Pod incidents
 - [x] Background scanning with 30s cache TTL
 - [x] External dependency detection in logs
+- [x] Workspace sidebar with stable sort and Workloads filter
+- [x] AI fix fallback to pattern-based recommendations
+- [x] Chat tab for conversational incident follow-up

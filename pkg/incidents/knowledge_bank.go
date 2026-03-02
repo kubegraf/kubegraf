@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO required)
 )
 
 // KnowledgeBank stores incident knowledge for learning and pattern recognition
@@ -103,7 +103,7 @@ func NewKnowledgeBank(dataDir string) (*KnowledgeBank, error) {
 	dbPath := filepath.Join(dataDir, "knowledge.db")
 	// Use WAL mode and busy_timeout for better concurrent access
 	// This allows CLI reads while web UI writes without blocking
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

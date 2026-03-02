@@ -76,13 +76,17 @@ func Analyze(evidence *Evidence) *Diagnosis {
 	}
 
 	// Default: Unknown issue
+	var defaultEvidence []string
+	if evidence.PodStatus != nil {
+		defaultEvidence = []string{
+			fmt.Sprintf("Pod phase: %s", evidence.PodStatus.Phase),
+			fmt.Sprintf("Pod reason: %s", evidence.PodStatus.Reason),
+		}
+	}
 	return &Diagnosis{
 		Title:      "Unknown issue - requires manual investigation",
 		Confidence: ConfidenceLow,
-		Evidence: []string{
-			fmt.Sprintf("Pod phase: %s", evidence.PodStatus.Phase),
-			fmt.Sprintf("Pod reason: %s", evidence.PodStatus.Reason),
-		},
+		Evidence:   defaultEvidence,
 		Recommendations: []string{
 			"Review pod events for more details",
 			"Check pod logs for application errors",

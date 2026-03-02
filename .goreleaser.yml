@@ -25,6 +25,7 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
+      - -X github.com/kubegraf/kubegraf/cli/cmd.cliVersion={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 

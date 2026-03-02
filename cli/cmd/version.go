@@ -46,10 +46,10 @@ func init() {
 }
 
 // cliVersion is the version string for the CLI command
-// This should be set via ldflags: -ldflags "-X github.com/kubegraf/kubegraf/cmd/cli.cliVersion=1.7.54"
+// This should be set via ldflags: -ldflags "-X github.com/kubegraf/kubegraf/cmd/cli.cliVersion=1.7.60"
 // If not set, it defaults to the same version as main.version
-// For consistency, use the same version as main: -ldflags "-X main.version=1.7.54 -X github.com/kubegraf/kubegraf/cmd/cli.cliVersion=1.7.54"
-var cliVersion = "1.7.54" // Default matches version.go Version constant
+// For consistency, use the same version as main: -ldflags "-X main.version=1.7.60 -X github.com/kubegraf/kubegraf/cmd/cli.cliVersion=1.7.60"
+var cliVersion = "1.7.60" // Default matches version.go Version constant
 
 // getVersionString returns the version string
 func getVersionString() string {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -24,20 +25,37 @@ type AIProvider interface {
 	IsAvailable() bool
 }
 
-// AIConfig holds AI configuration
+// AIConfig holds AI configuration.
+//
+// Provider priority (highest → lowest):
+//   1. Orkas AI Cloud  — set ORKAS_API_KEY (future hosted service, zero user setup)
+//   2. Anthropic Claude — set ANTHROPIC_API_KEY
+//   3. OpenAI           — set OPENAI_API_KEY
+//   4. Ollama local     — auto-detects any installed model, no preset required
+//   5. None             — pattern-based fallbacks, no errors shown to user
 type AIConfig struct {
-	Provider            string        // "ollama", "openai", "claude"
-	OllamaURL           string        // Default: http://localhost:11434
-	OllamaModel         string        // Default: auto-detected or llama3.1
-	KeepAlive           time.Duration // Default: 5m - how long to keep model loaded after last request
-	AutoStart           bool          // Default: false - do NOT preload on app startup
-	HealthCheckEndpoint string        // Default: "version" - use /api/version for health checks
-	MaxIdleConns        int           // Default: 2 - max idle connections in HTTP client
-	IdleConnTimeout     time.Duration // Default: 30s - timeout for idle connections
-	OpenAIKey           string
-	OpenAIModel         string // Default: gpt-4o-mini
-	ClaudeKey           string
-	ClaudeModel         string // Default: claude-3-haiku-20240307
+	// Orkas AI Cloud (future primary provider — hosted by the Orkas team)
+	OrkasAPIKey string // env: ORKAS_API_KEY
+	OrkasAPIURL string // env: ORKAS_API_URL  (default: https://api.orkas.ai)
+
+	// Ollama local — model auto-detected from /api/tags, no default baked in
+	OllamaURL   string        // env: KUBEGRAF_OLLAMA_URL  (default: http://127.0.0.1:11434)
+	OllamaModel string        // auto-detected; override via KUBEGRAF_OLLAMA_MODEL
+	KeepAlive   time.Duration // env: KUBEGRAF_AI_KEEP_ALIVE (default: 5m)
+	AutoStart   bool          // env: KUBEGRAF_AI_AUTOSTART  (default: false)
+
+	// HTTP tuning for Ollama
+	HealthCheckEndpoint string
+	MaxIdleConns        int
+	IdleConnTimeout     time.Duration
+
+	// Cloud provider API keys + optional model overrides
+	OpenAIKey   string // env: OPENAI_API_KEY
+	OpenAIModel string // env: KUBEGRAF_OPENAI_MODEL  (default: gpt-4o-mini)
+	ClaudeKey   string // env: ANTHROPIC_API_KEY
+	ClaudeModel string // env: KUBEGRAF_CLAUDE_MODEL  (default: claude-3-haiku-20240307)
+	GeminiKey   string // env: GEMINI_API_KEY
+	GeminiModel string // env: KUBEGRAF_GEMINI_MODEL  (default: gemini-2.0-flash)
 }
 
 // getAvailableOllamaModels fetches the list of available models from Ollama
@@ -80,60 +98,56 @@ func getAvailableOllamaModels(url string) ([]string, error) {
 	return models, nil
 }
 
-// detectOllamaModel attempts to auto-detect an available Ollama model
-// Returns the first available model, or empty string if none found
+// detectOllamaModel returns the first text-generation model found in Ollama.
+// Embedding-only models (nomic-embed-text, all-minilm, etc.) are skipped because
+// they do not support the /api/generate endpoint.
+// No model names or versions are hardcoded — KubeGraf uses whatever is installed.
+// Override with KUBEGRAF_OLLAMA_MODEL if you want a specific model.
 func detectOllamaModel(url string) string {
 	models, err := getAvailableOllamaModels(url)
 	if err != nil || len(models) == 0 {
 		return ""
 	}
 
-	// Prefer llama3.1, llama3.2, or any llama model, otherwise return first available
-	preferredOrder := []string{"llama3.1:latest", "llama3.1", "llama3.2:latest", "llama3.2", "llama3:latest", "llama3"}
-
-	for _, preferred := range preferredOrder {
-		for _, model := range models {
-			if model == preferred {
-				return model
-			}
-		}
+	// Skip models whose names indicate they are embedding-only.
+	// These cannot handle text generation requests.
+	isEmbeddingModel := func(name string) bool {
+		n := strings.ToLower(name)
+		return strings.Contains(n, "embed") ||
+			strings.Contains(n, "minilm") ||
+			strings.Contains(n, "bge-") ||
+			strings.Contains(n, "e5-")
 	}
 
-	// Check for any llama model
-	for _, model := range models {
-		if strings.Contains(strings.ToLower(model), "llama") {
-			return model
+	for _, m := range models {
+		if !isEmbeddingModel(m) {
+			return m
 		}
 	}
-
-	// Return first available model
-	return models[0]
+	return "" // only embedding models installed — cannot generate text
 }
 
-// DefaultAIConfig returns the default AI configuration
+// DefaultAIConfig returns the AI configuration resolved from environment variables.
+// No model names or versions are hardcoded — everything is discovered or configured by the user.
 func DefaultAIConfig() *AIConfig {
 	ollamaURL := getAIEnvOrDefault("KUBEGRAF_OLLAMA_URL", "http://127.0.0.1:11434")
 
-	// Get model from environment, or auto-detect, or use fallback
-	modelFromEnv := os.Getenv("KUBEGRAF_OLLAMA_MODEL")
+	// Ollama model: explicit env var wins; otherwise auto-detect from installed models.
+	// KUBEGRAF_AI_MODEL is kept as a legacy alias.
 	var ollamaModel string
-
-	if modelFromEnv != "" {
-		ollamaModel = modelFromEnv
+	if v := os.Getenv("KUBEGRAF_OLLAMA_MODEL"); v != "" {
+		ollamaModel = v // explicit pin — always honoured
+	} else if v := os.Getenv("KUBEGRAF_AI_MODEL"); v != "" {
+		ollamaModel = v // legacy alias
 	} else {
-		// Try to auto-detect available models (only if AUTOSTART is enabled)
-		// Otherwise, just use fallback to avoid loading models on startup
-		autoStart := getAIEnvBoolOrDefault("KUBEGRAF_AI_AUTOSTART", false)
-		if autoStart {
-			detectedModel := detectOllamaModel(ollamaURL)
-			if detectedModel != "" {
-				ollamaModel = detectedModel
-			} else {
-				ollamaModel = "llama3.1:latest"
-			}
-		} else {
-			// Don't call detectOllamaModel on startup - just use fallback
-			ollamaModel = getAIEnvOrDefault("KUBEGRAF_AI_MODEL", "llama3.1:latest")
+		// Auto-detect: list installed models and pick the first text-generation one.
+		// If multiple models are installed, log them so the user can pin one via
+		// KUBEGRAF_OLLAMA_MODEL (useful when the auto-detected model is too large).
+		allModels, _ := getAvailableOllamaModels(ollamaURL)
+		ollamaModel = detectOllamaModel(ollamaURL)
+		if ollamaModel != "" && len(allModels) > 1 {
+			log.Printf("[AI] Multiple Ollama models found: %v", allModels)
+			log.Printf("[AI] Auto-selected: %s — set KUBEGRAF_OLLAMA_MODEL=<name> to override", ollamaModel)
 		}
 	}
 
@@ -159,8 +173,12 @@ func DefaultAIConfig() *AIConfig {
 		}
 	}
 
-	return &AIConfig{
-		Provider:            "ollama",
+	cfg := &AIConfig{
+		// Orkas AI Cloud — future primary provider
+		OrkasAPIKey: os.Getenv("ORKAS_API_KEY"),
+		OrkasAPIURL: getAIEnvOrDefault("ORKAS_API_URL", "https://api.orkas.ai"),
+
+		// Ollama local
 		OllamaURL:           ollamaURL,
 		OllamaModel:         ollamaModel,
 		KeepAlive:           keepAlive,
@@ -168,11 +186,34 @@ func DefaultAIConfig() *AIConfig {
 		HealthCheckEndpoint: getAIEnvOrDefault("KUBEGRAF_AI_HEALTHCHECK", "version"),
 		MaxIdleConns:        maxIdleConns,
 		IdleConnTimeout:     idleConnTimeout,
-		OpenAIKey:           os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel:         getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
-		ClaudeKey:           os.Getenv("ANTHROPIC_API_KEY"),
-		ClaudeModel:         getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
+
+		// Cloud provider keys + optional model pins
+		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel: getAIEnvOrDefault("KUBEGRAF_OPENAI_MODEL", "gpt-4o-mini"),
+		ClaudeKey:   os.Getenv("ANTHROPIC_API_KEY"),
+		ClaudeModel: getAIEnvOrDefault("KUBEGRAF_CLAUDE_MODEL", "claude-3-haiku-20240307"),
+		GeminiKey:   os.Getenv("GEMINI_API_KEY"),
+		GeminiModel: getAIEnvOrDefault("KUBEGRAF_GEMINI_MODEL", "gemini-2.0-flash"),
 	}
+
+	// Log the active AI backend clearly on startup
+	switch {
+	case cfg.OrkasAPIKey != "":
+		log.Printf("[AI] Provider: Orkas AI Cloud (%s)", cfg.OrkasAPIURL)
+	case cfg.GeminiKey != "":
+		log.Printf("[AI] Provider: Google Gemini (model: %s)", cfg.GeminiModel)
+	case cfg.ClaudeKey != "":
+		log.Printf("[AI] Provider: Anthropic Claude (model: %s)", cfg.ClaudeModel)
+	case cfg.OpenAIKey != "":
+		log.Printf("[AI] Provider: OpenAI (model: %s)", cfg.OpenAIModel)
+	case cfg.OllamaModel != "":
+		log.Printf("[AI] Provider: Ollama local (model: %s @ %s)", cfg.OllamaModel, cfg.OllamaURL)
+	default:
+		log.Printf("[AI] No AI provider active — AI features will use pattern-based fallbacks.")
+		log.Printf("[AI] To enable AI: set GEMINI_API_KEY, ORKAS_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or install Ollama locally.")
+	}
+
+	return cfg
 }
 
 func getAIEnvBoolOrDefault(key string, defaultVal bool) bool {
@@ -197,6 +238,22 @@ type AIAssistant struct {
 	provider AIProvider
 }
 
+// orderedProviders returns providers in priority order:
+//   Orkas Cloud → Claude → OpenAI → Ollama local
+//
+// This ordering means as soon as ORKAS_API_KEY is set, all queries go to
+// the cloud — no local setup required. The order is intentional for the
+// production roadmap: cloud first, local as optional fallback.
+func orderedProviders(config *AIConfig) []AIProvider {
+	return []AIProvider{
+		NewOrkasCloudProvider(config.OrkasAPIKey, config.OrkasAPIURL),
+		NewGeminiProvider(config.GeminiKey, config.GeminiModel),
+		NewClaudeProvider(config.ClaudeKey, config.ClaudeModel),
+		NewOpenAIProvider(config.OpenAIKey, config.OpenAIModel),
+		NewOllamaProvider(config.OllamaURL, config.OllamaModel, config.KeepAlive, config.MaxIdleConns, config.IdleConnTimeout),
+	}
+}
+
 // NewAIAssistant creates a new AI assistant with auto-detection
 func NewAIAssistant(config *AIConfig) *AIAssistant {
 	if config == nil {
@@ -205,25 +262,16 @@ func NewAIAssistant(config *AIConfig) *AIAssistant {
 
 	assistant := &AIAssistant{config: config}
 
-	// Try providers in order: Ollama (local), OpenAI, Claude
-	providers := []AIProvider{
-		NewOllamaProvider(config.OllamaURL, config.OllamaModel, config.KeepAlive, config.MaxIdleConns, config.IdleConnTimeout),
-		NewOpenAIProvider(config.OpenAIKey, config.OpenAIModel),
-		NewClaudeProvider(config.ClaudeKey, config.ClaudeModel),
-	}
-
-	// Select the first available provider
-	// Only check availability if AUTOSTART is enabled, otherwise defer until first query
+	// Eagerly select a provider only if AUTOSTART is enabled (avoids startup latency).
+	// Otherwise deferred to first query (lazy init in IsAvailable / Query).
 	if config.AutoStart {
-		for _, p := range providers {
+		for _, p := range orderedProviders(config) {
 			if p.IsAvailable() {
 				assistant.provider = p
 				break
 			}
 		}
 	}
-	// If AutoStart is false, provider remains nil until first query
-	// This prevents any API calls (including /api/version) on startup
 
 	return assistant
 }
@@ -237,18 +285,9 @@ func (a *AIAssistant) IsAvailable() bool {
 		return true
 	}
 
-	// Lazy check: try to find an available provider and set it
-	// This is safe because health checks use /api/version (doesn't load models)
-	providers := []AIProvider{
-		NewOllamaProvider(a.config.OllamaURL, a.config.OllamaModel, a.config.KeepAlive, a.config.MaxIdleConns, a.config.IdleConnTimeout),
-		NewOpenAIProvider(a.config.OpenAIKey, a.config.OpenAIModel),
-		NewClaudeProvider(a.config.ClaudeKey, a.config.ClaudeModel),
-	}
-
-	for _, p := range providers {
+	// Lazy init: walk providers in priority order, pick first available
+	for _, p := range orderedProviders(a.config) {
 		if p.IsAvailable() {
-			// Set the provider so ProviderName() can return the correct name
-			// This is safe because IsAvailable() only calls /api/version (doesn't load models)
 			a.provider = p
 			return true
 		}
@@ -267,15 +306,9 @@ func (a *AIAssistant) ProviderName() string {
 
 // Query sends a query to the AI provider
 func (a *AIAssistant) Query(ctx context.Context, prompt string) (string, error) {
-	// Lazy initialization - if provider is not set, find one now (only when user makes a query)
+	// Lazy init on first query
 	if a.provider == nil {
-		providers := []AIProvider{
-			NewOllamaProvider(a.config.OllamaURL, a.config.OllamaModel, a.config.KeepAlive, a.config.MaxIdleConns, a.config.IdleConnTimeout),
-			NewOpenAIProvider(a.config.OpenAIKey, a.config.OpenAIModel),
-			NewClaudeProvider(a.config.ClaudeKey, a.config.ClaudeModel),
-		}
-
-		for _, p := range providers {
+		for _, p := range orderedProviders(a.config) {
 			if p.IsAvailable() {
 				a.provider = p
 				break
@@ -429,7 +462,182 @@ func buildOptimizationPrompt(input OptimizationInput) string {
 	return sb.String()
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GeminiProvider — Google Gemini via REST API
+//
+// Set GEMINI_API_KEY to activate. Model defaults to gemini-2.0-flash.
+// Override with KUBEGRAF_GEMINI_MODEL.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type GeminiProvider struct {
+	apiKey string
+	model  string
+	client *http.Client
+}
+
+func NewGeminiProvider(apiKey, model string) *GeminiProvider {
+	if model == "" {
+		model = "gemini-2.0-flash"
+	}
+	return &GeminiProvider{
+		apiKey: apiKey,
+		model:  model,
+		client: &http.Client{Timeout: 60 * time.Second},
+	}
+}
+
+func (g *GeminiProvider) Name() string      { return fmt.Sprintf("gemini (%s)", g.model) }
+func (g *GeminiProvider) IsAvailable() bool { return g.apiKey != "" }
+
+func (g *GeminiProvider) Query(ctx context.Context, prompt string) (string, error) {
+	url := fmt.Sprintf(
+		"https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
+		g.model, g.apiKey,
+	)
+
+	payload := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{"role": "user", "parts": []map[string]string{{"text": prompt}}},
+		},
+		"systemInstruction": map[string]interface{}{
+			"parts": []map[string]string{
+				{"text": "You are a Kubernetes expert SRE assistant. Be concise and practical."},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"temperature":     0.7,
+			"maxOutputTokens": 2048,
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("gemini: marshal failed: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("gemini: request creation failed: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("gemini: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("gemini: status %d: %s", resp.StatusCode, string(b))
+	}
+
+	var result struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("gemini: decode failed: %w", err)
+	}
+	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("gemini: empty response")
+	}
+	return strings.TrimSpace(result.Candidates[0].Content.Parts[0].Text), nil
+}
+
 // OllamaProvider implements the AIProvider interface for Ollama
+// ─────────────────────────────────────────────────────────────────────────────
+// OrkasCloudProvider — Orkas AI hosted service (future primary provider)
+//
+// When ORKAS_API_KEY is set, all AI queries are routed to the Orkas cloud
+// instead of local Ollama or third-party APIs. Users need zero local setup.
+//
+// The request format is OpenAI-compatible so the server-side implementation
+// is straightforward. The client sends a prompt; the cloud picks the best
+// model version transparently — no model name needed on the client side.
+// ─────────────────────────────────────────────────────────────────────────────
+type OrkasCloudProvider struct {
+	apiKey  string
+	baseURL string
+	client  *http.Client
+}
+
+func NewOrkasCloudProvider(apiKey, baseURL string) *OrkasCloudProvider {
+	if baseURL == "" {
+		baseURL = "https://api.orkas.ai"
+	}
+	return &OrkasCloudProvider{
+		apiKey:  apiKey,
+		baseURL: baseURL,
+		client:  &http.Client{Timeout: 90 * time.Second},
+	}
+}
+
+func (o *OrkasCloudProvider) Name() string    { return "Orkas AI" }
+func (o *OrkasCloudProvider) IsAvailable() bool { return o.apiKey != "" }
+
+func (o *OrkasCloudProvider) Query(ctx context.Context, prompt string) (string, error) {
+	payload := map[string]interface{}{
+		"messages": []map[string]string{
+			{"role": "system", "content": "You are a Kubernetes expert SRE assistant. Be concise and practical."},
+			{"role": "user", "content": prompt},
+		},
+		// No "model" field — Orkas cloud selects the best model automatically
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("orkas: marshal failed: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/v1/query", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("orkas: request creation failed: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+o.apiKey)
+	req.Header.Set("User-Agent", "KubeGraf/1.0")
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("orkas: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("orkas: status %d: %s", resp.StatusCode, string(b))
+	}
+
+	// Response is OpenAI-compatible: choices[0].message.content
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		// Also accept a simple {answer: "..."} shape for flexibility
+		Answer string `json:"answer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("orkas: decode failed: %w", err)
+	}
+	if result.Answer != "" {
+		return strings.TrimSpace(result.Answer), nil
+	}
+	if len(result.Choices) > 0 {
+		return strings.TrimSpace(result.Choices[0].Message.Content), nil
+	}
+	return "", fmt.Errorf("orkas: empty response")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 type OllamaProvider struct {
 	url         string
 	model       string

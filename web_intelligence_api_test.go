@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func TestIncidentStory(t *testing.T) {
 
 	// Add a test incident
 	incident := createTestIncident("INC-001", incidents.PatternCrashLoop)
-	ws.incidentIntelligence.manager.AddIncident(incident)
+	ws.incidentIntelligence.manager.InjectIncident(incident)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/workspace/incidents/INC-001/story", nil)
 	w := httptest.NewRecorder()
@@ -91,11 +92,11 @@ func TestRelatedIncidents(t *testing.T) {
 	// Add test incidents
 	incident1 := createTestIncident("INC-001", incidents.PatternCrashLoop)
 	incident2 := createTestIncident("INC-002", incidents.PatternCrashLoop) // Same pattern
-	incident3 := createTestIncident("INC-003", incidents.PatternOOMKilled) // Different pattern
+	incident3 := createTestIncident("INC-003", incidents.PatternOOMPressure) // Different pattern
 
-	ws.incidentIntelligence.manager.AddIncident(incident1)
-	ws.incidentIntelligence.manager.AddIncident(incident2)
-	ws.incidentIntelligence.manager.AddIncident(incident3)
+	ws.incidentIntelligence.manager.InjectIncident(incident1)
+	ws.incidentIntelligence.manager.InjectIncident(incident2)
+	ws.incidentIntelligence.manager.InjectIncident(incident3)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/workspace/incidents/INC-001/related", nil)
 	w := httptest.NewRecorder()
@@ -138,7 +139,7 @@ func TestPredictSuccess(t *testing.T) {
 		Confidence:     0.95,
 		Evidence:       []string{"Config validation failed"},
 	}
-	ws.incidentIntelligence.manager.AddIncident(incident)
+	ws.incidentIntelligence.manager.InjectIncident(incident)
 
 	reqBody := bytes.NewBufferString(`{"fixId":"fix-1"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v2/workspace/incidents/INC-001/predict-success", reqBody)
@@ -192,7 +193,7 @@ func TestExecuteFix(t *testing.T) {
 			},
 		},
 	}
-	ws.incidentIntelligence.manager.AddIncident(incident)
+	ws.incidentIntelligence.manager.InjectIncident(incident)
 
 	// Test preview mode
 	t.Run("Preview Mode", func(t *testing.T) {
@@ -258,7 +259,7 @@ func TestGenerateRCA(t *testing.T) {
 		Confidence:     0.95,
 		Evidence:       []string{"Config validation failed"},
 	}
-	ws.incidentIntelligence.manager.AddIncident(incident)
+	ws.incidentIntelligence.manager.InjectIncident(incident)
 
 	// Test JSON format
 	t.Run("JSON Format", func(t *testing.T) {
@@ -381,9 +382,19 @@ func TestInvalidRequests(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
-			// Route to appropriate handler
-			if tt.path == "/api/v2/workspace/insights" {
+			// Route to appropriate handler based on path
+			switch {
+			case tt.path == "/api/v2/workspace/insights":
 				ws.handleWorkspaceInsights(w, req)
+			case strings.Contains(tt.path, "/story"):
+				// Extract incident ID from path: /api/v2/workspace/incidents/<id>/story
+				parts := strings.Split(tt.path, "/")
+				incID := parts[len(parts)-2]
+				ws.handleIncidentStory(w, req, incID)
+			case strings.Contains(tt.path, "/predict-success"):
+				parts := strings.Split(tt.path, "/")
+				incID := parts[len(parts)-2]
+				ws.handlePredictSuccess(w, req, incID)
 			}
 
 			if w.Code != tt.expectedStatus {
@@ -450,7 +461,7 @@ func BenchmarkWorkspaceInsights(b *testing.B) {
 	// Add 100 test incidents
 	for i := 0; i < 100; i++ {
 		incident := createTestIncident(string(rune(i)), incidents.PatternCrashLoop)
-		ws.incidentIntelligence.manager.AddIncident(incident)
+		ws.incidentIntelligence.manager.InjectIncident(incident)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/workspace/insights", nil)
@@ -469,12 +480,12 @@ func BenchmarkRelatedIncidents(b *testing.B) {
 
 	// Add test incidents
 	incident1 := createTestIncident("INC-001", incidents.PatternCrashLoop)
-	ws.incidentIntelligence.manager.AddIncident(incident1)
+	ws.incidentIntelligence.manager.InjectIncident(incident1)
 
 	// Add 50 related incidents
 	for i := 0; i < 50; i++ {
 		incident := createTestIncident(string(rune(i+2)), incidents.PatternCrashLoop)
-		ws.incidentIntelligence.manager.AddIncident(incident)
+		ws.incidentIntelligence.manager.InjectIncident(incident)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/workspace/incidents/INC-001/related", nil)

@@ -1413,8 +1413,10 @@ func (ws *WebServer) getKnowledgeBank() *incidents.KnowledgeBank {
 }
 
 // RegisterIncidentIntelligenceRoutes registers incident intelligence API routes.
+// It is safe to call multiple times — routes are registered exactly once via sync.Once
+// to avoid the Go 1.22+ ServeMux panic on duplicate pattern registration.
 func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
-	// Create incident intelligence if not exists
+	// Create incident intelligence if not exists (idempotent — checks nil first)
 	if ws.app.incidentIntelligence == nil {
 		ws.app.incidentIntelligence = NewIncidentIntelligence(ws.app)
 		ws.app.incidentIntelligence.Start(ws.app.ctx)
@@ -1422,32 +1424,38 @@ func (ws *WebServer) RegisterIncidentIntelligenceRoutes() {
 		ws.app.incidentIntelligence.StartBackgroundScanner()
 	}
 
-	// Register our custom handler for /api/v2/incidents FIRST (before intelligence routes)
-	// This handler uses IncidentScanner as a fallback when Manager has no incidents
-	http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
-	log.Printf("[Intelligence] Registered /api/v2/incidents with scanner fallback")
+	// Guard: register HTTP routes exactly once. Go 1.22+ ServeMux panics if the
+	// same pattern is registered twice on the same mux (it's an explicit safety
+	// check against silent shadowing). If this function is ever called a second
+	// time (e.g., during hot-reload or test setup), the Once prevents the panic.
+	ws.routesOnce.Do(func() {
+		// Register our custom handler for /api/v2/incidents FIRST (before intelligence routes)
+		// This handler uses IncidentScanner as a fallback when Manager has no incidents
+		http.HandleFunc("/api/v2/incidents", ws.handleIncidentsV2)
+		log.Printf("[Intelligence] Registered /api/v2/incidents with scanner fallback")
 
-	// Register intelligence system API routes (v2) - these will handle sub-paths like /api/v2/incidents/{id}
-	if ws.app.incidentIntelligence != nil && ws.app.incidentIntelligence.intelligenceSys != nil {
-		apiHandler := ws.app.incidentIntelligence.intelligenceSys.GetAPIHandler()
-		if apiHandler != nil {
-			// Inject the kube adapter for log fetching
-			if ws.app.incidentIntelligence.kubeAdapter != nil {
-				apiHandler.SetKubeExecutor(ws.app.incidentIntelligence.kubeAdapter)
-				log.Printf("[Intelligence] Injected kubeAdapter into apiHandler for log analysis")
+		// Register intelligence system API routes (v2) - these handle sub-paths like /api/v2/incidents/{id}
+		if ws.app.incidentIntelligence != nil && ws.app.incidentIntelligence.intelligenceSys != nil {
+			apiHandler := ws.app.incidentIntelligence.intelligenceSys.GetAPIHandler()
+			if apiHandler != nil {
+				// Inject the kube adapter for log fetching
+				if ws.app.incidentIntelligence.kubeAdapter != nil {
+					apiHandler.SetKubeExecutor(ws.app.incidentIntelligence.kubeAdapter)
+					log.Printf("[Intelligence] Injected kubeAdapter into apiHandler for log analysis")
+				}
+				apiHandler.RegisterRoutes(http.DefaultServeMux)
+				log.Printf("[Intelligence] Registered /api/v2/incidents/* routes")
+			} else {
+				log.Printf("[Intelligence] Warning: API handler is nil, routes not registered")
 			}
-			apiHandler.RegisterRoutes(http.DefaultServeMux)
-			log.Printf("[Intelligence] Registered /api/v2/incidents/* routes")
 		} else {
-			log.Printf("[Intelligence] Warning: API handler is nil, routes not registered")
+			log.Printf("[Intelligence] Warning: Intelligence system not initialized, routes not registered")
 		}
-	} else {
-		log.Printf("[Intelligence] Warning: Intelligence system not initialized, routes not registered")
-	}
 
-	// Register Intelligence Workspace UI API routes
-	ws.RegisterIntelligenceWorkspaceRoutes()
-	log.Printf("[Intelligence] Registered /api/v2/workspace/* routes for Intelligence UI")
+		// Register Intelligence Workspace UI API routes
+		ws.RegisterIntelligenceWorkspaceRoutes()
+		log.Printf("[Intelligence] Registered /api/v2/workspace/* routes for Intelligence UI")
+	})
 }
 
 // handleIncidentsV2 handles GET /api/v2/incidents

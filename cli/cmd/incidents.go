@@ -286,7 +286,7 @@ func runIncidentsShow(cmd *cobra.Command, args []string) error {
 		// Load kubeconfig for scanning
 		kubeConfig, err := cli.LoadKubeConfig(incidentsContext, incidentsNamespace)
 		if err != nil {
-			return fmt.Errorf("failed to load kubeconfig for scanning: %w\nNote: Use 'kubegraf analyze %s' to get detailed analysis", incidentID, incidentID)
+			return fmt.Errorf("failed to load kubeconfig for scanning: %w\nNote: Use 'kubegraf analyze %s' to get detailed analysis", err, incidentID)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
