@@ -223,6 +223,16 @@ func TestRecordOutcome(t *testing.T) {
 		ID:          "test-incident-1",
 		Fingerprint: "test-fingerprint",
 		Pattern:     PatternCrashLoop,
+		Severity:    SeverityHigh,
+		Title:       "Test incident",
+		Occurrences: 1,
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		Resource: KubeResourceRef{
+			Kind:      "Pod",
+			Name:      "test-pod",
+			Namespace: "default",
+		},
 		Diagnosis: &Diagnosis{
 			ProbableCauses: []string{"app_crash"},
 			Confidence:     0.7,
@@ -255,6 +265,11 @@ func TestRecordOutcome(t *testing.T) {
 		ProposedPrimaryCause: "app_crash",
 		ProposedConfidence:   0.7,
 		Outcome:              "worked",
+	}
+
+	// Store incident first so learning tables with FK constraints can reference it.
+	if err := kb.StoreIncident(incident, evidencePack, nil); err != nil {
+		t.Fatalf("Failed to store incident: %v", err)
 	}
 
 	// Record outcome
@@ -298,6 +313,25 @@ func TestRecordOutcome(t *testing.T) {
 		ProposedPrimaryCause: "app_crash",
 		ProposedConfidence:   0.7,
 		Outcome:              "not_worked",
+	}
+
+	incident2 := &Incident{
+		ID:          "test-incident-2",
+		Fingerprint: "test-fingerprint-2",
+		Pattern:     PatternCrashLoop,
+		Severity:    SeverityHigh,
+		Title:       "Test incident 2",
+		Occurrences: 1,
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		Resource: KubeResourceRef{
+			Kind:      "Pod",
+			Name:      "test-pod-2",
+			Namespace: "default",
+		},
+	}
+	if err := kb.StoreIncident(incident2, evidencePack, nil); err != nil {
+		t.Fatalf("Failed to store incident 2: %v", err)
 	}
 
 	explanation2, err := learner.RecordOutcome(outcome2, incident, snapshot, evidencePack)
@@ -487,6 +521,17 @@ func TestGetLearningStatus(t *testing.T) {
 	incident := &Incident{
 		ID:          "test-incident",
 		Fingerprint: "test-fingerprint",
+		Pattern:     PatternCrashLoop,
+		Severity:    SeverityHigh,
+		Title:       "Test incident",
+		Occurrences: 1,
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		Resource: KubeResourceRef{
+			Kind:      "Pod",
+			Name:      "test-pod",
+			Namespace: "default",
+		},
 		Diagnosis: &Diagnosis{
 			ProbableCauses: []string{"app_crash"},
 		},
@@ -506,7 +551,12 @@ func TestGetLearningStatus(t *testing.T) {
 		Outcome:              "worked",
 	}
 
-	learner.RecordOutcome(outcome, incident, snapshot, evidencePack)
+	if err := kb.StoreIncident(incident, evidencePack, nil); err != nil {
+		t.Fatalf("Failed to store incident: %v", err)
+	}
+	if _, err := learner.RecordOutcome(outcome, incident, snapshot, evidencePack); err != nil {
+		t.Fatalf("Failed to record outcome: %v", err)
+	}
 
 	// Get status
 	status, err := learner.GetLearningStatus()
@@ -526,4 +576,3 @@ func TestGetLearningStatus(t *testing.T) {
 		t.Error("Expected cause priors to be present")
 	}
 }
-

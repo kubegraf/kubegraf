@@ -12,9 +12,11 @@ type FailurePattern string
 
 const (
 	// Application-level failures
-	PatternAppCrash        FailurePattern = "APP_CRASH"
-	PatternCrashLoop       FailurePattern = "CRASHLOOP"
-	PatternOOMPressure     FailurePattern = "OOM_PRESSURE"
+	PatternAppCrash    FailurePattern = "APP_CRASH"
+	PatternCrashLoop   FailurePattern = "CRASHLOOP"
+	PatternOOMPressure FailurePattern = "OOM_PRESSURE"
+	// PatternOOMKilled is kept for backwards compatibility with older tests/callers.
+	PatternOOMKilled       FailurePattern = PatternOOMPressure
 	PatternRestartStorm    FailurePattern = "RESTART_STORM"
 	PatternInternalErrors  FailurePattern = "INTERNAL_ERRORS"
 	PatternUpstreamFailure FailurePattern = "UPSTREAM_FAILURE"
@@ -34,9 +36,9 @@ const (
 	PatternNetworkPartition FailurePattern = "NETWORK_PARTITION"
 
 	// Scheduling failures
-	PatternUnschedulable    FailurePattern = "UNSCHEDULABLE"
+	PatternUnschedulable     FailurePattern = "UNSCHEDULABLE"
 	PatternResourceExhausted FailurePattern = "RESOURCE_EXHAUSTED"
-	PatternAffinityConflict FailurePattern = "AFFINITY_CONFLICT"
+	PatternAffinityConflict  FailurePattern = "AFFINITY_CONFLICT"
 
 	// Security failures
 	PatternSecretMissing   FailurePattern = "SECRET_MISSING"
@@ -104,9 +106,9 @@ const (
 
 // PatternMetadata provides additional context about a failure pattern.
 type PatternMetadata struct {
-	Pattern     FailurePattern `json:"pattern"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
+	Pattern     FailurePattern  `json:"pattern"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
 	Category    PatternCategory `json:"category"`
 	// DefaultSeverity is the typical severity for this pattern
 	DefaultSeverity Severity `json:"defaultSeverity"`
@@ -350,4 +352,3 @@ func GetPatternMetadata(pattern FailurePattern) *PatternMetadata {
 	}
 	return nil
 }
-

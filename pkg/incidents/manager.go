@@ -269,6 +269,12 @@ func (m *Manager) InjectIncident(incident *Incident) {
 	m.aggregator.InjectIncident(incident)
 }
 
+// AddIncident is a compatibility wrapper kept for older tests/callers.
+// Newer code should prefer InjectIncident/UpsertScannedIncident.
+func (m *Manager) AddIncident(incident *Incident) {
+	m.InjectIncident(incident)
+}
+
 // UpsertScannedIncident upserts a live-scan-detected incident by fingerprint.
 // Updates LastSeen/Occurrences if already present, otherwise creates a new incident.
 func (m *Manager) UpsertScannedIncident(incident *Incident) {
@@ -504,12 +510,12 @@ func (m *Manager) ApplyFix(ctx context.Context, incidentID string, recommendatio
 
 // IncidentFilter defines filtering options for incidents.
 type IncidentFilter struct {
-	Namespace  string          `json:"namespace,omitempty"`
-	Pattern    FailurePattern  `json:"pattern,omitempty"`
-	Severity   Severity        `json:"severity,omitempty"`
-	Status     IncidentStatus  `json:"status,omitempty"`
-	Since      time.Time       `json:"since,omitempty"`
-	Limit      int             `json:"limit,omitempty"`
+	Namespace string         `json:"namespace,omitempty"`
+	Pattern   FailurePattern `json:"pattern,omitempty"`
+	Severity  Severity       `json:"severity,omitempty"`
+	Status    IncidentStatus `json:"status,omitempty"`
+	Since     time.Time      `json:"since,omitempty"`
+	Limit     int            `json:"limit,omitempty"`
 }
 
 // FilterIncidents returns incidents matching the filter.
@@ -611,4 +617,3 @@ func exportToJSON(incidents []*Incident) ([]byte, error) {
 	// In production, use encoding/json properly
 	return nil, fmt.Errorf("not implemented")
 }
-

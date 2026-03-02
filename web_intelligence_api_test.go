@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -381,9 +382,14 @@ func TestInvalidRequests(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
-			// Route to appropriate handler
-			if tt.path == "/api/v2/workspace/insights" {
+			// Route to appropriate handler (mirror real server routes)
+			switch {
+			case tt.path == "/api/v2/workspace/insights":
 				ws.handleWorkspaceInsights(w, req)
+			case strings.HasPrefix(tt.path, "/api/v2/workspace/incidents/"):
+				ws.handleWorkspaceIncidentRoute(w, req)
+			default:
+				http.NotFound(w, req)
 			}
 
 			if w.Code != tt.expectedStatus {
