@@ -141,9 +141,28 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Test
+      - name: Test with coverage
         env:
           CGO_ENABLED: 0
-        run: go test -v ./...
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
         # Note: -race requires CGO; since we use a pure-Go SQLite driver (CGO_ENABLED=0),
         # the race detector is omitted here. Race conditions are caught in the lint job.
+
+      - name: Coverage report
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          go tool cover -func=coverage.out | grep -v "100.0%" | sort -t% -k1 -rn | head -20
+          THRESHOLD=50.0
+          if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" = "1" ]; then
+            echo "❌ Coverage ${COVERAGE}% is below ${THRESHOLD}% threshold"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE}% meets ${THRESHOLD}% minimum"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 7
