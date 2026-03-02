@@ -234,7 +234,7 @@ jobs:
     name: Update Homebrew Formula
     needs: upload-to-release
     runs-on: ubuntu-latest
-    if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+    continue-on-error: true  # Skip gracefully if HOMEBREW_TAP_TOKEN not set
     steps:
       - name: Checkout homebrew-tap
         uses: actions/checkout@v4
@@ -298,7 +298,7 @@ jobs:
     name: Update Scoop Manifest
     needs: upload-to-release
     runs-on: ubuntu-latest
-    if: ${{ secrets.SCOOP_BUCKET_TOKEN != '' }}
+    continue-on-error: true  # Skip gracefully if SCOOP_BUCKET_TOKEN not set
     steps:
       - name: Checkout scoop-bucket
         uses: actions/checkout@v4
