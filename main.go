@@ -88,11 +88,13 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v":
-			// Route to Cobra version command
+			// Rewrite args so Cobra dispatches to the version subcommand
+			os.Args = []string{os.Args[0], "version"}
 			cli.Execute()
 			return
 		case "--help", "-h":
-			// Route to Cobra help
+			// Rewrite args so Cobra dispatches to the help output
+			os.Args = []string{os.Args[0], "--help"}
 			cli.Execute()
 			return
 		}
