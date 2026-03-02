@@ -144,9 +144,10 @@ jobs:
       - name: Test with coverage
         env:
           CGO_ENABLED: 0
-        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -coverprofile=coverage.out -covermode=atomic -coverpkg=./... ./...
         # Note: -race requires CGO; since we use a pure-Go SQLite driver (CGO_ENABLED=0),
         # the race detector is omitted here. Race conditions are caught in the lint job.
+        # -coverpkg=./... ensures tests in test/ subdirectories also instrument pkg/ packages.
 
       - name: Coverage report
         run: |
