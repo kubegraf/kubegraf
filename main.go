@@ -29,6 +29,11 @@ import (
 	"github.com/kubegraf/kubegraf/internal/cluster"
 	"github.com/kubegraf/kubegraf/internal/telemetry"
 	oldtelemetry "github.com/kubegraf/kubegraf/pkg/telemetry"
+
+	// Register all Kubernetes client-go auth plugins (OIDC, GCP, Azure, AWS, etc.)
+	// Without this, kubeconfigs using auth-provider: name: oidc will fail with
+	// "no Auth Provider found for name 'oidc'".
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 

@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO required)
 )
 
 // Database provides encrypted storage for credentials and sessions
@@ -86,7 +86,7 @@ func NewDatabase(dbPath, encryptionKey string) (*Database, error) {
 	// busy_timeout: Wait up to 5 seconds for locks (prevents "database is locked" errors)
 	// foreign_keys: Enable foreign key constraints for data integrity
 	// synchronous: NORMAL mode balances safety and performance
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -848,7 +848,7 @@ func (d *Database) Backup(backupPath string) error {
 	}
 
 	// Verify backup integrity
-	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
+	backupDB, err := sql.Open("sqlite", backupPath+"?_journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("open backup for verification: %w", err)
 	}
@@ -892,7 +892,7 @@ func (d *Database) fileCopyBackup(backupPath string) error {
 // WARNING: This will overwrite the current database
 func (d *Database) RestoreFromBackup(backupPath, dbPath string) error {
 	// Verify backup integrity first
-	backupDB, err := sql.Open("sqlite3", backupPath+"?_journal_mode=WAL")
+	backupDB, err := sql.Open("sqlite", backupPath+"?_journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("open backup database: %w", err)
 	}
@@ -933,7 +933,7 @@ func (d *Database) RestoreFromBackup(backupPath, dbPath string) error {
 	}
 
 	// Reopen database
-	newDB, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
+	newDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL")
 	if err != nil {
 		return fmt.Errorf("reopen database: %w", err)
 	}
