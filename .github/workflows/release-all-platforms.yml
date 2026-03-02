@@ -6,12 +6,7 @@ name: Build and Release All Platforms
 # It builds binaries for all platforms and creates installers
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'  # Triggers on version tags like v1.0.0
-  release:
-    types: [published]
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:  # Manual trigger only — disabled from auto-run
     inputs:
       version:
         description: 'Version to build (e.g., 1.0.0)'
