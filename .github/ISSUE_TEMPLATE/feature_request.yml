@@ -1,0 +1,47 @@
+name: Feature Request
+description: Suggest a new feature or improvement for KubeGraf.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a feature. Please check [existing issues](https://github.com/kubegraf/kubegraf/issues?q=label%3Aenhancement) first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation that this feature would address.
+      placeholder: "I'm trying to do X but KubeGraf doesn't support it..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature you'd like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or alternative solutions you've considered.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Incident Intelligence / Orkas AI
+        - MCP tools
+        - Helm chart / deployment
+        - Web UI
+        - CLI
+        - Multi-cluster
+        - Documentation
+        - Other
+    validations:
+      required: true
