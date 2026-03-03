@@ -1,6 +1,19 @@
-# KubeGraf
+<div align="center">
+  <img src="docs/kubegraf_logo.png" alt="KubeGraf" width="380">
+  <br/><br/>
 
-**Incident Intelligence for Kubernetes.**
+  **Incident Intelligence for Kubernetes**
+
+  [![Release](https://img.shields.io/github/v/release/kubegraf/kubegraf?color=blue&label=release)](https://github.com/kubegraf/kubegraf/releases/latest)
+  [![CI](https://github.com/kubegraf/kubegraf-core/actions/workflows/ci.yml/badge.svg)](https://github.com/kubegraf/kubegraf-core/actions/workflows/ci.yml)
+  [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org)
+  [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+  [![GitHub Stars](https://img.shields.io/github/stars/kubegraf/kubegraf?style=flat&color=yellow)](https://github.com/kubegraf/kubegraf/stargazers)
+
+  **[Website](https://kubegraf.io)** · **[Docs](https://kubegraf.io/docs)** · **[Releases](https://github.com/kubegraf/kubegraf/releases)**
+</div>
+
+---
 
 KubeGraf is a self-hosted web application that connects to your Kubernetes clusters to detect, investigate, and help resolve incidents — powered by the Orkas AI agent.
 
@@ -74,6 +87,10 @@ kubegraf web --port=3000
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 KubeGraf reads your existing `~/.kube/config` automatically. Switch between clusters from the UI — no extra configuration needed.
+
+<div align="center">
+  <img src="docs/dashboard-screenshot.png" alt="KubeGraf Dashboard" width="780">
+</div>
 
 ---
 
