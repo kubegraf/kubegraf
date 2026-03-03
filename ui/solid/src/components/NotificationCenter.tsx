@@ -141,7 +141,7 @@ const NotificationCenter: Component = () => {
         <button
           ref={buttonRef}
           onClick={() => setIsOpen(!isOpen())}
-          class="p-2 rounded transition-colors hover:bg-[var(--bg-tertiary)] relative"
+          class="p-2 rounded transition-colors hover:bg-[var(--bg-tertiary)] relative overflow-visible"
           style={{ color: 'var(--text-secondary)' }}
           title={`Notifications (${unreadCount()} unread)`}
           aria-label="Notifications"
@@ -158,7 +158,7 @@ const NotificationCenter: Component = () => {
           </svg>
           <Show when={unreadCount() > 0}>
             <span
-              class="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[10px] font-bold min-w-[16px] h-4 px-1"
+              class="absolute -top-1 -right-1 z-10 flex items-center justify-center rounded-full text-[10px] leading-none font-bold min-w-[16px] h-4 px-1"
               style={{ background: 'var(--error-color)', color: '#fff' }}
               aria-label={`${unreadCount()} unread notifications`}
             >
