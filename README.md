@@ -39,7 +39,8 @@ It runs entirely on your machine and connects to any cluster your `kubectl` can 
 **Homebrew (recommended):**
 
 ```bash
-brew install kubegraf/tap/kubegraf
+brew tap kubegraf/tap
+brew install kubegraf
 ```
 
 **Direct download:**
