@@ -2,33 +2,23 @@
   <img src="docs/kubegraf_logo.png" alt="KubeGraf" width="380">
   <br/><br/>
 
-  **Incident Intelligence for Kubernetes**
+  ### The AI SRE for Kubernetes
+
+  **Detect · Diagnose · Resolve — without leaving your terminal or browser**
 
   [![Release](https://img.shields.io/github/v/release/kubegraf/kubegraf?color=blue&label=release)](https://github.com/kubegraf/kubegraf/releases/latest)
   [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org)
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
   [![GitHub Stars](https://img.shields.io/github/stars/kubegraf/kubegraf?style=flat&color=yellow)](https://github.com/kubegraf/kubegraf/stargazers)
 
-  **[Website](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/docs/)** · **[Releases](https://github.com/kubegraf/kubegraf/releases)**
+  **[Website](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/docs/)** · **[Releases](https://github.com/kubegraf/kubegraf/releases)** · **[Report Bug](https://github.com/kubegraf/kubegraf/issues)**
 </div>
 
 ---
 
-## What is KubeGraf?
+KubeGraf is your **AI SRE** — it watches your Kubernetes clusters, tells you what's broken and why, and helps you fix it safely. No SaaS. No cluster-side install. Just download and run.
 
-KubeGraf is a **local-first Kubernetes management platform** that helps you detect incidents, understand root causes, and safely respond to failures — without SaaS lock-in.
-
-It runs entirely on your machine and connects to any cluster your `kubectl` can reach. No Helm, no cluster-side install — just download and run.
-
-> **Launch: 23 March 2026** — v1.0.0 coming soon.
-
-### Why KubeGraf?
-
-- **🔍 Incident Intelligence** — Automatically detects failure patterns and provides evidence-backed diagnoses
-- **🛡️ Safe Operations** — Preview all changes before applying, with dry-run validation
-- **🏠 Local-First** — Runs entirely on your machine, no data leaves your environment
-- **⚡ Fast & Lightweight** — Single binary, zero external dependencies
-- **🤖 AI-Powered** — Orkas AI agent helps investigate and resolve incidents
+> **v1.0.0 launching 23 March 2026.**
 
 ---
 
@@ -36,17 +26,12 @@ It runs entirely on your machine and connects to any cluster your `kubectl` can 
 
 ### macOS
 
-**Homebrew (recommended):**
-
 ```bash
+# Homebrew (recommended)
 brew tap kubegraf/tap
 brew install kubegraf
-```
 
-**Direct download:**
-
-```bash
-# Apple Silicon (M1/M2/M3/M4)
+# Apple Silicon
 curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-arm64.tar.gz | tar xz
 sudo mv kubegraf /usr/local/bin/
 
@@ -54,19 +39,6 @@ sudo mv kubegraf /usr/local/bin/
 curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-darwin-amd64.tar.gz | tar xz
 sudo mv kubegraf /usr/local/bin/
 ```
-
-### Windows
-
-**Scoop (recommended — no admin required, no SmartScreen):**
-
-```powershell
-scoop bucket add kubegraf https://github.com/kubegraf/scoop-bucket
-scoop install kubegraf
-```
-
-**Direct download:**
-
-Download the latest `.zip` from [Releases](https://github.com/kubegraf/kubegraf/releases/latest), extract, and add the folder to your `PATH`.
 
 ### Linux
 
@@ -80,7 +52,15 @@ curl -L https://github.com/kubegraf/kubegraf/releases/latest/download/kubegraf-l
 sudo mv kubegraf /usr/local/bin/
 ```
 
-**Verify:**
+### Windows
+
+```powershell
+# Scoop (recommended — no admin required, no SmartScreen)
+scoop bucket add kubegraf https://github.com/kubegraf/scoop-bucket
+scoop install kubegraf
+```
+
+Or download the latest `.zip` from [Releases](https://github.com/kubegraf/kubegraf/releases/latest), extract, and add to your `PATH`.
 
 ```bash
 kubegraf --version
@@ -91,12 +71,15 @@ kubegraf --version
 ## Quick Start
 
 ```bash
-kubegraf web --port=3000
+# Web dashboard
+kubegraf web
+# → http://localhost:8080
+
+# Terminal UI — works over SSH
+kubegraf
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-KubeGraf reads your existing `~/.kube/config` automatically. Switch between clusters from the UI — no extra configuration needed.
+KubeGraf reads your existing `~/.kube/config` automatically. No configuration needed to get started.
 
 <div align="center">
   <img src="docs/dashboard-screenshot.png" alt="KubeGraf Dashboard" width="780">
@@ -104,108 +87,48 @@ KubeGraf reads your existing `~/.kube/config` automatically. Switch between clus
 
 ---
 
+## What You Get
+
+- **Incident detection** — Automatically spots failures across your cluster and tells you exactly what's wrong and why
+- **AI-powered diagnosis** — Root cause analysis backed by real evidence: events, logs, and resource state
+- **Safe fixes** — Every recommended fix includes a dry-run preview and risk assessment before you apply anything
+- **GitOps management** — Manage Helm releases, ArgoCD applications, and Flux resources from one place
+- **Resource management** — Full visibility and control over every resource in your cluster
+- **Security posture** — Continuous assessment with actionable recommendations
+- **AI agent integration** — Connect your AI tools directly to your cluster
+- **Terminal UI** — Full-featured interface for SSH sessions and low-bandwidth environments
+- **Multi-cluster** — Switch between contexts with a single click
+
+---
+
 ## Authentication
 
-KubeGraf supports all standard Kubernetes auth methods out of the box:
-
-| Auth method | Example | Supported |
-|---|---|---|
-| Certificate (client cert/key) | Most self-hosted clusters | ✅ |
-| Bearer token | Service accounts | ✅ |
-| OIDC | EKS + OIDC, Dex, Keycloak | ✅ |
-| GKE / GCP | `auth-provider: name: gcp` | ✅ |
-| Azure | `auth-provider: name: azure` | ✅ |
-| AWS IAM (`exec`) | `aws-iam-authenticator`, `kubelogin` | ✅ |
-| Generic `exec` | Any credential plugin | ✅ |
-
-> Enterprise clusters using OIDC work out of the box — no extra flags or environment variables needed.
-
----
-
-## Key Features
-
-### 🧠 Incident Intelligence
-
-Automatically detects and diagnoses Kubernetes failures:
-
-- **Failure Pattern Detection** — CrashLoopBackOff, OOM, Restart Storms, Image Pull failures, Service Endpoint failures, and more
-- **Evidence-Backed Diagnosis** — Every conclusion backed by events, container logs, resource status, and recent config changes
-- **Safe Fix Recommendations** — Dry-run validation, diff view, risk assessment, and rollback suggestions
-- **Knowledge Bank** — Local SQLite incident history, learnable patterns, export/import for teams
-- **Auto-Remediation** — Optional guarded automation with confidence thresholds
-
-### 🎛️ Core Capabilities
-
-- **Resource Management** — Pods, Deployments, StatefulSets, DaemonSets, Services, Ingresses, ConfigMaps, Secrets, and more
-- **Real-time Monitoring** — Live CPU and memory metrics with WebSocket updates
-- **Pod Operations** — Shell access, log streaming, restart, delete, port forwarding
-- **Security Analysis** — Automated security posture assessment (0–100 score)
-- **Multi-Cluster** — Switch between Kubernetes contexts with aggregated summaries
-- **Visualization** — Interactive topology views
-
-### 🤖 AI Integration
-
-- **Orkas AI Agent** — Incident investigation, root cause analysis, and fix recommendations
-- **Multiple Providers** — Ollama (local), OpenAI, Claude
-- **MCP Support** — Model Context Protocol for tool-augmented AI workflows
-
----
-
-## Usage
-
-### Start the web dashboard
-
-```bash
-kubegraf web --port=3000
-# Open: http://localhost:3000
-```
-
-### Incident Intelligence
-
-1. Start the dashboard: `kubegraf web --port=3000`
-2. Navigate to **Sidebar → AI → Intelligence → Incident Intelligence**
-3. View detected incidents with evidence-backed diagnoses
-4. Click any incident to see summary, evidence, recommended fixes, and timeline
+Works with every standard Kubernetes auth method out of the box — client certificates, bearer tokens, OIDC, GKE, EKS, AKS, and any `exec`-based credential plugin. No extra flags or environment variables needed.
 
 ---
 
 ## Requirements
 
-- `kubectl` configured with cluster access (`~/.kube/config`)
+- `~/.kube/config` with cluster access
 - Kubernetes 1.28 or later
-- Modern browser (Chrome, Firefox, Safari, Edge)
-
----
-
-## Releases
-
-All releases are on the [Releases](https://github.com/kubegraf/kubegraf/releases) page:
-
-- Pre-built binaries for macOS, Linux, Windows (amd64 + arm64)
-- SHA-256 checksums (`checksums.txt`)
-- Release notes
-
----
-
-## Documentation
-
-- **[Full Documentation](https://kubegraf.io/docs/)** — User guide and API reference
-- **[Installation Guide](https://kubegraf.io/docs/installation.html)** — Detailed installation steps
+- Modern browser for the web dashboard
 
 ---
 
 ## Support
 
-- **Docs:** [kubegraf.io/docs](https://kubegraf.io/docs/)
-- **Bug reports:** [GitHub Issues](https://github.com/kubegraf/kubegraf/issues/new?template=bug_report.yml)
-- **Feature requests:** [GitHub Issues](https://github.com/kubegraf/kubegraf/issues/new?template=feature_request.yml)
-- **Email:** [contact@kubegraf.io](mailto:contact@kubegraf.io)
+| | |
+|---|---|
+| Bug reports | [Open an issue](https://github.com/kubegraf/kubegraf/issues/new?template=bug_report.yml) |
+| Feature requests | [Open an issue](https://github.com/kubegraf/kubegraf/issues/new?template=feature_request.yml) |
+| Documentation | [kubegraf.io/docs](https://kubegraf.io/docs/) |
+| Email | [contact@kubegraf.io](mailto:contact@kubegraf.io) |
 
 ---
 
 ## Security
 
-To report a vulnerability, email **contact@kubegraf.io** with subject "Security: \<title\>". See [SECURITY.md](SECURITY.md) for our disclosure policy.
+To report a vulnerability, email **contact@kubegraf.io** with subject `[Security] <title>`. Please do not open a public issue. See [SECURITY.md](SECURITY.md) for our disclosure policy.
 
 ---
 
@@ -216,6 +139,8 @@ Apache 2.0 — see [LICENSE](LICENSE).
 ---
 
 <div align="center">
+
+Built for the engineers who keep production running.
 
 **[Get Started](https://kubegraf.io)** · **[Documentation](https://kubegraf.io/docs/)** · **[Report Bug](https://github.com/kubegraf/kubegraf/issues)**
 
