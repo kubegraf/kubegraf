@@ -73,7 +73,9 @@ kubegraf --version
 ```bash
 # Web dashboard
 kubegraf web
-# → http://localhost:8080
+# → http://localhost:3000
+
+kubegraf web --port=3003   # custom port
 
 # Terminal UI — works over SSH
 kubegraf
