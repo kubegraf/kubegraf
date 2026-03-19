@@ -139,6 +139,7 @@ To report a vulnerability, email **contact@kubegraf.io** with subject `[Security
 Apache 2.0 — see [LICENSE](LICENSE).
 
 ---
+---
 
 <div align="center">
 
